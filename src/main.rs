@@ -1,7 +1,5 @@
 use bollard::container::LogOutput::Console;
-use bollard::container::{
-    Config, CreateContainerOptions, LogsOptions, StartContainerOptions
-};
+use bollard::container::{Config, CreateContainerOptions, LogsOptions, StartContainerOptions};
 use bollard::errors::Error::DockerResponseServerError;
 use bollard::models::MountTypeEnum::VOLUME;
 use bollard::models::{HostConfig, Mount};
@@ -11,7 +9,7 @@ use futures::stream::StreamExt;
 use std::collections::HashMap;
 use std::io::{self, Write};
 
-use base64::{Engine as _, engine::{general_purpose}};
+use base64::{engine::general_purpose, Engine as _};
 
 //TODO: identify what resources should be persisted in volumes (like SSH keys)
 //TODO: tinker with different workflows: i.e. ephemeral - clone-develop-destroy
@@ -67,22 +65,23 @@ async fn main() {
         ..Default::default()
     };
 
-    let init_script = general_purpose::STANDARD.encode(r#"
+    let init_script = general_purpose::STANDARD.encode(
+        r#"
     KEYFILE='/root/.ssh/id_ed25519'
     ls "$KEYFILE.pub" || ssh-keygen -t ed25519 -N '' -f $KEYFILE
     cat "$KEYFILE.pub"
-    "#);
+    "#,
+    );
 
-    let inject = format!("echo '{}' | base64 -d > /entrypoint.sh && chmod +x /entrypoint.sh && /entrypoint.sh", &init_script);
-    let init_entrypoint = [
-        "sh",
-        "-c",
-        &inject
-    ];
+    let inject = format!(
+        "echo '{}' | base64 -d > /entrypoint.sh && chmod +x /entrypoint.sh && /entrypoint.sh",
+        &init_script
+    );
+    let init_entrypoint = ["sh", "-c", &inject];
 
     let config = Config {
         image: Some(init_image),
-        entrypoint: Some(init_entrypoint.map(|x|x.to_string()).to_vec()),
+        entrypoint: Some(init_entrypoint.map(|x| x.to_string()).to_vec()),
         working_dir: Some(String::from("/build")),
         attach_stdout: Some(true),
         attach_stderr: Some(true),
