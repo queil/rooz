@@ -1,11 +1,8 @@
 use base64::{engine::general_purpose, Engine as _};
 use bollard::container::LogOutput::Console;
-use bollard::container::{
-    AttachContainerOptions, AttachContainerResults, Config, CreateContainerOptions, LogsOptions,
-    RemoveContainerOptions, StartContainerOptions,
-};
-use bollard::errors::Error::{self, DockerResponseServerError};
-use bollard::exec::{CreateExecOptions, ResizeExecOptions, StartExecOptions, StartExecResults};
+use bollard::container::{Config, CreateContainerOptions, LogsOptions, StartContainerOptions};
+use bollard::errors::Error::DockerResponseServerError;
+use bollard::exec::{CreateExecOptions, ResizeExecOptions, StartExecResults};
 use bollard::image::CreateImageOptions;
 use bollard::models::MountTypeEnum::{BIND, VOLUME};
 use bollard::models::{HostConfig, Mount};
@@ -150,7 +147,7 @@ async fn run(
         image: Some(image),
         entrypoint,
         working_dir: work_dir,
-        user: user,
+        user,
         attach_stdin: Some(true),
         attach_stdout: Some(true),
         attach_stderr: Some(true),
