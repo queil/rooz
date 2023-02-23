@@ -6,10 +6,12 @@ use bollard::exec::{CreateExecOptions, ResizeExecOptions, StartExecResults};
 use bollard::image::CreateImageOptions;
 use bollard::models::MountTypeEnum::{BIND, VOLUME};
 use bollard::models::{HostConfig, Mount};
+use bollard::service::ContainerInspectResponse;
 use bollard::volume::CreateVolumeOptions;
 use bollard::Docker;
 use clap::{Parser, Subcommand};
 use futures::stream::{StreamExt, TryStreamExt};
+use regex::Regex;
 use std::collections::HashMap;
 use std::io::{stdout, Read, Write};
 use std::time::Duration;
@@ -23,8 +25,15 @@ use tokio::time::sleep;
 
 //TODO: CLI: rooz into [repo] [image] (?--transient)
 //TODO: tinker with different workflows: i.e. ephemeral - clone-develop-destroy
-//TODO: configuration (allow using custom images)
-//TODO: for POC we run as root, then let's figure out how we can reliably ensure a non-root user regardless of the Linux distro in all launched containers
+//TODO?: configuration (allow using custom images)
+
+// ASSUMPTION: This runs on local machine with single user (a laptop) where the user
+// ----------- already has root access so lots of typical security container considerations
+// ----------- do not necessarily apply
+
+// QUESTION: Shall we just BYOI (bring your own image) all the way down?
+
+// TODO: Experiment with copy-on-write volumes
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -51,10 +60,26 @@ enum Commands {
     Init {},
 }
 
+#[derive(Debug, Clone)]
+enum ContainerResult {
+    Created { id: String },
+    Reused { id: String },
+}
+
+impl ContainerResult {
+    pub fn id(&self) -> &str {
+        match self {
+            ContainerResult::Created { id } => &id,
+            ContainerResult::Reused { id } => &id,
+        }
+    }
+}
+
 async fn exec(
     docker: &Docker,
     container_id: &str,
     interactive: bool, // this is a hack only needed to avoid the garbage bytes written to TTY when opening a new exec
+    working_dir: Option<&str>,
     cmd: Option<Vec<&str>>,
 ) -> Result<(), Box<dyn std::error::Error + 'static>> {
     #[cfg(not(windows))]
@@ -69,6 +94,7 @@ async fn exec(
                     attach_stdin: Some(true),
                     tty: Some(true),
                     cmd,
+                    working_dir,
                     ..Default::default()
                 },
             )
@@ -129,82 +155,49 @@ async fn run(
     mounts: Option<Vec<Mount>>,
     log: bool,
     entrypoint: Option<Vec<&str>>,
-) -> Result<String, Box<dyn std::error::Error + 'static>> {
+) -> Result<ContainerResult, Box<dyn std::error::Error + 'static>> {
     println!("Running {}", container_name);
 
-    let options = CreateContainerOptions {
-        name: container_name, // this needs to be random
-        platform: None,
-    };
+    let container_id = match docker.inspect_container(container_name, None).await {
+        Ok(ContainerInspectResponse { id: Some(id), .. }) => ContainerResult::Reused { id },
+        _ => {
+            let options = CreateContainerOptions {
+                name: container_name,
+                platform: None,
+            };
 
-    let host_config = HostConfig {
-        auto_remove: Some(true),
-        mounts,
-        ..Default::default()
-    };
+            let host_config = HostConfig {
+                auto_remove: Some(true),
+                mounts,
+                ..Default::default()
+            };
 
-    let config = Config {
-        image: Some(image),
-        entrypoint,
-        working_dir: work_dir,
-        user,
-        attach_stdin: Some(true),
-        attach_stdout: Some(true),
-        attach_stderr: Some(true),
-        tty: Some(true),
-        open_stdin: Some(true),
-        host_config: Some(host_config),
-        ..Default::default()
-    };
+            let config = Config {
+                image: Some(image),
+                entrypoint,
+                working_dir: work_dir,
+                user,
+                attach_stdin: Some(true),
+                attach_stdout: Some(true),
+                attach_stderr: Some(true),
+                tty: Some(true),
+                open_stdin: Some(true),
+                host_config: Some(host_config),
+                ..Default::default()
+            };
 
-    let container_id = docker
-        .create_container(Some(options.clone()), config.clone())
-        .await?
-        .id;
+            ContainerResult::Created {
+                id: docker
+                    .create_container(Some(options.clone()), config.clone())
+                    .await?
+                    .id,
+            }
+        }
+    };
 
     docker
-        .start_container(&container_id, None::<StartContainerOptions<String>>)
+        .start_container(&container_id.id(), None::<StartContainerOptions<String>>)
         .await?;
-
-    // attach to container
-    //        let AttachContainerResults {
-    //            mut output,
-    //           ..
-    //        } = docker
-    //            .attach_container(
-    //                &container_id,
-    //                Some(AttachContainerOptions::<String> {
-    //                    stdout: Some(true),
-    //                    stderr: Some(true),
-    //                    stdin: Some(false),
-    //                    stream: Some(true),
-    //                    ..Default::default()
-    //                }),
-    //            )
-    //            .await?;
-    //        // pipe stdin into the docker attach stream input
-    ////        spawn(async move {
-    ////            let mut stdin = async_stdin().bytes();
-    ////            loop {
-    ////                if let Some(Ok(byte)) = stdin.next() {
-    ////                    input.write(&[byte]).await.ok();
-    ////                } else {
-    ////                    sleep(Duration::from_nanos(10)).await;
-    ////                }
-    ////            }
-    ////        });
-    //
-    //        // set stdout in raw mode so we can do tty stuff
-    //        let stdout = stdout();
-    //        let mut stdout = stdout.lock().into_raw_mode()?;
-    //
-    //        // pipe docker attach output into stdout
-    //        while let Some(Ok(output)) = output.next().await {
-    //            stdout
-    //                .write_all(output.into_bytes().as_ref())?;
-    //
-    //            stdout.flush()?;
-    //        }
 
     if log {
         let log_options = LogsOptions::<String> {
@@ -244,9 +237,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
     let init_image = "alpine/git:latest".to_string();
     let init_container_name = "rooz-init".to_string();
     let static_data_vol_name = "rooz-static-data".to_string();
-    // mounting SSH for the init - we can mount as RW and let root initialize the keys directly in the volume
-    // mounting SSH for the user - we can mount as RO and try this overlay trick:
-    // docker exec -d myenv /sbin/mount -t overlay overlay -o lowerdir=/mnt/rocode,upperdir=/mycode,workdir=/mnt/code-workdir /mycode
     let static_data_mount_path = "/mnt/rooz/static";
 
     let docker = Docker::connect_with_local_defaults().expect("Docker API connection established");
@@ -258,8 +248,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
         target: Some(static_data_mount_path.to_string()),
         ..Default::default()
     };
-
-    let proj_init_container_name = "rooz-proj-init";
 
     match args.command {
         Commands::Open {
@@ -280,10 +268,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
                 )
                 .try_collect::<Vec<_>>()
                 .await?;
-
-            //
-
-            //         #mount -t overlay overlay -o lowerdir=/mnt/rooz/.ssh,upperdir=/home/queil/.ssh,workdir=/mnt/code-workdir /home/queil/.ssh
 
             let user = user.as_deref();
 
@@ -307,12 +291,15 @@ cat
                     Some(w)
                 });
 
+            let re = Regex::new(r"[^a-zA-Z0-9_.-]")?;
+            let container_name = re.replace_all(&git_ssh_url, "-");
+
             let container_id = run(
                 &docker,
                 &image,
                 user,
                 work_dir.as_deref(),
-                &proj_init_container_name,
+                &container_name,
                 Some(vec![
                     static_data_mount,
                     Mount {
@@ -324,19 +311,30 @@ cat
                 ]),
                 false,
                 Some(entryp.iter().map(String::as_str).collect()),
-                //Some(vec!["cat"])
             )
             .await?;
 
-            exec(
-                &docker,
-                &container_id,
-                false,
-                Some(vec!["git", "clone", &git_ssh_url]),
-            )
-            .await?;
+            let id = container_id.id();
 
-            exec(&docker, &container_id, true, Some(vec!["bash"])).await?;
+            if let ContainerResult::Created { .. } = container_id {
+                exec(
+                    &docker,
+                    &id,
+                    false,
+                    None,
+                    Some(vec!["git", "clone", &git_ssh_url]),
+                )
+                .await?;
+            };
+
+            let clone_work_dir = &git_ssh_url
+                .split(&['/'])
+                .last()
+                .unwrap_or("repo")
+                .replace(".git", "")
+                .to_string();
+            let work_dir = work_dir.map(|d| format!("{}/{}", d.clone(), clone_work_dir.clone()));
+            exec(&docker, id, true, work_dir.as_deref(), Some(vec!["bash"])).await?;
         }
         Commands::Init {} => {
             let static_data_vol_options = CreateVolumeOptions::<&str> {
@@ -358,7 +356,7 @@ cat
             };
 
             // 755 for the files so they may be shared between containers regardless which user runs them
-            // --
+            // -- a bad practice in reality but for now this is just a hack to get things going
             let init_ssh = r#"echo "Rooz init"
 echo "Running in: $(pwd)"
 mkdir -p .ssh
