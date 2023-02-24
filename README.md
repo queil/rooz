@@ -21,6 +21,16 @@ curl -sSL https://github.com/queil/rooz/releases/download/v0.2.0/rooz -o ~/.loca
 
 ## Usage
 
+### Defaults
+
+Rooz uses the following default config:
+
+* `ROOZ_IMAGE=alpine/git:latest`
+* `ROOZ_SHELL=sh`
+* `ROOZ_USER=root`
+
+This is really not recommended from both the user experience and security point of view. For the best UX please follow the below steps:
+
 1. First bring your own image by adding something similar to your `.bashrc`:
 ```
 export ROOZ_IMAGE=ghcr.io/queil/image:0.10.0
@@ -28,7 +38,7 @@ export ROOZ_IMAGE=ghcr.io/queil/image:0.10.0
 
 Example: [my own image](https://github.com/queil/image/blob/main/src/Dockerfile)
 
-Otherwise the default image is `alpine/git:latest` so not very robust.
+Rooz by default runs containers as `root` - not recommended. It's the best to create a user and set it with `USER` command in you Docker image.
 
 2. Init `rooz` - it generates a new ssh key, stores it in a Docker volume, later auto-mounted to your work containers:
 
