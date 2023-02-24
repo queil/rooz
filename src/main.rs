@@ -140,7 +140,7 @@ async fn exec(
             // set stdout in raw mode so we can do tty stuff
             let stdout = stdout();
             let mut stdout = stdout.lock().into_raw_mode()?;
-            println!("{}", termion::clear::BeforeCursor);
+            println!("{}", termion::clear::All);
 
             // pipe docker exec output into stdout
             while let Some(Ok(output)) = output.next().await {
