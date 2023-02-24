@@ -40,12 +40,9 @@ Example: [my own image](https://github.com/queil/image/blob/main/src/Dockerfile)
 
 Rooz by default runs containers as `root` - not recommended. It's the best to create a user and set it with `USER` command in you Docker image.
 
-2. Init `rooz` - it generates a new ssh key, stores it in a Docker volume, later auto-mounted to your work containers:
+2. Init rooz - it generates a new ssh key, stores it in a Docker volume, later auto-mounted to your work containers:
 
-```sh
-rooz init
-```
-
+Just run `rooz` and exit the opened terminal once finished. You should be able to scroll up to view the public key.
 Before moving on make sure you add your newly generated public key to your git provider.
 
 3. Runs a container, cloning a repo:
