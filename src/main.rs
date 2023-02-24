@@ -3,10 +3,10 @@ use bollard::container::LogOutput::Console;
 use bollard::container::{Config, CreateContainerOptions, LogsOptions, StartContainerOptions};
 use bollard::errors::Error::DockerResponseServerError;
 use bollard::exec::{CreateExecOptions, ResizeExecOptions, StartExecResults};
-use bollard::image::CreateImageOptions;
+use bollard::image::{CreateImageOptions};
 use bollard::models::MountTypeEnum::{BIND, VOLUME};
-use bollard::models::{HostConfig, Mount};
-use bollard::service::ContainerInspectResponse;
+use bollard::models::{HostConfig, Mount, CreateImageInfo};
+use bollard::service::{ContainerInspectResponse, ImageInspect, ContainerConfig};
 use bollard::volume::CreateVolumeOptions;
 use bollard::Docker;
 use clap::{Parser, Subcommand};
@@ -22,6 +22,7 @@ use termion::{async_stdin, terminal_size};
 use tokio::io::AsyncWriteExt;
 use tokio::task::spawn;
 use tokio::time::sleep;
+use log::{debug};
 
 //TODO: CLI: rooz into [repo] [image] (?--transient)
 //TODO: tinker with different workflows: i.e. ephemeral - clone-develop-destroy
@@ -31,7 +32,7 @@ use tokio::time::sleep;
 // ----------- already has root access so lots of typical security container considerations
 // ----------- do not necessarily apply
 
-// QUESTION: Shall we just BYOI (bring your own image) all the way down?
+// QUESTION: Shall we just BYOI (bring your own image) all the way down? YES, you can configure image in the tool settings
 
 // TODO: Experiment with copy-on-write volumes
 
@@ -210,7 +211,7 @@ async fn run(
 
         while let Some(l) = stream.next().await {
             match l {
-                Ok(Console { message: m }) => stdout().write_all(&m).expect("Write to stdout"),
+                Ok(Console { message: m }) => stdout().write_all(&m)?,
                 Ok(msg) => panic!("{}", msg),
                 Err(e) => panic!("{}", e),
             };
@@ -233,6 +234,9 @@ fn inject(script: &str) -> Vec<String> {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
+
+    env_logger::init();
+
     let args = Cli::parse();
     let init_image = "alpine/git:latest".to_string();
     let init_container_name = "rooz-init".to_string();
@@ -257,7 +261,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
             work_dir,
             emphemeral: _,
         } => {
-            docker
+            let mut image_info = docker
                 .create_image(
                     Some(CreateImageOptions::<&str> {
                         from_image: &image,
@@ -265,11 +269,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
                     }),
                     None,
                     None,
-                )
-                .try_collect::<Vec<_>>()
-                .await?;
+                );
 
-            let user = user.as_deref();
+
+            while let Some(l) = image_info.next().await {
+                match l {
+                    Ok(CreateImageInfo { status: Some(m), .. }) => {
+                        stdout().write_all(&m.as_bytes())?;
+                        println!("");
+                    },
+                    Ok(msg) => panic!("{:?}", msg),
+                    Err(e) => panic!("{}", e),
+                };
+            }
+
+
+            let image_user = match docker.inspect_image(&image).await? {
+                ImageInspect{ config:Some(ContainerConfig { user, .. }), ..} => user,
+                _ => None
+            };
+
+            let user = image_user.as_deref().or(user.as_deref());
+
+            if let Some(u) = user { println!("Inferred user: {}", u);}
 
             let home_or_root = user.map_or("/root".to_string(), |u| format!("/home/{}", u));
 
@@ -284,7 +306,8 @@ cat
 
             let entryp = inject(&init_ssh_overlay);
 
-            println!("{:?}", &entryp);
+
+            log::debug!("{:?}", &entryp);
 
             let work_dir = work_dir
                 .map_or(user.map_or(None, |u| Some(format!("/home/{}", u))), |w| {

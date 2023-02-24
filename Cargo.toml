@@ -7,7 +7,9 @@ edition = "2021"
 base64 = "0.21.0"
 bollard = "0.14.0"
 clap = { version = "4.1.6", features = ["derive"] }
+env_logger = "0.10.0"
 futures = "0.3.26"
+log = "0.4.17"
 regex = "1.7.1"
 termion = "2.0.1"
 tokio = { version = "1.12.0", features = ["rt-multi-thread", "macros"] }
