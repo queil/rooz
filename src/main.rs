@@ -1,16 +1,17 @@
 use base64::{engine::general_purpose, Engine as _};
 use bollard::container::LogOutput::Console;
-use bollard::container::{Config, CreateContainerOptions, LogsOptions, StartContainerOptions};
+use bollard::container::{Config, CreateContainerOptions, LogsOptions, StartContainerOptions, RemoveContainerOptions};
 use bollard::errors::Error::DockerResponseServerError;
 use bollard::exec::{CreateExecOptions, ResizeExecOptions, StartExecResults};
-use bollard::image::{CreateImageOptions};
+use bollard::image::CreateImageOptions;
 use bollard::models::MountTypeEnum::{BIND, VOLUME};
-use bollard::models::{HostConfig, Mount, CreateImageInfo};
-use bollard::service::{ContainerInspectResponse, ImageInspect, ContainerConfig};
+use bollard::models::{CreateImageInfo, HostConfig, Mount};
+use bollard::service::{ContainerConfig, ContainerInspectResponse, ImageInspect};
 use bollard::volume::CreateVolumeOptions;
 use bollard::Docker;
 use clap::{Parser, Subcommand};
 use futures::stream::{StreamExt, TryStreamExt};
+use log::debug;
 use regex::Regex;
 use std::collections::HashMap;
 use std::io::{stdout, Read, Write};
@@ -22,7 +23,6 @@ use termion::{async_stdin, terminal_size};
 use tokio::io::AsyncWriteExt;
 use tokio::task::spawn;
 use tokio::time::sleep;
-use log::{debug};
 
 //TODO: CLI: rooz into [repo] [image] (?--transient)
 //TODO: tinker with different workflows: i.e. ephemeral - clone-develop-destroy
@@ -150,6 +150,7 @@ async fn exec(
 async fn run(
     docker: &Docker,
     image: &str,
+    image_id: &str,
     user: Option<&str>,
     work_dir: Option<&str>,
     container_name: &str,
@@ -160,8 +161,19 @@ async fn run(
     println!("Running {}", container_name);
 
     let container_id = match docker.inspect_container(container_name, None).await {
-        Ok(ContainerInspectResponse { id: Some(id), .. }) => ContainerResult::Reused { id },
-        _ => {
+        Ok(ContainerInspectResponse {
+            id: Some(id),
+            image: Some(img),
+            ..
+        }) if img.to_owned() == image_id => ContainerResult::Reused { id },
+        s => {
+
+            let remove_options = RemoveContainerOptions {force: true, ..Default::default()};
+
+            if let Ok(ContainerInspectResponse {id: Some(id), ..}) = s {
+                docker.remove_container(&id, Some(remove_options)).await?;
+            }
+
             let options = CreateContainerOptions {
                 name: container_name,
                 platform: None,
@@ -234,7 +246,6 @@ fn inject(script: &str) -> Vec<String> {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
-
     env_logger::init();
 
     let args = Cli::parse();
@@ -261,37 +272,46 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
             work_dir,
             emphemeral: _,
         } => {
-            let mut image_info = docker
-                .create_image(
-                    Some(CreateImageOptions::<&str> {
-                        from_image: &image,
-                        ..Default::default()
-                    }),
-                    None,
-                    None,
-                );
-
+            let mut image_info = docker.create_image(
+                Some(CreateImageOptions::<&str> {
+                    from_image: &image,
+                    ..Default::default()
+                }),
+                None,
+                None,
+            );
 
             while let Some(l) = image_info.next().await {
                 match l {
-                    Ok(CreateImageInfo { status: Some(m), .. }) => {
+                    Ok(CreateImageInfo {
+                        status: Some(m), ..
+                    }) => {
                         stdout().write_all(&m.as_bytes())?;
                         println!("");
-                    },
+                    }
                     Ok(msg) => panic!("{:?}", msg),
                     Err(e) => panic!("{}", e),
                 };
             }
 
+            let inspect = docker.inspect_image(&image).await?;
 
-            let image_user = match docker.inspect_image(&image).await? {
-                ImageInspect{ config:Some(ContainerConfig { user, .. }), ..} => user,
-                _ => None
+            let image_user = match &inspect {
+                ImageInspect {
+                    config: Some(ContainerConfig { user, .. }),
+                    ..
+                } => user.as_deref(),
+                _ => None,
             };
 
             let user = image_user.as_deref().or(user.as_deref());
 
-            if let Some(u) = user { println!("Inferred user: {}", u);}
+            if let Some(u) = user {
+                println!("Inferred user: {}", u);
+            }
+
+            let image_id = &inspect.id.as_deref().unwrap();
+            println!("Image ID: {}", image_id);
 
             let home_or_root = user.map_or("/root".to_string(), |u| format!("/home/{}", u));
 
@@ -306,7 +326,6 @@ cat
 
             let entryp = inject(&init_ssh_overlay);
 
-
             log::debug!("{:?}", &entryp);
 
             let work_dir = work_dir
@@ -320,6 +339,7 @@ cat
             let container_id = run(
                 &docker,
                 &image,
+                &image_id,
                 user,
                 work_dir.as_deref(),
                 &container_name,
@@ -396,6 +416,7 @@ cat "$KEYFILE.pub"
             run(
                 &docker,
                 &init_image,
+                "ignore",
                 None,
                 Some(&static_data_mount_path),
                 &init_container_name,
