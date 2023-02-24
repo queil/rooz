@@ -25,7 +25,9 @@ use tokio::io::AsyncWriteExt;
 use tokio::task::spawn;
 use tokio::time::sleep;
 
-//TODO: CLI: rooz into [repo] [image] (?--transient)
+//TODO: make open git-ssh-url optional and maybe allow specify a container name so it can be used in a "free-style" mode
+//TODO: on successfull load clear screen rather than just before cursor - it looks werd if there is a less than a whole
+//----- screen of text
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
