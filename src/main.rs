@@ -8,15 +8,11 @@ use bollard::exec::{CreateExecOptions, ResizeExecOptions, StartExecResults};
 use bollard::image::CreateImageOptions;
 use bollard::models::MountTypeEnum::{BIND, VOLUME};
 use bollard::models::{CreateImageInfo, HostConfig, Mount};
-use bollard::service::{
-    ContainerConfig, ContainerInspectResponse,
-    ImageInspect,
-};
+use bollard::service::{ContainerConfig, ContainerInspectResponse, ImageInspect};
 use bollard::volume::CreateVolumeOptions;
 use bollard::Docker;
 use clap::{Parser, Subcommand};
-use futures::stream::{StreamExt};
-use log::debug;
+use futures::stream::StreamExt;
 use regex::Regex;
 use std::collections::HashMap;
 use std::io::{stdout, Read, Write};
@@ -44,19 +40,19 @@ enum Commands {
     Open {
         #[arg(short, long)]
         git_ssh_url: String,
-        #[arg(short, long, default_value = "alpine/git:latest")]
+        #[arg(short, long, default_value = "alpine/git:latest", env = "ROOZ_IMAGE")]
         image: String,
-        #[arg(short, long)]
+        #[arg(short, long, env = "ROOZ_USER")]
         user: Option<String>,
         #[arg(short, long)]
         work_dir: Option<String>,
-        #[arg(short, long)]
-        emphemeral: bool,
+        //#[arg(short, long)] // TODO
+        //ephemeral: bool,
     },
     Init {
-        #[arg(short, long, default_value = "alpine/git:latest")]
+        #[arg(short, long, default_value = "alpine/git:latest", env = "ROOZ_IMAGE")]
         image: String,
-        #[arg(short, long)]
+        #[arg(short, long, env = "ROOZ_USER")]
         user: Option<String>,
         #[arg(short, long)]
         work_dir: Option<String>,
@@ -125,16 +121,17 @@ async fn exec(
 
             if interactive {
                 match docker
-                .resize_exec(
+                    .resize_exec(
                         &exec,
-                    ResizeExecOptions {
+                        ResizeExecOptions {
                             height: tty_size.1,
-                        width: tty_size.0,
-                    },
-                )
-                .await {
+                            width: tty_size.0,
+                        },
+                    )
+                    .await
+                {
                     Ok(_) => (),
-                    Err(err) => println!("Resize exec: {:?}", err)
+                    Err(err) => println!("Resize exec: {:?}", err),
                 };
             };
 
@@ -300,7 +297,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
             image,
             user,
             work_dir,
-            emphemeral: _,
+           // ephemeral
         } => {
             let mut image_info = docker.create_image(
                 Some(CreateImageOptions::<&str> {
@@ -314,7 +311,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
             while let Some(l) = image_info.next().await {
                 match l {
                     Ok(CreateImageInfo {
-                        status: Some(m), ..
+                        status: Some(m),
+                        progress: p,
+                        progress_detail: d,
+                        ..
                     }) => {
                         stdout().write_all(&m.as_bytes())?;
                         println!("");
@@ -355,7 +355,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
 
             let home_volume_name = &container_name;
 
-            ensure_volume(&docker, &home_volume_name, "work-data", &container_name).await;
+            let mut mounts = vec![
+                Mount {
+                    target: Some(format!("{}/.ssh", home_or_root).to_string()),
+                    ..static_data_mount
+                },
+                Mount {
+                    typ: Some(BIND),
+                    source: Some("/var/run/docker.sock".to_string()),
+                    target: Some("/var/run/docker.sock".to_string()),
+                    ..Default::default()
+                },
+            ];
+
+            //if !ephemeral {
+                ensure_volume(&docker, &home_volume_name, "work-data", &container_name).await;
+
+                mounts.push(Mount {
+                    typ: Some(VOLUME),
+                    source: Some(home_volume_name.to_string()),
+                    target: Some(home_or_root.clone()),
+                    read_only: Some(false),
+                    ..Default::default()
+                });
+            //}
 
             let container_id = run(
                 &docker,
@@ -364,25 +387,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
                 user,
                 work_dir.as_deref(),
                 &container_name,
-                Some(vec![
-                    Mount {
-                        target: Some(format!("{}/.ssh", home_or_root).to_string()),
-                        ..static_data_mount
-                    },
-                    Mount {
-                        typ: Some(BIND),
-                        source: Some("/var/run/docker.sock".to_string()),
-                        target: Some("/var/run/docker.sock".to_string()),
-                        ..Default::default()
-                    },
-                    Mount {
-                        typ: Some(VOLUME),
-                        source: Some(home_volume_name.to_string()),
-                        target: Some(home_or_root),
-                        read_only: Some(false),
-                        ..Default::default()
-                    },
-                ]),
+                Some(mounts),
                 false,
                 Some(vec!["cat"]),
             )
