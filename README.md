@@ -1,10 +1,11 @@
 # rooz
 
-Trick yourself to feel home in a container.
-Let's make the host just have your browser, your VS Code, and your Docker.
-Let's do everything else in containers. Store everything in Docker volumes.
-Let's bring your own Docker image with tooling & config.
-Let's see what happens...
+## Trick yourself into feel home in a container.
+
+* Let's make the host just have your browser, your VS Code, and your Docker.
+* Let's do everything else in containers; store everything in Docker volumes.
+* Let's bring your own Docker image with tooling & config.
+* Let's see what happens...
 
 ## Limitations
 
