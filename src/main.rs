@@ -1,7 +1,7 @@
 use base64::{engine::general_purpose, Engine as _};
-use bollard::container::LogOutput::{self, Console};
+use bollard::container::LogOutput::{Console};
 use bollard::container::{
-    Config, CreateContainerOptions, DownloadFromContainerOptions, LogsOptions,
+    Config, CreateContainerOptions, LogsOptions,
     RemoveContainerOptions, StartContainerOptions,
 };
 use bollard::errors::Error::DockerResponseServerError;
@@ -606,11 +606,6 @@ cat "$KEYFILE.pub"
                     .await?;
                 };
 
-                // at this moment the repo is cloned we can read .rooz.yaml
-                // retrieve config and run a new container with the read settings
-                // then exec into the new container
-                //first try if we can extract a basic file from container with exec cat
-                //rather than the dowload api which seems crazy
                 let rooz_cfg = exec_output(
                     &docker,
                     &orig_container_id,
