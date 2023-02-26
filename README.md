@@ -59,3 +59,9 @@ rooz git@github.com:docker/awesome-compose.git
 * You can use docker as if you were on the host - just include the docker cli with the build and compose plugins in your image.
   `rooz` auto-mounts the host's Docker sock into all the containers it launches. P.S. this is not DinD, this is DooD (Docker outside of Docker)
 * You can install `rooz` in your image and then launch `rooz` in containers *ad infinitum*
+* Your repo can have `.rooz.toml` file in the root that can specify custom image/shell (other than your user settings):
+
+```toml
+image = "ghcr.io/queil/image:0.12.0-dotnet"
+shell = "bash"
+```
