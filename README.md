@@ -18,7 +18,7 @@
 Assuming `~/.local/bin` exists and you have it in the `PATH`:
 
 ```sh
-curl -sSL https://github.com/queil/rooz/releases/download/v0.2.0/rooz -o ~/.local/bin/rooz && chmod +x ~/.local/bin/rooz
+curl -sSL https://github.com/queil/rooz/releases/download/v0.3.0/rooz -o ~/.local/bin/rooz && chmod +x ~/.local/bin/rooz
 ```
 
 ## Usage
