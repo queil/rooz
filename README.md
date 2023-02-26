@@ -11,6 +11,7 @@
 
 * Experiment/POC
 * So far `linux-amd64` only
+* This is my first Rust project (learning the language) so please forgive the code quality here
 
 ## Install
 
@@ -42,6 +43,8 @@ Example: [my own image](https://github.com/queil/image/blob/main/src/Dockerfile)
 Rooz by default runs containers as `root` - not recommended. It's the best to create a user and set it with `USER` command in you Docker image.
 
 2. Init rooz - it generates a new ssh key, stores it in a Docker volume, later auto-mounted to your work containers:
+
+:warning: Rooz stores SSH private key(s) in a named Docker volume so it's not safe to use anywhere but your laptop.
 
 Just run `rooz` and exit the opened terminal once finished. You should be able to scroll up to view the public key.
 Before moving on make sure you add your newly generated public key to your git provider.
