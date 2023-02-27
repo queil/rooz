@@ -17,7 +17,6 @@ jobs:
       run: cargo build --release --verbose
     - name: Run tests
       run: cargo test --verbose
-      
     - name: Create GitHub release
       uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v0.1.15
       env:
@@ -32,25 +31,22 @@ jobs:
           target/release/rooz
          
   push_to_registry:
-      name: Push Docker image to GHCR
-      runs-on: ubuntu-latest
-      steps:
-          - name: Check out the repo
-            uses: actions/checkout@v2
-
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@v2
-        with:
-            registry: ghcr.io
-            username: ${{ github.actor }}
-            password: ${{ secrets.GITHUB_TOKEN }}
-
-      - id: get_version
-        uses: battila7/get-version-action@v2
-
-      - name: build'n'push - base
-        uses: docker/build-push-action@v4.0.0
-        with:
-            context: rooz-git
-            push: true
-            tags: ghcr.io/${{ github.repository }}-git:${{ steps.get_version.outputs.version-without-v }}
+    name: Push Docker image to GHCR
+    runs-on: ubuntu-latest
+    steps:
+    - name: Check out the repo
+      uses: actions/checkout@v2
+    - name: Login to GitHub Container Registry
+      uses: docker/login-action@v2
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    - id: get_version
+      uses: battila7/get-version-action@v2
+    - name: build'n'push
+      uses: docker/build-push-action@v4.0.0
+      with:
+        context: rooz-git
+        push: true
+        tags: ghcr.io/${{ github.repository }}-git:${{ steps.get_version.outputs.version-without-v }}
