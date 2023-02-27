@@ -1,2 +1,2 @@
-image = "ghcr.io/queil/image:0.14.0-rust"
+image = "ghcr.io/queil/image:0.16.0-rust"
 shell = "bash"
