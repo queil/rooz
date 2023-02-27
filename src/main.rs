@@ -1,8 +1,7 @@
 use base64::{engine::general_purpose, Engine as _};
-use bollard::container::LogOutput::{Console};
+use bollard::container::LogOutput::Console;
 use bollard::container::{
-    Config, CreateContainerOptions, LogsOptions,
-    RemoveContainerOptions, StartContainerOptions,
+    Config, CreateContainerOptions, LogsOptions, RemoveContainerOptions, StartContainerOptions,
 };
 use bollard::errors::Error::DockerResponseServerError;
 use bollard::exec::{CreateExecOptions, ResizeExecOptions, StartExecResults};
@@ -443,6 +442,54 @@ fn get_clone_work_dir(work_dir: Option<String>, git_ssh_url: Option<String>) -> 
     work_dir
 }
 
+async fn clone_repo(
+    docker: &Docker,
+    container_result: ContainerResult,
+    git_ssh_url: Option<String>,
+    work_dir: Option<String>,
+) -> Result<Option<RoozCfg>, Box<dyn std::error::Error + 'static>> {
+    if let Some(url) = git_ssh_url {
+        let cont_id = container_result.id();
+
+        let clone_cmd = inject(
+            format!(
+                "ls -la {} > /dev/null || git clone {}",
+                &work_dir.clone().unwrap(),
+                &url
+            )
+            .as_ref(),
+            "clone.sh",
+        );
+
+        if let ContainerResult::Created { .. } = container_result {
+            exec_tty(
+                &docker,
+                &cont_id,
+                false,
+                None,
+                Some(clone_cmd.iter().map(String::as_str).collect()),
+            )
+            .await?;
+        };
+
+        let rooz_cfg = exec_output(
+            &docker,
+            &cont_id,
+            None,
+            Some(vec![
+                "cat",
+                format!("{}/{}", work_dir.clone().unwrap(), ".rooz.toml").as_ref(),
+            ]),
+        )
+        .await?;
+
+        log::debug!("Repo config result: {}", &rooz_cfg);
+
+        RoozCfg::deserialize(toml::de::Deserializer::new(&rooz_cfg)).ok();
+    }
+    Ok(None)
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
     env_logger::init();
@@ -584,126 +631,94 @@ cat "$KEYFILE.pub"
 
             let work_dir = get_clone_work_dir(work_dir, git_ssh_url.clone());
 
-            if let Some(url) = &git_ssh_url {
-                let clone_cmd = inject(
-                    format!(
-                        "ls -la {} > /dev/null || git clone {}",
-                        &work_dir.clone().unwrap(),
-                        &url
-                    )
-                    .as_ref(),
-                    "clone.sh",
-                );
+            if let Some(RoozCfg {
+                image: Some(img),
+                user,
+                shell,
+                ..
+            }) = clone_repo(
+                &docker,
+                container_id.clone(),
+                git_ssh_url.clone(),
+                work_dir.clone(),
+            )
+            .await?
+            {
+                let (image_id, image_user) = ensure_image(&docker, &img).await?;
 
-                if let ContainerResult::Created { .. } = container_id {
-                    exec_tty(
-                        &docker,
-                        &orig_container_id,
-                        false,
-                        None,
-                        Some(clone_cmd.iter().map(String::as_str).collect()),
-                    )
-                    .await?;
-                };
+                let (id, work_dir) = if image_id == orig_image_id {
+                    log::debug!("Repo image == Original image. Will reuse container");
+                    (orig_container_id.to_string(), work_dir)
+                } else {
+                    log::debug!("Replacing container using new image {}", image_id);
 
-                let rooz_cfg = exec_output(
-                    &docker,
-                    &orig_container_id,
-                    None,
-                    Some(vec![
-                        "cat",
-                        format!("{}/{}", work_dir.clone().unwrap(), ".rooz.toml").as_ref(),
-                    ]),
-                )
-                .await?;
+                    force_remove(&docker, &orig_container_id).await?;
 
-                log::debug!("Repo config result: {}", &rooz_cfg);
+                    let inferred_user = user.or(image_user).unwrap_or(orig_user.to_string());
+                    let (home_or_root, work_dir) =
+                        infer_dirs(&inferred_user, orig_work_dir.as_deref());
 
-                let cfg = RoozCfg::deserialize(toml::de::Deserializer::new(&rooz_cfg));
+                    let work_dir = get_clone_work_dir(work_dir, git_ssh_url.clone());
 
-                if let Ok(RoozCfg {
-                    image: Some(img),
-                    user,
-                    shell,
-                    ..
-                }) = cfg
-                {
-                    let (image_id, image_user) = ensure_image(&docker, &img).await?;
+                    //deduplicate the code later on - start
+                    let mut mounts = vec![
+                        Mount {
+                            target: Some(format!("{}/.ssh", home_or_root).to_string()),
+                            ..static_data_mount.clone()
+                        },
+                        Mount {
+                            typ: Some(BIND),
+                            source: Some("/var/run/docker.sock".to_string()),
+                            target: Some("/var/run/docker.sock".to_string()),
+                            ..Default::default()
+                        },
+                    ];
 
-                    let (id, work_dir) = if image_id == orig_image_id {
-                        log::debug!("Repo image == Original image. Will reuse container");
-                        (orig_container_id.to_string(), work_dir)
-                    } else {
-                        log::debug!("Replacing container using new image {}", image_id);
+                    if !temp {
+                        ensure_volume(&docker, &home_volume_name, "work-data", &container_name)
+                            .await;
 
-                        force_remove(&docker, &orig_container_id).await?;
-
-                        let inferred_user = user.or(image_user).unwrap_or(orig_user.to_string());
-                        let (home_or_root, work_dir) =
-                            infer_dirs(&inferred_user, orig_work_dir.as_deref());
-
-                        let work_dir = get_clone_work_dir(work_dir, git_ssh_url.clone());
-
-                        //deduplicate the code later on - start
-                        let mut mounts = vec![
-                            Mount {
-                                target: Some(format!("{}/.ssh", home_or_root).to_string()),
-                                ..static_data_mount.clone()
-                            },
-                            Mount {
-                                typ: Some(BIND),
-                                source: Some("/var/run/docker.sock".to_string()),
-                                target: Some("/var/run/docker.sock".to_string()),
-                                ..Default::default()
-                            },
-                        ];
-
-                        if !temp {
-                            ensure_volume(&docker, &home_volume_name, "work-data", &container_name)
-                                .await;
-
-                            chown(
-                                &docker,
-                                &orig_image,
-                                &home_or_root,
-                                &home_volume_name,
-                                &inferred_user,
-                            )
-                            .await?;
-
-                            mounts.push(Mount {
-                                typ: Some(VOLUME),
-                                source: Some(home_volume_name.to_string()),
-                                target: Some(home_or_root.to_string()),
-                                read_only: Some(false),
-                                ..Default::default()
-                            });
-                        }
-                        //deduplicate the code later on - end
-
-                        let r = run(
+                        chown(
                             &docker,
-                            &img,
-                            &image_id,
-                            Some(&inferred_user),
-                            work_dir.as_deref(),
-                            &container_name,
-                            Some(mounts.clone()),
-                            false,
-                            Some(vec!["cat"]),
+                            &orig_image,
+                            &home_or_root,
+                            &home_volume_name,
+                            &inferred_user,
                         )
                         .await?;
 
-                        let id = &r.id().to_string();
-                        (id.clone(), work_dir)
-                    };
+                        mounts.push(Mount {
+                            typ: Some(VOLUME),
+                            source: Some(home_volume_name.to_string()),
+                            target: Some(home_or_root.to_string()),
+                            read_only: Some(false),
+                            ..Default::default()
+                        });
+                    }
+                    //deduplicate the code later on - end
 
-                    let sh = shell.or(Some(orig_shell)).unwrap();
-                    exec_tty(&docker, &id, true, work_dir.as_deref(), Some(vec![&sh])).await?;
-                    force_remove(&docker, &id).await?;
+                    let r = run(
+                        &docker,
+                        &img,
+                        &image_id,
+                        Some(&inferred_user),
+                        work_dir.as_deref(),
+                        &container_name,
+                        Some(mounts.clone()),
+                        false,
+                        Some(vec!["cat"]),
+                    )
+                    .await?;
+
+                    let id = &r.id().to_string();
+                    (id.clone(), work_dir)
                 };
+
+                let sh = shell.or(Some(orig_shell)).unwrap();
+                exec_tty(&docker, &id, true, work_dir.as_deref(), Some(vec![&sh])).await?;
+                force_remove(&docker, &id).await?;
             } else {
-                // free-style container, open terminal, and block until user finishes
+                // free-style container or no .rooz.toml
 
                 exec_tty(
                     &docker,
