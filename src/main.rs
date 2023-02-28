@@ -34,7 +34,7 @@ use tokio::time::sleep;
 #[command(author, version, about, long_about = None)]
 struct Cli {
     git_ssh_url: Option<String>,
-    #[arg(short, long, default_value = "alpine/git:latest", env = "ROOZ_IMAGE")]
+    #[arg(short, long, default_value = "ghcr.io/queil/rooz-git:0.5.0", env = "ROOZ_IMAGE")]
     image: String,
     #[arg(short, long, default_value = "root", env = "ROOZ_USER")]
     user: String,
@@ -51,6 +51,7 @@ struct RoozCfg {
     shell: Option<String>,
     image: Option<String>,
     user: Option<String>,
+    caches: Option<Vec<String>>
 }
 
 #[derive(Debug, Clone)]
@@ -400,6 +401,7 @@ async fn get_uid(
     image_id: &str,
     user: &str,
 ) -> Result<String, Box<dyn std::error::Error + 'static>> {
+    if user == "root" {return Ok("0".into());}
     let temp_uid_container_id = run(
         &docker,
         &image,
@@ -431,30 +433,38 @@ async fn chown(
     mount_path: &str,
     volume_name: &str,
     uid: &str,
-) -> Result<ContainerResult, Box<dyn std::error::Error + 'static>> {
-    log::debug!("Trying to 'chown -R {} {}'", uid, chown_path);
-    Ok(run(
+    recurse: bool,
+    acl_other_rwx: bool
+) -> Result<(), Box<dyn std::error::Error + 'static>> {
+
+    if uid == "0" {return Ok(());}
+    let recurse = if recurse { "-R" } else {""};
+    let setacl = if acl_other_rwx { format!("setfacl -d -m o::rwx {} && ", chown_path) } else { "".into() };
+    let chown_cmd = format!("{}chown {} {} {}", recurse, setacl, uid, chown_path);
+    log::debug!("Trying to '{}'", &chown_cmd);
+    run(
         &docker,
         &image,
         "ignore",
         Some("root"),
         None,
-        "chown-er",
+        "set-permissions",
         Some(vec![Mount {
             typ: Some(VOLUME),
             read_only: Some(false),
             source: Some(volume_name.into()),
-            target: Some(mount_path.into()),
+            target: Some(shellexpand::tilde(mount_path).to_string()),
             ..Default::default()
         }]),
         true,
         Some(vec![
             "sh",
             "-c",
-            format!("chown -R {} {}", uid, chown_path).as_ref(),
+            &chown_cmd,
         ]),
     )
-    .await?)
+    .await?;
+    Ok(())
 }
 
 fn get_clone_work_dir(work_dir: &str, git_ssh_url: Option<String>) -> String {
@@ -519,6 +529,13 @@ async fn clone_repo(
     }
 }
 
+
+
+fn safe_id(dirty: &str) ->  Result<String, Box<dyn std::error::Error + 'static>>{
+    let re = Regex::new(r"[^a-zA-Z0-9_.-]").unwrap();
+    Ok(format!("rooz-{}", re.replace_all(&dirty, "-").to_string()))
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
     env_logger::init();
@@ -572,7 +589,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
                 None => "rooz-work".to_string(),
             };
 
-            let work_volume_name = &container_name;
+            let work_volume_name = format!("{}-work", &container_name);
+            let home_volume_name = format!("{}-home", &container_name);
+
 
             let volume_result =
                 ensure_volume(&docker, &static_data_vol_name, "static-data", "default").await;
@@ -597,6 +616,8 @@ cat "$KEYFILE.pub"
                     &ssh_path,
                     &static_data_vol_name,
                     &inferred_user,
+                   true,
+                false
                 )
                 .await?;
 
@@ -661,7 +682,7 @@ cat "$KEYFILE.pub"
 
 
             let uid = get_uid(&docker, &orig_image, &orig_image_id, &inferred_user).await?;
-            chown(&docker, &orig_image, &work_dir2, &work_dir2, &work_volume_name, &uid).await?;
+            chown(&docker, &orig_image, &work_dir2, &work_dir2, &work_volume_name, &uid, true, false).await?;
 
 
             let clone_dir = get_clone_work_dir(&work_dir2, git_ssh_url.clone().map(|x|x.to_string()));
@@ -670,6 +691,7 @@ cat "$KEYFILE.pub"
                 image: Some(img),
                 user,
                 shell,
+                caches,
                 ..
             }) = clone_repo(
                 &docker,
@@ -714,8 +736,11 @@ cat "$KEYFILE.pub"
                         ensure_volume(&docker, &work_volume_name, "work-data", &container_name)
                             .await;
 
+                        ensure_volume(&docker, &home_volume_name, "home-data", &home_volume_name)
+                            .await;
+
                         let uid = get_uid(&docker, &img, &image_id, &inferred_user).await?;
-                        chown(&docker, &orig_image, &work_dir, &work_dir, &work_volume_name, &uid).await?;
+                        chown(&docker, &orig_image, &work_dir, &work_dir, &work_volume_name, &uid, true, false).await?;
 
                         mounts.push(Mount {
                             typ: Some(VOLUME),
@@ -724,6 +749,34 @@ cat "$KEYFILE.pub"
                             read_only: Some(false),
                             ..Default::default()
                         });
+
+                        mounts.push(Mount {
+                            typ: Some(VOLUME),
+                            source: Some(home_volume_name),
+                            target: Some(home_or_root.to_string()),
+                            read_only: Some(false),
+                            ..Default::default()
+                        });
+
+                        if let Some(caches) = caches {
+                            for path in caches {
+                                let safe_name = safe_id(&path)?;
+                                ensure_volume(&docker, &safe_name, "cache", &safe_name)
+                            .await;
+
+
+                                let expanded_path = path.replace("~", &home_or_root);
+                                chown(&docker, &orig_image, &expanded_path, &expanded_path, &safe_name, &uid, false, true).await?;
+
+                                mounts.push(Mount {
+                                    typ: Some(VOLUME),
+                                    source: Some(safe_name),
+                                    target: Some(expanded_path),
+                                    read_only: Some(false),
+                                    ..Default::default()
+                                });
+                            }
+                        }
                     }
                     //deduplicate the code later on - end
 
@@ -765,3 +818,9 @@ cat "$KEYFILE.pub"
     };
     Ok(())
 }
+
+//so the current problem is that I started mounting ~/work instead of the whole ~/ to avoid stale state after mounting a volume
+//to a different image. It prevents the problem ineed however now any state changes like .bash_history are not persisted (as they
+//in fact are not backed by a volume). One (cumbersome) solution it would be to basically mount volumes for anything we'd like to persist.
+//This is obviously impracitcal. One other solution it would be to mount both ~/ and ~/work (separate vols). Then when image updates we'd just drop
+//the ~/ volume keeping ~/work untouched. We could also have a protected files list that could be copied over to the new image.
