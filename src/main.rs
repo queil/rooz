@@ -46,8 +46,6 @@ struct Cli {
     #[arg(short, long)]
     work_dir: Option<String>,
     #[arg(short, long)]
-    temp: bool,
-    #[arg(short, long)]
     prune: bool
 }
 
@@ -714,9 +712,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
             image,
             shell,
             work_dir,
-            temp,
             prune
         } => {
+            let temp = false; // ephemeral containers won't be supported at the moment
             if prune {
 
                 let ls_container_options = ListContainersOptions {
