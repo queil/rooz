@@ -7,6 +7,49 @@
 * Let's bring your own Docker image with tooling & config.
 * Let's see what happens...
 
+## Basic facts
+
+* The first time you run `rooz` it generates you an SSH key pair and stores it in a Docker volume.
+  Use that key to authenticate to your repos. They ssh key volume is then shared between all `rooz` containers.
+
+* If you just run `rooz` it launches a free-style container, i.e. doesn't clone anything.
+* You can also clone git repos with `rooz` and they'll run either in:
+    * the default image: `alpine/git:latest`
+    * an image you specified via `ROOZ_IMAGE`
+    * an image you specified via `--image` cmd-line parameter
+    * an image specified in the cloned repo in `.rooz.toml` like:
+
+    ```toml
+    image = "ghcr.io/queil/image:0.16.0-dotnet"
+    shell = "bash"
+    ```
+
+* `rooz` runs as uid `1000` (always - it's hard-coded) so either make sure it exists in your image or rooz will attempt to auto-create it (with `rooz_user` as the name)
+* the default shell is `sh` but you can override it via:
+    * `ROOZ_SHELL` env var
+    * `--shell` cmd-line parameter
+    * in `.rooz.toml` via `shell`
+
+* caching - `rooz` supports basic path-keyed shared caches. It is only supported via `.rooz.toml`:
+
+    ```toml
+    caches = [
+      "~/.nuget"
+    ]
+    ```
+
+    All the repos specyfing a cache path will share a Docker volume mounted at that path enabling cache reuse.
+
+* if `rooz` misbehaves you can go nuclear and run `rooz --prune` to remove all the running rooz containers and volumes.
+
+  :warning: `rooz --prune` deletes all your state held with `rooz` so make sure everything important is stored before.
+
+## Tips & tricks:
+
+* You can use docker as if you were on the host - just include the docker cli with the build and compose plugins in your image.
+`rooz` auto-mounts the host's Docker sock into all the containers it launches. P.S. this is not DinD, this is DooD (Docker outside of Docker)
+* You can install `rooz` in your image and then launch `rooz` in containers *ad infinitum*
+
 ## Limitations
 
 * Experiment/POC
@@ -15,56 +58,6 @@
 
 ## Install
 
-Assuming `~/.local/bin` exists and you have it in the `PATH`:
-
 ```sh
-curl -sSL https://github.com/queil/rooz/releases/download/v0.4.0/rooz -o ~/.local/bin/rooz && chmod +x ~/.local/bin/rooz
-```
-
-## Usage
-
-### Defaults
-
-Rooz uses the following default config:
-
-* `ROOZ_IMAGE=alpine/git:latest`
-* `ROOZ_SHELL=sh`
-* `ROOZ_USER=root`
-
-This is really not recommended from both the user experience and security point of view. For the best UX please follow the below steps:
-
-1. First bring your own image by adding something similar to your `.bashrc`:
-```
-export ROOZ_IMAGE=ghcr.io/queil/image:0.10.0
-```
-
-Example: [my own image](https://github.com/queil/image/blob/main/src/Dockerfile)
-
-Rooz by default runs containers as `root` - not recommended. It's the best to create a user and set it with `USER` command in you Docker image.
-
-2. Init rooz - it generates a new ssh key, stores it in a Docker volume, later auto-mounted to your work containers:
-
-:warning: Rooz stores SSH private key(s) in a named Docker volume so it's not safe to use anywhere but your laptop.
-
-Just run `rooz` and exit the opened terminal once finished. You should be able to scroll up to view the public key.
-Before moving on make sure you add your newly generated public key to your git provider.
-
-3. Runs a container, cloning a repo:
-
-```sh
-rooz git@github.com:docker/awesome-compose.git
-```
-
-## Tricks
-
-* You can also run a container without cloning with just typing `rooz`.
-* You can run scratchpad container by setting the `--temp` flag. Once the container terminates it's all gone.
-* You can use docker as if you were on the host - just include the docker cli with the build and compose plugins in your image.
-  `rooz` auto-mounts the host's Docker sock into all the containers it launches. P.S. this is not DinD, this is DooD (Docker outside of Docker)
-* You can install `rooz` in your image and then launch `rooz` in containers *ad infinitum*
-* Your repo can have `.rooz.toml` file in the root that can specify custom image/shell (other than your user settings):
-
-```toml
-image = "ghcr.io/queil/image:0.12.0-dotnet"
-shell = "bash"
+curl -sSL https://github.com/queil/rooz/releases/download/v0.5.0/rooz -o ./rooz && chmod +x ./rooz && sudo mv ./rooz /usr/local/bin
 ```
