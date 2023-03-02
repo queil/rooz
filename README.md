@@ -55,15 +55,26 @@
 
 ## Limitations
 
-* Experiment/POC
+* Experiment/POC so may contains traces of bugs, (or even some whole bugs)
 * So far `linux-amd64` only
-* This is my first Rust project (learning the language) so please forgive the code quality here
+* This is my first Rust project (learning the language) so please excuse my the code quality here
+* rooz's `known_hosts` only contains github.com entries
+* Only tested with some alpine and ubuntu images. It may work with other distros too.
 
 ## Install
 
 ```sh
 curl -sSL https://github.com/queil/rooz/releases/download/v0.6.0/rooz -o ./rooz && chmod +x ./rooz && sudo mv ./rooz /usr/local/bin
 ```
+
+## Known issues
+
+* When a volume is first crated Docker automatically populates it from the image
+  (assuming there are any files in the corresponding directory in the image). It only happens if
+  the volume is empty. So when you try to use a new image for a particular container the volumes won't be updated.
+  It is particularly annoying with the home dir volume as it holds user-specific configurations and may be wildly different from
+  one image to another. A workaround could be to drop the home dir volume so that it gets recreated with the new content, however
+  that way we lose things like `.bash_history`. To be resolved...
 
 ## Resources
 
