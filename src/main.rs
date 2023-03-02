@@ -9,7 +9,9 @@ use bollard::exec::{CreateExecOptions, ResizeExecOptions, StartExecResults};
 use bollard::image::CreateImageOptions;
 use bollard::models::MountTypeEnum::{BIND, VOLUME};
 use bollard::models::{CreateImageInfo, HostConfig, Mount};
-use bollard::service::{ContainerConfig, ContainerInspectResponse, ContainerSummary, ImageInspect, Volume};
+use bollard::service::{
+    ContainerConfig, ContainerInspectResponse, ContainerSummary, ImageInspect, Volume,
+};
 use bollard::volume::{CreateVolumeOptions, ListVolumesOptions, RemoveVolumeOptions};
 use bollard::Docker;
 use clap::Parser;
@@ -53,27 +55,27 @@ struct Cli {
     #[arg(short, long, default_value = "rooz_user", env = "ROOZ_USER")]
     user: String,
     #[arg(short, long)]
-    prune: bool
+    prune: bool,
 }
 
 #[derive(Debug, Deserialize)]
 struct RoozCfg {
     shell: Option<String>,
     image: Option<String>,
-    caches: Option<Vec<String>>
+    caches: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone)]
 enum ContainerResult {
     Created { id: String },
-    Reused { id: String }
+    Reused { id: String },
 }
 
 impl ContainerResult {
     pub fn id(&self) -> &str {
         match self {
             ContainerResult::Created { id } => &id,
-            ContainerResult::Reused { id } => &id
+            ContainerResult::Reused { id } => &id,
         }
     }
 }
@@ -105,7 +107,7 @@ impl RoozVolumeRole {
             RoozVolumeRole::Work => "work",
             RoozVolumeRole::Cache => "cache",
             RoozVolumeRole::SshKey => "ssh-key",
-            RoozVolumeRole::Git => "git"
+            RoozVolumeRole::Git => "git",
         }
     }
 }
@@ -119,7 +121,6 @@ struct RoozVolume {
 
 impl RoozVolume {
     pub fn safe_volume_name(&self) -> Result<String, Box<dyn std::error::Error + 'static>> {
-
         let safe_id = to_safe_id(self.role.as_str())?;
 
         let vol_name = match self {
@@ -497,11 +498,12 @@ async fn git_volume(
     url: &str,
     target_path: &str,
 ) -> Result<Mount, Box<dyn std::error::Error + 'static>> {
-
     let git_vol = RoozVolume {
         path: target_path.into(),
-        sharing: RoozVolumeSharing::Exclusive { key: to_safe_id(url)? },
-        role: RoozVolumeRole::Git
+        sharing: RoozVolumeSharing::Exclusive {
+            key: to_safe_id(url)?,
+        },
+        role: RoozVolumeRole::Git,
     };
 
     let vol_name = git_vol.safe_volume_name()?;
@@ -599,10 +601,10 @@ async fn clone_repo(
 
         force_remove(docker, &container_id).await?;
 
-        Ok((
-            RoozCfg::deserialize(toml::de::Deserializer::new(&rooz_cfg)).ok(),
-            Some(url),
-        ))
+        match RoozCfg::deserialize(toml::de::Deserializer::new(&rooz_cfg)).ok() {
+            Some(cfg) => Ok((Some(cfg), Some(url))),
+            None => Ok((None, Some(url))),
+        }
     } else {
         Ok((None, None))
     }
@@ -844,7 +846,11 @@ async fn work(
     if let Some(caches) = &caches {
         let cache_vols = caches
             .iter()
-            .map(|p| RoozVolume { path: p.into(), sharing: RoozVolumeSharing::Shared, role: RoozVolumeRole::Cache })
+            .map(|p| RoozVolume {
+                path: p.into(),
+                sharing: RoozVolumeSharing::Shared,
+                role: RoozVolumeRole::Cache,
+            })
             .collect::<Vec<_>>();
 
         volumes.extend_from_slice(cache_vols.clone().as_slice());
@@ -929,9 +935,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
                     };
 
                     for v in volumes {
-
                         match v {
-                            Volume { ref name,.. } if name == ROOZ_SSH_KEY_VOLUME_NAME => { continue; },
+                            Volume { ref name, .. } if name == ROOZ_SSH_KEY_VOLUME_NAME => {
+                                continue;
+                            }
                             _ => {}
                         };
 
@@ -963,15 +970,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
             let home_dir = format!("/home/{}", &orig_user);
             let work_dir = format!("{}/work", &home_dir);
 
-            if let (
-                Some(RoozCfg {
-                    image: Some(img),
-                    shell,
-                    caches,
-                    ..
-                }),
-                Some(repo_url),
-            ) = clone_repo(
+            match clone_repo(
                 &docker,
                 &orig_image,
                 &orig_image_id,
@@ -981,44 +980,73 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
             )
             .await?
             {
-                log::debug!("Image config read from .rooz.toml in the cloned repo");
-                let (image_id, _) = ensure_image(&docker, &img).await?;
+                (
+                    Some(RoozCfg {
+                        image: Some(img),
+                        shell,
+                        caches,
+                        ..
+                    }),
+                    Some(url),
+                ) => {
+                    log::debug!("Image config read from .rooz.toml in the cloned repo");
+                    let (image_id, _) = ensure_image(&docker, &img).await?;
 
-                let clone_dir = get_clone_dir(&work_dir, git_ssh_url.clone());
-                let git_vol_mount = git_volume(&docker, &orig_uid, &repo_url, &clone_dir).await?;
+                    let clone_dir = get_clone_dir(&work_dir, git_ssh_url.clone());
+                    let git_vol_mount = git_volume(&docker, &orig_uid, &url, &clone_dir).await?;
+                    let sh = shell.or(Some(orig_shell)).unwrap();
 
-                let sh = shell.or(Some(orig_shell)).unwrap();
+                    work(
+                        &docker,
+                        &img,
+                        &image_id,
+                        &sh,
+                        &orig_uid,
+                        &orig_user,
+                        &clone_dir,
+                        &container_name,
+                        ephemeral,
+                        Some(git_vol_mount),
+                        caches,
+                    )
+                    .await?
+                }
+                (None, Some(url)) => {
+                    let clone_dir = get_clone_dir(&work_dir, git_ssh_url.clone());
+                    let git_vol_mount = git_volume(&docker, &orig_uid, &url, &clone_dir).await?;
+                    work(
+                        &docker,
+                        &orig_image,
+                        &orig_image_id,
+                        &orig_shell,
+                        &orig_uid,
+                        &orig_user,
+                        &clone_dir,
+                        &container_name,
+                        ephemeral,
+                        Some(git_vol_mount),
+                        None,
+                    )
+                    .await?
+                }
 
-                work(
-                    &docker,
-                    &img,
-                    &image_id,
-                    &sh,
-                    &orig_uid,
-                    &orig_user,
-                    &clone_dir,
-                    &container_name,
-                    ephemeral,
-                    Some(git_vol_mount),
-                    caches,
-                )
-                .await?
-            } else {
-                work(
-                    &docker,
-                    &orig_image,
-                    &orig_image_id,
-                    &orig_shell,
-                    &orig_uid,
-                    &orig_user,
-                    &work_dir,
-                    &container_name,
-                    ephemeral,
-                    None,
-                    None,
-                )
-                .await?
-            }
+                _ => {
+                    work(
+                        &docker,
+                        &orig_image,
+                        &orig_image_id,
+                        &orig_shell,
+                        &orig_uid,
+                        &orig_user,
+                        &work_dir,
+                        &container_name,
+                        ephemeral,
+                        None,
+                        None,
+                    )
+                    .await?
+                }
+            };
         }
     };
     Ok(())
