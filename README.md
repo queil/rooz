@@ -64,3 +64,7 @@
 ```sh
 curl -sSL https://github.com/queil/rooz/releases/download/v0.6.0/rooz -o ./rooz && chmod +x ./rooz && sudo mv ./rooz /usr/local/bin
 ```
+
+## Resources
+
+* [my image I use with rooz](https://github.com/queil/image/blob/main/src/Dockerfile)
