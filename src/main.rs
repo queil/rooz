@@ -1,22 +1,27 @@
 use base64::{engine::general_purpose, Engine as _};
-use bollard::container::LogOutput::Console;
+use bollard::container::LogOutput::{self, Console};
 use bollard::container::{
-    Config, CreateContainerOptions, LogsOptions, RemoveContainerOptions, StartContainerOptions,
+    Config, CreateContainerOptions, ListContainersOptions, LogsOptions, RemoveContainerOptions,
+    StartContainerOptions,
 };
-use bollard::errors::Error::DockerResponseServerError;
+use bollard::errors::Error::{self, DockerResponseServerError};
 use bollard::exec::{CreateExecOptions, ResizeExecOptions, StartExecResults};
 use bollard::image::CreateImageOptions;
 use bollard::models::MountTypeEnum::{BIND, VOLUME};
 use bollard::models::{CreateImageInfo, HostConfig, Mount};
-use bollard::service::{ContainerConfig, ContainerInspectResponse, ImageInspect};
-use bollard::volume::CreateVolumeOptions;
+use bollard::service::{ContainerConfig, ContainerInspectResponse, ContainerSummary, ImageInspect, Volume};
+use bollard::volume::{CreateVolumeOptions, ListVolumesOptions, RemoveVolumeOptions};
 use bollard::Docker;
 use clap::Parser;
 use futures::stream::StreamExt;
+use futures::Stream;
+use rand::distributions::Alphanumeric;
+use rand::{thread_rng, Rng};
 use regex::Regex;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::io::{stdout, Read, Write};
+use std::path::Path;
 use std::time::Duration;
 #[cfg(not(windows))]
 use termion::raw::IntoRawMode;
@@ -26,45 +31,49 @@ use tokio::io::AsyncWriteExt;
 use tokio::task::spawn;
 use tokio::time::sleep;
 
-//TODO: on successfull load clear screen rather than just before cursor - it looks werd if there is a less than a whole
-//----- screen of text
+fn random_suffix(prexif: &str) -> String {
+    let suffix: String = thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(7)
+        .map(char::from)
+        .collect();
+    format!("{}-{}", prexif, suffix)
+}
+
 //TODO: display better progress when pulling images
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
     git_ssh_url: Option<String>,
-    #[arg(short, long, default_value = "ghcr.io/queil/rooz-git:0.5.0", env = "ROOZ_IMAGE")]
+    #[arg(short, long, default_value = "bitnami/git:latest", env = "ROOZ_IMAGE")]
     image: String,
-    #[arg(short, long, default_value = "root", env = "ROOZ_USER")]
-    user: String,
-    #[arg(short, long, default_value = "sh", env = "ROOZ_SHELL")]
+    #[arg(short, long, default_value = "bash", env = "ROOZ_SHELL")]
     shell: String,
+    #[arg(short, long, default_value = "rooz_user", env = "ROOZ_USER")]
+    user: String,
     #[arg(short, long)]
-    work_dir: Option<String>,
-    #[arg(short, long)]
-    temp: bool,
+    prune: bool
 }
 
 #[derive(Debug, Deserialize)]
 struct RoozCfg {
     shell: Option<String>,
     image: Option<String>,
-    user: Option<String>,
     caches: Option<Vec<String>>
 }
 
 #[derive(Debug, Clone)]
 enum ContainerResult {
     Created { id: String },
-    Reused { id: String },
+    Reused { id: String }
 }
 
 impl ContainerResult {
     pub fn id(&self) -> &str {
         match self {
             ContainerResult::Created { id } => &id,
-            ContainerResult::Reused { id } => &id,
+            ContainerResult::Reused { id } => &id
         }
     }
 }
@@ -72,6 +81,59 @@ impl ContainerResult {
 enum VolumeResult {
     Created,
     Reused,
+}
+
+#[derive(Debug, Clone)]
+enum RoozVolumeSharing {
+    Shared,
+    Exclusive { key: String },
+}
+
+#[derive(Debug, Clone)]
+enum RoozVolumeRole {
+    Home,
+    Work,
+    Cache,
+    SshKey,
+    Git,
+}
+
+impl RoozVolumeRole {
+    pub fn as_str(&self) -> &str {
+        match self {
+            RoozVolumeRole::Home => "home",
+            RoozVolumeRole::Work => "work",
+            RoozVolumeRole::Cache => "cache",
+            RoozVolumeRole::SshKey => "ssh-key",
+            RoozVolumeRole::Git => "git"
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct RoozVolume {
+    path: String,
+    role: RoozVolumeRole,
+    sharing: RoozVolumeSharing,
+}
+
+impl RoozVolume {
+    pub fn safe_volume_name(&self) -> Result<String, Box<dyn std::error::Error + 'static>> {
+
+        let safe_id = to_safe_id(self.role.as_str())?;
+
+        let vol_name = match self {
+            RoozVolume {
+                sharing: RoozVolumeSharing::Exclusive { key },
+                ..
+            } => format!("rooz-{}-{}", to_safe_id(&key)?, &safe_id),
+            RoozVolume {
+                sharing: RoozVolumeSharing::Shared,
+                ..
+            } => format!("rooz-{}", &safe_id),
+        };
+        Ok(vol_name)
+    }
 }
 
 async fn start_tty(
@@ -131,14 +193,21 @@ async fn start_tty(
 }
 
 async fn exec(
+    reason: &str,
     docker: &Docker,
     container_id: &str,
     working_dir: Option<&str>,
+    user: Option<&str>,
     cmd: Option<Vec<&str>>,
 ) -> Result<String, Box<dyn std::error::Error + 'static>> {
     #[cfg(not(windows))]
     {
-        log::debug!("Exec: {:?} in working dir: {:?}", cmd, working_dir);
+        log::debug!(
+            "[{}] exec: {:?} in working dir: {:?}",
+            reason,
+            cmd,
+            working_dir
+        );
 
         Ok(docker
             .create_exec(
@@ -150,6 +219,7 @@ async fn exec(
                     tty: Some(true),
                     cmd,
                     working_dir,
+                    user,
                     ..Default::default()
                 },
             )
@@ -159,36 +229,46 @@ async fn exec(
 }
 
 async fn exec_tty(
+    reason: &str,
     docker: &Docker,
     container_id: &str,
     interactive: bool,
     working_dir: Option<&str>,
+    user: Option<&str>,
     cmd: Option<Vec<&str>>,
 ) -> Result<(), Box<dyn std::error::Error + 'static>> {
-    let exec_id = exec(docker, container_id, working_dir, cmd).await?;
+    let exec_id = exec(reason, docker, container_id, working_dir, user, cmd).await?;
     start_tty(docker, &exec_id, interactive).await
 }
 
+async fn collect(
+    stream: impl Stream<Item = Result<LogOutput, Error>>,
+) -> Result<String, Box<dyn std::error::Error + 'static>> {
+    let out = stream
+        .map(|x| match x {
+            Ok(r) => std::str::from_utf8(r.into_bytes().as_ref())
+                .unwrap()
+                .to_string(),
+            Err(err) => panic!("{}", err),
+        })
+        .collect::<Vec<_>>()
+        .await
+        .join("");
+
+    let trimmed = out.trim();
+    Ok(trimmed.to_string())
+}
+
 async fn exec_output(
+    reason: &str,
     docker: &Docker,
     container_id: &str,
+    user: Option<&str>,
     cmd: Option<Vec<&str>>,
 ) -> Result<String, Box<dyn std::error::Error + 'static>> {
-    let exec_id = exec(docker, container_id, None, cmd).await?;
+    let exec_id = exec(reason, docker, container_id, None, user, cmd).await?;
     if let StartExecResults::Attached { output, .. } = docker.start_exec(&exec_id, None).await? {
-        let out = output
-            .map(|x| match x {
-                Ok(r) => std::str::from_utf8(r.into_bytes().as_ref())
-                    .unwrap()
-                    .to_string(),
-                Err(err) => panic!("{}", err),
-            })
-            .collect::<Vec<_>>()
-            .await
-            .join("");
-
-        let trimmed = out.trim();
-        Ok(trimmed.to_string())
+        collect(output).await
     } else {
         panic!("Could not start exec");
     }
@@ -210,6 +290,7 @@ async fn force_remove(
 }
 
 async fn run(
+    reason: &str,
     docker: &Docker,
     image: &str,
     image_id: &str,
@@ -217,12 +298,14 @@ async fn run(
     work_dir: Option<&str>,
     container_name: &str,
     mounts: Option<Vec<Mount>>,
-    log: bool,
     entrypoint: Option<Vec<&str>>,
 ) -> Result<ContainerResult, Box<dyn std::error::Error + 'static>> {
     log::debug!(
-        "Running {} as {:?} using image {}",
-        container_name, user, image
+        "[{}]: running {} as {:?} using image {}",
+        &reason,
+        container_name,
+        user,
+        image
     );
 
     let container_id = match docker.inspect_container(container_name, None).await {
@@ -263,6 +346,7 @@ async fn run(
                 tty: Some(true),
                 open_stdin: Some(true),
                 host_config: Some(host_config),
+                labels: Some(HashMap::from([("dev.rooz", "true")])),
                 ..Default::default()
             };
 
@@ -279,25 +363,29 @@ async fn run(
         .start_container(&container_id.id(), None::<StartContainerOptions<String>>)
         .await?;
 
-    if log {
-        let log_options = LogsOptions::<String> {
-            stdout: true,
-            follow: true,
-            ..Default::default()
-        };
-
-        let mut stream = docker.logs(&container_name, Some(log_options));
-
-        while let Some(l) = stream.next().await {
-            match l {
-                Ok(Console { message: m }) => stdout().write_all(&m)?,
-                Ok(msg) => panic!("{}", msg),
-                Err(e) => panic!("{}", e),
-            };
-        }
-    }
-
     Ok(container_id.clone())
+}
+
+async fn container_logs_to_stdout(
+    docker: &Docker,
+    container_name: &str,
+) -> Result<(), Box<dyn std::error::Error + 'static>> {
+    let log_options = LogsOptions::<String> {
+        stdout: true,
+        follow: true,
+        ..Default::default()
+    };
+
+    let mut stream = docker.logs(&container_name, Some(log_options));
+
+    while let Some(l) = stream.next().await {
+        match l {
+            Ok(Console { message: m }) => stdout().write_all(&m)?,
+            Ok(msg) => panic!("{}", msg),
+            Err(e) => panic!("{}", e),
+        };
+    }
+    Ok(())
 }
 
 fn inject(script: &str, name: &str) -> Vec<String> {
@@ -314,10 +402,10 @@ fn inject(script: &str, name: &str) -> Vec<String> {
     ]
 }
 
-async fn ensure_volume(docker: &Docker, name: &str, role: &str, unique_id: &str) -> VolumeResult {
-    let static_data_vol_options = CreateVolumeOptions::<&str> {
+async fn ensure_volume(docker: &Docker, name: &str, role: &str) -> VolumeResult {
+    let create_vol_options = CreateVolumeOptions::<&str> {
         name,
-        labels: HashMap::from([("dev.rooz.role", role), ("dev.rooz.id", unique_id)]),
+        labels: HashMap::from([("dev.rooz", "true"), ("dev.rooz.role", role)]),
         ..Default::default()
     };
 
@@ -329,7 +417,7 @@ async fn ensure_volume(docker: &Docker, name: &str, role: &str, unique_id: &str)
         Err(DockerResponseServerError {
             status_code: 404,
             message: _,
-        }) => match docker.create_volume(static_data_vol_options).await {
+        }) => match docker.create_volume(create_vol_options).await {
             Ok(v) => {
                 log::debug!("Volume created: {:?}", v.name);
                 VolumeResult::Created
@@ -384,90 +472,7 @@ async fn ensure_image(
     Ok((image_id.to_string(), user.map(String::to_string)))
 }
 
-fn infer_dirs(user: &str, work_dir: Option<&str>) -> (String, String) {
-    let home_or_root = match user {
-        "root" => "/root".to_string(),
-        u => format!("/home/{}", u.to_string()),
-    };
-
-    let work_dir = work_dir.unwrap_or(&home_or_root);
-
-    (home_or_root.to_string(), format!("{}/work", &work_dir))
-}
-
-async fn get_uid(
-    docker: &Docker,
-    image: &str,
-    image_id: &str,
-    user: &str,
-) -> Result<String, Box<dyn std::error::Error + 'static>> {
-    if user == "root" {return Ok("0".into());}
-    let temp_uid_container_id = run(
-        &docker,
-        &image,
-        &image_id,
-        None,
-        None,
-        "temp-uid",
-        None,
-        false,
-        Some(vec!["cat"]),
-    )
-    .await?;
-
-    let uid = exec_output(
-        &docker,
-        &temp_uid_container_id.id(),
-        Some(vec!["id", "-u", user]),
-    )
-    .await?;
-
-    force_remove(&docker, &temp_uid_container_id.id()).await?;
-    Ok(uid)
-}
-
-async fn chown(
-    docker: &Docker,
-    image: &str,
-    chown_path: &str,
-    mount_path: &str,
-    volume_name: &str,
-    uid: &str,
-    recurse: bool,
-    acl_other_rwx: bool
-) -> Result<(), Box<dyn std::error::Error + 'static>> {
-
-    if uid == "0" {return Ok(());}
-    let recurse = if recurse { "-R" } else {""};
-    let setacl = if acl_other_rwx { format!("setfacl -d -m o::rwx {} && ", chown_path) } else { "".into() };
-    let chown_cmd = format!("{}chown {} {} {}", recurse, setacl, uid, chown_path);
-    log::debug!("Trying to '{}'", &chown_cmd);
-    run(
-        &docker,
-        &image,
-        "ignore",
-        Some("root"),
-        None,
-        "set-permissions",
-        Some(vec![Mount {
-            typ: Some(VOLUME),
-            read_only: Some(false),
-            source: Some(volume_name.into()),
-            target: Some(shellexpand::tilde(mount_path).to_string()),
-            ..Default::default()
-        }]),
-        true,
-        Some(vec![
-            "sh",
-            "-c",
-            &chown_cmd,
-        ]),
-    )
-    .await?;
-    Ok(())
-}
-
-fn get_clone_work_dir(work_dir: &str, git_ssh_url: Option<String>) -> String {
+fn get_clone_dir(root_dir: &str, git_ssh_url: Option<String>) -> String {
     let clone_work_dir = match git_ssh_url {
         Some(url) => url
             .split(&['/'])
@@ -480,31 +485,98 @@ fn get_clone_work_dir(work_dir: &str, git_ssh_url: Option<String>) -> String {
 
     log::debug!("Clone dir: {}", &clone_work_dir);
 
-    let work_dir = format!("{}/{}", work_dir, clone_work_dir.clone());
+    let work_dir = format!("{}/{}", root_dir, clone_work_dir.clone());
 
     log::debug!("Full clone dir: {:?}", &work_dir);
     work_dir
 }
 
+async fn git_volume(
+    docker: &Docker,
+    uid: &str,
+    url: &str,
+    target_path: &str,
+) -> Result<Mount, Box<dyn std::error::Error + 'static>> {
+
+    let git_vol = RoozVolume {
+        path: target_path.into(),
+        sharing: RoozVolumeSharing::Exclusive { key: to_safe_id(url)? },
+        role: RoozVolumeRole::Git
+    };
+
+    let vol_name = git_vol.safe_volume_name()?;
+
+    ensure_volume(docker, &vol_name, &git_vol.role.as_str()).await;
+
+    let git_vol_mount = Mount {
+        typ: Some(VOLUME),
+        source: Some(vol_name.clone()),
+        target: Some(git_vol.path.into()),
+        read_only: Some(false),
+        ..Default::default()
+    };
+
+    ensure_vol_access(docker, uid, git_vol_mount.clone(), RoozVolumeRole::Git).await?;
+    Ok(git_vol_mount)
+}
+
 async fn clone_repo(
     docker: &Docker,
-    container_result: ContainerResult,
+    image: &str,
+    image_id: &str,
+    user: &str,
+    uid: &str,
     git_ssh_url: Option<String>,
-    clone_dir: &str,
-) -> Result<Option<RoozCfg>, Box<dyn std::error::Error + 'static>> {
+) -> Result<(Option<RoozCfg>, Option<String>), Box<dyn std::error::Error + 'static>> {
     if let Some(url) = git_ssh_url.clone() {
-        let cont_id = container_result.id();
+        let working_dir = "/tmp/git";
+        let clone_dir = format!("{}", &working_dir);
 
         let clone_cmd = inject(
-            format!("ls -la {} > /dev/null || git clone {}", &clone_dir, &url).as_ref(),
+            format!(
+                    r#"export GIT_SSH_COMMAND="ssh -i /tmp/.ssh/id_ed25519 -o UserKnownHostsFile=/tmp/.ssh/known_hosts"
+                    git -C {} pull || git clone {} {}"#,
+                &clone_dir, &url, &clone_dir
+            )
+            .as_ref(),
             "clone.sh",
         );
 
+        let git_vol_mount = git_volume(docker, uid, &url, working_dir).await?;
+
+        let container_result = run(
+            "git-clone",
+            &docker,
+            &image,
+            &image_id,
+            Some(&uid),
+            None,
+            &random_suffix("rooz-git"),
+            Some(vec![
+                git_vol_mount.clone(),
+                Mount {
+                    typ: Some(VOLUME),
+                    source: Some(ROOZ_SSH_KEY_VOLUME_NAME.into()),
+                    target: Some("/tmp/.ssh".into()),
+                    read_only: Some(true),
+                    ..Default::default()
+                },
+            ]),
+            Some(vec!["cat"]),
+        )
+        .await?;
+
+        let container_id = container_result.id();
+
         if let ContainerResult::Created { .. } = container_result {
+            ensure_user(docker, container_id, user, uid).await?;
+
             exec_tty(
+                "git-clone",
                 &docker,
-                &cont_id,
+                &container_id,
                 false,
+                None,
                 None,
                 Some(clone_cmd.iter().map(String::as_str).collect()),
             )
@@ -512,8 +584,10 @@ async fn clone_repo(
         };
 
         let rooz_cfg = exec_output(
+            "rooz-toml",
             &docker,
-            &cont_id,
+            &container_id,
+            None,
             Some(vec![
                 "cat",
                 format!("{}/{}", clone_dir, ".rooz.toml").as_ref(),
@@ -523,17 +597,294 @@ async fn clone_repo(
 
         log::debug!("Repo config result: {}", &rooz_cfg);
 
-        Ok(RoozCfg::deserialize(toml::de::Deserializer::new(&rooz_cfg)).ok())
+        force_remove(docker, &container_id).await?;
+
+        Ok((
+            RoozCfg::deserialize(toml::de::Deserializer::new(&rooz_cfg)).ok(),
+            Some(url),
+        ))
     } else {
-        Ok(None)
+        Ok((None, None))
     }
 }
 
-
-
-fn safe_id(dirty: &str) ->  Result<String, Box<dyn std::error::Error + 'static>>{
+fn to_safe_id(dirty: &str) -> Result<String, Box<dyn std::error::Error + 'static>> {
     let re = Regex::new(r"[^a-zA-Z0-9_.-]").unwrap();
-    Ok(format!("rooz-{}", re.replace_all(&dirty, "-").to_string()))
+    Ok(re.replace_all(&dirty, "-").to_string())
+}
+
+const ROOZ_SSH_KEY_VOLUME_NAME: &'static str = "rooz-ssh-key-vol";
+const VOLUME_ACCESS_IMAGE: &'static str = "alpine:latest";
+
+async fn init_ssh_key(
+    docker: &Docker,
+    image: &str,
+    uid: &str,
+) -> Result<(), Box<dyn std::error::Error + 'static>> {
+    let init_ssh = format!(
+        r#"echo "Rooz init"
+echo "Running in: $(pwd)"
+mkdir -p /tmp/.ssh
+ssh-keyscan -t ed25519 github.com 140.82.121.4 140.82.121.3 ::ffff:140.82.121.4 ::ffff:140.82.121.3 >> /tmp/.ssh/known_hosts
+KEYFILE=/tmp/.ssh/id_ed25519
+ls "$KEYFILE.pub" || ssh-keygen -t ed25519 -N '' -f $KEYFILE -C rooz-access-key
+cat "$KEYFILE.pub"
+chown -R {} /tmp/.ssh
+"#,
+        &uid
+    );
+
+    let init_entrypoint = inject(&init_ssh, "entrypoint.sh");
+
+    let result = run(
+        "init-ssh",
+        &docker,
+        &image,
+        "ignore",
+        Some("root"),
+        None,
+        "rooz-init-ssh",
+        Some(vec![Mount {
+            typ: Some(VOLUME),
+            read_only: Some(false),
+            source: Some(ROOZ_SSH_KEY_VOLUME_NAME.into()),
+            target: Some("/tmp/.ssh".into()),
+            ..Default::default()
+        }]),
+        Some(init_entrypoint.iter().map(String::as_str).collect()),
+    )
+    .await?;
+
+    container_logs_to_stdout(docker, result.id()).await?;
+
+    Ok(())
+}
+
+async fn ensure_user(
+    docker: &Docker,
+    container_id: &str,
+    user: &str,
+    uid: &str,
+) -> Result<(), Box<dyn std::error::Error + 'static>> {
+    let ensure_user = format!(
+        r#"NEWUID={}
+NEWUSER={}
+USER_NAME=$(id -u $NEWUID > /dev/null 2>&1 && echo -n $(id -u $NEWUID -n))
+
+echo "Expected user: '$NEWUSER ($NEWUID)'"
+
+[ "${{NEWUSER}}" = "${{USER_NAME}}" ] && echo "OK. Already exists." && exit
+
+if [ -n "${{USER_NAME}}" ]
+then
+    echo "Another user with uid: '$NEWUID' exists: '$USER_NAME'. Renaming to '$NEWUSER'"
+    usermod --login $NEWUSER $USER_NAME
+else
+    echo "User with uid: '$NEWUID' not found. Creating as '$NEWUSER'"
+
+    (adduser $NEWUSER --uid $NEWUID --no-create-home --disabled-password -gecos "" || \
+     useradd $NEWUSER --uid $NEWUID --no-create-home --no-log-init)
+fi
+
+mkdir /home/$NEWUSER && chown $NEWUID /home/$NEWUSER
+"#,
+        uid, user
+    );
+
+    let init_entrypoint = inject(&ensure_user, "entrypoint.sh");
+    exec_tty(
+        "ensureuser",
+        docker,
+        container_id,
+        false,
+        None,
+        Some("root"),
+        Some(init_entrypoint.iter().map(String::as_str).collect()),
+    )
+    .await?;
+    Ok(())
+}
+
+async fn ensure_vol_access(
+    docker: &Docker,
+    uid: &str,
+    mount: Mount,
+    role: RoozVolumeRole,
+) -> Result<(), Box<dyn std::error::Error + 'static>> {
+    let target_dir = mount.clone().target.unwrap();
+
+    let dummy_file = if let RoozVolumeRole::Work = role {
+        format!(
+            r#"[ -z "$(ls -A {} 2>/dev/null)" ] && touch .rooz"#,
+            &target_dir
+        )
+    } else {
+        "".into()
+    };
+
+    let cmd = format!(
+        r#"{}
+chown {} {}"#,
+        dummy_file, uid, target_dir
+    );
+    let entrypoint = inject(&cmd, "entrypoint.sh");
+
+    let result = run(
+        "vol-access",
+        &docker,
+        VOLUME_ACCESS_IMAGE,
+        "ignore",
+        Some("root"),
+        Some(&target_dir),
+        &random_suffix("rooz-vol-access"),
+        Some(vec![mount.clone()]),
+        Some(entrypoint.iter().map(String::as_str).collect()),
+    )
+    .await?;
+
+    log::debug!(
+        "[vol-access] {} ({}:{})",
+        &cmd,
+        mount.clone().source.unwrap(),
+        role.as_str()
+    );
+
+    container_logs_to_stdout(docker, result.id()).await?;
+
+    Ok(())
+}
+
+async fn ensure_mounts(
+    docker: &Docker,
+    uid: &str,
+    volumes: Vec<RoozVolume>,
+    is_ephemeral: bool,
+    home_dir: &str,
+) -> Result<Vec<Mount>, Box<dyn std::error::Error + 'static>> {
+    let mut mounts = vec![
+        Mount {
+            typ: Some(BIND),
+            source: Some("/var/run/docker.sock".to_string()),
+            target: Some("/var/run/docker.sock".to_string()),
+            ..Default::default()
+        },
+        Mount {
+            typ: Some(VOLUME),
+            source: Some(ROOZ_SSH_KEY_VOLUME_NAME.into()),
+            target: Some(
+                Path::new(home_dir)
+                    .join(".ssh")
+                    .to_string_lossy()
+                    .to_string(),
+            ),
+            read_only: Some(true),
+            ..Default::default()
+        },
+    ];
+
+    if is_ephemeral {
+        return Ok(mounts.clone());
+    }
+
+    for v in volumes {
+        log::debug!("Process volume: {:?}", &v);
+        let vol_name = v.safe_volume_name()?;
+
+        ensure_volume(&docker, &vol_name, v.role.as_str()).await;
+
+        let mount = Mount {
+            typ: Some(VOLUME),
+            source: Some(vol_name.into()),
+            target: Some(v.path.replace("~", &home_dir)),
+            read_only: Some(false),
+            ..Default::default()
+        };
+
+        ensure_vol_access(docker, uid, mount.clone(), v.role).await?;
+
+        mounts.push(mount);
+    }
+
+    Ok(mounts.clone())
+}
+
+async fn work(
+    docker: &Docker,
+    image: &str,
+    image_id: &str,
+    shell: &str,
+    uid: &str,
+    user: &str,
+    container_working_dir: &str,
+    container_name: &str,
+    is_ephemeral: bool,
+    git_vol_mount: Option<Mount>,
+    caches: Option<Vec<String>>,
+) -> Result<(), Box<dyn std::error::Error + 'static>> {
+    let home_dir = format!("/home/{}", &user);
+    let work_dir = format!("{}/work", &home_dir);
+
+    let mut volumes = vec![
+        RoozVolume {
+            path: home_dir.clone(),
+            sharing: RoozVolumeSharing::Exclusive {
+                key: container_name.into(),
+            },
+            role: RoozVolumeRole::Home,
+        },
+        RoozVolume {
+            path: work_dir.clone(),
+            sharing: RoozVolumeSharing::Exclusive {
+                key: container_name.into(),
+            },
+            role: RoozVolumeRole::Work,
+        },
+    ];
+
+    if let Some(caches) = &caches {
+        let cache_vols = caches
+            .iter()
+            .map(|p| RoozVolume { path: p.into(), sharing: RoozVolumeSharing::Shared, role: RoozVolumeRole::Cache })
+            .collect::<Vec<_>>();
+
+        volumes.extend_from_slice(cache_vols.clone().as_slice());
+    };
+
+    let mut mounts = ensure_mounts(&docker, &uid, volumes, is_ephemeral, &home_dir).await?;
+
+    if let Some(m) = git_vol_mount {
+        mounts.push(m.clone());
+    }
+
+    let r = run(
+        "work",
+        &docker,
+        &image,
+        &image_id,
+        Some(&uid),
+        Some(&container_working_dir),
+        &container_name,
+        Some(mounts),
+        Some(vec!["cat"]),
+    )
+    .await?;
+
+    let work_id = &r.id();
+
+    ensure_user(&docker, &work_id, &user, &uid).await?;
+
+    exec_tty(
+        "work",
+        &docker,
+        &work_id,
+        true,
+        Some(&container_working_dir),
+        None,
+        Some(vec![&shell]),
+    )
+    .await?;
+    force_remove(&docker, &work_id).await?;
+    Ok(())
 }
 
 #[tokio::main]
@@ -541,17 +892,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
     env_logger::init();
 
     let args = Cli::parse();
-    let init_container_name = "rooz-init".to_string();
-    let static_data_vol_name = "rooz-static-data".to_string();
-
     let docker = Docker::connect_with_local_defaults().expect("Docker API connection established");
-
-    let static_data_mount = Mount {
-        typ: Some(VOLUME),
-        source: Some(static_data_vol_name.to_string()),
-        read_only: Some(true),
-        ..Default::default()
-    };
 
     match args {
         Cli {
@@ -559,268 +900,126 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
             image,
             shell,
             user,
-            work_dir,
-            temp,
+            //work_dir,
+            prune,
         } => {
-            let orig_shell = shell;
-            let orig_work_dir = work_dir;
-            let orig_user = user;
-            let orig_image = image;
-
-            log::debug!("Work dir (CLAP): {:?}", &orig_work_dir);
-
-            let (orig_image_id, image_user) = ensure_image(&docker, &orig_image).await?;
-
-            let inferred_user = image_user.clone().unwrap_or(orig_user.to_string());
-            log::debug!("User (CLAP): {}", &orig_user);
-            log::debug!("User (image): {:?}", &image_user.clone());
-            log::debug!("User (inferred): {}", &inferred_user);
-
-            let (home_or_root, work_dir2) = infer_dirs(&inferred_user, orig_work_dir.as_deref());
-
-            log::debug!("Home dir (inferred): {}", &home_or_root);
-            log::debug!("Work dir (inferred): {:?}", &work_dir2);
-
-            let container_name = match &git_ssh_url {
-                Some(url) => {
-                    let re = Regex::new(r"[^a-zA-Z0-9_.-]")?;
-                    re.replace_all(&url, "-").to_string()
+            let ephemeral = false; // ephemeral containers won't be supported at the moment
+            if prune {
+                let ls_container_options = ListContainersOptions {
+                    all: true,
+                    filters: HashMap::from([("label", vec!["dev.rooz"])]),
+                    ..Default::default()
+                };
+                for cs in docker.list_containers(Some(ls_container_options)).await? {
+                    if let ContainerSummary { id: Some(id), .. } = cs {
+                        log::debug!("Force remove container: {}", &id);
+                        force_remove(&docker, &id).await?
+                    }
                 }
-                None => "rooz-work".to_string(),
-            };
 
-            let work_volume_name = format!("{}-work", &container_name);
-            let home_volume_name = format!("{}-home", &container_name);
-
-
-            let volume_result =
-                ensure_volume(&docker, &static_data_vol_name, "static-data", "default").await;
-
-            if let VolumeResult::Created { .. } = volume_result {
-                let init_ssh = r#"echo "Rooz init"
-echo "Running in: $(pwd)"
-mkdir -p ~/.ssh
-ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts
-KEYFILE=~/.ssh/id_ed25519
-ls "$KEYFILE.pub" || ssh-keygen -t ed25519 -N '' -f $KEYFILE
-cat "$KEYFILE.pub"
-"#;
-
-                let init_entrypoint = inject(&init_ssh, "entrypoint.sh");
-                let ssh_path = format!("{}/.ssh", home_or_root);
-
-                chown(
-                    &docker,
-                    &orig_image,
-                    &ssh_path,
-                    &ssh_path,
-                    &static_data_vol_name,
-                    &inferred_user,
-                   true,
-                false
-                )
-                .await?;
-
-                //SSH INIT
-                run(
-                    &docker,
-                    &orig_image,
-                    "ignore",
-                    Some(&inferred_user),
-                    Some(&work_dir2),
-                    &init_container_name,
-                    Some(vec![Mount {
-                        read_only: Some(false),
-                        target: Some(ssh_path),
-                        ..static_data_mount.clone()
-                    }]),
-                    true,
-                    Some(init_entrypoint.iter().map(String::as_str).collect()),
-                )
-                .await?;
-            };
-
-            let mut mounts = vec![
-                Mount {
-                    target: Some(format!("{}/.ssh", home_or_root).to_string()),
-                    ..static_data_mount.clone()
-                },
-                Mount {
-                    typ: Some(BIND),
-                    source: Some("/var/run/docker.sock".to_string()),
-                    target: Some("/var/run/docker.sock".to_string()),
+                let ls_vol_options = ListVolumesOptions {
+                    filters: HashMap::from([("label", vec!["dev.rooz"])]),
                     ..Default::default()
-                },
-            ];
+                };
 
-            if !temp {
-                ensure_volume(&docker, &work_volume_name, "work-data", &container_name).await;
+                if let Some(volumes) = docker.list_volumes(Some(ls_vol_options)).await?.volumes {
+                    let rm_vol_options = RemoveVolumeOptions {
+                        force: true,
+                        ..Default::default()
+                    };
 
-                mounts.push(Mount {
-                    typ: Some(VOLUME),
-                    source: Some(work_volume_name.to_string()),
-                    target: Some(work_dir2.clone()),
-                    read_only: Some(false),
-                    ..Default::default()
-                });
+                    for v in volumes {
+
+                        match v {
+                            Volume { ref name,.. } if name == ROOZ_SSH_KEY_VOLUME_NAME => { continue; },
+                            _ => {}
+                        };
+
+                        log::debug!("Force remove volume: {}", &v.name);
+                        docker.remove_volume(&v.name, Some(rm_vol_options)).await?
+                    }
+                }
             }
 
-            let container_result = run(
+            let orig_shell = shell;
+            let orig_user = user;
+            let orig_uid = "1000".to_string();
+            let orig_image = image;
+
+            let (orig_image_id, _) = ensure_image(&docker, &orig_image).await?;
+
+            let container_name = match &git_ssh_url {
+                Some(url) => to_safe_id(&url)?,
+                None => "generic".to_string(),
+            };
+
+            let ssh_key_vol_result =
+                ensure_volume(&docker, ROOZ_SSH_KEY_VOLUME_NAME.into(), "ssh-key").await;
+
+            if let VolumeResult::Created { .. } = ssh_key_vol_result {
+                init_ssh_key(&docker, &orig_image_id, &orig_uid).await?;
+            };
+
+            let home_dir = format!("/home/{}", &orig_user);
+            let work_dir = format!("{}/work", &home_dir);
+
+            if let (
+                Some(RoozCfg {
+                    image: Some(img),
+                    shell,
+                    caches,
+                    ..
+                }),
+                Some(repo_url),
+            ) = clone_repo(
                 &docker,
                 &orig_image,
                 &orig_image_id,
-                Some(&inferred_user),
-                Some(&work_dir2),
-                &container_name,
-                Some(mounts.clone()),
-                false,
-                Some(vec!["cat"]),
-            )
-            .await?;
-
-            let orig_container_id = container_result.id();
-
-
-            let uid = get_uid(&docker, &orig_image, &orig_image_id, &inferred_user).await?;
-            chown(&docker, &orig_image, &work_dir2, &work_dir2, &work_volume_name, &uid, true, false).await?;
-
-
-            let clone_dir = get_clone_work_dir(&work_dir2, git_ssh_url.clone().map(|x|x.to_string()));
-
-            if let Some(RoozCfg {
-                image: Some(img),
-                user,
-                shell,
-                caches,
-                ..
-            }) = clone_repo(
-                &docker,
-                container_result.clone(),
+                &orig_user,
+                &orig_uid,
                 git_ssh_url.clone(),
-                &clone_dir,
             )
             .await?
             {
                 log::debug!("Image config read from .rooz.toml in the cloned repo");
-                let (image_id, image_user) = ensure_image(&docker, &img).await?;
+                let (image_id, _) = ensure_image(&docker, &img).await?;
 
-                let (id, clone_dir) = if image_id == orig_image_id {
-                    log::debug!("Repo image == Original image. Will reuse container");
-                    (orig_container_id.to_string(), work_dir2)
-                } else {
-                    log::debug!("Replacing container using new image {}", image_id);
-
-                    force_remove(&docker, &orig_container_id).await?;
-
-                    let inferred_user = user.or(image_user).unwrap_or(orig_user.to_string());
-                    let (home_or_root, work_dir) =
-                        infer_dirs(&inferred_user, orig_work_dir.as_deref());
-
-                    let clone_dir = get_clone_work_dir(&work_dir, git_ssh_url.clone());
-
-                    //deduplicate the code later on - start
-                    let mut mounts = vec![
-                        Mount {
-                            target: Some(format!("{}/.ssh", home_or_root).to_string()),
-                            ..static_data_mount.clone()
-                        },
-                        Mount {
-                            typ: Some(BIND),
-                            source: Some("/var/run/docker.sock".to_string()),
-                            target: Some("/var/run/docker.sock".to_string()),
-                            ..Default::default()
-                        },
-                    ];
-
-                    if !temp {
-                        ensure_volume(&docker, &work_volume_name, "work-data", &container_name)
-                            .await;
-
-                        ensure_volume(&docker, &home_volume_name, "home-data", &home_volume_name)
-                            .await;
-
-                        let uid = get_uid(&docker, &img, &image_id, &inferred_user).await?;
-                        chown(&docker, &orig_image, &work_dir, &work_dir, &work_volume_name, &uid, true, false).await?;
-
-                        mounts.push(Mount {
-                            typ: Some(VOLUME),
-                            source: Some(work_volume_name.to_string()),
-                            target: Some(work_dir.to_string()),
-                            read_only: Some(false),
-                            ..Default::default()
-                        });
-
-                        mounts.push(Mount {
-                            typ: Some(VOLUME),
-                            source: Some(home_volume_name),
-                            target: Some(home_or_root.to_string()),
-                            read_only: Some(false),
-                            ..Default::default()
-                        });
-
-                        if let Some(caches) = caches {
-                            for path in caches {
-                                let safe_name = safe_id(&path)?;
-                                ensure_volume(&docker, &safe_name, "cache", &safe_name)
-                            .await;
-
-
-                                let expanded_path = path.replace("~", &home_or_root);
-                                chown(&docker, &orig_image, &expanded_path, &expanded_path, &safe_name, &uid, false, true).await?;
-
-                                mounts.push(Mount {
-                                    typ: Some(VOLUME),
-                                    source: Some(safe_name),
-                                    target: Some(expanded_path),
-                                    read_only: Some(false),
-                                    ..Default::default()
-                                });
-                            }
-                        }
-                    }
-                    //deduplicate the code later on - end
-
-                    let r = run(
-                        &docker,
-                        &img,
-                        &image_id,
-                        Some(&inferred_user),
-                        Some(&clone_dir),
-                        &container_name,
-                        Some(mounts.clone()),
-                        false,
-                        Some(vec!["cat"]),
-                    )
-                    .await?;
-
-                    let id = &r.id().to_string();
-                    (id.clone(), clone_dir)
-                };
+                let clone_dir = get_clone_dir(&work_dir, git_ssh_url.clone());
+                let git_vol_mount = git_volume(&docker, &orig_uid, &repo_url, &clone_dir).await?;
 
                 let sh = shell.or(Some(orig_shell)).unwrap();
-                exec_tty(&docker, &id, true, Some(&clone_dir), Some(vec![&sh])).await?;
-                force_remove(&docker, &id).await?;
-            } else {
-                // free-style container or no .rooz.toml
 
-                exec_tty(
+                work(
                     &docker,
-                    orig_container_id,
-                    true,
-                    Some(&clone_dir),
-                    Some(vec![&orig_shell]),
+                    &img,
+                    &image_id,
+                    &sh,
+                    &orig_uid,
+                    &orig_user,
+                    &clone_dir,
+                    &container_name,
+                    ephemeral,
+                    Some(git_vol_mount),
+                    caches,
                 )
-                .await?;
-
-                force_remove(&docker, &orig_container_id).await?;
+                .await?
+            } else {
+                work(
+                    &docker,
+                    &orig_image,
+                    &orig_image_id,
+                    &orig_shell,
+                    &orig_uid,
+                    &orig_user,
+                    &work_dir,
+                    &container_name,
+                    ephemeral,
+                    None,
+                    None,
+                )
+                .await?
             }
         }
     };
     Ok(())
 }
-
-//so the current problem is that I started mounting ~/work instead of the whole ~/ to avoid stale state after mounting a volume
-//to a different image. It prevents the problem ineed however now any state changes like .bash_history are not persisted (as they
-//in fact are not backed by a volume). One (cumbersome) solution it would be to basically mount volumes for anything we'd like to persist.
-//This is obviously impracitcal. One other solution it would be to mount both ~/ and ~/work (separate vols). Then when image updates we'd just drop
-//the ~/ volume keeping ~/work untouched. We could also have a protected files list that could be copied over to the new image.
