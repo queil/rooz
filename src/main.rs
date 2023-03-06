@@ -42,8 +42,6 @@ fn random_suffix(prexif: &str) -> String {
     format!("{}-{}", prexif, suffix)
 }
 
-//TODO: display better progress when pulling images
-
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
@@ -96,7 +94,6 @@ enum RoozVolumeRole {
     Home,
     Work,
     Cache,
-    SshKey,
     Git,
 }
 
@@ -106,7 +103,6 @@ impl RoozVolumeRole {
             RoozVolumeRole::Home => "home",
             RoozVolumeRole::Work => "work",
             RoozVolumeRole::Cache => "cache",
-            RoozVolumeRole::SshKey => "ssh-key",
             RoozVolumeRole::Git => "git",
         }
     }
@@ -433,9 +429,14 @@ async fn ensure_image(
     docker: &Docker,
     image: &str,
 ) -> Result<(String, Option<String>), Box<dyn std::error::Error + 'static>> {
+    let img_chunks = &image.split(':').collect::<Vec<&str>>();
     let mut image_info = docker.create_image(
         Some(CreateImageOptions::<&str> {
             from_image: &image,
+            tag: match img_chunks.len() {
+                2 => img_chunks[1],
+                _ => "latest",
+            },
             ..Default::default()
         }),
         None,
@@ -445,19 +446,30 @@ async fn ensure_image(
     while let Some(l) = image_info.next().await {
         match l {
             Ok(CreateImageInfo {
+                id,
                 status: Some(m),
-                //progress: p,
-                //progress_detail: d,
+                progress: p,
                 ..
             }) => {
+                if let Some(id) = id {
+                    stdout().write_all(&id.as_bytes())?;
+                } else {
+                    println!("");
+                }
+                print!(" ");
                 stdout().write_all(&m.as_bytes())?;
-                println!("");
+                print!(" ");
+                if let Some(x) = p {
+                    stdout().write_all(&x.as_bytes())?;
+                };
+                print!("\r");
             }
             Ok(msg) => panic!("{:?}", msg),
             Err(e) => panic!("{}", e),
         };
     }
 
+    println!("");
     let inspect = docker.inspect_image(&image).await?;
 
     let user = match &inspect {
