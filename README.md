@@ -64,7 +64,7 @@
 ## Install
 
 ```sh
-curl -sSL https://github.com/queil/rooz/releases/download/v0.8.0/rooz -o ./rooz && chmod +x ./rooz && sudo mv ./rooz /usr/local/bin
+curl -sSL https://github.com/queil/rooz/releases/latest/download/rooz -o ./rooz && chmod +x ./rooz && sudo mv ./rooz /usr/local/bin
 ```
 
 ## Known issues
