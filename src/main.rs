@@ -125,9 +125,12 @@ impl RoozVolume {
                 ..
             } => format!("rooz-{}-{}", to_safe_id(&key)?, &safe_id),
             RoozVolume {
+                path: p,
                 sharing: RoozVolumeSharing::Shared,
+                role: RoozVolumeRole::Cache,
                 ..
-            } => format!("rooz-{}", &safe_id),
+            } => format!("rooz-{}-{}", to_safe_id(&p)?, &safe_id),
+            RoozVolume { .. } => format!("rooz-{}", &safe_id),
         };
         Ok(vol_name)
     }
