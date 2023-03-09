@@ -42,6 +42,8 @@
 
     All the repos specyfing a cache path will share a Docker volume mounted at that path enabling cache reuse.
 
+* you enable `rooz` debug logging by setting `RUST_LOG=rooz` env variable
+
 * if `rooz` misbehaves you can go nuclear and run `rooz --prune` to remove all the running rooz containers and volumes excluding
   the ssh key volume. If you want to delete it do: `docker volume rm --force rooz-ssh-key-vol`
 
