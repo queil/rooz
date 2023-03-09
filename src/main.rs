@@ -699,7 +699,7 @@ then
 else
     echo "User with uid: '$NEWUID' not found. Creating as '$NEWUSER'"
 
-    (adduser $NEWUSER --uid $NEWUID --no-create-home -gecos "" || \
+    (adduser $NEWUSER --uid $NEWUID --no-create-home --disabled-password -gecos "" || \
      useradd $NEWUSER --uid $NEWUID --no-create-home --no-log-init)
 fi
 
