@@ -33,6 +33,8 @@ use tokio::io::AsyncWriteExt;
 use tokio::task::spawn;
 use tokio::time::sleep;
 
+const DEFAULT_IMAGE: &'static str = "bitnami/git:latest";
+
 fn random_suffix(prexif: &str) -> String {
     let suffix: String = thread_rng()
         .sample_iter(&Alphanumeric)
@@ -46,7 +48,7 @@ fn random_suffix(prexif: &str) -> String {
 #[command(author, version, about, long_about = None)]
 struct Cli {
     git_ssh_url: Option<String>,
-    #[arg(short, long, default_value = "bitnami/git:latest", env = "ROOZ_IMAGE")]
+    #[arg(short, long, default_value = DEFAULT_IMAGE, env = "ROOZ_IMAGE")]
     image: String,
     #[arg(short, long, default_value = "bash", env = "ROOZ_SHELL")]
     shell: String,
@@ -631,7 +633,6 @@ fn to_safe_id(dirty: &str) -> Result<String, Box<dyn std::error::Error + 'static
 }
 
 const ROOZ_SSH_KEY_VOLUME_NAME: &'static str = "rooz-ssh-key-vol";
-const VOLUME_ACCESS_IMAGE: &'static str = "alpine:latest";
 
 async fn init_ssh_key(
     docker: &Docker,
@@ -749,7 +750,7 @@ chown {} {}"#,
     let result = run(
         "vol-access",
         &docker,
-        VOLUME_ACCESS_IMAGE,
+        DEFAULT_IMAGE,
         "ignore",
         Some("root"),
         Some(&target_dir),
