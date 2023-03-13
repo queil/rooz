@@ -78,6 +78,14 @@ curl -sSL https://github.com/queil/rooz/releases/latest/download/rooz -o ./rooz 
   one image to another. A workaround could be to drop the home dir volume so that it gets recreated with the new content, however
   that way we lose things like `.bash_history`. To be resolved...
 
+## Running with Podman
+
+Make sure you have the podman socket exposed as the `DOCKER_HOST` env var like:
+
+```
+export DOCKER_HOST=unix:///run/user/1000/podman/podman.sock
+```
+
 ## Resources
 
 * [my image I use with rooz](https://github.com/queil/image/blob/main/src/Dockerfile)
