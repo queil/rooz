@@ -80,11 +80,13 @@ curl -sSL https://github.com/queil/rooz/releases/latest/download/rooz -o ./rooz 
 
 ## Running with Podman
 
-Make sure you have the podman socket exposed as the `DOCKER_HOST` env var like:
+1. Make sure you have the podman socket exposed as the `DOCKER_HOST` env var like:
 
 ```
 export DOCKER_HOST=unix:///run/user/1000/podman/podman.sock
 ```
+
+2. Use fully-qualified image names or define unqualified-search registries `/etc/containers/registries.conf`
 
 ## Resources
 
