@@ -32,6 +32,7 @@ use termion::{async_stdin, terminal_size};
 use tokio::io::AsyncWriteExt;
 use tokio::task::spawn;
 use tokio::time::sleep;
+use users::{get_group_by_name};
 
 const DEFAULT_IMAGE: &'static str = "docker.io/bitnami/git:latest";
 
@@ -684,13 +685,22 @@ async fn ensure_user(
     user: &str,
     uid: &str,
 ) -> Result<(), Box<dyn std::error::Error + 'static>> {
+    
+    let docker_gid = get_group_by_name("docker").unwrap().gid().to_string();
     let ensure_user = format!(
-        r#"NEWUID={}
+        r#"DOCKERGID={}
+NEWUID={}
 NEWUSER={}
 USER_NAME=$(id -u $NEWUID > /dev/null 2>&1 && echo -n $(id -u $NEWUID -n))
 
-echo "Expected user: '$NEWUSER ($NEWUID)'"
+if [ $(getent group docker) ]; then
+  echo "Docker group found. Ensuring GID is $DOCKERGID"
+  groupmod -g $DOCKERGID docker
+else
+  echo "Docker group not found. Skipping."
+fi
 
+echo "Expected user: '$NEWUSER ($NEWUID)'"
 [ "${{NEWUSER}}" = "${{USER_NAME}}" ] && echo "OK. Already exists." && exit
 
 if [ -n "${{USER_NAME}}" ]
@@ -705,8 +715,9 @@ else
 fi
 
 mkdir /home/$NEWUSER && chown $NEWUID /home/$NEWUSER
+
 "#,
-        uid, user
+docker_gid, uid, user
     );
 
     let init_entrypoint = inject(&ensure_user, "entrypoint.sh");
