@@ -80,6 +80,8 @@ curl -sSL https://github.com/queil/rooz/releases/latest/download/rooz -o ./rooz 
 
 ## Running with Podman
 
+:warning: This feature barely works and may be further explored (or not)
+
 1. Make sure you have the podman socket exposed as the `DOCKER_HOST` env var like:
 
 ```
