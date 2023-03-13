@@ -437,7 +437,7 @@ async fn ensure_image(
     let img_chunks = &image.split(':').collect::<Vec<&str>>();
     let mut image_info = docker.create_image(
         Some(CreateImageOptions::<&str> {
-            from_image: &image,
+            from_image: img_chunks[0],
             tag: match img_chunks.len() {
                 2 => img_chunks[1],
                 _ => "latest",
