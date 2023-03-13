@@ -33,7 +33,7 @@ use tokio::io::AsyncWriteExt;
 use tokio::task::spawn;
 use tokio::time::sleep;
 
-const DEFAULT_IMAGE: &'static str = "bitnami/git:latest";
+const DEFAULT_IMAGE: &'static str = "docker.io/bitnami/git:latest";
 
 fn random_suffix(prexif: &str) -> String {
     let suffix: String = thread_rng()
