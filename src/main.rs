@@ -970,6 +970,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
             let orig_image = image;
 
             let (orig_image_id, _) = ensure_image(&docker, &orig_image).await?;
+            ensure_image(&docker, DEFAULT_IMAGE).await?;
 
             let container_name = match &git_ssh_url {
                 Some(url) => to_safe_id(&url)?,
