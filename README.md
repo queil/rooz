@@ -82,13 +82,25 @@ curl -sSL https://github.com/queil/rooz/releases/latest/download/rooz -o ./rooz 
 
 :warning: This feature barely works and may be further explored (or not)
 
-1. Make sure you have the podman socket exposed as the `DOCKER_HOST` env var like:
+1. Make sure podman remote socket is enabled:
+
+`podman info` should contain the following YAML:
+
+```yaml
+remoteSocket:
+    exists: true
+    path: /run/user/1000/podman/podman.sock
+```
+
+If `exists: true` is missing, try this command: `systemctl --user enable --now podman.socket`
+
+2. Make sure you have the podman socket exposed as the `DOCKER_HOST` env var like:
 
 ```
 export DOCKER_HOST=unix:///run/user/1000/podman/podman.sock
 ```
 
-2. Use fully-qualified image names or define unqualified-search registries `/etc/containers/registries.conf`
+3. Use fully-qualified image names or define unqualified-search registries `/etc/containers/registries.conf`
 
 ## Resources
 
