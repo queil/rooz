@@ -791,12 +791,12 @@ async fn ensure_mounts(
     home_dir: &str,
 ) -> Result<Vec<Mount>, Box<dyn std::error::Error + 'static>> {
     let mut mounts = vec![
-        Mount {
-            typ: Some(BIND),
-            source: Some("/var/run/docker.sock".to_string()),
-            target: Some("/var/run/docker.sock".to_string()),
-            ..Default::default()
-        },
+    //  Mount {
+    //        typ: Some(BIND),
+    //        source: Some("/var/run/docker.sock".to_string()),
+    //        target: Some("/var/run/docker.sock".to_string()),
+    //        ..Default::default()
+    //    },
         Mount {
             typ: Some(VOLUME),
             source: Some(ROOZ_SSH_KEY_VOLUME_NAME.into()),
