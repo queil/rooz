@@ -9,6 +9,8 @@
 
 ## Basic facts
 
+* :warning: This project in the current state is unsecure and experimental. DO NOT USE.  
+
 * The first time you run `rooz` it generates you an SSH key pair and stores it in a Docker volume.
   Use that key to authenticate to your repos. They ssh key volume is then shared between all `rooz` containers.
 
