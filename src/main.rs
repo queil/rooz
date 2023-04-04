@@ -7,10 +7,10 @@ use bollard::container::{
 use bollard::errors::Error::{self, DockerResponseServerError};
 use bollard::exec::{CreateExecOptions, ResizeExecOptions, StartExecResults};
 use bollard::image::CreateImageOptions;
-use bollard::models::MountTypeEnum::{BIND, VOLUME};
+use bollard::models::MountTypeEnum::{VOLUME};
 use bollard::models::{CreateImageInfo, HostConfig, Mount};
 use bollard::service::{
-    ContainerConfig, ContainerInspectResponse, ContainerSummary, ImageInspect, Volume,
+    ContainerInspectResponse, ContainerSummary, ImageInspect, Volume,
 };
 use bollard::volume::{CreateVolumeOptions, ListVolumesOptions, RemoveVolumeOptions};
 use bollard::Docker;
@@ -32,17 +32,16 @@ use termion::{async_stdin, terminal_size};
 use tokio::io::AsyncWriteExt;
 use tokio::task::spawn;
 use tokio::time::sleep;
-use users::{get_group_by_name};
 
 const DEFAULT_IMAGE: &'static str = "docker.io/bitnami/git:latest";
 
-fn random_suffix(prexif: &str) -> String {
+fn random_suffix(prefix: &str) -> String {
     let suffix: String = thread_rng()
         .sample_iter(&Alphanumeric)
         .take(7)
         .map(char::from)
         .collect();
-    format!("{}-{}", prexif, suffix)
+    format!("{}-{}", prefix, suffix)
 }
 
 #[derive(Parser, Debug)]
@@ -443,7 +442,6 @@ async fn ensure_image(
             id,
             ..
         } => id.as_deref(),
-        _ => None,
     };
 
     if let None = image_id {
@@ -520,7 +518,6 @@ fn get_clone_dir(root_dir: &str, git_ssh_url: Option<String>) -> String {
 
 async fn git_volume(
     docker: &Docker,
-    uid: &str,
     url: &str,
     target_path: &str,
 ) -> Result<Mount, Box<dyn std::error::Error + 'static>> {
@@ -551,7 +548,6 @@ async fn clone_repo(
     docker: &Docker,
     image: &str,
     image_id: &str,
-    user: &str,
     uid: &str,
     git_ssh_url: Option<String>,
 ) -> Result<(Option<RoozCfg>, Option<String>), Box<dyn std::error::Error + 'static>> {
@@ -569,7 +565,7 @@ async fn clone_repo(
             "clone.sh",
         );
 
-        let git_vol_mount = git_volume(docker, uid, &url, working_dir).await?;
+        let git_vol_mount = git_volume(docker, &url, working_dir).await?;
 
         let container_result = run(
             "git-clone",
@@ -797,8 +793,6 @@ async fn work(
 
     let work_id = &r.id();
 
-    //ensure_user(&docker, &work_id, &user, &uid).await?;
-
     exec_tty(
         "work",
         &docker,
@@ -898,7 +892,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
                 &docker,
                 &orig_image,
                 &orig_image_id,
-                &orig_user,
                 &orig_uid,
                 git_ssh_url.clone(),
             )
@@ -917,7 +910,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
                     let image_id = ensure_image(&docker, &img).await?;
 
                     let clone_dir = get_clone_dir(&work_dir, git_ssh_url.clone());
-                    let git_vol_mount = git_volume(&docker, &orig_uid, &url, &clone_dir).await?;
+                    let git_vol_mount = git_volume(&docker, &url, &clone_dir).await?;
                     let sh = shell.or(Some(orig_shell)).unwrap();
 
                     work(
@@ -937,7 +930,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
                 }
                 (None, Some(url)) => {
                     let clone_dir = get_clone_dir(&work_dir, git_ssh_url.clone());
-                    let git_vol_mount = git_volume(&docker, &orig_uid, &url, &clone_dir).await?;
+                    let git_vol_mount = git_volume(&docker, &url, &clone_dir).await?;
                     work(
                         &docker,
                         &orig_image,
