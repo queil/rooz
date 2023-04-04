@@ -434,61 +434,69 @@ async fn ensure_volume(docker: &Docker, name: &str, role: &str) -> VolumeResult 
 async fn ensure_image(
     docker: &Docker,
     image: &str,
-) -> Result<(String, Option<String>), Box<dyn std::error::Error + 'static>> {
-    let img_chunks = &image.split(':').collect::<Vec<&str>>();
-    let mut image_info = docker.create_image(
-        Some(CreateImageOptions::<&str> {
-            from_image: img_chunks[0],
-            tag: match img_chunks.len() {
-                2 => img_chunks[1],
-                _ => "latest",
-            },
-            ..Default::default()
-        }),
-        None,
-        None,
-    );
-
-    while let Some(l) = image_info.next().await {
-        match l {
-            Ok(CreateImageInfo {
-                id,
-                status: Some(m),
-                progress: p,
-                ..
-            }) => {
-                if let Some(id) = id {
-                    stdout().write_all(&id.as_bytes())?;
-                } else {
-                    println!("");
-                }
-                print!(" ");
-                stdout().write_all(&m.as_bytes())?;
-                print!(" ");
-                if let Some(x) = p {
-                    stdout().write_all(&x.as_bytes())?;
-                };
-                print!("\r");
-            }
-            Ok(msg) => panic!("{:?}", msg),
-            Err(e) => panic!("{}", e),
-        };
-    }
-
-    println!("");
+) -> Result<String, Box<dyn std::error::Error + 'static>> {
+    
     let inspect = docker.inspect_image(&image).await?;
 
-    let user = match &inspect {
+    let image_id = match &inspect {
         ImageInspect {
-            config: Some(ContainerConfig { user: Some(u), .. }),
+            id,
             ..
-        } if !u.is_empty() => Some(u),
+        } => id.as_deref(),
         _ => None,
     };
 
+    if let None = image_id {
+        let img_chunks = &image.split(':').collect::<Vec<&str>>();
+        let mut image_info = docker.create_image(
+            Some(CreateImageOptions::<&str> {
+                from_image: img_chunks[0],
+                tag: match img_chunks.len() {
+                    2 => img_chunks[1],
+                    _ => "latest",
+                },
+                ..Default::default()
+            }),
+            None,
+            None,
+        );
+    
+        while let Some(l) = image_info.next().await {
+            match l {
+                Ok(CreateImageInfo {
+                    id,
+                    status: Some(m),
+                    progress: p,
+                    ..
+                }) => {
+                    if let Some(id) = id {
+                        stdout().write_all(&id.as_bytes())?;
+                    } else {
+                        println!("");
+                    }
+                    print!(" ");
+                    stdout().write_all(&m.as_bytes())?;
+                    print!(" ");
+                    if let Some(x) = p {
+                        stdout().write_all(&x.as_bytes())?;
+                    };
+                    print!("\r");
+                }
+                Ok(msg) => panic!("{:?}", msg),
+                Err(e) => panic!("{}", e),
+            };
+        }
+    
+        println!("");
+    
+    }
+
+    
+   
     let image_id = &inspect.id.as_deref().unwrap();
+    
     log::debug!("Image ID: {}", image_id);
-    Ok((image_id.to_string(), user.map(String::to_string)))
+    Ok(image_id.to_string())
 }
 
 fn get_clone_dir(root_dir: &str, git_ssh_url: Option<String>) -> String {
@@ -536,7 +544,6 @@ async fn git_volume(
         ..Default::default()
     };
 
-    ensure_vol_access(docker, uid, git_vol_mount.clone(), RoozVolumeRole::Git).await?;
     Ok(git_vol_mount)
 }
 
@@ -589,8 +596,6 @@ async fn clone_repo(
         let container_id = container_result.id();
 
         if let ContainerResult::Created { .. } = container_result {
-            ensure_user(docker, container_id, user, uid).await?;
-
             exec_tty(
                 "git-clone",
                 &docker,
@@ -679,124 +684,14 @@ chown -R {} /tmp/.ssh
     Ok(())
 }
 
-async fn ensure_user(
-    docker: &Docker,
-    container_id: &str,
-    user: &str,
-    uid: &str,
-) -> Result<(), Box<dyn std::error::Error + 'static>> {
-    
-    let docker_gid = get_group_by_name("docker").unwrap().gid().to_string();
-    let ensure_user = format!(
-        r#"DOCKERGID={}
-NEWUID={}
-NEWUSER={}
-USER_NAME=$(id -u $NEWUID > /dev/null 2>&1 && echo -n $(id -u $NEWUID -n))
-
-if [ $(getent group docker) ]; then
-  echo "Docker group found. Ensuring GID is $DOCKERGID"
-  groupmod -g $DOCKERGID docker
-else
-  echo "Docker group not found. Skipping."
-fi
-
-echo "Expected user: '$NEWUSER ($NEWUID)'"
-[ "${{NEWUSER}}" = "${{USER_NAME}}" ] && echo "OK. Already exists." && exit
-
-if [ -n "${{USER_NAME}}" ]
-then
-    echo "Another user with uid: '$NEWUID' exists: '$USER_NAME'. Renaming to '$NEWUSER'"
-    usermod --login $NEWUSER $USER_NAME
-else
-    echo "User with uid: '$NEWUID' not found. Creating as '$NEWUSER'"
-
-    (adduser $NEWUSER --uid $NEWUID --no-create-home --disabled-password -gecos "" || \
-     useradd $NEWUSER --uid $NEWUID --no-create-home --no-log-init)
-fi
-
-mkdir /home/$NEWUSER && chown $NEWUID /home/$NEWUSER
-
-"#,
-docker_gid, uid, user
-    );
-
-    let init_entrypoint = inject(&ensure_user, "entrypoint.sh");
-    exec_tty(
-        "ensureuser",
-        docker,
-        container_id,
-        false,
-        None,
-        Some("root"),
-        Some(init_entrypoint.iter().map(String::as_str).collect()),
-    )
-    .await?;
-    Ok(())
-}
-
-async fn ensure_vol_access(
-    docker: &Docker,
-    uid: &str,
-    mount: Mount,
-    role: RoozVolumeRole,
-) -> Result<(), Box<dyn std::error::Error + 'static>> {
-    let target_dir = mount.clone().target.unwrap();
-
-    let dummy_file = if let RoozVolumeRole::Work = role {
-        format!(
-            r#"[ -z "$(ls -A {} 2>/dev/null)" ] && touch .rooz"#,
-            &target_dir
-        )
-    } else {
-        "".into()
-    };
-
-    let cmd = format!(
-        r#"{}
-chown {} {}"#,
-        dummy_file, uid, target_dir
-    );
-    let entrypoint = inject(&cmd, "entrypoint.sh");
-
-    let result = run(
-        "vol-access",
-        &docker,
-        DEFAULT_IMAGE,
-        "ignore",
-        Some("root"),
-        Some(&target_dir),
-        &random_suffix("rooz-vol-access"),
-        Some(vec![mount.clone()]),
-        Some(entrypoint.iter().map(String::as_str).collect()),
-    )
-    .await?;
-
-    log::debug!(
-        "[vol-access] {} ({}:{})",
-        &cmd,
-        mount.clone().source.unwrap(),
-        role.as_str()
-    );
-
-    container_logs_to_stdout(docker, result.id()).await?;
-
-    Ok(())
-}
-
 async fn ensure_mounts(
     docker: &Docker,
-    uid: &str,
     volumes: Vec<RoozVolume>,
     is_ephemeral: bool,
     home_dir: &str,
 ) -> Result<Vec<Mount>, Box<dyn std::error::Error + 'static>> {
     let mut mounts = vec![
-    //  Mount {
-    //        typ: Some(BIND),
-    //        source: Some("/var/run/docker.sock".to_string()),
-    //        target: Some("/var/run/docker.sock".to_string()),
-    //        ..Default::default()
-    //    },
+
         Mount {
             typ: Some(VOLUME),
             source: Some(ROOZ_SSH_KEY_VOLUME_NAME.into()),
@@ -828,8 +723,6 @@ async fn ensure_mounts(
             read_only: Some(false),
             ..Default::default()
         };
-
-        ensure_vol_access(docker, uid, mount.clone(), v.role).await?;
 
         mounts.push(mount);
     }
@@ -883,7 +776,7 @@ async fn work(
         volumes.extend_from_slice(cache_vols.clone().as_slice());
     };
 
-    let mut mounts = ensure_mounts(&docker, &uid, volumes, is_ephemeral, &home_dir).await?;
+    let mut mounts = ensure_mounts(&docker, volumes, is_ephemeral, &home_dir).await?;
 
     if let Some(m) = git_vol_mount {
         mounts.push(m.clone());
@@ -904,7 +797,7 @@ async fn work(
 
     let work_id = &r.id();
 
-    ensure_user(&docker, &work_id, &user, &uid).await?;
+    //ensure_user(&docker, &work_id, &user, &uid).await?;
 
     exec_tty(
         "work",
@@ -924,8 +817,12 @@ async fn work(
 async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
     env_logger::init();
 
+    log::debug!("Started");
+
     let args = Cli::parse();
     let docker = Docker::connect_with_local_defaults().expect("Docker API connection established");
+
+    log::debug!("API connected");
 
     match args {
         Cli {
@@ -980,8 +877,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
             let orig_uid = "1000".to_string();
             let orig_image = image;
 
-            let (orig_image_id, _) = ensure_image(&docker, &orig_image).await?;
-            ensure_image(&docker, DEFAULT_IMAGE).await?;
+            let orig_image_id = ensure_image(&docker, &orig_image).await?;
 
             let container_name = match &git_ssh_url {
                 Some(url) => to_safe_id(&url)?,
@@ -1018,7 +914,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
                     Some(url),
                 ) => {
                     log::debug!("Image config read from .rooz.toml in the cloned repo");
-                    let (image_id, _) = ensure_image(&docker, &img).await?;
+                    let image_id = ensure_image(&docker, &img).await?;
 
                     let clone_dir = get_clone_dir(&work_dir, git_ssh_url.clone());
                     let git_vol_mount = git_volume(&docker, &orig_uid, &url, &clone_dir).await?;
