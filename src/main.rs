@@ -7,11 +7,9 @@ use bollard::container::{
 use bollard::errors::Error::{self, DockerResponseServerError};
 use bollard::exec::{CreateExecOptions, ResizeExecOptions, StartExecResults};
 use bollard::image::CreateImageOptions;
-use bollard::models::MountTypeEnum::{VOLUME};
+use bollard::models::MountTypeEnum::VOLUME;
 use bollard::models::{CreateImageInfo, HostConfig, Mount};
-use bollard::service::{
-    ContainerInspectResponse, ContainerSummary, ImageInspect, Volume,
-};
+use bollard::service::{ContainerInspectResponse, ContainerSummary, ImageInspect, Volume};
 use bollard::volume::{CreateVolumeOptions, ListVolumesOptions, RemoveVolumeOptions};
 use bollard::Docker;
 use clap::Parser;
@@ -434,67 +432,58 @@ async fn ensure_image(
     docker: &Docker,
     image: &str,
 ) -> Result<String, Box<dyn std::error::Error + 'static>> {
-    
-    let inspect = docker.inspect_image(&image).await?;
+    let image_id = match docker.inspect_image(&image).await {
+        Ok(ImageInspect { id, .. }) => id,
+        Err(DockerResponseServerError {
+            status_code: 404, ..
+        }) => {
+            println!("Pulling image: {}", &image);
+            let img_chunks = &image.split(':').collect::<Vec<&str>>();
+            let mut image_info = docker.create_image(
+                Some(CreateImageOptions::<&str> {
+                    from_image: img_chunks[0],
+                    tag: match img_chunks.len() {
+                        2 => img_chunks[1],
+                        _ => "latest",
+                    },
+                    ..Default::default()
+                }),
+                None,
+                None,
+            );
 
-    let image_id = match &inspect {
-        ImageInspect {
-            id,
-            ..
-        } => id.as_deref(),
+            while let Some(l) = image_info.next().await {
+                match l {
+                    Ok(CreateImageInfo {
+                        id,
+                        status: Some(m),
+                        progress: p,
+                        ..
+                    }) => {
+                        if let Some(id) = id {
+                            stdout().write_all(&id.as_bytes())?;
+                        } else {
+                            println!("");
+                        }
+                        print!(" ");
+                        stdout().write_all(&m.as_bytes())?;
+                        print!(" ");
+                        if let Some(x) = p {
+                            stdout().write_all(&x.as_bytes())?;
+                        };
+                        print!("\r");
+                    }
+                    Ok(msg) => panic!("{:?}", msg),
+                    Err(e) => panic!("{}", e),
+                };
+            }
+            docker.inspect_image(&image).await?.id
+        }
+        Err(e) => panic!("{:?}", e),
     };
 
-    if let None = image_id {
-        let img_chunks = &image.split(':').collect::<Vec<&str>>();
-        let mut image_info = docker.create_image(
-            Some(CreateImageOptions::<&str> {
-                from_image: img_chunks[0],
-                tag: match img_chunks.len() {
-                    2 => img_chunks[1],
-                    _ => "latest",
-                },
-                ..Default::default()
-            }),
-            None,
-            None,
-        );
-    
-        while let Some(l) = image_info.next().await {
-            match l {
-                Ok(CreateImageInfo {
-                    id,
-                    status: Some(m),
-                    progress: p,
-                    ..
-                }) => {
-                    if let Some(id) = id {
-                        stdout().write_all(&id.as_bytes())?;
-                    } else {
-                        println!("");
-                    }
-                    print!(" ");
-                    stdout().write_all(&m.as_bytes())?;
-                    print!(" ");
-                    if let Some(x) = p {
-                        stdout().write_all(&x.as_bytes())?;
-                    };
-                    print!("\r");
-                }
-                Ok(msg) => panic!("{:?}", msg),
-                Err(e) => panic!("{}", e),
-            };
-        }
-    
-        println!("");
-    
-    }
-
-    
-   
-    let image_id = &inspect.id.as_deref().unwrap();
-    
-    log::debug!("Image ID: {}", image_id);
-    Ok(image_id.to_string())
+    log::debug!("Image ID: {:?}", image_id);
+    Ok(image_id.unwrap())
 }
 
 fn get_clone_dir(root_dir: &str, git_ssh_url: Option<String>) -> String {
@@ -686,21 +675,18 @@ async fn ensure_mounts(
     is_ephemeral: bool,
     home_dir: &str,
 ) -> Result<Vec<Mount>, Box<dyn std::error::Error + 'static>> {
-    let mut mounts = vec![
-
-        Mount {
-            typ: Some(VOLUME),
-            source: Some(ROOZ_SSH_KEY_VOLUME_NAME.into()),
-            target: Some(
-                Path::new(home_dir)
-                    .join(".ssh")
-                    .to_string_lossy()
-                    .to_string(),
-            ),
-            read_only: Some(true),
-            ..Default::default()
-        },
-    ];
+    let mut mounts = vec![Mount {
+        typ: Some(VOLUME),
+        source: Some(ROOZ_SSH_KEY_VOLUME_NAME.into()),
+        target: Some(
+            Path::new(home_dir)
+                .join(".ssh")
+                .to_string_lossy()
+                .to_string(),
+        ),
+        read_only: Some(true),
+        ..Default::default()
+    }];
 
     if is_ephemeral {
         return Ok(mounts.clone());
