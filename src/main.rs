@@ -48,12 +48,16 @@ struct Cli {
     git_ssh_url: Option<String>,
     #[arg(short, long, default_value = DEFAULT_IMAGE, env = "ROOZ_IMAGE")]
     image: String,
+    #[arg(short, long)]
+    pull_image: bool,
     #[arg(short, long, default_value = "bash", env = "ROOZ_SHELL")]
     shell: String,
     #[arg(short, long, default_value = "rooz_user", env = "ROOZ_USER")]
     user: String,
-    #[arg(short, long)]
+    #[arg(long)]
     prune: bool,
+    #[arg(short, long)]
+    disable_selinux: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -299,6 +303,7 @@ async fn run(
     container_name: &str,
     mounts: Option<Vec<Mount>>,
     entrypoint: Option<Vec<&str>>,
+    disable_selinux: bool,
 ) -> Result<ContainerResult, Box<dyn std::error::Error + 'static>> {
     log::debug!(
         "[{}]: running {} as {:?} using image {}",
@@ -332,6 +337,7 @@ async fn run(
             let host_config = HostConfig {
                 auto_remove: Some(true),
                 mounts,
+                security_opt: if disable_selinux {Some(vec!["label=disable".to_string()])} else { None },
                 ..Default::default()
             };
 
@@ -428,57 +434,64 @@ async fn ensure_volume(docker: &Docker, name: &str, role: &str) -> VolumeResult 
     }
 }
 
+async fn pull_image( docker: &Docker,
+    image: &str)  -> Result<Option<String>, Box<dyn std::error::Error + 'static>> {
+    println!("Pulling image: {}", &image);
+    let img_chunks = &image.split(':').collect::<Vec<&str>>();
+    let mut image_info = docker.create_image(
+        Some(CreateImageOptions::<&str> {
+            from_image: img_chunks[0],
+            tag: match img_chunks.len() {
+                2 => img_chunks[1],
+                _ => "latest",
+            },
+            ..Default::default()
+        }),
+        None,
+        None,
+    );
+
+    while let Some(l) = image_info.next().await {
+        match l {
+            Ok(CreateImageInfo {
+                id,
+                status: Some(m),
+                progress: p,
+                ..
+            }) => {
+                if let Some(id) = id {
+                    stdout().write_all(&id.as_bytes())?;
+                } else {
+                    println!("");
+                }
+                print!(" ");
+                stdout().write_all(&m.as_bytes())?;
+                print!(" ");
+                if let Some(x) = p {
+                    stdout().write_all(&x.as_bytes())?;
+                };
+                print!("\r");
+            }
+            Ok(msg) => panic!("{:?}", msg),
+            Err(Error::DockerStreamError { error }) => eprintln!("{}", error),
+            e => panic!("{:?}", e),
+        };
+    }
+    Ok(docker.inspect_image(&image).await?.id)
+}
+
 async fn ensure_image(
     docker: &Docker,
     image: &str,
+    pull: bool
 ) -> Result<String, Box<dyn std::error::Error + 'static>> {
     let image_id = match docker.inspect_image(&image).await {
-        Ok(ImageInspect { id, .. }) => id,
+        Ok(ImageInspect { id, .. }) => {
+          if pull { pull_image(docker, image).await? } else { id }
+        },
         Err(DockerResponseServerError {
             status_code: 404, ..
-        }) => {
-            println!("Pulling image: {}", &image);
-            let img_chunks = &image.split(':').collect::<Vec<&str>>();
-            let mut image_info = docker.create_image(
-                Some(CreateImageOptions::<&str> {
-                    from_image: img_chunks[0],
-                    tag: match img_chunks.len() {
-                        2 => img_chunks[1],
-                        _ => "latest",
-                    },
-                    ..Default::default()
-                }),
-                None,
-                None,
-            );
-
-            while let Some(l) = image_info.next().await {
-                match l {
-                    Ok(CreateImageInfo {
-                        id,
-                        status: Some(m),
-                        progress: p,
-                        ..
-                    }) => {
-                        if let Some(id) = id {
-                            stdout().write_all(&id.as_bytes())?;
-                        } else {
-                            println!("");
-                        }
-                        print!(" ");
-                        stdout().write_all(&m.as_bytes())?;
-                        print!(" ");
-                        if let Some(x) = p {
-                            stdout().write_all(&x.as_bytes())?;
-                        };
-                        print!("\r");
-                    }
-                    Ok(msg) => panic!("{:?}", msg),
-                    Err(e) => panic!("{}", e),
-                };
-            }
-            docker.inspect_image(&image).await?.id
-        }
+        }) => pull_image(docker, image).await?,
         Err(e) => panic!("{:?}", e),
     };
 
@@ -575,6 +588,7 @@ async fn clone_repo(
                 },
             ]),
             Some(vec!["cat"]),
+            false,
         )
         .await?;
 
@@ -661,6 +675,7 @@ chown -R {} /tmp/.ssh
             ..Default::default()
         }]),
         Some(init_entrypoint.iter().map(String::as_str).collect()),
+        false,
     )
     .await?;
 
@@ -724,6 +739,7 @@ async fn work(
     is_ephemeral: bool,
     git_vol_mount: Option<Mount>,
     caches: Option<Vec<String>>,
+    disable_selinux: bool,
 ) -> Result<(), Box<dyn std::error::Error + 'static>> {
     let home_dir = format!("/home/{}", &user);
     let work_dir = format!("{}/work", &home_dir);
@@ -774,6 +790,7 @@ async fn work(
         &container_name,
         Some(mounts),
         Some(vec!["cat"]),
+        disable_selinux
     )
     .await?;
 
@@ -808,10 +825,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
         Cli {
             git_ssh_url,
             image,
+            pull_image,
             shell,
             user,
             //work_dir,
             prune,
+            disable_selinux,
         } => {
             let ephemeral = false; // ephemeral containers won't be supported at the moment
             if prune {
@@ -857,7 +876,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
             let orig_uid = "1000".to_string();
             let orig_image = image;
 
-            let orig_image_id = ensure_image(&docker, &orig_image).await?;
+            let orig_image_id = ensure_image(&docker, &orig_image, pull_image).await?;
 
             let container_name = match &git_ssh_url {
                 Some(url) => to_safe_id(&url)?,
@@ -893,7 +912,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
                     Some(url),
                 ) => {
                     log::debug!("Image config read from .rooz.toml in the cloned repo");
-                    let image_id = ensure_image(&docker, &img).await?;
+                    let image_id = ensure_image(&docker, &img, pull_image).await?;
 
                     let clone_dir = get_clone_dir(&work_dir, git_ssh_url.clone());
                     let git_vol_mount = git_volume(&docker, &url, &clone_dir).await?;
@@ -911,6 +930,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
                         ephemeral,
                         Some(git_vol_mount),
                         caches,
+                        disable_selinux
                     )
                     .await?
                 }
@@ -929,6 +949,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
                         ephemeral,
                         Some(git_vol_mount),
                         None,
+                        disable_selinux
                     )
                     .await?
                 }
@@ -946,6 +967,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
                         ephemeral,
                         None,
                         None,
+                        disable_selinux
                     )
                     .await?
                 }
