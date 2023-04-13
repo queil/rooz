@@ -1,5 +1,9 @@
 # rooz
 
+TLDR: Rooz is a tool similar to [toolbox](https://docs.fedoraproject.org/en-US/fedora-silverblue/toolbox/)
+or [distrobox](https://github.com/89luca89/distrobox) but unlike them it aims to share as little as possible with the host.
+Also it is focused around git repositories.
+
 ## Trick yourself into feeling home in a container.
 
 * Let's make the host just have your browser, your VS Code, and your containers runtime.
