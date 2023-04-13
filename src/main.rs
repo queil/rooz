@@ -7,11 +7,9 @@ use bollard::container::{
 use bollard::errors::Error::{self, DockerResponseServerError};
 use bollard::exec::{CreateExecOptions, ResizeExecOptions, StartExecResults};
 use bollard::image::CreateImageOptions;
-use bollard::models::MountTypeEnum::{BIND, VOLUME};
+use bollard::models::MountTypeEnum::VOLUME;
 use bollard::models::{CreateImageInfo, HostConfig, Mount};
-use bollard::service::{
-    ContainerConfig, ContainerInspectResponse, ContainerSummary, ImageInspect, Volume,
-};
+use bollard::service::{ContainerInspectResponse, ContainerSummary, ImageInspect, Volume};
 use bollard::volume::{CreateVolumeOptions, ListVolumesOptions, RemoveVolumeOptions};
 use bollard::Docker;
 use clap::Parser;
@@ -32,17 +30,16 @@ use termion::{async_stdin, terminal_size};
 use tokio::io::AsyncWriteExt;
 use tokio::task::spawn;
 use tokio::time::sleep;
-use users::{get_group_by_name};
 
 const DEFAULT_IMAGE: &'static str = "docker.io/bitnami/git:latest";
 
-fn random_suffix(prexif: &str) -> String {
+fn random_suffix(prefix: &str) -> String {
     let suffix: String = thread_rng()
         .sample_iter(&Alphanumeric)
         .take(7)
         .map(char::from)
         .collect();
-    format!("{}-{}", prexif, suffix)
+    format!("{}-{}", prefix, suffix)
 }
 
 #[derive(Parser, Debug)]
@@ -51,12 +48,16 @@ struct Cli {
     git_ssh_url: Option<String>,
     #[arg(short, long, default_value = DEFAULT_IMAGE, env = "ROOZ_IMAGE")]
     image: String,
+    #[arg(short, long)]
+    pull_image: bool,
     #[arg(short, long, default_value = "bash", env = "ROOZ_SHELL")]
     shell: String,
     #[arg(short, long, default_value = "rooz_user", env = "ROOZ_USER")]
     user: String,
-    #[arg(short, long)]
+    #[arg(long)]
     prune: bool,
+    #[arg(short, long)]
+    disable_selinux: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -302,6 +303,7 @@ async fn run(
     container_name: &str,
     mounts: Option<Vec<Mount>>,
     entrypoint: Option<Vec<&str>>,
+    disable_selinux: bool,
 ) -> Result<ContainerResult, Box<dyn std::error::Error + 'static>> {
     log::debug!(
         "[{}]: running {} as {:?} using image {}",
@@ -335,6 +337,7 @@ async fn run(
             let host_config = HostConfig {
                 auto_remove: Some(true),
                 mounts,
+                security_opt: if disable_selinux {Some(vec!["label=disable".to_string()])} else { None },
                 ..Default::default()
             };
 
@@ -431,10 +434,9 @@ async fn ensure_volume(docker: &Docker, name: &str, role: &str) -> VolumeResult 
     }
 }
 
-async fn ensure_image(
-    docker: &Docker,
-    image: &str,
-) -> Result<(String, Option<String>), Box<dyn std::error::Error + 'static>> {
+async fn pull_image( docker: &Docker,
+    image: &str)  -> Result<Option<String>, Box<dyn std::error::Error + 'static>> {
+    println!("Pulling image: {}", &image);
     let img_chunks = &image.split(':').collect::<Vec<&str>>();
     let mut image_info = docker.create_image(
         Some(CreateImageOptions::<&str> {
@@ -471,24 +473,30 @@ async fn ensure_image(
                 print!("\r");
             }
             Ok(msg) => panic!("{:?}", msg),
-            Err(e) => panic!("{}", e),
+            Err(Error::DockerStreamError { error }) => eprintln!("{}", error),
+            e => panic!("{:?}", e),
         };
     }
+    Ok(docker.inspect_image(&image).await?.id)
+}
 
-    println!("");
-    let inspect = docker.inspect_image(&image).await?;
-
-    let user = match &inspect {
-        ImageInspect {
-            config: Some(ContainerConfig { user: Some(u), .. }),
-            ..
-        } if !u.is_empty() => Some(u),
-        _ => None,
+async fn ensure_image(
+    docker: &Docker,
+    image: &str,
+    pull: bool
+) -> Result<String, Box<dyn std::error::Error + 'static>> {
+    let image_id = match docker.inspect_image(&image).await {
+        Ok(ImageInspect { id, .. }) => {
+          if pull { pull_image(docker, image).await? } else { id }
+        },
+        Err(DockerResponseServerError {
+            status_code: 404, ..
+        }) => pull_image(docker, image).await?,
+        Err(e) => panic!("{:?}", e),
     };
 
-    let image_id = &inspect.id.as_deref().unwrap();
-    log::debug!("Image ID: {}", image_id);
-    Ok((image_id.to_string(), user.map(String::to_string)))
+    log::debug!("Image ID: {:?}", image_id);
+    Ok(image_id.unwrap())
 }
 
 fn get_clone_dir(root_dir: &str, git_ssh_url: Option<String>) -> String {
@@ -512,7 +520,6 @@ fn get_clone_dir(root_dir: &str, git_ssh_url: Option<String>) -> String {
 
 async fn git_volume(
     docker: &Docker,
-    uid: &str,
     url: &str,
     target_path: &str,
 ) -> Result<Mount, Box<dyn std::error::Error + 'static>> {
@@ -536,7 +543,6 @@ async fn git_volume(
         ..Default::default()
     };
 
-    ensure_vol_access(docker, uid, git_vol_mount.clone(), RoozVolumeRole::Git).await?;
     Ok(git_vol_mount)
 }
 
@@ -544,7 +550,6 @@ async fn clone_repo(
     docker: &Docker,
     image: &str,
     image_id: &str,
-    user: &str,
     uid: &str,
     git_ssh_url: Option<String>,
 ) -> Result<(Option<RoozCfg>, Option<String>), Box<dyn std::error::Error + 'static>> {
@@ -562,7 +567,7 @@ async fn clone_repo(
             "clone.sh",
         );
 
-        let git_vol_mount = git_volume(docker, uid, &url, working_dir).await?;
+        let git_vol_mount = git_volume(docker, &url, working_dir).await?;
 
         let container_result = run(
             "git-clone",
@@ -583,14 +588,13 @@ async fn clone_repo(
                 },
             ]),
             Some(vec!["cat"]),
+            false,
         )
         .await?;
 
         let container_id = container_result.id();
 
         if let ContainerResult::Created { .. } = container_result {
-            ensure_user(docker, container_id, user, uid).await?;
-
             exec_tty(
                 "git-clone",
                 &docker,
@@ -671,112 +675,9 @@ chown -R {} /tmp/.ssh
             ..Default::default()
         }]),
         Some(init_entrypoint.iter().map(String::as_str).collect()),
-    )
-    .await?;
-
-    container_logs_to_stdout(docker, result.id()).await?;
-
-    Ok(())
-}
-
-async fn ensure_user(
-    docker: &Docker,
-    container_id: &str,
-    user: &str,
-    uid: &str,
-) -> Result<(), Box<dyn std::error::Error + 'static>> {
-    
-    let docker_gid = get_group_by_name("docker").unwrap().gid().to_string();
-    let ensure_user = format!(
-        r#"DOCKERGID={}
-NEWUID={}
-NEWUSER={}
-USER_NAME=$(id -u $NEWUID > /dev/null 2>&1 && echo -n $(id -u $NEWUID -n))
-
-if [ $(getent group docker) ]; then
-  echo "Docker group found. Ensuring GID is $DOCKERGID"
-  groupmod -g $DOCKERGID docker
-else
-  echo "Docker group not found. Skipping."
-fi
-
-echo "Expected user: '$NEWUSER ($NEWUID)'"
-[ "${{NEWUSER}}" = "${{USER_NAME}}" ] && echo "OK. Already exists." && exit
-
-if [ -n "${{USER_NAME}}" ]
-then
-    echo "Another user with uid: '$NEWUID' exists: '$USER_NAME'. Renaming to '$NEWUSER'"
-    usermod --login $NEWUSER $USER_NAME
-else
-    echo "User with uid: '$NEWUID' not found. Creating as '$NEWUSER'"
-
-    (adduser $NEWUSER --uid $NEWUID --no-create-home --disabled-password -gecos "" || \
-     useradd $NEWUSER --uid $NEWUID --no-create-home --no-log-init)
-fi
-
-mkdir /home/$NEWUSER && chown $NEWUID /home/$NEWUSER
-
-"#,
-docker_gid, uid, user
-    );
-
-    let init_entrypoint = inject(&ensure_user, "entrypoint.sh");
-    exec_tty(
-        "ensureuser",
-        docker,
-        container_id,
         false,
-        None,
-        Some("root"),
-        Some(init_entrypoint.iter().map(String::as_str).collect()),
     )
     .await?;
-    Ok(())
-}
-
-async fn ensure_vol_access(
-    docker: &Docker,
-    uid: &str,
-    mount: Mount,
-    role: RoozVolumeRole,
-) -> Result<(), Box<dyn std::error::Error + 'static>> {
-    let target_dir = mount.clone().target.unwrap();
-
-    let dummy_file = if let RoozVolumeRole::Work = role {
-        format!(
-            r#"[ -z "$(ls -A {} 2>/dev/null)" ] && touch .rooz"#,
-            &target_dir
-        )
-    } else {
-        "".into()
-    };
-
-    let cmd = format!(
-        r#"{}
-chown {} {}"#,
-        dummy_file, uid, target_dir
-    );
-    let entrypoint = inject(&cmd, "entrypoint.sh");
-
-    let result = run(
-        "vol-access",
-        &docker,
-        DEFAULT_IMAGE,
-        "ignore",
-        Some("root"),
-        Some(&target_dir),
-        &random_suffix("rooz-vol-access"),
-        Some(vec![mount.clone()]),
-        Some(entrypoint.iter().map(String::as_str).collect()),
-    )
-    .await?;
-
-    log::debug!(
-        "[vol-access] {} ({}:{})",
-        &cmd,
-        mount.clone().source.unwrap(),
-        role.as_str()
-    );
 
     container_logs_to_stdout(docker, result.id()).await?;
 
@@ -785,31 +686,22 @@ chown {} {}"#,
 
 async fn ensure_mounts(
     docker: &Docker,
-    uid: &str,
     volumes: Vec<RoozVolume>,
     is_ephemeral: bool,
     home_dir: &str,
 ) -> Result<Vec<Mount>, Box<dyn std::error::Error + 'static>> {
-    let mut mounts = vec![
-    //  Mount {
-    //        typ: Some(BIND),
-    //        source: Some("/var/run/docker.sock".to_string()),
-    //        target: Some("/var/run/docker.sock".to_string()),
-    //        ..Default::default()
-    //    },
-        Mount {
-            typ: Some(VOLUME),
-            source: Some(ROOZ_SSH_KEY_VOLUME_NAME.into()),
-            target: Some(
-                Path::new(home_dir)
-                    .join(".ssh")
-                    .to_string_lossy()
-                    .to_string(),
-            ),
-            read_only: Some(true),
-            ..Default::default()
-        },
-    ];
+    let mut mounts = vec![Mount {
+        typ: Some(VOLUME),
+        source: Some(ROOZ_SSH_KEY_VOLUME_NAME.into()),
+        target: Some(
+            Path::new(home_dir)
+                .join(".ssh")
+                .to_string_lossy()
+                .to_string(),
+        ),
+        read_only: Some(true),
+        ..Default::default()
+    }];
 
     if is_ephemeral {
         return Ok(mounts.clone());
@@ -829,8 +721,6 @@ async fn ensure_mounts(
             ..Default::default()
         };
 
-        ensure_vol_access(docker, uid, mount.clone(), v.role).await?;
-
         mounts.push(mount);
     }
 
@@ -849,6 +739,7 @@ async fn work(
     is_ephemeral: bool,
     git_vol_mount: Option<Mount>,
     caches: Option<Vec<String>>,
+    disable_selinux: bool,
 ) -> Result<(), Box<dyn std::error::Error + 'static>> {
     let home_dir = format!("/home/{}", &user);
     let work_dir = format!("{}/work", &home_dir);
@@ -883,7 +774,7 @@ async fn work(
         volumes.extend_from_slice(cache_vols.clone().as_slice());
     };
 
-    let mut mounts = ensure_mounts(&docker, &uid, volumes, is_ephemeral, &home_dir).await?;
+    let mut mounts = ensure_mounts(&docker, volumes, is_ephemeral, &home_dir).await?;
 
     if let Some(m) = git_vol_mount {
         mounts.push(m.clone());
@@ -899,12 +790,11 @@ async fn work(
         &container_name,
         Some(mounts),
         Some(vec!["cat"]),
+        disable_selinux
     )
     .await?;
 
     let work_id = &r.id();
-
-    ensure_user(&docker, &work_id, &user, &uid).await?;
 
     exec_tty(
         "work",
@@ -924,17 +814,23 @@ async fn work(
 async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
     env_logger::init();
 
+    log::debug!("Started");
+
     let args = Cli::parse();
     let docker = Docker::connect_with_local_defaults().expect("Docker API connection established");
+
+    log::debug!("API connected");
 
     match args {
         Cli {
             git_ssh_url,
             image,
+            pull_image,
             shell,
             user,
             //work_dir,
             prune,
+            disable_selinux,
         } => {
             let ephemeral = false; // ephemeral containers won't be supported at the moment
             if prune {
@@ -980,8 +876,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
             let orig_uid = "1000".to_string();
             let orig_image = image;
 
-            let (orig_image_id, _) = ensure_image(&docker, &orig_image).await?;
-            ensure_image(&docker, DEFAULT_IMAGE).await?;
+            let orig_image_id = ensure_image(&docker, &orig_image, pull_image).await?;
 
             let container_name = match &git_ssh_url {
                 Some(url) => to_safe_id(&url)?,
@@ -1002,7 +897,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
                 &docker,
                 &orig_image,
                 &orig_image_id,
-                &orig_user,
                 &orig_uid,
                 git_ssh_url.clone(),
             )
@@ -1018,10 +912,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
                     Some(url),
                 ) => {
                     log::debug!("Image config read from .rooz.toml in the cloned repo");
-                    let (image_id, _) = ensure_image(&docker, &img).await?;
+                    let image_id = ensure_image(&docker, &img, pull_image).await?;
 
                     let clone_dir = get_clone_dir(&work_dir, git_ssh_url.clone());
-                    let git_vol_mount = git_volume(&docker, &orig_uid, &url, &clone_dir).await?;
+                    let git_vol_mount = git_volume(&docker, &url, &clone_dir).await?;
                     let sh = shell.or(Some(orig_shell)).unwrap();
 
                     work(
@@ -1036,12 +930,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
                         ephemeral,
                         Some(git_vol_mount),
                         caches,
+                        disable_selinux
                     )
                     .await?
                 }
                 (None, Some(url)) => {
                     let clone_dir = get_clone_dir(&work_dir, git_ssh_url.clone());
-                    let git_vol_mount = git_volume(&docker, &orig_uid, &url, &clone_dir).await?;
+                    let git_vol_mount = git_volume(&docker, &url, &clone_dir).await?;
                     work(
                         &docker,
                         &orig_image,
@@ -1054,6 +949,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
                         ephemeral,
                         Some(git_vol_mount),
                         None,
+                        disable_selinux
                     )
                     .await?
                 }
@@ -1071,6 +967,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
                         ephemeral,
                         None,
                         None,
+                        disable_selinux
                     )
                     .await?
                 }

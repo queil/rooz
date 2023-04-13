@@ -2,16 +2,16 @@
 
 ## Trick yourself into feeling home in a container.
 
-* Let's make the host just have your browser, your VS Code, and your Docker.
-* Let's do everything else in containers; store everything in Docker volumes.
-* Let's bring your own Docker image with tooling & config.
+* Let's make the host just have your browser, your VS Code, and your containers runtime.
+* Let's do everything else in containers; store everything in container volumes.
+* Let's bring your own OCI image with tooling & config.
 * Let's see what happens...
 
 ## Basic facts
 
 * :warning: This project in the current state is unsecure and experimental. DO NOT USE.  
 
-* The first time you run `rooz` it generates you an SSH key pair and stores it in a Docker volume.
+* The first time you run `rooz` it generates you an SSH key pair and stores it in a container volume.
   Use that key to authenticate to your repos. They ssh key volume is then shared between all `rooz` containers.
 
 * If you just run `rooz` it launches a free-style container, i.e. doesn't clone anything.
@@ -26,7 +26,7 @@
     shell = "bash"
     ```
 
-* `rooz` runs as uid `1000` (always - it's hard-coded) so either make sure it exists in your image or rooz will attempt to auto-create it
+* `rooz` runs as uid `1000` (always - it's hard-coded) so either make sure it exists in your image
 (with `rooz_user` as the name - it can be overridden via `ROOZ_USER` or `--user`)
 * the default shell is `bash` but you can override it via:
     * `ROOZ_SHELL` env var
@@ -42,7 +42,7 @@
     ]
     ```
 
-    All the repos specyfing a cache path will share a Docker volume mounted at that path enabling cache reuse.
+    All the repos specifying a cache path will share a container volume mounted at that path enabling cache reuse.
 
 * you enable `rooz` debug logging by setting `RUST_LOG=rooz` env variable
 
@@ -50,12 +50,6 @@
   the ssh key volume. If you want to delete it do: `docker volume rm --force rooz-ssh-key-vol`
 
   :warning: `rooz --prune` deletes all your state held with `rooz` so make sure everything important is stored before.
-
-## Tips & tricks:
-
-* You can use docker as if you were on the host - just include the docker cli with the build and compose plugins in your image.
-`rooz` auto-mounts the host's Docker sock into all the containers it launches. P.S. this is not DinD, this is DooD (Docker outside of Docker)
-* You can install `rooz` in your image and then launch `rooz` in containers *ad infinitum*
 
 ## Limitations
 
@@ -73,7 +67,7 @@ curl -sSL https://github.com/queil/rooz/releases/latest/download/rooz -o ./rooz 
 
 ## Known issues
 
-* When a volume is first crated Docker automatically populates it from the image
+* When a volume is first crated container automatically populates it from the image
   (assuming there are any files in the corresponding directory in the image). It only happens if
   the volume is empty. So if you try to mount pre-existing volumes to a container with a new image the volumes' contents won't be updated.
   It is particularly annoying with the home dir volume as it holds user-specific configurations and may be wildly different from
@@ -81,8 +75,6 @@ curl -sSL https://github.com/queil/rooz/releases/latest/download/rooz -o ./rooz 
   that way we lose things like `.bash_history`. To be resolved...
 
 ## Running with Podman
-
-:warning: This feature barely works and may be further explored (or not)
 
 1. Make sure podman remote socket is enabled:
 
