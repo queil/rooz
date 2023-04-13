@@ -26,7 +26,7 @@
     shell = "bash"
     ```
 
-* `rooz` runs as uid `1000` (always - it's hard-coded) so either make sure it exists in your image
+* `rooz` runs as uid `1000` (always - it's hard-coded) so make sure it exists in your image
 (with `rooz_user` as the name - it can be overridden via `ROOZ_USER` or `--user`)
 * the default shell is `bash` but you can override it via:
     * `ROOZ_SHELL` env var
@@ -55,7 +55,7 @@
 
 * Experiment/POC so may contains traces of bugs, (or even some whole bugs)
 * So far `linux-amd64` only
-* This is my first Rust project (learning the language) so please excuse my the code quality here
+* This is my first Rust project (learning the language) so please excuse me the code quality here
 * rooz's `known_hosts` only contains github.com entries
 * Only tested with some alpine and ubuntu images. It may work with other distros too.
 
