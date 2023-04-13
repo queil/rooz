@@ -74,6 +74,8 @@ curl -sSL https://github.com/queil/rooz/releases/latest/download/rooz -o ./rooz 
   one image to another. A workaround could be to drop the home dir volume so that it gets recreated with the new content, however
   that way we lose things like `.bash_history`. To be resolved...
 
+* auto-resizing rooz session to fit the terminal window (if resized) is not implemented
+
 ## Running with Podman
 
 1. Make sure podman remote socket is enabled:
@@ -95,6 +97,9 @@ export DOCKER_HOST=unix:///run/user/1000/podman/podman.sock
 ```
 
 3. Use fully-qualified image names or define unqualified-search registries `/etc/containers/registries.conf`
+
+4. When running podman in podman you may nedd to run rooz with `--disable-selinux` switch
+   which is equivalent to `--security-opt label=disable` in Podman/Docker.
 
 ## Resources
 
