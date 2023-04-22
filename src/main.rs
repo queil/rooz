@@ -479,6 +479,7 @@ async fn pull_image( docker: &Docker,
             e => panic!("{:?}", e),
         };
     }
+    println!("");
     Ok(docker.inspect_image(&image).await?.id)
 }
 
@@ -562,7 +563,7 @@ async fn clone_repo(
         let clone_cmd = inject(
             format!(
                     r#"export GIT_SSH_COMMAND="ssh -i /tmp/.ssh/id_ed25519 -o UserKnownHostsFile=/tmp/.ssh/known_hosts"
-                    git -C {} pull || git clone {} {}"#,
+                    ls "{}/.git" > /dev/null 2>&1 || git clone {} {}"#,
                 &clone_dir, &url, &clone_dir
             )
             .as_ref(),
