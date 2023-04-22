@@ -54,6 +54,8 @@ struct Cli {
     shell: String,
     #[arg(short, long, default_value = "rooz_user", env = "ROOZ_USER")]
     user: String,
+    #[arg(short, long, env = "ROOZ_CACHES", use_value_delimiter = true)]
+    caches: Option<Vec<String>>,
     #[arg(long)]
     prune: bool,
     #[arg(short, long)]
@@ -831,6 +833,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
             //work_dir,
             prune,
             disable_selinux,
+            caches
         } => {
             let ephemeral = false; // ephemeral containers won't be supported at the moment
             if prune {
@@ -906,7 +909,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
                     Some(RoozCfg {
                         image: Some(img),
                         shell,
-                        caches,
+                        caches: repo_caches,
                         ..
                     }),
                     Some(url),
@@ -917,6 +920,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
                     let clone_dir = get_clone_dir(&work_dir, git_ssh_url.clone());
                     let git_vol_mount = git_volume(&docker, &url, &clone_dir).await?;
                     let sh = shell.or(Some(orig_shell)).unwrap();
+                    let mut all_caches = vec![];
+                    if let Some(caches) = caches {
+                        all_caches.extend(caches);
+                    }
+                    if let Some(caches) = repo_caches {
+                        all_caches.extend(caches);
+                    };
+
+                    all_caches.dedup();
 
                     work(
                         &docker,
@@ -929,7 +941,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
                         &container_name,
                         ephemeral,
                         Some(git_vol_mount),
-                        caches,
+                        Some(all_caches),
                         disable_selinux
                     )
                     .await?
@@ -948,7 +960,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
                         &container_name,
                         ephemeral,
                         Some(git_vol_mount),
-                        None,
+                        caches,
                         disable_selinux
                     )
                     .await?
@@ -966,7 +978,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
                         &container_name,
                         ephemeral,
                         None,
-                        None,
+                        caches,
                         disable_selinux
                     )
                     .await?
