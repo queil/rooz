@@ -339,7 +339,11 @@ async fn run(
             let host_config = HostConfig {
                 auto_remove: Some(true),
                 mounts,
-                security_opt: if disable_selinux {Some(vec!["label=disable".to_string()])} else { None },
+                security_opt: if disable_selinux {
+                    Some(vec!["label=disable".to_string()])
+                } else {
+                    None
+                },
                 ..Default::default()
             };
 
@@ -436,8 +440,10 @@ async fn ensure_volume(docker: &Docker, name: &str, role: &str) -> VolumeResult 
     }
 }
 
-async fn pull_image( docker: &Docker,
-    image: &str)  -> Result<Option<String>, Box<dyn std::error::Error + 'static>> {
+async fn pull_image(
+    docker: &Docker,
+    image: &str,
+) -> Result<Option<String>, Box<dyn std::error::Error + 'static>> {
     println!("Pulling image: {}", &image);
     let img_chunks = &image.split(':').collect::<Vec<&str>>();
     let mut image_info = docker.create_image(
@@ -486,12 +492,16 @@ async fn pull_image( docker: &Docker,
 async fn ensure_image(
     docker: &Docker,
     image: &str,
-    pull: bool
+    pull: bool,
 ) -> Result<String, Box<dyn std::error::Error + 'static>> {
     let image_id = match docker.inspect_image(&image).await {
         Ok(ImageInspect { id, .. }) => {
-          if pull { pull_image(docker, image).await? } else { id }
-        },
+            if pull {
+                pull_image(docker, image).await?
+            } else {
+                id
+            }
+        }
         Err(DockerResponseServerError {
             status_code: 404, ..
         }) => pull_image(docker, image).await?,
@@ -793,7 +803,7 @@ async fn work(
         &container_name,
         Some(mounts),
         Some(vec!["cat"]),
-        disable_selinux
+        disable_selinux,
     )
     .await?;
 
@@ -834,7 +844,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
             //work_dir,
             prune,
             disable_selinux,
-            caches
+            caches,
         } => {
             let ephemeral = false; // ephemeral containers won't be supported at the moment
             if prune {
@@ -943,7 +953,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
                         ephemeral,
                         Some(git_vol_mount),
                         Some(all_caches),
-                        disable_selinux
+                        disable_selinux,
                     )
                     .await?
                 }
@@ -962,7 +972,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
                         ephemeral,
                         Some(git_vol_mount),
                         caches,
-                        disable_selinux
+                        disable_selinux,
                     )
                     .await?
                 }
@@ -980,7 +990,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
                         ephemeral,
                         None,
                         caches,
-                        disable_selinux
+                        disable_selinux,
                     )
                     .await?
                 }
