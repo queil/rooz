@@ -142,6 +142,32 @@ impl RoozVolume {
     }
 }
 
+struct WorkSpec<'a> {
+    image: &'a str,
+    image_id: &'a str,
+    shell: &'a str,
+    uid: &'a str,
+    user: &'a str,
+    container_working_dir: &'a str,
+    container_name: &'a str,
+    is_ephemeral: bool,
+    git_vol_mount: Option<Mount>,
+    caches: Option<Vec<&'a str>>,
+    disable_selinux: bool,
+}
+
+struct RunSpec<'a> {
+    reason: &'a str,
+    image: &'a str,
+    image_id: &'a str,
+    user: Option<&'a str>,
+    work_dir: Option<&'a str>,
+    container_name: &'a str,
+    mounts: Option<Vec<Mount>>,
+    entrypoint: Option<Vec<&'a str>>,
+    disable_selinux: bool,
+}
+
 async fn start_tty(
     docker: &Docker,
     exec_id: &str,
@@ -295,32 +321,24 @@ async fn force_remove(
         .await?)
 }
 
-async fn run(
-    reason: &str,
+async fn run<'a>(
     docker: &Docker,
-    image: &str,
-    image_id: &str,
-    user: Option<&str>,
-    work_dir: Option<&str>,
-    container_name: &str,
-    mounts: Option<Vec<Mount>>,
-    entrypoint: Option<Vec<&str>>,
-    disable_selinux: bool,
+    spec: RunSpec<'a>,
 ) -> Result<ContainerResult, Box<dyn std::error::Error + 'static>> {
     log::debug!(
         "[{}]: running {} as {:?} using image {}",
-        &reason,
-        container_name,
-        user,
-        image
+        &spec.reason,
+        spec.container_name,
+        spec.user,
+        spec.image
     );
 
-    let container_id = match docker.inspect_container(container_name, None).await {
+    let container_id = match docker.inspect_container(&spec.container_name, None).await {
         Ok(ContainerInspectResponse {
             id: Some(id),
             image: Some(img),
             ..
-        }) if img.to_owned() == image_id => ContainerResult::Reused { id },
+        }) if img.to_owned() == spec.image_id => ContainerResult::Reused { id },
         s => {
             let remove_options = RemoveContainerOptions {
                 force: true,
@@ -332,14 +350,14 @@ async fn run(
             }
 
             let options = CreateContainerOptions {
-                name: container_name,
+                name: spec.container_name,
                 platform: None,
             };
 
             let host_config = HostConfig {
                 auto_remove: Some(true),
-                mounts,
-                security_opt: if disable_selinux {
+                mounts: spec.mounts,
+                security_opt: if spec.disable_selinux {
                     Some(vec!["label=disable".to_string()])
                 } else {
                     None
@@ -348,10 +366,10 @@ async fn run(
             };
 
             let config = Config {
-                image: Some(image),
-                entrypoint,
-                working_dir: work_dir,
-                user,
+                image: Some(spec.image),
+                entrypoint: spec.entrypoint,
+                working_dir: spec.work_dir,
+                user: spec.user,
                 attach_stdin: Some(true),
                 attach_stdout: Some(true),
                 attach_stderr: Some(true),
@@ -582,15 +600,14 @@ async fn clone_repo(
 
         let git_vol_mount = git_volume(docker, &url, working_dir).await?;
 
-        let container_result = run(
-            "git-clone",
-            &docker,
-            &image,
-            &image_id,
-            Some(&uid),
-            None,
-            &random_suffix("rooz-git"),
-            Some(vec![
+        let run_spec = RunSpec {
+            reason: "git-clone",
+            image,
+            image_id,
+            user: Some(&uid),
+            work_dir: None,
+            container_name: &random_suffix("rooz-git"),
+            mounts: Some(vec![
                 git_vol_mount.clone(),
                 Mount {
                     typ: Some(VOLUME),
@@ -600,10 +617,11 @@ async fn clone_repo(
                     ..Default::default()
                 },
             ]),
-            Some(vec!["cat"]),
-            false,
-        )
-        .await?;
+            entrypoint: Some(vec!["cat"]),
+            disable_selinux: false,
+        };
+
+        let container_result = run(&docker, run_spec).await?;
 
         let container_id = container_result.id();
 
@@ -672,25 +690,25 @@ chown -R {} /tmp/.ssh
 
     let init_entrypoint = inject(&init_ssh, "entrypoint.sh");
 
-    let result = run(
-        "init-ssh",
-        &docker,
-        &image,
-        "ignore",
-        Some("root"),
-        None,
-        "rooz-init-ssh",
-        Some(vec![Mount {
+    let run_spec = RunSpec {
+        reason: "init-ssh",
+        image,
+        image_id: "ignore",
+        user: Some("root"),
+        work_dir: None,
+        container_name: "rooz-init-ssh",
+        mounts: Some(vec![Mount {
             typ: Some(VOLUME),
             read_only: Some(false),
             source: Some(ROOZ_SSH_KEY_VOLUME_NAME.into()),
             target: Some("/tmp/.ssh".into()),
             ..Default::default()
         }]),
-        Some(init_entrypoint.iter().map(String::as_str).collect()),
-        false,
-    )
-    .await?;
+        entrypoint: Some(init_entrypoint.iter().map(String::as_str).collect()),
+        disable_selinux: false,
+    };
+
+    let result = run(&docker, run_spec).await?;
 
     container_logs_to_stdout(docker, result.id()).await?;
 
@@ -740,45 +758,35 @@ async fn ensure_mounts(
     Ok(mounts.clone())
 }
 
-async fn work(
+async fn work<'a>(
     docker: &Docker,
-    image: &str,
-    image_id: &str,
-    shell: &str,
-    uid: &str,
-    user: &str,
-    container_working_dir: &str,
-    container_name: &str,
-    is_ephemeral: bool,
-    git_vol_mount: Option<Mount>,
-    caches: Option<Vec<String>>,
-    disable_selinux: bool,
+    spec: WorkSpec<'a>,
 ) -> Result<(), Box<dyn std::error::Error + 'static>> {
-    let home_dir = format!("/home/{}", &user);
+    let home_dir = format!("/home/{}", &spec.user);
     let work_dir = format!("{}/work", &home_dir);
 
     let mut volumes = vec![
         RoozVolume {
             path: home_dir.clone(),
             sharing: RoozVolumeSharing::Exclusive {
-                key: container_name.into(),
+                key: spec.container_name.into(),
             },
             role: RoozVolumeRole::Home,
         },
         RoozVolume {
             path: work_dir.clone(),
             sharing: RoozVolumeSharing::Exclusive {
-                key: container_name.into(),
+                key: spec.container_name.into(),
             },
             role: RoozVolumeRole::Work,
         },
     ];
 
-    if let Some(caches) = &caches {
+    if let Some(caches) = &spec.caches {
         let cache_vols = caches
             .iter()
             .map(|p| RoozVolume {
-                path: p.into(),
+                path: p.to_string(),
                 sharing: RoozVolumeSharing::Shared,
                 role: RoozVolumeRole::Cache,
             })
@@ -787,25 +795,25 @@ async fn work(
         volumes.extend_from_slice(cache_vols.clone().as_slice());
     };
 
-    let mut mounts = ensure_mounts(&docker, volumes, is_ephemeral, &home_dir).await?;
+    let mut mounts = ensure_mounts(&docker, volumes, spec.is_ephemeral, &home_dir).await?;
 
-    if let Some(m) = git_vol_mount {
+    if let Some(m) = spec.git_vol_mount {
         mounts.push(m.clone());
     }
 
-    let r = run(
-        "work",
-        &docker,
-        &image,
-        &image_id,
-        Some(&uid),
-        Some(&container_working_dir),
-        &container_name,
-        Some(mounts),
-        Some(vec!["cat"]),
-        disable_selinux,
-    )
-    .await?;
+    let run_spec = RunSpec {
+        reason: "work",
+        image: &spec.image,
+        image_id: &spec.image_id,
+        user: Some(&spec.uid),
+        work_dir: Some(&spec.container_working_dir),
+        container_name: &spec.container_name,
+        mounts: Some(mounts),
+        entrypoint: Some(vec!["cat"]),
+        disable_selinux: spec.disable_selinux,
+    };
+
+    let r = run(&docker, run_spec).await?;
 
     let work_id = &r.id();
 
@@ -814,9 +822,9 @@ async fn work(
         &docker,
         &work_id,
         true,
-        Some(&container_working_dir),
+        Some(&spec.container_working_dir),
         None,
-        Some(vec![&shell]),
+        Some(vec![&spec.shell]),
     )
     .await?;
     force_remove(&docker, &work_id).await?;
@@ -907,6 +915,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
             let home_dir = format!("/home/{}", &orig_user);
             let work_dir = format!("{}/work", &home_dir);
 
+            let work_spec = WorkSpec {
+                image: &orig_image,
+                image_id: &orig_image_id,
+                shell: &orig_shell,
+                uid: &orig_uid,
+                user: &orig_user,
+                container_working_dir: &work_dir,
+                container_name: &container_name,
+                is_ephemeral: ephemeral,
+                git_vol_mount: None,
+                caches: None,
+                disable_selinux,
+            };
+
             match clone_repo(
                 &docker,
                 &orig_image,
@@ -930,7 +952,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
 
                     let clone_dir = get_clone_dir(&work_dir, git_ssh_url.clone());
                     let git_vol_mount = git_volume(&docker, &url, &clone_dir).await?;
-                    let sh = shell.or(Some(orig_shell)).unwrap();
+                    let sh = shell.or(Some(orig_shell.to_string())).unwrap();
                     let mut all_caches = vec![];
                     if let Some(caches) = caches {
                         all_caches.extend(caches);
@@ -943,17 +965,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
 
                     work(
                         &docker,
-                        &img,
-                        &image_id,
-                        &sh,
-                        &orig_uid,
-                        &orig_user,
-                        &clone_dir,
-                        &container_name,
-                        ephemeral,
-                        Some(git_vol_mount),
-                        Some(all_caches),
-                        disable_selinux,
+                        work_spec, // &img,
+                                  // &image_id,
+                                  // &sh,
+                                  // &orig_uid,
+                                  // &orig_user,
+                                  // &clone_dir,
+                                  // &container_name,
+                                  // ephemeral,
+                                  // Some(git_vol_mount),
+                                  // Some(all_caches),
+                                  // disable_selinux,
                     )
                     .await?
                 }
@@ -962,38 +984,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
                     let git_vol_mount = git_volume(&docker, &url, &clone_dir).await?;
                     work(
                         &docker,
-                        &orig_image,
-                        &orig_image_id,
-                        &orig_shell,
-                        &orig_uid,
-                        &orig_user,
-                        &clone_dir,
-                        &container_name,
-                        ephemeral,
-                        Some(git_vol_mount),
-                        caches,
-                        disable_selinux,
+                        work_spec, // &orig_image,
+                                  // &orig_image_id,
+                                  // &orig_shell,
+                                  // &orig_uid,
+                                  // &orig_user,
+                                  // &clone_dir,
+                                  // &container_name,
+                                  // ephemeral,
+                                  // Some(git_vol_mount),
+                                  // caches,
+                                  // disable_selinux,
                     )
                     .await?
                 }
 
-                _ => {
-                    work(
-                        &docker,
-                        &orig_image,
-                        &orig_image_id,
-                        &orig_shell,
-                        &orig_uid,
-                        &orig_user,
-                        &work_dir,
-                        &container_name,
-                        ephemeral,
-                        None,
-                        caches,
-                        disable_selinux,
-                    )
-                    .await?
-                }
+                _ => work(&docker, work_spec).await?,
             };
         }
     };
