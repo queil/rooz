@@ -902,7 +902,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
 
             let container_name = match &git_ssh_url {
                 Some(url) => to_safe_id(&url)?,
-                None => "generic".to_string(),
+                None => "rooz-generic".to_string(),
             };
 
             let ssh_key_vol_result =
