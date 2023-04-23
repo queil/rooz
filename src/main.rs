@@ -152,7 +152,7 @@ struct WorkSpec<'a> {
     container_name: &'a str,
     is_ephemeral: bool,
     git_vol_mount: Option<Mount>,
-    caches: Option<Vec<&'a str>>,
+    caches: Option<Vec<String>>,
     disable_selinux: bool,
 }
 
@@ -949,7 +949,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
                 ) => {
                     log::debug!("Image config read from .rooz.toml in the cloned repo");
                     let image_id = ensure_image(&docker, &img, pull_image).await?;
-
                     let clone_dir = get_clone_dir(&work_dir, git_ssh_url.clone());
                     let git_vol_mount = git_volume(&docker, &url, &clone_dir).await?;
                     let sh = shell.or(Some(orig_shell.to_string())).unwrap();
@@ -965,17 +964,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
 
                     work(
                         &docker,
-                        work_spec, // &img,
-                                  // &image_id,
-                                  // &sh,
-                                  // &orig_uid,
-                                  // &orig_user,
-                                  // &clone_dir,
-                                  // &container_name,
-                                  // ephemeral,
-                                  // Some(git_vol_mount),
-                                  // Some(all_caches),
-                                  // disable_selinux,
+                        WorkSpec {
+                            image: &img,
+                            image_id: &image_id,
+                            shell: &sh,
+                            container_working_dir: &clone_dir,
+                            git_vol_mount: Some(git_vol_mount),
+                            caches: Some(all_caches),
+                            ..work_spec
+                        },
                     )
                     .await?
                 }
@@ -984,17 +981,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
                     let git_vol_mount = git_volume(&docker, &url, &clone_dir).await?;
                     work(
                         &docker,
-                        work_spec, // &orig_image,
-                                  // &orig_image_id,
-                                  // &orig_shell,
-                                  // &orig_uid,
-                                  // &orig_user,
-                                  // &clone_dir,
-                                  // &container_name,
-                                  // ephemeral,
-                                  // Some(git_vol_mount),
-                                  // caches,
-                                  // disable_selinux,
+                        WorkSpec {
+                            container_working_dir: &clone_dir,
+                            git_vol_mount: Some(git_vol_mount),
+                            ..work_spec
+                        },
                     )
                     .await?
                 }
