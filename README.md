@@ -64,7 +64,6 @@ Also it is focused around git repositories.
 * So far `linux-amd64` only
 * This is my first Rust project (learning the language) so please excuse me the code quality here
 * rooz's `known_hosts` only contains github.com entries
-* Only tested with some alpine and ubuntu images. It may work with other distros too.
 
 ## Install
 
