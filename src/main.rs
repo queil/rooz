@@ -830,6 +830,7 @@ async fn work<'a>(
     ];
 
     if let Some(caches) = &spec.caches {
+        log::debug!("Processing caches");
         let cache_vols = caches
             .iter()
             .map(|p| RoozVolume {
@@ -839,8 +840,14 @@ async fn work<'a>(
             })
             .collect::<Vec<_>>();
 
+        for c in caches {
+            log::debug!("Cache: {}", c);
+        }
+
         volumes.extend_from_slice(cache_vols.clone().as_slice());
-    };
+    } else {
+        log::debug!("No caches configured. Skipping");
+    }
 
     let mut mounts = ensure_mounts(&docker, volumes, spec.is_ephemeral, &home_dir).await?;
 
@@ -923,9 +930,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
                 }
 
                 let group_key_filter = format!("dev.rooz.group-key={}", &container_name);
-                let mut filters = HashMap::from([
-                    ("label", vec!["dev.rooz"]),
-                ]);
+                let mut filters = HashMap::from([("label", vec!["dev.rooz"])]);
                 if !prune_all {
                     filters.insert("label", vec![&group_key_filter]);
                 }
@@ -988,7 +993,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
                 container_name: &container_name,
                 is_ephemeral: ephemeral,
                 git_vol_mount: None,
-                caches: None,
+                caches: caches.clone(),
                 disable_selinux,
             };
 
