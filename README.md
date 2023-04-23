@@ -51,10 +51,12 @@ Also it is focused around git repositories.
 
 * you enable `rooz` debug logging by setting `RUST_LOG=rooz` env variable
 
-* if `rooz` misbehaves you can go nuclear and run `rooz --prune` to remove all the running rooz containers and volumes excluding
+* if `rooz` misbehaves you can go nuclear and run `rooz --prune-all` to remove all the running rooz containers and volumes excluding
   the ssh key volume. If you want to delete it do: `docker volume rm --force rooz-ssh-key-vol`
 
-  :warning: `rooz --prune` deletes all your state held with `rooz` so make sure everything important is stored before.
+  :warning: `rooz --prune-all` deletes all your state held with `rooz` so make sure everything important is stored before.
+
+* you can also prune containers/volumes scoped to a particular repository by specifying `--prune` switch together with the repo url
 
 ## Limitations
 

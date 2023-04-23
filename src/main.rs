@@ -22,6 +22,7 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::io::{stdout, Read, Write};
 use std::path::Path;
+use std::process;
 use std::time::Duration;
 #[cfg(not(windows))]
 use termion::raw::IntoRawMode;
@@ -54,10 +55,25 @@ struct Cli {
     shell: String,
     #[arg(short, long, default_value = "rooz_user", env = "ROOZ_USER")]
     user: String,
-    #[arg(short, long, env = "ROOZ_CACHES", use_value_delimiter = true)]
+    #[arg(
+        short,
+        long,
+        env = "ROOZ_CACHES",
+        use_value_delimiter = true,
+        help = "Enables defining global shared caches"
+    )]
     caches: Option<Vec<String>>,
-    #[arg(long)]
+    #[arg(
+        long,
+        help = "Prunes containers and volumes scoped to the provided git repository"
+    )]
     prune: bool,
+    #[arg(
+        long,
+        conflicts_with = "prune",
+        help = "Prunes all rooz containers and volumes apart from the ssh-key vol"
+    )]
+    prune_all: bool,
     #[arg(short, long)]
     disable_selinux: bool,
 }
@@ -139,6 +155,19 @@ impl RoozVolume {
             RoozVolume { .. } => format!("rooz-{}", &safe_id),
         };
         Ok(vol_name)
+    }
+    pub fn group_key(&self) -> Option<String> {
+        match self {
+            RoozVolume {
+                sharing: RoozVolumeSharing::Exclusive { key },
+                ..
+            } => Some(key.to_string()),
+            RoozVolume {
+                role: RoozVolumeRole::Cache,
+                ..
+            } => Some("cache".into()),
+            _ => None,
+        }
     }
 }
 
@@ -432,10 +461,22 @@ fn inject(script: &str, name: &str) -> Vec<String> {
     ]
 }
 
-async fn ensure_volume(docker: &Docker, name: &str, role: &str) -> VolumeResult {
+async fn ensure_volume(
+    docker: &Docker,
+    name: &str,
+    role: &str,
+    group_key: Option<String>,
+) -> VolumeResult {
+    let wsk = group_key.unwrap_or_default();
+    let labels = HashMap::from([
+        ("dev.rooz", "true"),
+        ("dev.rooz.role", role),
+        ("dev.rooz.group-key", &wsk),
+    ]);
+
     let create_vol_options = CreateVolumeOptions::<&str> {
         name,
-        labels: HashMap::from([("dev.rooz", "true"), ("dev.rooz.role", role)]),
+        labels: labels,
         ..Default::default()
     };
 
@@ -564,7 +605,13 @@ async fn git_volume(
 
     let vol_name = git_vol.safe_volume_name()?;
 
-    ensure_volume(docker, &vol_name, &git_vol.role.as_str()).await;
+    ensure_volume(
+        docker,
+        &vol_name,
+        &git_vol.role.as_str(),
+        git_vol.group_key(),
+    )
+    .await;
 
     let git_vol_mount = Mount {
         typ: Some(VOLUME),
@@ -665,7 +712,7 @@ async fn clone_repo(
 
 fn to_safe_id(dirty: &str) -> Result<String, Box<dyn std::error::Error + 'static>> {
     let re = Regex::new(r"[^a-zA-Z0-9_.-]").unwrap();
-    Ok(re.replace_all(&dirty, "-").to_string())
+    Ok(re.replace_all(&dirty, "-").to_ascii_lowercase().to_string())
 }
 
 const ROOZ_SSH_KEY_VOLUME_NAME: &'static str = "rooz-ssh-key-vol";
@@ -742,7 +789,7 @@ async fn ensure_mounts(
         log::debug!("Process volume: {:?}", &v);
         let vol_name = v.safe_volume_name()?;
 
-        ensure_volume(&docker, &vol_name, v.role.as_str()).await;
+        ensure_volume(&docker, &vol_name, v.role.as_str(), v.group_key()).await;
 
         let mount = Mount {
             typ: Some(VOLUME),
@@ -851,11 +898,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
             user,
             //work_dir,
             prune,
+            prune_all,
             disable_selinux,
             caches,
         } => {
             let ephemeral = false; // ephemeral containers won't be supported at the moment
-            if prune {
+
+            let container_name = match &git_ssh_url {
+                Some(url) => to_safe_id(&url)?,
+                None => "rooz-generic".to_string(),
+            };
+
+            if prune || prune_all {
                 let ls_container_options = ListContainersOptions {
                     all: true,
                     filters: HashMap::from([("label", vec!["dev.rooz"])]),
@@ -868,8 +922,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
                     }
                 }
 
+                let group_key_filter = format!("dev.rooz.group-key={}", &container_name);
+                let mut filters = HashMap::from([
+                    ("label", vec!["dev.rooz"]),
+                ]);
+                if !prune_all {
+                    filters.insert("label", vec![&group_key_filter]);
+                }
                 let ls_vol_options = ListVolumesOptions {
-                    filters: HashMap::from([("label", vec!["dev.rooz"])]),
+                    filters,
                     ..Default::default()
                 };
 
@@ -891,6 +952,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
                         docker.remove_volume(&v.name, Some(rm_vol_options)).await?
                     }
                 }
+                log::debug!("Prune success");
+                process::exit(0);
             }
 
             let orig_shell = shell;
@@ -900,13 +963,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
 
             let orig_image_id = ensure_image(&docker, &orig_image, pull_image).await?;
 
-            let container_name = match &git_ssh_url {
-                Some(url) => to_safe_id(&url)?,
-                None => "rooz-generic".to_string(),
-            };
-
-            let ssh_key_vol_result =
-                ensure_volume(&docker, ROOZ_SSH_KEY_VOLUME_NAME.into(), "ssh-key").await;
+            let ssh_key_vol_result = ensure_volume(
+                &docker,
+                ROOZ_SSH_KEY_VOLUME_NAME.into(),
+                "ssh-key",
+                Some("ssh-key".into()),
+            )
+            .await;
 
             if let VolumeResult::Created { .. } = ssh_key_vol_result {
                 init_ssh_key(&docker, &orig_image_id, &orig_uid).await?;
