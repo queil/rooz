@@ -71,6 +71,11 @@ Also it is focused around git repositories.
 curl -sSL https://github.com/queil/rooz/releases/latest/download/rooz -o ./rooz && chmod +x ./rooz && sudo mv ./rooz /usr/local/bin
 ```
 
+## TODO soon
+
+1. Make terminal session attachment explicit so sessions can be terminated without killing the container (maybe a pattern similar to create/enter in toolbox) - or maybe just stop removing the container on terminating the session (i.e. make removal explicit). Also come back to the ephemeral containers impl (no volume backing for user data and terminate the container on session exit). Also maybe: enable specifying aliases for created containers.
+2. Create explicit commands for ssh key (re)init and `known_hosts` management
+
 ## Known issues
 
 * When a volume is first crated container automatically populates it from the image
