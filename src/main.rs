@@ -49,7 +49,7 @@ struct Cli {
     git_ssh_url: Option<String>,
     #[arg(short, long, default_value = DEFAULT_IMAGE, env = "ROOZ_IMAGE")]
     image: String,
-    #[arg(short, long)]
+    #[arg(long)]
     pull_image: bool,
     #[arg(short, long, default_value = "bash", env = "ROOZ_SHELL")]
     shell: String,
@@ -75,7 +75,7 @@ struct Cli {
     )]
     prune_all: bool,
     #[arg(short, long)]
-    disable_selinux: bool,
+    privileged: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -182,7 +182,7 @@ struct WorkSpec<'a> {
     is_ephemeral: bool,
     git_vol_mount: Option<Mount>,
     caches: Option<Vec<String>>,
-    disable_selinux: bool,
+    privileged: bool,
 }
 
 struct RunSpec<'a> {
@@ -194,7 +194,7 @@ struct RunSpec<'a> {
     container_name: &'a str,
     mounts: Option<Vec<Mount>>,
     entrypoint: Option<Vec<&'a str>>,
-    disable_selinux: bool,
+    privileged: bool,
 }
 
 async fn start_tty(
@@ -386,11 +386,7 @@ async fn run<'a>(
             let host_config = HostConfig {
                 auto_remove: Some(true),
                 mounts: spec.mounts,
-                security_opt: if spec.disable_selinux {
-                    Some(vec!["label=disable".to_string()])
-                } else {
-                    None
-                },
+                privileged: Some(spec.privileged),
                 ..Default::default()
             };
 
@@ -665,7 +661,7 @@ async fn clone_repo(
                 },
             ]),
             entrypoint: Some(vec!["cat"]),
-            disable_selinux: false,
+            privileged: false,
         };
 
         let container_result = run(&docker, run_spec).await?;
@@ -752,7 +748,7 @@ chown -R {} /tmp/.ssh
             ..Default::default()
         }]),
         entrypoint: Some(init_entrypoint.iter().map(String::as_str).collect()),
-        disable_selinux: false,
+        privileged: false,
     };
 
     let result = run(&docker, run_spec).await?;
@@ -864,7 +860,7 @@ async fn work<'a>(
         container_name: &spec.container_name,
         mounts: Some(mounts),
         entrypoint: Some(vec!["cat"]),
-        disable_selinux: spec.disable_selinux,
+        privileged: spec.privileged,
     };
 
     let r = run(&docker, run_spec).await?;
@@ -906,7 +902,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
             //work_dir,
             prune,
             prune_all,
-            disable_selinux,
+            privileged,
             caches,
         } => {
             let ephemeral = false; // ephemeral containers won't be supported at the moment
@@ -994,7 +990,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
                 is_ephemeral: ephemeral,
                 git_vol_mount: None,
                 caches: caches.clone(),
-                disable_selinux,
+                privileged,
             };
 
             match clone_repo(
