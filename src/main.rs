@@ -1,4 +1,5 @@
 mod cli;
+mod cmd;
 mod container;
 mod git;
 mod id;
@@ -7,19 +8,14 @@ mod ssh;
 mod types;
 mod volume;
 
-use bollard::container::ListContainersOptions;
-use bollard::service::{ContainerSummary, Volume};
-use bollard::volume::{ListVolumesOptions, RemoveVolumeOptions};
-use bollard::Docker;
-use std::collections::HashMap;
-use std::process;
 use crate::cli::Cli;
 use crate::id::to_safe_id;
 use crate::types::{
     RoozCfg, RoozVolume, RoozVolumeRole, RoozVolumeSharing, RunSpec, VolumeResult, WorkSpec,
 };
+use bollard::Docker;
 use clap::Parser;
-const ROOZ_SSH_KEY_VOLUME_NAME: &'static str = "rooz-ssh-key-vol";
+use std::process;
 
 async fn work<'a>(
     docker: &Docker,
@@ -127,53 +123,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
         } => {
             let ephemeral = false; // ephemeral containers won't be supported at the moment
 
-            let container_name = match &git_ssh_url {
+            let workspace_key = match &git_ssh_url {
                 Some(url) => to_safe_id(&url)?,
                 None => "rooz-generic".to_string(),
             };
 
             if prune || prune_all {
-                let ls_container_options = ListContainersOptions {
-                    all: true,
-                    filters: HashMap::from([("label", vec!["dev.rooz"])]),
-                    ..Default::default()
-                };
-                for cs in docker.list_containers(Some(ls_container_options)).await? {
-                    if let ContainerSummary { id: Some(id), .. } = cs {
-                        log::debug!("Force remove container: {}", &id);
-                        container::force_remove(&docker, &id).await?
-                    }
-                }
-
-                let group_key_filter = format!("dev.rooz.group-key={}", &container_name);
-                let mut filters = HashMap::from([("label", vec!["dev.rooz"])]);
-                if !prune_all {
-                    filters.insert("label", vec![&group_key_filter]);
-                }
-                let ls_vol_options = ListVolumesOptions {
-                    filters,
-                    ..Default::default()
-                };
-
-                if let Some(volumes) = docker.list_volumes(Some(ls_vol_options)).await?.volumes {
-                    let rm_vol_options = RemoveVolumeOptions {
-                        force: true,
-                        ..Default::default()
-                    };
-
-                    for v in volumes {
-                        match v {
-                            Volume { ref name, .. } if name == ROOZ_SSH_KEY_VOLUME_NAME => {
-                                continue;
-                            }
-                            _ => {}
-                        };
-
-                        log::debug!("Force remove volume: {}", &v.name);
-                        docker.remove_volume(&v.name, Some(rm_vol_options)).await?
-                    }
-                }
-                log::debug!("Prune success");
+                cmd::prune::prune(&docker, &workspace_key, prune_all).await?;
                 process::exit(0);
             }
 
@@ -186,7 +142,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
 
             let ssh_key_vol_result = volume::ensure_volume(
                 &docker,
-                ROOZ_SSH_KEY_VOLUME_NAME.into(),
+                ssh::ROOZ_SSH_KEY_VOLUME_NAME.into(),
                 "ssh-key",
                 Some("ssh-key".into()),
             )
@@ -206,7 +162,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
                 uid: &orig_uid,
                 user: &orig_user,
                 container_working_dir: &work_dir,
-                container_name: &container_name,
+                container_name: &workspace_key,
                 is_ephemeral: ephemeral,
                 git_vol_mount: None,
                 caches: caches.clone(),

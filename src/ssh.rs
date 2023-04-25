@@ -2,7 +2,7 @@ use crate::{container, types::RunSpec};
 use bollard::models::MountTypeEnum::VOLUME;
 use bollard::{service::Mount, Docker};
 
-const ROOZ_SSH_KEY_VOLUME_NAME: &'static str = "rooz-ssh-key-vol";
+pub const ROOZ_SSH_KEY_VOLUME_NAME: &'static str = "rooz-ssh-key-vol";
 
 pub async fn init_ssh_key(
     docker: &Docker,
