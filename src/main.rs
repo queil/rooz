@@ -8,13 +8,11 @@ mod types;
 mod volume;
 
 use bollard::container::ListContainersOptions;
-
 use bollard::service::{ContainerSummary, Volume};
 use bollard::volume::{ListVolumesOptions, RemoveVolumeOptions};
 use bollard::Docker;
 use std::collections::HashMap;
 use std::process;
-
 use crate::cli::Cli;
 use crate::id::to_safe_id;
 use crate::types::{
@@ -22,6 +20,7 @@ use crate::types::{
 };
 use clap::Parser;
 const ROOZ_SSH_KEY_VOLUME_NAME: &'static str = "rooz-ssh-key-vol";
+
 async fn work<'a>(
     docker: &Docker,
     spec: WorkSpec<'a>,

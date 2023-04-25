@@ -13,16 +13,16 @@ pub async fn ensure_volume(
     role: &str,
     group_key: Option<String>,
 ) -> VolumeResult {
-    let wsk = group_key.unwrap_or_default();
+    let group_key = group_key.unwrap_or_default();
     let labels = HashMap::from([
         ("dev.rooz", "true"),
         ("dev.rooz.role", role),
-        ("dev.rooz.group-key", &wsk),
+        ("dev.rooz.group-key", &group_key),
     ]);
 
     let create_vol_options = CreateVolumeOptions::<&str> {
         name,
-        labels: labels,
+        labels,
         ..Default::default()
     };
 
