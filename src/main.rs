@@ -8,7 +8,7 @@ mod ssh;
 mod types;
 mod volume;
 
-use crate::cli::Cli;
+use crate::cli::{Cli, Commands};
 use crate::id::to_safe_id;
 use crate::types::{
     RoozCfg, RoozVolume, RoozVolumeRole, RoozVolumeSharing, RunSpec, VolumeResult, WorkSpec,
@@ -110,16 +110,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
 
     match args {
         Cli {
+            command: Some(Commands::Prune(cli::Prune { git_ssh_url, all })),
+            ..
+        } => {
+            let prune_key = match &git_ssh_url {
+                Some(url) => to_safe_id(&url)?,
+                None => "rooz-generic".to_string(),
+            };
+            cmd::prune::prune(&docker, &prune_key, all).await?;
+        }
+        Cli {
+            command: Some(Commands::List(cli::List { })),
+            ..
+        } => {
+           print!("LIST!");
+        }
+        Cli {
             git_ssh_url,
             image,
             pull_image,
             shell,
             user,
             //work_dir,
-            prune,
-            prune_all,
             privileged,
             caches,
+            command,
         } => {
             let ephemeral = false; // ephemeral containers won't be supported at the moment
 
@@ -127,11 +142,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
                 Some(url) => to_safe_id(&url)?,
                 None => "rooz-generic".to_string(),
             };
-
-            if prune || prune_all {
-                cmd::prune::prune(&docker, &workspace_key, prune_all).await?;
-                process::exit(0);
-            }
 
             let orig_shell = shell;
             let orig_user = user;

@@ -8,7 +8,7 @@ base64 = "0.21.0"
 #bollard = "0.14.0"
 bollard = { git = "https://github.com/fussybeaver/bollard.git" }
 
-clap = { version = "4.1.6", features = ["derive", "env"] }
+clap = { version = "4.2.4", features = ["derive", "env"] }
 env_logger = "0.10.0"
 futures = "0.3.26"
 log = "0.4.17"
