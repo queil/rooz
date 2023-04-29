@@ -7,16 +7,15 @@ use bollard::{
     Docker,
 };
 
-use crate::{container, ssh};
+use crate::{container, labels, ssh};
 
-pub async fn prune(
+async fn prune(
     docker: &Docker,
-    group_key: &str,
-    prune_all: bool,
+    filters: HashMap<&str, Vec<&str>>,
 ) -> Result<(), Box<dyn std::error::Error + 'static>> {
     let ls_container_options = ListContainersOptions {
         all: true,
-        filters: HashMap::from([("label", vec!["dev.rooz"])]),
+        filters: filters.clone(),
         ..Default::default()
     };
     for cs in docker.list_containers(Some(ls_container_options)).await? {
@@ -26,13 +25,8 @@ pub async fn prune(
         }
     }
 
-    let group_key_filter = format!("dev.rooz.group-key={}", &group_key);
-    let mut filters = HashMap::from([("label", vec!["dev.rooz"])]);
-    if !prune_all {
-        filters.insert("label", vec![&group_key_filter]);
-    }
     let ls_vol_options = ListVolumesOptions {
-        filters,
+        filters: filters.clone(),
         ..Default::default()
     };
 
@@ -56,4 +50,23 @@ pub async fn prune(
     }
     log::debug!("Prune success");
     Ok(())
+}
+
+pub async fn prune_workspace(
+    docker: &Docker,
+    workspace_key: &str,
+) -> Result<(), Box<dyn std::error::Error + 'static>> {
+    let group_key_filter = format!("{}={}", labels::GROUP_KEY, &workspace_key);
+    let filters = HashMap::from([
+        ("label", vec![labels::ROOZ]),
+        ("label", vec![&group_key_filter]),
+    ]);
+
+    prune(docker, filters).await
+}
+
+pub async fn prune_system(docker: &Docker) -> Result<(), Box<dyn std::error::Error + 'static>> {
+    let filters = HashMap::from([("label", vec![labels::ROOZ])]);
+
+    prune(docker, filters).await
 }
