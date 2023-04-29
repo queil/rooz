@@ -1,6 +1,6 @@
 use crate::{
     ssh,
-    types::{RoozVolume, VolumeResult},
+    types::{RoozVolume, VolumeResult}, labels,
 };
 use bollard::errors::Error::DockerResponseServerError;
 use bollard::models::MountTypeEnum::VOLUME;
@@ -15,9 +15,9 @@ pub async fn ensure_volume(
 ) -> VolumeResult {
     let group_key = group_key.unwrap_or_default();
     let labels = HashMap::from([
-        ("dev.rooz", "true"),
-        ("dev.rooz.role", role),
-        ("dev.rooz.group-key", &group_key),
+        (labels::ROOZ, "true"),
+        (labels::ROLE, role),
+        (labels::GROUP_KEY, &group_key),
     ]);
 
     let create_vol_options = CreateVolumeOptions::<&str> {

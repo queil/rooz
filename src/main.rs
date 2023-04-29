@@ -4,6 +4,7 @@ mod container;
 mod git;
 mod id;
 mod image;
+mod labels;
 mod ssh;
 mod types;
 mod volume;
@@ -15,7 +16,6 @@ use crate::types::{
 };
 use bollard::Docker;
 use clap::Parser;
-use std::process;
 
 async fn work<'a>(
     docker: &Docker,
@@ -123,7 +123,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
             command: Some(Commands::List(cli::List { })),
             ..
         } => {
-           print!("LIST!");
+            cmd::list::list(&docker).await?;
         }
         Cli {
             git_ssh_url,

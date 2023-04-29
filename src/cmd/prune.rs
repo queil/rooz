@@ -7,7 +7,7 @@ use bollard::{
     Docker,
 };
 
-use crate::{container, ssh};
+use crate::{container, ssh, labels};
 
 pub async fn prune(
     docker: &Docker,
@@ -16,7 +16,7 @@ pub async fn prune(
 ) -> Result<(), Box<dyn std::error::Error + 'static>> {
     let ls_container_options = ListContainersOptions {
         all: true,
-        filters: HashMap::from([("label", vec!["dev.rooz"])]),
+        filters: HashMap::from([("label", vec![labels::ROOZ])]),
         ..Default::default()
     };
     for cs in docker.list_containers(Some(ls_container_options)).await? {
@@ -26,8 +26,8 @@ pub async fn prune(
         }
     }
 
-    let group_key_filter = format!("dev.rooz.group-key={}", &group_key);
-    let mut filters = HashMap::from([("label", vec!["dev.rooz"])]);
+    let group_key_filter = labels::belongs_to(&group_key);
+    let mut filters = HashMap::from([("label", vec![labels::ROOZ])]);
     if !prune_all {
         filters.insert("label", vec![&group_key_filter]);
     }
