@@ -1,10 +1,34 @@
-use clap::Parser;
+use clap::{Parser, Subcommand};
 
 const DEFAULT_IMAGE: &'static str = "docker.io/bitnami/git:latest";
 
 #[derive(Parser, Debug)]
+#[command(about = "Prunes all rooz resources")]
+pub struct Prune {}
+
+#[derive(Subcommand, Debug)]
+pub enum SystemCommands {
+    Prune(Prune),
+}
+
+#[derive(Parser, Debug)]
+#[command(about = "System subcommands")]
+pub struct System {
+    #[command(subcommand)]
+    pub command: SystemCommands,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum Commands {
+    Work { name: Option<String> },
+    System(System),
+}
+
+#[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 pub struct Cli {
+    #[command(subcommand)]
+    pub command: Option<Commands>,
     pub git_ssh_url: Option<String>,
     #[arg(short, long, default_value = DEFAULT_IMAGE, env = "ROOZ_IMAGE")]
     pub image: String,
@@ -27,12 +51,6 @@ pub struct Cli {
         help = "Prunes containers and volumes scoped to the provided git repository"
     )]
     pub prune: bool,
-    #[arg(
-        long,
-        conflicts_with = "prune",
-        help = "Prunes all rooz containers and volumes apart from the ssh-key vol"
-    )]
-    pub prune_all: bool,
     #[arg(short, long)]
     pub privileged: bool,
 }

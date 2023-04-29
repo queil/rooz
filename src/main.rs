@@ -4,6 +4,7 @@ mod container;
 mod git;
 mod id;
 mod image;
+mod labels;
 mod ssh;
 mod types;
 mod volume;
@@ -15,7 +16,7 @@ use crate::types::{
 };
 use bollard::Docker;
 use clap::Parser;
-use std::process;
+use cli::{Prune, System};
 
 async fn work<'a>(
     docker: &Docker,
@@ -110,6 +111,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
 
     match args {
         Cli {
+            command:
+                Some(cli::Commands::System(System {
+                    command: cli::SystemCommands::Prune(Prune {}),
+                })),
+            ..
+        } => {
+            cmd::prune::prune_system(&docker).await?;
+        }
+        Cli {
             git_ssh_url,
             image,
             pull_image,
@@ -117,9 +127,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
             user,
             //work_dir,
             prune,
-            prune_all,
             privileged,
             caches,
+            command,
         } => {
             let ephemeral = false; // ephemeral containers won't be supported at the moment
 
@@ -128,9 +138,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
                 None => "rooz-generic".to_string(),
             };
 
-            if prune || prune_all {
-                cmd::prune::prune(&docker, &workspace_key, prune_all).await?;
-                process::exit(0);
+            if prune {
+                cmd::prune::prune_workspace(&docker, &workspace_key).await?;
             }
 
             let orig_shell = shell;
