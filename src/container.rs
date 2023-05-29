@@ -20,7 +20,10 @@ use futures::{Stream, StreamExt};
 use termion::{async_stdin, raw::IntoRawMode, terminal_size};
 use tokio::{io::AsyncWriteExt, spawn, time::sleep};
 
-use crate::{types::{ContainerResult, RunSpec}, labels};
+use crate::{
+    labels,
+    types::{ContainerResult, RunSpec},
+};
 
 async fn start_tty(
     docker: &Docker,
@@ -160,15 +163,16 @@ pub async fn exec_output(
     }
 }
 
-pub async fn force_remove(
+pub async fn remove(
     docker: &Docker,
     container_id: &str,
+    force: bool
 ) -> Result<(), Box<dyn std::error::Error + 'static>> {
     Ok(docker
         .remove_container(
             &container_id,
             Some(RemoveContainerOptions {
-                force: true,
+                force,
                 ..Default::default()
             }),
         )
@@ -231,12 +235,10 @@ pub async fn create<'a>(
                 tty: Some(true),
                 open_stdin: Some(true),
                 host_config: Some(host_config),
-                labels: Some(HashMap::from(
-                    [
-                      (labels::ROOZ, "true"),
-                      (labels::GROUP_KEY, &spec.container_name)
-                    ]
-                )),
+                labels: Some(HashMap::from([
+                    (labels::ROOZ, "true"),
+                    (labels::GROUP_KEY, &spec.container_name),
+                ])),
                 ..Default::default()
             };
 

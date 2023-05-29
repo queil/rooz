@@ -46,7 +46,7 @@ chown -R {} /tmp/.ssh
     let result = container::create(&docker, run_spec).await?;
     container::start(&docker, result.id()).await?;
     container::container_logs_to_stdout(docker, result.id()).await?;
-    container::force_remove(docker, result.id()).await?;
+    container::remove(docker, result.id(), true).await?;
 
     Ok(())
 }

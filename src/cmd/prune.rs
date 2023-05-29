@@ -12,6 +12,7 @@ use crate::{container, labels, ssh};
 async fn prune(
     docker: &Docker,
     filters: HashMap<&str, Vec<&str>>,
+    force: bool
 ) -> Result<(), Box<dyn std::error::Error + 'static>> {
     let ls_container_options = ListContainersOptions {
         all: true,
@@ -21,7 +22,7 @@ async fn prune(
     for cs in docker.list_containers(Some(ls_container_options)).await? {
         if let ContainerSummary { id: Some(id), .. } = cs {
             log::debug!("Force remove container: {}", &id);
-            container::force_remove(&docker, &id).await?
+            container::remove(&docker, &id, force).await?
         }
     }
 
@@ -32,7 +33,7 @@ async fn prune(
 
     if let Some(volumes) = docker.list_volumes(Some(ls_vol_options)).await?.volumes {
         let rm_vol_options = RemoveVolumeOptions {
-            force: true,
+            force,
             ..Default::default()
         };
 
@@ -55,6 +56,7 @@ async fn prune(
 pub async fn prune_workspace(
     docker: &Docker,
     workspace_key: &str,
+    force: bool
 ) -> Result<(), Box<dyn std::error::Error + 'static>> {
     let group_key_filter = format!("{}={}", labels::GROUP_KEY, &workspace_key);
     let filters = HashMap::from([
@@ -62,11 +64,11 @@ pub async fn prune_workspace(
         ("label", vec![&group_key_filter]),
     ]);
 
-    prune(docker, filters).await
+    prune(docker, filters, force).await
 }
 
 pub async fn prune_system(docker: &Docker) -> Result<(), Box<dyn std::error::Error + 'static>> {
     let filters = HashMap::from([("label", vec![labels::ROOZ])]);
 
-    prune(docker, filters).await
+    prune(docker, filters, true).await
 }

@@ -130,7 +130,7 @@ pub async fn clone_repo(
 
         log::debug!("Repo config result: {}", &rooz_cfg);
 
-        container::force_remove(docker, &container_id).await?;
+        container::remove(docker, &container_id, true).await?;
 
         match RoozCfg::deserialize(toml::de::Deserializer::new(&rooz_cfg)).ok() {
             Some(cfg) => Ok((Some(cfg), Some(url))),

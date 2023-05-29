@@ -6,12 +6,6 @@ const DEFAULT_IMAGE: &'static str = "docker.io/bitnami/git:latest";
 #[command(about = "Prunes all rooz resources")]
 pub struct PruneParams {}
 
-#[derive(Parser, Debug)]
-#[command(about = "Lists workspaces", alias="ls")]
-pub struct ListParams {
-
-}
-
 #[derive(Subcommand, Debug)]
 pub enum SystemCommands {
     Prune(PruneParams),
@@ -22,14 +16,6 @@ pub enum SystemCommands {
 pub struct System {
     #[command(subcommand)]
     pub command: SystemCommands,
-}
-
-#[derive(Subcommand, Debug)]
-pub enum Commands {
-    New(NewParams),
-    Enter (EnterParams),
-    List(ListParams),
-    System(System),
 }
 
 #[derive(Parser, Debug)]
@@ -57,6 +43,7 @@ pub struct WorkParams {
 }
 
 #[derive(Parser, Debug)]
+#[command(about = "Creates a new workspace (container + volumes)")]
 pub struct NewParams {
     pub name: String,
     #[command(flatten)]
@@ -66,6 +53,7 @@ pub struct NewParams {
 }
 
 #[derive(Parser, Debug)]
+#[command(about = "Opens an interactive shell to a workspace's container")]
 pub struct EnterParams {
     pub name: String,
     #[arg(short, long, default_value = "bash", env = "ROOZ_SHELL")]
@@ -74,6 +62,26 @@ pub struct EnterParams {
     pub work_dir: Option<String>,
 }
 
+#[derive(Parser, Debug)]
+#[command(about = "Lists workspaces", alias = "ls")]
+pub struct ListParams {}
+
+#[derive(Parser, Debug)]
+#[command(about = "Removes a workspace", alias = "rm")]
+pub struct RemoveParams {
+    pub name: String,
+    #[arg(short, long)]
+    pub force: bool
+}
+
+#[derive(Subcommand, Debug)]
+pub enum Commands {
+    New(NewParams),
+    Enter(EnterParams),
+    List(ListParams),
+    Remove(RemoveParams),
+    System(System),
+}
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
