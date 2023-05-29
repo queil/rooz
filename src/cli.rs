@@ -58,9 +58,9 @@ pub struct WorkParams {
 
 #[derive(Parser, Debug)]
 pub struct NewParams {
+    pub name: String,
     #[command(flatten)]
     pub work: WorkParams,
-    pub name: String,
     #[arg(short, long)]
     pub force: bool,
 }

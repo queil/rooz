@@ -7,7 +7,7 @@ pub fn filter(key: &str, value: &str) -> String {
 }
 
 pub fn is_workspace() -> String {
-    filter(ROLE, "git")
+    filter(ROOZ, "true")
 }
 
 pub fn belongs_to(workspace_key: &str) -> String {

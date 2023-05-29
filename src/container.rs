@@ -20,7 +20,7 @@ use futures::{Stream, StreamExt};
 use termion::{async_stdin, raw::IntoRawMode, terminal_size};
 use tokio::{io::AsyncWriteExt, spawn, time::sleep};
 
-use crate::types::{ContainerResult, RunSpec};
+use crate::{types::{ContainerResult, RunSpec}, labels};
 
 async fn start_tty(
     docker: &Docker,
@@ -231,7 +231,12 @@ pub async fn create<'a>(
                 tty: Some(true),
                 open_stdin: Some(true),
                 host_config: Some(host_config),
-                labels: Some(HashMap::from([("dev.rooz", "true")])),
+                labels: Some(HashMap::from(
+                    [
+                      (labels::ROOZ, "true"),
+                      (labels::GROUP_KEY, &spec.container_name)
+                    ]
+                )),
                 ..Default::default()
             };
 
