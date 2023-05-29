@@ -6,6 +6,12 @@ const DEFAULT_IMAGE: &'static str = "docker.io/bitnami/git:latest";
 #[command(about = "Prunes all rooz resources")]
 pub struct Prune {}
 
+#[derive(Parser, Debug)]
+#[command(about = "Lists workspaces", alias="ls")]
+pub struct List {
+
+}
+
 #[derive(Subcommand, Debug)]
 pub enum SystemCommands {
     Prune(Prune),
@@ -21,6 +27,7 @@ pub struct System {
 #[derive(Subcommand, Debug)]
 pub enum Commands {
     Work { name: Option<String> },
+    List(List),
     System(System),
 }
 

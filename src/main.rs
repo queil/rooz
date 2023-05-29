@@ -11,7 +11,7 @@ mod volume;
 
 use std::process;
 
-use crate::cli::Cli;
+use crate::cli::{Cli, Commands};
 use crate::id::to_safe_id;
 use crate::types::{
     RoozCfg, RoozVolume, RoozVolumeRole, RoozVolumeSharing, RunSpec, VolumeResult, WorkSpec,
@@ -120,6 +120,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
             ..
         } => {
             cmd::prune::prune_system(&docker).await?;
+        }
+        Cli {
+            command: Some(cli::Commands::List(cli::List { })),
+            ..
+        } => {
+            cmd::list::list(&docker).await?;
         }
         Cli {
             git_ssh_url,
