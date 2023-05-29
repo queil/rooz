@@ -58,10 +58,10 @@ pub async fn prune_workspace(
     workspace_key: &str,
     force: bool,
 ) -> Result<(), Box<dyn std::error::Error + 'static>> {
-    let group_key_filter = format!("{}={}", labels::GROUP_KEY, &workspace_key);
+    let belongs_to_workspace = labels::belongs_to(&workspace_key);
     let filters = HashMap::from([
         ("label", vec![labels::ROOZ]),
-        ("label", vec![&group_key_filter]),
+        ("label", vec![&belongs_to_workspace]),
     ]);
 
     prune(docker, filters, force).await

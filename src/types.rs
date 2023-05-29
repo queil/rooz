@@ -12,14 +12,14 @@ pub struct RoozCfg {
 #[derive(Debug, Clone)]
 pub enum ContainerResult {
     Created { id: String },
-    Reused { id: String },
+    AlreadyExists { id: String },
 }
 
 impl ContainerResult {
     pub fn id(&self) -> &str {
         match self {
             ContainerResult::Created { id } => &id,
-            ContainerResult::Reused { id } => &id,
+            ContainerResult::AlreadyExists { id } => &id,
         }
     }
 }

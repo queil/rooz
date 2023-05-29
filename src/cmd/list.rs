@@ -25,7 +25,7 @@ pub async fn list(docker: &Docker) -> Result<(), Box<dyn std::error::Error + 'st
                 "running" => "✱",
                 _ => " ",
             };
-            println!("{} {}", labels[labels::GROUP_KEY], state_icon);
+            println!("{} {}", labels[labels::WORKSPACE_KEY], state_icon);
         }
     }
     Ok(())

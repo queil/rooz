@@ -1,4 +1,4 @@
-pub const GROUP_KEY: &'static str = "dev.rooz.group-key";
+pub const WORKSPACE_KEY: &'static str = "dev.rooz.workspace";
 pub const ROLE: &'static str = "dev.rooz.role";
 pub const ROOZ: &'static str = "dev.rooz";
 
@@ -11,5 +11,5 @@ pub fn is_workspace() -> String {
 }
 
 pub fn belongs_to(workspace_key: &str) -> String {
-    filter(GROUP_KEY, workspace_key)
+    filter(WORKSPACE_KEY, workspace_key)
 }

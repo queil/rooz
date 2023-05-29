@@ -13,7 +13,7 @@ use bollard::{
     errors::Error,
     exec::{CreateExecOptions, ResizeExecOptions, StartExecResults},
     models::HostConfig,
-    service::{ContainerCreateResponse, ContainerInspectResponse},
+    service::ContainerInspectResponse,
     Docker,
 };
 use futures::{Stream, StreamExt};
@@ -36,7 +36,6 @@ async fn start_tty(
         mut input,
     } = docker.start_exec(exec_id, None).await?
     {
-        // pipe stdin into the docker exec stream input
         let handle = spawn(async move {
             if interactive {
                 let mut stdin = async_stdin().bytes();
@@ -200,7 +199,8 @@ pub async fn create<'a>(
         }) if img.to_owned() == spec.image_id && !spec.force_recreate => {
             log::debug!("Reusing container: {} ({})", name, id);
             panic!("{}", "Container exists. Use force to recreate");
-            ContainerResult::Reused { id }
+            //TODO: handle it gracefully
+            //ContainerResult::AlreadyExists { id }
         }
         s => {
             let remove_options = RemoveContainerOptions {
@@ -237,7 +237,7 @@ pub async fn create<'a>(
                 host_config: Some(host_config),
                 labels: Some(HashMap::from([
                     (labels::ROOZ, "true"),
-                    (labels::GROUP_KEY, &spec.container_name),
+                    (labels::WORKSPACE_KEY, &spec.container_name),
                 ])),
                 ..Default::default()
             };
