@@ -166,7 +166,7 @@ pub async fn exec_output(
 pub async fn remove(
     docker: &Docker,
     container_id: &str,
-    force: bool
+    force: bool,
 ) -> Result<(), Box<dyn std::error::Error + 'static>> {
     Ok(docker
         .remove_container(

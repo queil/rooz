@@ -23,7 +23,7 @@ pub async fn list(docker: &Docker) -> Result<(), Box<dyn std::error::Error + 'st
         {
             let state_icon = match state.as_str() {
                 "running" => "✱",
-                _ => " "
+                _ => " ",
             };
             println!("{} {}", labels[labels::GROUP_KEY], state_icon);
         }

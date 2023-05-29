@@ -71,7 +71,7 @@ pub struct ListParams {}
 pub struct RemoveParams {
     pub name: String,
     #[arg(short, long)]
-    pub force: bool
+    pub force: bool,
 }
 
 #[derive(Subcommand, Debug)]

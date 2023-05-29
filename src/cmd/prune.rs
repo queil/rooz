@@ -12,7 +12,7 @@ use crate::{container, labels, ssh};
 async fn prune(
     docker: &Docker,
     filters: HashMap<&str, Vec<&str>>,
-    force: bool
+    force: bool,
 ) -> Result<(), Box<dyn std::error::Error + 'static>> {
     let ls_container_options = ListContainersOptions {
         all: true,
@@ -56,7 +56,7 @@ async fn prune(
 pub async fn prune_workspace(
     docker: &Docker,
     workspace_key: &str,
-    force: bool
+    force: bool,
 ) -> Result<(), Box<dyn std::error::Error + 'static>> {
     let group_key_filter = format!("{}={}", labels::GROUP_KEY, &workspace_key);
     let filters = HashMap::from([
