@@ -96,10 +96,11 @@ pub async fn clone_repo(
             mounts: Some(vec![git_vol_mount.clone(), ssh::mount("/tmp/.ssh")]),
             entrypoint: Some(vec!["cat"]),
             privileged: false,
+            force_recreate: false,
         };
 
-        let container_result = container::run(&docker, run_spec).await?;
-
+        let container_result = container::create(&docker, run_spec).await?;
+        container::start(docker, container_result.id()).await?;
         let container_id = container_result.id();
 
         if let ContainerResult::Created { .. } = container_result {

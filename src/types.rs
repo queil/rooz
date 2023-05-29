@@ -107,6 +107,7 @@ pub struct WorkSpec<'a> {
     pub git_vol_mount: Option<Mount>,
     pub caches: Option<Vec<String>>,
     pub privileged: bool,
+    pub force_recreate: bool,
 }
 
 pub struct RunSpec<'a> {
@@ -119,4 +120,5 @@ pub struct RunSpec<'a> {
     pub mounts: Option<Vec<Mount>>,
     pub entrypoint: Option<Vec<&'a str>>,
     pub privileged: bool,
+    pub force_recreate: bool,
 }

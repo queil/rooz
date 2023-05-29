@@ -13,7 +13,7 @@ use bollard::{
     errors::Error,
     exec::{CreateExecOptions, ResizeExecOptions, StartExecResults},
     models::HostConfig,
-    service::ContainerInspectResponse,
+    service::{ContainerCreateResponse, ContainerInspectResponse},
     Docker,
 };
 use futures::{Stream, StreamExt};
@@ -175,15 +175,15 @@ pub async fn force_remove(
         .await?)
 }
 
-pub async fn run<'a>(
+pub async fn create<'a>(
     docker: &Docker,
     spec: RunSpec<'a>,
 ) -> Result<ContainerResult, Box<dyn std::error::Error + 'static>> {
     log::debug!(
-        "[{}]: running {} as {:?} using image {}",
+        "[{}]: Creating container - name: {}, user: {}, image: {}",
         &spec.reason,
         spec.container_name,
-        spec.user,
+        spec.user.unwrap_or_default(),
         spec.image
     );
 
@@ -191,8 +191,13 @@ pub async fn run<'a>(
         Ok(ContainerInspectResponse {
             id: Some(id),
             image: Some(img),
+            name: Some(name),
             ..
-        }) if img.to_owned() == spec.image_id => ContainerResult::Reused { id },
+        }) if img.to_owned() == spec.image_id && !spec.force_recreate => {
+            log::debug!("Reusing container: {} ({})", name, id);
+            panic!("{}", "Container exists. Use force to recreate");
+            ContainerResult::Reused { id }
+        }
         s => {
             let remove_options = RemoveContainerOptions {
                 force: true,
@@ -230,20 +235,29 @@ pub async fn run<'a>(
                 ..Default::default()
             };
 
-            ContainerResult::Created {
-                id: docker
-                    .create_container(Some(options.clone()), config.clone())
-                    .await?
-                    .id,
-            }
+            let response = docker
+                .create_container(Some(options.clone()), config.clone())
+                .await?;
+
+            log::debug!(
+                "Created container: {} ({})",
+                spec.container_name,
+                response.id
+            );
+
+            ContainerResult::Created { id: response.id }
         }
     };
-
-    docker
-        .start_container(&container_id.id(), None::<StartContainerOptions<String>>)
-        .await?;
-
     Ok(container_id.clone())
+}
+
+pub async fn start(
+    docker: &Docker,
+    container_id: &str,
+) -> Result<(), Box<dyn std::error::Error + 'static>> {
+    Ok(docker
+        .start_container(&container_id, None::<StartContainerOptions<String>>)
+        .await?)
 }
 
 pub async fn container_logs_to_stdout(
