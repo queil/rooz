@@ -9,6 +9,8 @@ mod ssh;
 mod types;
 mod volume;
 
+use std::process;
+
 use crate::cli::Cli;
 use crate::id::to_safe_id;
 use crate::types::{
@@ -140,6 +142,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
 
             if prune {
                 cmd::prune::prune_workspace(&docker, &workspace_key).await?;
+                process::exit(0);
             }
 
             let orig_shell = shell;
