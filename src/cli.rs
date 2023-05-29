@@ -19,9 +19,16 @@ pub struct System {
 }
 
 #[derive(Parser, Debug)]
-#[command(author, version, about, long_about = None)]
+pub struct WorkspacePersistence {
+    pub name: String,
+    #[arg(short, long)]
+    pub force: bool,
+    #[arg(short, long)]
+    pub enter: bool,
+}
+
+#[derive(Parser, Debug)]
 pub struct WorkParams {
-    pub git_ssh_url: Option<String>,
     #[arg(short, long, default_value = DEFAULT_IMAGE, env = "ROOZ_IMAGE")]
     pub image: String,
     #[arg(long)]
@@ -45,13 +52,20 @@ pub struct WorkParams {
 #[derive(Parser, Debug)]
 #[command(about = "Creates a new workspace (container + volumes)")]
 pub struct NewParams {
-    pub name: String,
+    #[command(flatten)]
+    pub persistence: WorkspacePersistence,
+    #[arg(short, long)]
+    pub git_ssh_url: Option<String>,
     #[command(flatten)]
     pub work: WorkParams,
-    #[arg(short, long)]
-    pub force: bool,
-    #[arg(short, long)]
-    pub enter: bool,
+}
+
+#[derive(Parser, Debug)]
+#[command(about = "Enters an ephemeral workspace")]
+pub struct TmpParams {
+    pub git_ssh_url: String,
+    #[command(flatten)]
+    pub work: WorkParams,
 }
 
 #[derive(Parser, Debug)]
@@ -80,6 +94,7 @@ pub struct RemoveParams {
 pub enum Commands {
     New(NewParams),
     Enter(EnterParams),
+    Tmp(TmpParams),
     List(ListParams),
     Remove(RemoveParams),
     System(System),

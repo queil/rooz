@@ -44,13 +44,7 @@ pub async fn git_volume(
 
     let vol_name = git_vol.safe_volume_name()?;
 
-    volume::ensure_volume(
-        docker,
-        &vol_name,
-        &git_vol.role.as_str(),
-        git_vol.group_key(),
-    )
-    .await;
+    volume::ensure_volume(docker, &vol_name, &git_vol.role.as_str(), git_vol.key()).await;
 
     let git_vol_mount = Mount {
         typ: Some(VOLUME),

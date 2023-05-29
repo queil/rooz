@@ -80,7 +80,7 @@ impl RoozVolume {
         };
         Ok(vol_name)
     }
-    pub fn group_key(&self) -> Option<String> {
+    pub fn key(&self) -> Option<String> {
         match self {
             RoozVolume {
                 sharing: RoozVolumeSharing::Exclusive { key },

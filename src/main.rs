@@ -12,8 +12,8 @@ mod workspace;
 
 use crate::cli::{
     Cli,
-    Commands::{Enter, List, New, Remove, System},
-    ListParams, RemoveParams,
+    Commands::{Enter, List, New, Remove, System, Tmp},
+    ListParams, NewParams, RemoveParams, TmpParams,
 };
 
 use bollard::Docker;
@@ -33,8 +33,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
 
     match args {
         Cli {
-            command: New(spec), ..
-        } => cmd::new::new(&docker, &spec).await?,
+            command:
+                New(NewParams {
+                    git_ssh_url,
+                    work,
+                    persistence,
+                }),
+            ..
+        } => cmd::new::new(&docker, git_ssh_url, &work, Some(persistence)).await?,
         Cli {
             command:
                 Enter(EnterParams {
@@ -54,6 +60,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
         } => {
             cmd::prune::prune_workspace(&docker, &name, force).await?;
         }
+        Cli {
+            command: Tmp(TmpParams { git_ssh_url, work }),
+            ..
+        } => cmd::new::new(&docker, Some(git_ssh_url), &work, None).await?,
         Cli {
             command:
                 System(cli::System {
