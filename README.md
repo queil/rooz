@@ -4,6 +4,12 @@ TLDR: Rooz is a tool similar to [toolbox](https://docs.fedoraproject.org/en-US/f
 or [distrobox](https://github.com/89luca89/distrobox) but unlike them it aims to share as little as possible with the host.
 Also it is focused around git repositories.
 
+## Install
+
+```sh
+curl -sSL https://github.com/queil/rooz/releases/latest/download/rooz -o ./rooz && chmod +x ./rooz && sudo mv ./rooz /usr/local/bin
+```
+
 ## Trick yourself into feeling home in a container.
 
 * Let's make the host just have your browser, your VS Code, and your containers runtime.
@@ -65,12 +71,6 @@ Also it is focused around git repositories.
 * This is my first Rust project (learning the language) so please excuse me the code quality here
 * rooz's `known_hosts` only contains github.com entries
 * running in WSL2 in Docker Desktop has permissions issues as Docker Desktop mounts all the volumes as root
-
-## Install
-
-```sh
-curl -sSL https://github.com/queil/rooz/releases/latest/download/rooz -o ./rooz && chmod +x ./rooz && sudo mv ./rooz /usr/local/bin
-```
 
 ## TODO soon
 
