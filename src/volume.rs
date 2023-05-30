@@ -1,9 +1,9 @@
 use crate::{
-    ssh,
+    labels, ssh,
     types::{RoozVolume, VolumeResult},
 };
 use bollard::errors::Error::DockerResponseServerError;
-use bollard::models::MountTypeEnum::VOLUME;
+use bollard::models::MountTypeEnum::{TMPFS, VOLUME};
 use bollard::{service::Mount, volume::CreateVolumeOptions, Docker};
 use std::{collections::HashMap, path::Path};
 
@@ -11,13 +11,13 @@ pub async fn ensure_volume(
     docker: &Docker,
     name: &str,
     role: &str,
-    group_key: Option<String>,
+    workspace_key: Option<String>,
 ) -> VolumeResult {
-    let group_key = group_key.unwrap_or_default();
+    let workspace_key = workspace_key.unwrap_or_default();
     let labels = HashMap::from([
-        ("dev.rooz", "true"),
-        ("dev.rooz.role", role),
-        ("dev.rooz.group-key", &group_key),
+        (labels::ROOZ, "true"),
+        (labels::ROLE, role),
+        (labels::WORKSPACE_KEY, &workspace_key),
     ]);
 
     let create_vol_options = CreateVolumeOptions::<&str> {
@@ -59,19 +59,25 @@ pub async fn ensure_mounts(
             .as_ref(),
     )];
 
-    if is_ephemeral {
-        return Ok(mounts.clone());
-    }
-
     for v in volumes {
         log::debug!("Process volume: {:?}", &v);
         let vol_name = v.safe_volume_name()?;
 
-        ensure_volume(&docker, &vol_name, v.role.as_str(), v.group_key()).await;
+        if !is_ephemeral {
+            ensure_volume(&docker, &vol_name, v.role.as_str(), v.key()).await;
+        }
 
         let mount = Mount {
-            typ: Some(VOLUME),
-            source: Some(vol_name.into()),
+            typ: if is_ephemeral {
+                Some(TMPFS)
+            } else {
+                Some(VOLUME)
+            },
+            source: if is_ephemeral {
+                None
+            } else {
+                Some(vol_name.into())
+            },
             target: Some(v.path.replace("~", &home_dir)),
             read_only: Some(false),
             ..Default::default()

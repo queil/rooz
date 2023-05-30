@@ -20,7 +20,10 @@ use futures::{Stream, StreamExt};
 use termion::{async_stdin, raw::IntoRawMode, terminal_size};
 use tokio::{io::AsyncWriteExt, spawn, time::sleep};
 
-use crate::types::{ContainerResult, RunSpec};
+use crate::{
+    labels,
+    types::{ContainerResult, RunSpec},
+};
 
 async fn start_tty(
     docker: &Docker,
@@ -33,7 +36,6 @@ async fn start_tty(
         mut input,
     } = docker.start_exec(exec_id, None).await?
     {
-        // pipe stdin into the docker exec stream input
         let handle = spawn(async move {
             if interactive {
                 let mut stdin = async_stdin().bytes();
@@ -160,30 +162,31 @@ pub async fn exec_output(
     }
 }
 
-pub async fn force_remove(
+pub async fn remove(
     docker: &Docker,
     container_id: &str,
+    force: bool,
 ) -> Result<(), Box<dyn std::error::Error + 'static>> {
     Ok(docker
         .remove_container(
             &container_id,
             Some(RemoveContainerOptions {
-                force: true,
+                force,
                 ..Default::default()
             }),
         )
         .await?)
 }
 
-pub async fn run<'a>(
+pub async fn create<'a>(
     docker: &Docker,
     spec: RunSpec<'a>,
 ) -> Result<ContainerResult, Box<dyn std::error::Error + 'static>> {
     log::debug!(
-        "[{}]: running {} as {:?} using image {}",
+        "[{}]: Creating container - name: {}, user: {}, image: {}",
         &spec.reason,
         spec.container_name,
-        spec.user,
+        spec.user.unwrap_or_default(),
         spec.image
     );
 
@@ -191,8 +194,14 @@ pub async fn run<'a>(
         Ok(ContainerInspectResponse {
             id: Some(id),
             image: Some(img),
+            name: Some(name),
             ..
-        }) if img.to_owned() == spec.image_id => ContainerResult::Reused { id },
+        }) if img.to_owned() == spec.image_id && !spec.force_recreate => {
+            log::debug!("Reusing container: {} ({})", name, id);
+            panic!("{}", "Container exists. Use force to recreate");
+            //TODO: handle it gracefully
+            //ContainerResult::AlreadyExists { id }
+        }
         s => {
             let remove_options = RemoveContainerOptions {
                 force: true,
@@ -226,24 +235,36 @@ pub async fn run<'a>(
                 tty: Some(true),
                 open_stdin: Some(true),
                 host_config: Some(host_config),
-                labels: Some(HashMap::from([("dev.rooz", "true")])),
+                labels: Some(HashMap::from([
+                    (labels::ROOZ, "true"),
+                    (labels::WORKSPACE_KEY, &spec.container_name),
+                ])),
                 ..Default::default()
             };
 
-            ContainerResult::Created {
-                id: docker
-                    .create_container(Some(options.clone()), config.clone())
-                    .await?
-                    .id,
-            }
+            let response = docker
+                .create_container(Some(options.clone()), config.clone())
+                .await?;
+
+            log::debug!(
+                "Created container: {} ({})",
+                spec.container_name,
+                response.id
+            );
+
+            ContainerResult::Created { id: response.id }
         }
     };
-
-    docker
-        .start_container(&container_id.id(), None::<StartContainerOptions<String>>)
-        .await?;
-
     Ok(container_id.clone())
+}
+
+pub async fn start(
+    docker: &Docker,
+    container_id: &str,
+) -> Result<(), Box<dyn std::error::Error + 'static>> {
+    Ok(docker
+        .start_container(&container_id, None::<StartContainerOptions<String>>)
+        .await?)
 }
 
 pub async fn container_logs_to_stdout(

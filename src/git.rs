@@ -31,26 +31,20 @@ pub fn get_clone_dir(root_dir: &str, git_ssh_url: Option<String>) -> String {
 //TODO: return volume from clone_repo and make this private
 pub async fn git_volume(
     docker: &Docker,
-    url: &str,
     target_path: &str,
+    workspace_key: &str,
 ) -> Result<Mount, Box<dyn std::error::Error + 'static>> {
     let git_vol = RoozVolume {
         path: target_path.into(),
         sharing: RoozVolumeSharing::Exclusive {
-            key: id::to_safe_id(url)?,
+            key: workspace_key.into(),
         },
         role: RoozVolumeRole::Git,
     };
 
     let vol_name = git_vol.safe_volume_name()?;
 
-    volume::ensure_volume(
-        docker,
-        &vol_name,
-        &git_vol.role.as_str(),
-        git_vol.group_key(),
-    )
-    .await;
+    volume::ensure_volume(docker, &vol_name, &git_vol.role.as_str(), git_vol.key()).await;
 
     let git_vol_mount = Mount {
         typ: Some(VOLUME),
@@ -69,6 +63,7 @@ pub async fn clone_repo(
     image_id: &str,
     uid: &str,
     git_ssh_url: Option<String>,
+    workspace_key: &str,
 ) -> Result<(Option<RoozCfg>, Option<String>), Box<dyn std::error::Error + 'static>> {
     if let Some(url) = git_ssh_url.clone() {
         let working_dir = "/tmp/git";
@@ -84,7 +79,7 @@ pub async fn clone_repo(
             "clone.sh",
         );
 
-        let git_vol_mount = git_volume(docker, &url, working_dir).await?;
+        let git_vol_mount = git_volume(docker, working_dir, workspace_key).await?;
 
         let run_spec = RunSpec {
             reason: "git-clone",
@@ -96,10 +91,11 @@ pub async fn clone_repo(
             mounts: Some(vec![git_vol_mount.clone(), ssh::mount("/tmp/.ssh")]),
             entrypoint: Some(vec!["cat"]),
             privileged: false,
+            force_recreate: false,
         };
 
-        let container_result = container::run(&docker, run_spec).await?;
-
+        let container_result = container::create(&docker, run_spec).await?;
+        container::start(docker, container_result.id()).await?;
         let container_id = container_result.id();
 
         if let ContainerResult::Created { .. } = container_result {
@@ -129,7 +125,7 @@ pub async fn clone_repo(
 
         log::debug!("Repo config result: {}", &rooz_cfg);
 
-        container::force_remove(docker, &container_id).await?;
+        container::remove(docker, &container_id, true).await?;
 
         match RoozCfg::deserialize(toml::de::Deserializer::new(&rooz_cfg)).ok() {
             Some(cfg) => Ok((Some(cfg), Some(url))),

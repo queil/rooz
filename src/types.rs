@@ -12,14 +12,14 @@ pub struct RoozCfg {
 #[derive(Debug, Clone)]
 pub enum ContainerResult {
     Created { id: String },
-    Reused { id: String },
+    AlreadyExists { id: String },
 }
 
 impl ContainerResult {
     pub fn id(&self) -> &str {
         match self {
             ContainerResult::Created { id } => &id,
-            ContainerResult::Reused { id } => &id,
+            ContainerResult::AlreadyExists { id } => &id,
         }
     }
 }
@@ -80,7 +80,7 @@ impl RoozVolume {
         };
         Ok(vol_name)
     }
-    pub fn group_key(&self) -> Option<String> {
+    pub fn key(&self) -> Option<String> {
         match self {
             RoozVolume {
                 sharing: RoozVolumeSharing::Exclusive { key },
@@ -107,6 +107,7 @@ pub struct WorkSpec<'a> {
     pub git_vol_mount: Option<Mount>,
     pub caches: Option<Vec<String>>,
     pub privileged: bool,
+    pub force_recreate: bool,
 }
 
 pub struct RunSpec<'a> {
@@ -119,4 +120,5 @@ pub struct RunSpec<'a> {
     pub mounts: Option<Vec<Mount>>,
     pub entrypoint: Option<Vec<&'a str>>,
     pub privileged: bool,
+    pub force_recreate: bool,
 }

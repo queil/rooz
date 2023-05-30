@@ -40,11 +40,13 @@ chown -R {} /tmp/.ssh
         }]),
         entrypoint: Some(init_entrypoint.iter().map(String::as_str).collect()),
         privileged: false,
+        force_recreate: false,
     };
 
-    let result = container::run(&docker, run_spec).await?;
-
+    let result = container::create(&docker, run_spec).await?;
+    container::start(&docker, result.id()).await?;
     container::container_logs_to_stdout(docker, result.id()).await?;
+    container::remove(docker, result.id(), true).await?;
 
     Ok(())
 }

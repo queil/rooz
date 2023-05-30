@@ -1,20 +1,32 @@
-use std::collections::HashMap;
 use crate::labels;
+use std::collections::HashMap;
 
-use bollard::{Docker, volume::ListVolumesOptions, service::VolumeListResponse};
+use bollard::{container::ListContainersOptions, service::ContainerSummary, Docker};
 
-pub async fn list(
-    docker: &Docker) -> Result<(), Box<dyn std::error::Error + 'static>> {
-        let is_workspace = labels::is_workspace();
-        let list_options = ListVolumesOptions {
-            filters: HashMap::from([("label", vec![is_workspace.as_ref()])]),
-        };
-        let VolumeListResponse{ volumes,..} = docker.list_volumes(Some(list_options)).await?;
-        println!("WORKSPACE");
-        if let Some(volumes) = volumes {
-            for v in volumes {
-                println!("{}", v.labels[labels::GROUP_KEY]);
-            }
-        };
-        Ok(())
+pub async fn list(docker: &Docker) -> Result<(), Box<dyn std::error::Error + 'static>> {
+    let is_workspace = labels::is_workspace();
+    let list_options = ListContainersOptions {
+        filters: HashMap::from([("label", vec![is_workspace.as_ref()])]),
+        all: true,
+        ..Default::default()
+    };
+
+    let container_summary = docker.list_containers(Some(list_options)).await?;
+    println!("WORKSPACE");
+
+    for c in container_summary {
+        if let ContainerSummary {
+            labels: Some(labels),
+            state: Some(state),
+            ..
+        } = c
+        {
+            let state_icon = match state.as_str() {
+                "running" => "✱",
+                _ => " ",
+            };
+            println!("{} {}", labels[labels::WORKSPACE_KEY], state_icon);
+        }
+    }
+    Ok(())
 }
