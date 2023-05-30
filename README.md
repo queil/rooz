@@ -70,7 +70,7 @@ curl -sSL https://github.com/queil/rooz/releases/latest/download/rooz -o ./rooz 
 * So far `linux-amd64` only
 * This is my first Rust project (learning the language) so please excuse me the code quality here
 * rooz's `known_hosts` only contains github.com entries
-* running in WSL2 in Docker Desktop has permissions issues as Docker Desktop mounts all the volumes as root
+* running in WSL2 in Docker Desktop/Rancher Desktop(Moby) has permissions issues all the volumes get mounted as root
 
 ## TODO soon
 
