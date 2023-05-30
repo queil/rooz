@@ -64,6 +64,7 @@ Also it is focused around git repositories.
 * So far `linux-amd64` only
 * This is my first Rust project (learning the language) so please excuse me the code quality here
 * rooz's `known_hosts` only contains github.com entries
+* running in WSL2 in Docker Desktop has permissions issues as Docker Desktop mounts all the volumes as root
 
 ## Install
 
