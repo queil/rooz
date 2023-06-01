@@ -63,7 +63,9 @@ pub struct NewParams {
 #[derive(Parser, Debug)]
 #[command(about = "Enters an ephemeral workspace")]
 pub struct TmpParams {
-    pub git_ssh_url: String,
+    pub git_ssh_url: Option<String>,
+    #[arg(short, alias = "rm")]
+    pub remove: bool,
     #[command(flatten)]
     pub work: WorkParams,
 }
