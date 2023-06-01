@@ -42,7 +42,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
             ..
         } => {
             cmd::new::new(&docker, git_ssh_url, &work, Some(persistence)).await?;
-        },
+        }
         Cli {
             command:
                 Enter(EnterParams {
@@ -63,14 +63,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
             cmd::prune::prune_workspace(&docker, &name, force).await?;
         }
         Cli {
-            command: Tmp(TmpParams { git_ssh_url, rm, work }),
+            command:
+                Tmp(TmpParams {
+                    git_ssh_url,
+                    rm,
+                    work,
+                }),
             ..
         } => {
             let container_id = cmd::new::new(&docker, git_ssh_url, &work, None).await?;
             if rm {
                 container::remove(&docker, &container_id, true).await?;
             }
-        },
+        }
         Cli {
             command:
                 System(cli::System {

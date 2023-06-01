@@ -68,7 +68,7 @@ pub async fn new(
                 )
                 .await?;
             }
-            return Ok(container_id)
+            return Ok(container_id);
         }
         Some(url) => {
             match git::clone_repo(
@@ -120,7 +120,7 @@ pub async fn new(
                     if enter {
                         workspace::enter(&docker, &container_id, Some(&clone_dir), &sh).await?;
                     }
-                    return Ok(container_id)
+                    return Ok(container_id);
                 }
                 (None, url) => {
                     let clone_dir = git::get_clone_dir(&work_dir, url);
@@ -132,17 +132,20 @@ pub async fn new(
                     };
                     let container_id = workspace::create(&docker, &work_spec).await?;
                     if enter {
-                        workspace::enter(&docker, &container_id, Some(&clone_dir), &work_spec.shell)
-                            .await?;
+                        workspace::enter(
+                            &docker,
+                            &container_id,
+                            Some(&clone_dir),
+                            &work_spec.shell,
+                        )
+                        .await?;
                     }
-                    return Ok(container_id)
+                    return Ok(container_id);
                 }
                 _ => {
                     unreachable!("Unreachable");
-                    //return Ok("".to_string())
-                },
+                }
             }
         }
     };
 }
-
