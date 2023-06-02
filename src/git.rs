@@ -110,7 +110,7 @@ pub async fn clone_repo(
                 "git-clone",
                 &docker,
                 &container_id,
-                false,
+                true,
                 None,
                 None,
                 Some(clone_cmd.iter().map(String::as_str).collect()),
