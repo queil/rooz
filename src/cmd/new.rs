@@ -12,7 +12,7 @@ pub async fn new(
     git_ssh_url: Option<String>,
     spec: &WorkParams,
     persistence: Option<WorkspacePersistence>,
-) -> Result<(), Box<dyn std::error::Error + 'static>> {
+) -> Result<String, Box<dyn std::error::Error + 'static>> {
     let ephemeral = persistence.is_none();
 
     let orig_shell = &spec.shell;
@@ -66,8 +66,9 @@ pub async fn new(
                     Some(&work_spec.container_working_dir),
                     &work_spec.shell.as_ref(),
                 )
-                .await?
+                .await?;
             }
+            return Ok(container_id);
         }
         Some(url) => {
             match git::clone_repo(
@@ -117,8 +118,9 @@ pub async fn new(
 
                     let container_id = workspace::create(&docker, &work_spec).await?;
                     if enter {
-                        workspace::enter(&docker, &container_id, Some(&clone_dir), &sh).await?
+                        workspace::enter(&docker, &container_id, Some(&clone_dir), &sh).await?;
                     }
+                    return Ok(container_id);
                 }
                 (None, url) => {
                     let clone_dir = git::get_clone_dir(&work_dir, url);
@@ -130,13 +132,20 @@ pub async fn new(
                     };
                     let container_id = workspace::create(&docker, &work_spec).await?;
                     if enter {
-                        workspace::enter(&docker, &container_id, Some(&clone_dir), &work_spec.shell)
-                            .await?
+                        workspace::enter(
+                            &docker,
+                            &container_id,
+                            Some(&clone_dir),
+                            &work_spec.shell,
+                        )
+                        .await?;
                     }
+                    return Ok(container_id);
                 }
-                _ => unreachable!("Unreachable"),
+                _ => {
+                    unreachable!("Unreachable");
+                }
             }
         }
     };
-    Ok(())
 }
