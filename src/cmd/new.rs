@@ -3,7 +3,8 @@ use bollard::Docker;
 use crate::{
     cli::{WorkParams, WorkspacePersistence},
     constants, git, image,
-    types::{RoozCfg, WorkSpec}, workspace,
+    types::{RoozCfg, WorkSpec},
+    workspace,
 };
 
 pub async fn new(
