@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    io::{stdout, Read, Write},
+    io::{stdin, stdout, Write},
     time::Duration,
 };
 
@@ -16,8 +16,12 @@ use bollard::{
     service::ContainerInspectResponse,
     Docker,
 };
-use futures::{Stream, StreamExt};
-use termion::{async_stdin, raw::IntoRawMode, terminal_size};
+use futures::{
+    channel::oneshot::{self},
+    Stream, StreamExt,
+};
+use nonblock::NonBlockingReader;
+use termion::{raw::IntoRawMode, terminal_size};
 use tokio::{io::AsyncWriteExt, spawn, time::sleep};
 
 use crate::{
@@ -36,14 +40,22 @@ async fn start_tty(
         mut input,
     } = docker.start_exec(exec_id, None).await?
     {
+        let (r, mut s) = oneshot::channel::<bool>();
         let handle = spawn(async move {
             if interactive {
-                let mut stdin = async_stdin().bytes();
+                let mut stdin = NonBlockingReader::from_fd(stdin()).unwrap();
                 loop {
-                    if let Some(Ok(byte)) = stdin.next() {
-                        input.write(&[byte]).await.ok();
-                    } else {
-                        sleep(Duration::from_millis(10)).await;
+                    let mut bytes = Vec::new();
+                    match stdin.read_available(&mut bytes).ok() {
+                        Some(c) if c > 0 => {
+                            input.write_all(&bytes).await.ok();
+                        }
+                        _ => {
+                            if let Some(true) = s.try_recv().unwrap() {
+                                break;
+                            }
+                            sleep(Duration::from_millis(10)).await;
+                        }
                     }
                 }
             }
@@ -75,7 +87,10 @@ async fn start_tty(
             stdout.flush()?;
         }
 
-        handle.abort();
+        if interactive {
+            r.send(true).ok();
+            handle.await?;
+        }
     }
     Ok(())
 }

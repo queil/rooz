@@ -26,7 +26,7 @@ impl ContainerResult {
 
 pub enum VolumeResult {
     Created,
-    Reused,
+    AlreadyExists,
 }
 
 #[derive(Debug, Clone)]

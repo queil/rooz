@@ -44,7 +44,14 @@ pub async fn git_volume(
 
     let vol_name = git_vol.safe_volume_name()?;
 
-    volume::ensure_volume(docker, &vol_name, &git_vol.role.as_str(), git_vol.key()).await;
+    volume::ensure_volume(
+        docker,
+        &vol_name,
+        &git_vol.role.as_str(),
+        git_vol.key(),
+        false,
+    )
+    .await?;
 
     let git_vol_mount = Mount {
         typ: Some(VOLUME),
@@ -103,7 +110,7 @@ pub async fn clone_repo(
                 "git-clone",
                 &docker,
                 &container_id,
-                false,
+                true,
                 None,
                 None,
                 Some(clone_cmd.iter().map(String::as_str).collect()),

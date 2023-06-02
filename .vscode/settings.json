@@ -1,7 +1,10 @@
 {
     "cSpell.words": [
+        "nonblock",
+        "oneshot",
         "Rooz",
         "termion",
         "TMPFS"
-    ]
+    ],
+    "rust-analyzer.showUnlinkedFileNotification": false
 }

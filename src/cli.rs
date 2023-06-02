@@ -1,14 +1,22 @@
 use clap::{Parser, Subcommand};
 
-const DEFAULT_IMAGE: &'static str = "docker.io/bitnami/git:latest";
+use crate::constants;
 
 #[derive(Parser, Debug)]
 #[command(about = "Prunes all rooz resources")]
 pub struct PruneParams {}
 
+#[derive(Parser, Debug)]
+#[command(about = "Initializes rooz system")]
+pub struct InitParams {
+    #[arg(short, long)]
+    pub force: bool,
+}
+
 #[derive(Subcommand, Debug)]
 pub enum SystemCommands {
     Prune(PruneParams),
+    Init(InitParams),
 }
 
 #[derive(Parser, Debug)]
@@ -29,7 +37,7 @@ pub struct WorkspacePersistence {
 
 #[derive(Parser, Debug)]
 pub struct WorkParams {
-    #[arg(short, long, default_value = DEFAULT_IMAGE, env = "ROOZ_IMAGE")]
+    #[arg(short, long, default_value = constants::DEFAULT_IMAGE, env = "ROOZ_IMAGE")]
     pub image: String,
     #[arg(long)]
     pub pull_image: bool,
