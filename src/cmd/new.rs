@@ -2,9 +2,8 @@ use bollard::Docker;
 
 use crate::{
     cli::{WorkParams, WorkspacePersistence},
-    git, image, ssh,
-    types::{RoozCfg, VolumeResult, WorkSpec},
-    volume, workspace,
+    constants, git, image,
+    types::{RoozCfg, WorkSpec}, workspace,
 };
 
 pub async fn new(
@@ -17,7 +16,7 @@ pub async fn new(
 
     let orig_shell = &spec.shell;
     let orig_user = &spec.user;
-    let orig_uid = "1000".to_string();
+    let orig_uid = constants::DEFAULT_UID.to_string();
     let orig_image = &spec.image;
     let (name, force, enter) = match persistence {
         Some(p) => (p.name.to_string(), p.force, p.enter),
@@ -25,18 +24,6 @@ pub async fn new(
     };
 
     let orig_image_id = image::ensure_image(&docker, &orig_image, spec.pull_image).await?;
-
-    let ssh_key_vol_result = volume::ensure_volume(
-        &docker,
-        ssh::ROOZ_SSH_KEY_VOLUME_NAME.into(),
-        "ssh-key",
-        Some("ssh-key".into()),
-    )
-    .await;
-
-    if let VolumeResult::Created { .. } = ssh_key_vol_result {
-        ssh::init_ssh_key(&docker, &orig_image_id, &orig_uid).await?;
-    };
 
     let home_dir = format!("/home/{}", &orig_user);
     let work_dir = format!("{}/work", &home_dir);
@@ -142,7 +129,8 @@ pub async fn new(
                     }
                     return Ok(container_id);
                 }
-                _ => {
+                s => {
+                    println!("{:?}", s);
                     unreachable!("Unreachable");
                 }
             }

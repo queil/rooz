@@ -59,11 +59,11 @@ pub async fn pull_image(
 pub async fn ensure_image(
     docker: &Docker,
     image: &str,
-    pull: bool,
+    always_pull: bool,
 ) -> Result<String, Box<dyn std::error::Error + 'static>> {
     let image_id = match docker.inspect_image(&image).await {
         Ok(ImageInspect { id, .. }) => {
-            if pull {
+            if always_pull {
                 pull_image(docker, image).await?
             } else {
                 id

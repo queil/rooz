@@ -9,17 +9,16 @@ pub async fn init_ssh_key(
     image: &str,
     uid: &str,
 ) -> Result<(), Box<dyn std::error::Error + 'static>> {
+    let hostname = hostname::get()?;
     let init_ssh = format!(
-        r#"echo "Rooz init"
-echo "Running in: $(pwd)"
-mkdir -p /tmp/.ssh
-ssh-keyscan -t ed25519 github.com 140.82.121.4 140.82.121.3 ::ffff:140.82.121.4 ::ffff:140.82.121.3 >> /tmp/.ssh/known_hosts
+        r#"mkdir -p /tmp/.ssh
 KEYFILE=/tmp/.ssh/id_ed25519
-ls "$KEYFILE.pub" || ssh-keygen -t ed25519 -N '' -f $KEYFILE -C rooz-access-key
+ls "$KEYFILE.pub" > /dev/null 2>&1 || ssh-keygen -t ed25519 -N '' -f $KEYFILE -C rooz@{}
 cat "$KEYFILE.pub"
-chown -R {} /tmp/.ssh
+chmod 400 $KEYFILE && chown -R {} /tmp/.ssh
 "#,
-        &uid
+        &hostname.to_string_lossy(),
+        &uid,
     );
 
     let init_entrypoint = container::inject(&init_ssh, "entrypoint.sh");
@@ -46,8 +45,6 @@ chown -R {} /tmp/.ssh
     let result = container::create(&docker, run_spec).await?;
     container::start(&docker, result.id()).await?;
     container::container_logs_to_stdout(docker, result.id()).await?;
-    container::remove(docker, result.id(), true).await?;
-
     Ok(())
 }
 
@@ -56,7 +53,6 @@ pub fn mount(target: &str) -> Mount {
         typ: Some(VOLUME),
         source: Some(ROOZ_SSH_KEY_VOLUME_NAME.into()),
         target: Some(target.into()),
-        read_only: Some(true),
         ..Default::default()
     }
 }

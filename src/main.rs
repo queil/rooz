@@ -1,5 +1,6 @@
 mod cli;
 mod cmd;
+mod constants;
 mod container;
 mod git;
 mod id;
@@ -13,12 +14,12 @@ mod workspace;
 use crate::cli::{
     Cli,
     Commands::{Enter, List, New, Remove, System, Tmp},
-    ListParams, NewParams, RemoveParams, TmpParams,
+    InitParams, ListParams, NewParams, RemoveParams, TmpParams,
 };
 
 use bollard::Docker;
 use clap::Parser;
-use cli::{EnterParams, PruneParams};
+use cli::EnterParams;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
@@ -79,11 +80,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
         Cli {
             command:
                 System(cli::System {
-                    command: cli::SystemCommands::Prune(PruneParams {}),
+                    command: cli::SystemCommands::Prune(_),
                 }),
             ..
         } => {
             cmd::prune::prune_system(&docker).await?;
+        }
+        Cli {
+            command:
+                System(cli::System {
+                    command: cli::SystemCommands::Init(InitParams { force }),
+                }),
+            ..
+        } => {
+            cmd::init::init(
+                &docker,
+                constants::DEFAULT_IMAGE,
+                constants::DEFAULT_UID,
+                force,
+            )
+            .await?;
         }
     };
     Ok(())
