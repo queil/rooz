@@ -1,6 +1,6 @@
 # rooz
 
-:warning: This project in the current state is experimental. DO NOT USE.
+:warning: This project in the current state is experimental. Use at your own risk.
 
 TLDR: Rooz is a tool similar to [toolbox](https://docs.fedoraproject.org/en-US/fedora-silverblue/toolbox/)
 or [distrobox](https://github.com/89luca89/distrobox) but unlike them it aims to share as little as possible with the host. Rooz is developed with software development in mind so it has a built-in support for git repositories.
