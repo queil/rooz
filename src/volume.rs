@@ -61,8 +61,8 @@ pub async fn ensure_volume(
 pub async fn ensure_mounts(
     docker: &Docker,
     volumes: Vec<RoozVolume>,
-    is_ephemeral: bool,
     home_dir: &str,
+    ephemeral: bool,
 ) -> Result<Vec<Mount>, Box<dyn std::error::Error + 'static>> {
     let mut mounts = vec![ssh::mount(
         Path::new(home_dir).join(".ssh").to_string_lossy().as_ref(),
@@ -72,17 +72,13 @@ pub async fn ensure_mounts(
         log::debug!("Process volume: {:?}", &v);
         let vol_name = v.safe_volume_name()?;
 
-        if !is_ephemeral {
+        if !ephemeral {
             ensure_volume(&docker, &vol_name, v.role.as_str(), v.key(), false).await?;
         }
 
         let mount = Mount {
-            typ: if is_ephemeral {
-                Some(TMPFS)
-            } else {
-                Some(VOLUME)
-            },
-            source: if is_ephemeral {
+            typ: if ephemeral { Some(TMPFS) } else { Some(VOLUME) },
+            source: if ephemeral {
                 None
             } else {
                 Some(vol_name.into())

@@ -43,6 +43,7 @@ chmod 400 $KEYFILE && chown -R {} /tmp/.ssh
         entrypoint: Some(init_entrypoint.iter().map(String::as_str).collect()),
         privileged: false,
         force_recreate: false,
+        auto_remove: true,
     };
 
     let result = container::create(&docker, run_spec).await?;

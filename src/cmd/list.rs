@@ -11,6 +11,7 @@ pub async fn list(docker: &Docker) -> Result<(), Box<dyn std::error::Error + 'st
         ..Default::default()
     };
 
+    //TODO: also list cold workspaces
     let container_summary = docker.list_containers(Some(list_options)).await?;
     println!("WORKSPACE");
 

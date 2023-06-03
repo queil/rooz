@@ -8,7 +8,7 @@ use base64::{engine::general_purpose, Engine as _};
 use bollard::{
     container::{
         Config, CreateContainerOptions, LogOutput, LogOutput::Console, LogsOptions,
-        RemoveContainerOptions, StartContainerOptions,
+        RemoveContainerOptions, StartContainerOptions, StopContainerOptions,
     },
     errors::Error,
     exec::{CreateExecOptions, ResizeExecOptions, StartExecResults},
@@ -193,6 +193,20 @@ pub async fn remove(
         .await?)
 }
 
+pub async fn stop(
+    docker: &Docker,
+    container_id: &str,
+) -> Result<(), Box<dyn std::error::Error + 'static>> {
+    Ok(docker
+        .stop_container(
+            &container_id,
+            Some(StopContainerOptions {
+                ..Default::default()
+            }),
+        )
+        .await?)
+}
+
 pub async fn create<'a>(
     docker: &Docker,
     spec: RunSpec<'a>,
@@ -233,7 +247,7 @@ pub async fn create<'a>(
             };
 
             let host_config = HostConfig {
-                auto_remove: Some(true),
+                auto_remove: Some(spec.auto_remove),
                 mounts: spec.mounts,
                 privileged: Some(spec.privileged),
                 ..Default::default()
