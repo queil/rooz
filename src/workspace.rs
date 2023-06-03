@@ -50,7 +50,7 @@ pub async fn create<'a>(
         log::debug!("No caches configured. Skipping");
     }
 
-    let mut mounts = volume::ensure_mounts(&docker, volumes, spec.is_ephemeral, &home_dir).await?;
+    let mut mounts = volume::ensure_mounts(&docker, volumes, &home_dir, spec.ephemeral).await?;
 
     if let Some(m) = &spec.git_vol_mount {
         mounts.push(m.clone());
@@ -68,13 +68,9 @@ pub async fn create<'a>(
         entrypoint: Some(vec!["cat"]),
         privileged: spec.privileged,
         force_recreate: spec.force_recreate,
+        auto_remove: false,
     };
-
-    let r = container::create(&docker, run_spec).await?;
-
-    let work_id = r.id();
-
-    Ok(work_id.to_string())
+    return Ok(container::create(&docker, run_spec).await?.id().to_string());
 }
 
 pub async fn enter(

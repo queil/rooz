@@ -38,7 +38,7 @@ pub async fn new(
         container_working_dir: &work_dir,
         container_name: &workspace_key,
         workspace_key: &workspace_key,
-        is_ephemeral: ephemeral,
+        ephemeral,
         git_vol_mount: None,
         caches: spec.caches.clone(),
         privileged: spec.privileged,
@@ -67,6 +67,7 @@ pub async fn new(
                 &orig_uid,
                 Some(url),
                 &workspace_key,
+                ephemeral,
             )
             .await?
             {
@@ -82,7 +83,8 @@ pub async fn new(
                     log::debug!("Image config read from .rooz.toml in the cloned repo");
                     let image_id = image::ensure_image(&docker, &img, spec.pull_image).await?;
                     let clone_dir = git::get_clone_dir(&work_dir, Some(url.clone()));
-                    let git_vol_mount = git::git_volume(&docker, &clone_dir, &workspace_key).await?;
+                    let git_vol_mount =
+                        git::git_volume(&docker, &clone_dir, &workspace_key, ephemeral).await?;
                     let sh = shell.or(Some(orig_shell.to_string())).unwrap();
                     let caches = spec.caches.clone();
                     let mut all_caches = vec![];
@@ -113,7 +115,8 @@ pub async fn new(
                 }
                 (None, url) => {
                     let clone_dir = git::get_clone_dir(&work_dir, url);
-                    let git_vol_mount = git::git_volume(&docker, &clone_dir, &workspace_key).await?;
+                    let git_vol_mount =
+                        git::git_volume(&docker, &clone_dir, &workspace_key, ephemeral).await?;
                     let work_spec = WorkSpec {
                         container_working_dir: &clone_dir,
                         git_vol_mount: Some(git_vol_mount),

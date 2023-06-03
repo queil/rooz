@@ -104,7 +104,7 @@ pub struct WorkSpec<'a> {
     pub container_working_dir: &'a str,
     pub container_name: &'a str,
     pub workspace_key: &'a str,
-    pub is_ephemeral: bool,
+    pub ephemeral: bool,
     pub git_vol_mount: Option<Mount>,
     pub caches: Option<Vec<String>>,
     pub privileged: bool,
@@ -123,4 +123,5 @@ pub struct RunSpec<'a> {
     pub entrypoint: Option<Vec<&'a str>>,
     pub privileged: bool,
     pub force_recreate: bool,
+    pub auto_remove: bool,
 }

@@ -2,14 +2,14 @@ use std::collections::HashMap;
 
 use bollard::{
     container::ListContainersOptions,
-    service::ContainerSummary,
+    service::{ContainerSummary, Volume},
     volume::{ListVolumesOptions, RemoveVolumeOptions},
     Docker,
 };
 
-use crate::{container, filter};
+use crate::{container, ssh};
 
-async fn prune(
+pub async fn remove(
     docker: &Docker,
     filters: HashMap<String, Vec<String>>,
     force: bool,
@@ -19,9 +19,10 @@ async fn prune(
         filters: filters.clone(),
         ..Default::default()
     };
+    let force_display = if force { " (force)" } else { "" };
     for cs in docker.list_containers(Some(ls_container_options)).await? {
         if let ContainerSummary { id: Some(id), .. } = cs {
-            log::debug!("Force remove container: {}", &id);
+            log::debug!("Remove container: {}{}", &id, &force_display);
             container::remove(&docker, &id, force).await?
         }
     }
@@ -38,14 +39,17 @@ async fn prune(
         };
 
         for v in volumes {
-            log::debug!("Force remove volume: {}", &v.name);
+            match v {
+                Volume { ref name, .. } if name == ssh::ROOZ_SSH_KEY_VOLUME_NAME => {
+                    continue;
+                }
+                _ => {}
+            };
+
+            log::debug!("Remove volume: {}{}", &v.name, &force_display);
             docker.remove_volume(&v.name, Some(rm_vol_options)).await?
         }
     }
     log::debug!("Prune success");
     Ok(())
-}
-
-pub async fn prune_system(docker: &Docker) -> Result<(), Box<dyn std::error::Error + 'static>> {
-    prune(docker, filter::all(), true).await
 }

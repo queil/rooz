@@ -1,12 +1,13 @@
-use crate::labels;
-use std::collections::HashMap;
+use crate::{
+    filter,
+    labels::{self},
+};
 
 use bollard::{container::ListContainersOptions, service::ContainerSummary, Docker};
 
 pub async fn list(docker: &Docker) -> Result<(), Box<dyn std::error::Error + 'static>> {
-    let is_workspace = labels::is_workspace();
     let list_options = ListContainersOptions {
-        filters: HashMap::from([("label", vec![is_workspace.as_ref()])]),
+        filters: filter::all(),
         all: true,
         ..Default::default()
     };
@@ -23,7 +24,7 @@ pub async fn list(docker: &Docker) -> Result<(), Box<dyn std::error::Error + 'st
         {
             let state_icon = match state.as_str() {
                 "running" => "✱",
-                _ => " ",
+                _ => "",
             };
             println!("{} {}", labels[labels::WORKSPACE_KEY], state_icon);
         }

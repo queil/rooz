@@ -72,8 +72,6 @@ pub struct NewParams {
 #[command(about = "Enters an ephemeral workspace")]
 pub struct TmpParams {
     pub git_ssh_url: Option<String>,
-    #[arg(long, help = "Remove container once the session is terminated")]
-    pub rm: bool,
     #[command(flatten)]
     pub work: WorkParams,
 }
@@ -95,9 +93,21 @@ pub struct ListParams {}
 #[derive(Parser, Debug)]
 #[command(about = "Removes a workspace", alias = "rm")]
 pub struct RemoveParams {
-    pub name: String,
+    #[arg(required_unless_present = "all")]
+    pub name: Option<String>,
     #[arg(short, long)]
     pub force: bool,
+    #[arg(short, long, conflicts_with = "name")]
+    pub all: bool,
+}
+
+#[derive(Parser, Debug)]
+#[command(about = "Stops a workspace")]
+pub struct StopParams {
+    #[arg(required_unless_present = "all")]
+    pub name: Option<String>,
+    #[arg(short, long, conflicts_with = "name")]
+    pub all: bool,
 }
 
 #[derive(Subcommand, Debug)]
@@ -107,6 +117,7 @@ pub enum Commands {
     Tmp(TmpParams),
     List(ListParams),
     Remove(RemoveParams),
+    Stop(StopParams),
     System(System),
 }
 

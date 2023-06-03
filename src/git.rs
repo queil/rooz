@@ -1,4 +1,4 @@
-use bollard::models::MountTypeEnum::VOLUME;
+use bollard::models::MountTypeEnum::{TMPFS, VOLUME};
 use bollard::{service::Mount, Docker};
 use serde::Deserialize;
 
@@ -33,6 +33,7 @@ pub async fn git_volume(
     docker: &Docker,
     target_path: &str,
     workspace_key: &str,
+    ephemeral: bool,
 ) -> Result<Mount, Box<dyn std::error::Error + 'static>> {
     let git_vol = RoozVolume {
         path: target_path.into(),
@@ -44,18 +45,24 @@ pub async fn git_volume(
 
     let vol_name = git_vol.safe_volume_name()?;
 
-    volume::ensure_volume(
-        docker,
-        &vol_name,
-        &git_vol.role.as_str(),
-        git_vol.key(),
-        false,
-    )
-    .await?;
+    if !ephemeral {
+        volume::ensure_volume(
+            docker,
+            &vol_name,
+            &git_vol.role.as_str(),
+            git_vol.key(),
+            false,
+        )
+        .await?;
+    }
 
     let git_vol_mount = Mount {
-        typ: Some(VOLUME),
-        source: Some(vol_name.clone()),
+        typ: Some(if ephemeral { TMPFS } else { VOLUME }),
+        source: if ephemeral {
+            None
+        } else {
+            Some(vol_name.into())
+        },
         target: Some(git_vol.path.into()),
         read_only: Some(false),
         ..Default::default()
@@ -71,6 +78,7 @@ pub async fn clone_repo(
     uid: &str,
     git_ssh_url: Option<String>,
     workspace_key: &str,
+    ephemeral: bool,
 ) -> Result<(Option<RoozCfg>, Option<String>), Box<dyn std::error::Error + 'static>> {
     if let Some(url) = git_ssh_url.clone() {
         let working_dir = "/tmp/git";
@@ -86,7 +94,7 @@ pub async fn clone_repo(
             "clone.sh",
         );
 
-        let git_vol_mount = git_volume(docker, working_dir, workspace_key).await?;
+        let git_vol_mount = git_volume(docker, working_dir, workspace_key, ephemeral).await?;
 
         let run_spec = RunSpec {
             reason: "git-clone",
@@ -100,6 +108,7 @@ pub async fn clone_repo(
             entrypoint: Some(vec!["cat"]),
             privileged: false,
             force_recreate: false,
+            auto_remove: true,
         };
 
         let container_result = container::create(&docker, run_spec).await?;
