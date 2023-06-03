@@ -19,7 +19,7 @@ pub async fn new(
     let orig_user = &spec.user;
     let orig_uid = constants::DEFAULT_UID.to_string();
     let orig_image = &spec.image;
-    let (name, force, enter) = match persistence {
+    let (workspace_key, force, enter) = match persistence {
         Some(p) => (p.name.to_string(), p.force, p.enter),
         None => (crate::id::random_suffix("rooz-temp-"), false, true),
     };
@@ -36,7 +36,8 @@ pub async fn new(
         uid: &orig_uid,
         user: &orig_user,
         container_working_dir: &work_dir,
-        container_name: &name,
+        container_name: &workspace_key,
+        workspace_key: &workspace_key,
         is_ephemeral: ephemeral,
         git_vol_mount: None,
         caches: spec.caches.clone(),
@@ -65,7 +66,7 @@ pub async fn new(
                 &orig_image_id,
                 &orig_uid,
                 Some(url),
-                &name,
+                &workspace_key,
             )
             .await?
             {
@@ -81,7 +82,7 @@ pub async fn new(
                     log::debug!("Image config read from .rooz.toml in the cloned repo");
                     let image_id = image::ensure_image(&docker, &img, spec.pull_image).await?;
                     let clone_dir = git::get_clone_dir(&work_dir, Some(url.clone()));
-                    let git_vol_mount = git::git_volume(&docker, &clone_dir, &name).await?;
+                    let git_vol_mount = git::git_volume(&docker, &clone_dir, &workspace_key).await?;
                     let sh = shell.or(Some(orig_shell.to_string())).unwrap();
                     let caches = spec.caches.clone();
                     let mut all_caches = vec![];
@@ -112,7 +113,7 @@ pub async fn new(
                 }
                 (None, url) => {
                     let clone_dir = git::get_clone_dir(&work_dir, url);
-                    let git_vol_mount = git::git_volume(&docker, &clone_dir, &name).await?;
+                    let git_vol_mount = git::git_volume(&docker, &clone_dir, &workspace_key).await?;
                     let work_spec = WorkSpec {
                         container_working_dir: &clone_dir,
                         git_vol_mount: Some(git_vol_mount),

@@ -252,7 +252,7 @@ pub async fn create<'a>(
                 host_config: Some(host_config),
                 labels: Some(HashMap::from([
                     (labels::ROOZ, "true"),
-                    (labels::WORKSPACE_KEY, &spec.container_name),
+                    (labels::WORKSPACE_KEY, &spec.workspace_key),
                 ])),
                 ..Default::default()
             };

@@ -63,6 +63,7 @@ pub async fn create<'a>(
         user: Some(&spec.uid),
         work_dir: Some(&spec.container_working_dir),
         container_name: &spec.container_name,
+        workspace_key: &spec.workspace_key,
         mounts: Some(mounts),
         entrypoint: Some(vec!["cat"]),
         privileged: spec.privileged,

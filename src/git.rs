@@ -95,6 +95,7 @@ pub async fn clone_repo(
             user: Some(&uid),
             work_dir: None,
             container_name: &id::random_suffix("rooz-git"),
+            workspace_key,
             mounts: Some(vec![git_vol_mount.clone(), ssh::mount("/tmp/.ssh")]),
             entrypoint: Some(vec!["cat"]),
             privileged: false,
