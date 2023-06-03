@@ -21,7 +21,7 @@ pub async fn new(
     let orig_image = &spec.image;
     let (workspace_key, force, enter) = match persistence {
         Some(p) => (p.name.to_string(), p.force, p.enter),
-        None => (crate::id::random_suffix("rooz-temp-"), false, true),
+        None => (crate::id::random_suffix("tmp"), false, true),
     };
 
     let orig_image_id = image::ensure_image(&docker, &orig_image, spec.pull_image).await?;
