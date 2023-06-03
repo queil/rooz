@@ -80,8 +80,6 @@ pub async fn enter(
     shell: &str,
 ) -> Result<(), Box<dyn std::error::Error + 'static>> {
 
-    //TODO: workspace home volume exists ? create container and enter : fail;
-
     container::start(&docker, container_id).await?;
     container::exec_tty(
         "work",
