@@ -1,3 +1,4 @@
+use crate::id;
 use crate::{container, types::RunSpec};
 use bollard::models::MountTypeEnum::VOLUME;
 use bollard::{service::Mount, Docker};
@@ -23,6 +24,7 @@ chmod 400 $KEYFILE && chown -R {} /tmp/.ssh
 
     let init_entrypoint = container::inject(&init_ssh, "entrypoint.sh");
 
+    let workspace_key = id::random_suffix("init");
     let run_spec = RunSpec {
         reason: "init-ssh",
         image,
@@ -30,6 +32,7 @@ chmod 400 $KEYFILE && chown -R {} /tmp/.ssh
         user: Some("root"),
         work_dir: None,
         container_name: "rooz-init-ssh",
+        workspace_key: &workspace_key,
         mounts: Some(vec![Mount {
             typ: Some(VOLUME),
             read_only: Some(false),
