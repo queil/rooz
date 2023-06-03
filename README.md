@@ -21,7 +21,9 @@ The below command creates an SSH key pair (ed25519). You can use it to authentic
 ```sh
 rooz system init
 ```
-The generated key gets stored in a volume and then mounted under `~/.ssh` to all rooz containers. 
+The generated key gets stored in a volume and then mounted under `~/.ssh` to all rooz containers.
+
+💡 You can regenerate the key by specifying the `--force` parameter. Please note that the existing key will be wiped out.
 
 ### Configure
 
