@@ -9,7 +9,7 @@ pub fn all() -> HashMap<String, Vec<String>> {
 }
 
 pub fn of_workspace(key: &str) -> HashMap<String, Vec<String>> {
-    let mut hs = all();
-    hs.insert(LABEL_KEY.into(), vec![labels::belongs_to(&key.to_string())]);
-    return hs;
+    let mut filter = all();
+    filter.insert(LABEL_KEY.into(), vec![labels::belongs_to(&key.to_string())]);
+    return filter;
 }

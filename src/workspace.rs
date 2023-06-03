@@ -79,7 +79,6 @@ pub async fn enter(
     working_dir: Option<&str>,
     shell: &str,
 ) -> Result<(), Box<dyn std::error::Error + 'static>> {
-
     container::start(&docker, container_id).await?;
     container::exec_tty(
         "work",
