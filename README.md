@@ -3,7 +3,7 @@
 :warning: This project in the current state is experimental. DO NOT USE.
 
 TLDR: Rooz is a tool similar to [toolbox](https://docs.fedoraproject.org/en-US/fedora-silverblue/toolbox/)
-or [distrobox](https://github.com/89luca89/distrobox) but unlike them it aims to share as little as possible with the host. Rooz is developed with software development in mind so it has an improved support for git repositories. 
+or [distrobox](https://github.com/89luca89/distrobox) but unlike them it aims to share as little as possible with the host. Rooz is developed with software development in mind so it has a built-in support for git repositories.
 
 ## Quick start
 
@@ -73,10 +73,10 @@ rooz tmp --rm --image alpine --shell sh
 
 :information_source: the default image is `docker.io/bitnami/git:latest`
 
-There are w few ways of specifying images:
+There are a few ways of specifying images:
 * via the `ROOZ_IMAGE` env variable
 * via  the `--image` cmd-line parameter
-* via `.rooz.toml` if creating a workspace with a git repository:
+* if creating a workspace with a git repository via `.rooz.toml` in the root of that repository:
 
   ```toml
   image = "ghcr.io/queil/image:dotnet"
