@@ -3,6 +3,7 @@ use bollard::Docker;
 use crate::{
     cli::{WorkParams, WorkspacePersistence},
     constants, git, image,
+    labels::Labels,
     types::{RoozCfg, WorkSpec},
     workspace,
 };
@@ -24,6 +25,7 @@ pub async fn new(
         None => (crate::id::random_suffix("tmp"), false, true),
     };
 
+    let labels = Labels::new(Some(&workspace_key), None);
     let orig_image_id = image::ensure_image(&docker, &orig_image, spec.pull_image).await?;
 
     let home_dir = format!("/home/{}", &orig_user);
@@ -38,6 +40,7 @@ pub async fn new(
         container_working_dir: &work_dir,
         container_name: &workspace_key,
         workspace_key: &workspace_key,
+        labels: (&labels).into(),
         ephemeral,
         git_vol_mount: None,
         caches: spec.caches.clone(),

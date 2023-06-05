@@ -7,7 +7,7 @@ use bollard::{
     Docker,
 };
 
-use crate::{container, filter};
+use crate::{container, labels::Labels};
 
 async fn prune(
     docker: &Docker,
@@ -47,5 +47,6 @@ async fn prune(
 }
 
 pub async fn prune_system(docker: &Docker) -> Result<(), Box<dyn std::error::Error + 'static>> {
-    prune(docker, filter::all(), true).await
+    let labels = Labels::new(None, None);
+    prune(docker, (&labels).into(), true).await
 }

@@ -2,7 +2,6 @@ mod cli;
 mod cmd;
 mod constants;
 mod container;
-mod filter;
 mod git;
 mod id;
 mod image;
@@ -12,10 +11,13 @@ mod types;
 mod volume;
 mod workspace;
 
-use crate::cli::{
-    Cli,
-    Commands::{Enter, List, New, Remove, Stop, System, Tmp},
-    InitParams, ListParams, NewParams, RemoveParams, StopParams, TmpParams,
+use crate::{
+    cli::{
+        Cli,
+        Commands::{Enter, List, New, Remove, Stop, System, Tmp},
+        InitParams, ListParams, NewParams, RemoveParams, StopParams, TmpParams,
+    },
+    labels::Labels,
 };
 
 use bollard::Docker;
@@ -69,26 +71,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
                     ..
                 }),
             ..
-        } => cmd::remove::remove(&docker, filter::of_workspace(&name), force).await?,
+        } => {
+            let labels = Labels::new(Some(&name), None);
+            cmd::remove::remove(&docker, (&labels).into(), force).await?
+        }
 
         Cli {
             command: Remove(RemoveParams {
                 name: None, force, ..
             }),
             ..
-        } => cmd::remove::remove(&docker, filter::all(), force).await?,
+        } => {
+            let labels = Labels::new(None, None);
+            cmd::remove::remove(&docker, (&labels).into(), force).await?
+        }
 
         Cli {
             command: Stop(StopParams {
                 name: Some(name), ..
             }),
             ..
-        } => cmd::stop::stop(&docker, filter::of_workspace(&name)).await?,
+        } => {
+            let labels = Labels::new(Some(&name), None);
+            cmd::stop::stop(&docker, (&labels).into()).await?
+        }
 
         Cli {
             command: Stop(StopParams { name: None, .. }),
             ..
-        } => cmd::stop::stop(&docker, filter::all()).await?,
+        } => {
+            let labels = Labels::new(None, None);
+            cmd::stop::stop(&docker, (&labels).into()).await?
+        }
 
         Cli {
             command: Tmp(TmpParams { git_ssh_url, work }),

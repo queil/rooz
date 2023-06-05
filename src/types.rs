@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::id::to_safe_id;
 use bollard::service::Mount;
 use serde::Deserialize;
@@ -104,6 +106,7 @@ pub struct WorkSpec<'a> {
     pub container_working_dir: &'a str,
     pub container_name: &'a str,
     pub workspace_key: &'a str,
+    pub labels: HashMap<&'a str, &'a str>,
     pub ephemeral: bool,
     pub git_vol_mount: Option<Mount>,
     pub caches: Option<Vec<String>>,
@@ -124,4 +127,5 @@ pub struct RunSpec<'a> {
     pub privileged: bool,
     pub force_recreate: bool,
     pub auto_remove: bool,
+    pub labels: HashMap<&'a str, &'a str>,
 }

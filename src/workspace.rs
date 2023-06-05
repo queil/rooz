@@ -69,6 +69,8 @@ pub async fn create<'a>(
         privileged: spec.privileged,
         force_recreate: spec.force_recreate,
         auto_remove: false,
+        labels: spec.labels.clone(),
+        ..Default::default()
     };
     return Ok(container::create(&docker, run_spec).await?.id().to_string());
 }
