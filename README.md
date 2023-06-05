@@ -122,7 +122,7 @@ There are a few ways of specifying images:
   [sidecars.sql]
   image = "my:sql"
 
-  [sidecars.test.env]
+  [sidecars.sql.env]
   TEST="true"
 
   [sidecars.tools]
