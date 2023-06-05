@@ -88,6 +88,8 @@ pub struct EnterParams {
     pub shell: String,
     #[arg(short, long)]
     pub work_dir: Option<String>,
+    #[arg(short, long)]
+    pub container: Option<String>,
 }
 
 #[derive(Parser, Debug)]

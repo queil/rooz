@@ -6,24 +6,25 @@ use std::{
 use base64::{engine::general_purpose, Engine as _};
 use bollard::{
     container::{
-        Config, CreateContainerOptions, LogOutput, LogOutput::Console, LogsOptions,
-        RemoveContainerOptions, StartContainerOptions, StopContainerOptions,
+        Config, CreateContainerOptions, ListContainersOptions, LogOutput, LogOutput::Console,
+        LogsOptions, RemoveContainerOptions, StartContainerOptions, StopContainerOptions,
     },
     errors::Error,
     exec::{CreateExecOptions, ResizeExecOptions, StartExecResults},
     models::HostConfig,
-    service::ContainerInspectResponse,
+    network::ConnectNetworkOptions,
+    service::{ContainerInspectResponse, ContainerSummary, EndpointSettings},
     Docker,
 };
-use futures::{
-    channel::oneshot::{self},
-    Stream, StreamExt,
-};
+use futures::{channel::oneshot, Stream, StreamExt};
 use nonblock::NonBlockingReader;
 use termion::{raw::IntoRawMode, terminal_size};
 use tokio::{io::AsyncWriteExt, spawn, time::sleep};
 
-use crate::types::{ContainerResult, RunSpec};
+use crate::{
+    labels::{KeyValue, Labels},
+    types::{ContainerResult, RunSpec},
+};
 
 async fn start_tty(
     docker: &Docker,
@@ -173,6 +174,19 @@ pub async fn exec_output(
     }
 }
 
+pub async fn get_all(
+    docker: &Docker,
+    labels: Labels,
+) -> Result<Vec<ContainerSummary>, Box<dyn std::error::Error + 'static>> {
+    let list_options = ListContainersOptions {
+        filters: (&labels).into(),
+        all: true,
+        ..Default::default()
+    };
+
+    Ok(docker.list_containers(Some(list_options)).await?)
+}
+
 pub async fn remove(
     docker: &Docker,
     container_id: &str,
@@ -249,6 +263,17 @@ pub async fn create<'a>(
                 ..Default::default()
             };
 
+            let mut env_kv = vec![
+                KeyValue::new("ROOZ_META_WORKSPACE", &spec.workspace_key),
+                KeyValue::new("ROOZ_META_CONTAINER_NAME", &spec.container_name),
+            ];
+
+            if let Some(env) = spec.env {
+                env_kv.extend(KeyValue::to_vec(env));
+            }
+
+            let env = KeyValue::to_vec_str(&env_kv);
+
             let config = Config {
                 image: Some(spec.image),
                 entrypoint: spec.entrypoint,
@@ -261,6 +286,7 @@ pub async fn create<'a>(
                 open_stdin: Some(true),
                 host_config: Some(host_config),
                 labels: Some(spec.labels),
+                env: Some(env),
                 ..Default::default()
             };
 
@@ -268,6 +294,18 @@ pub async fn create<'a>(
                 .create_container(Some(options.clone()), config.clone())
                 .await?;
 
+            if let Some(network) = &spec.network {
+                let connect_network_options = ConnectNetworkOptions {
+                    container: &response.id,
+                    endpoint_config: EndpointSettings {
+                        aliases: spec.network_aliases,
+                        ..Default::default()
+                    },
+                };
+                docker
+                    .connect_network(network, connect_network_options)
+                    .await?;
+            }
             log::debug!(
                 "Created container: {} ({})",
                 spec.container_name,

@@ -1,10 +1,10 @@
-use bollard::Docker;
+use bollard::{network::CreateNetworkOptions, Docker};
 
 use crate::{
     cli::{WorkParams, WorkspacePersistence},
-    constants, git, image,
-    labels::Labels,
-    types::{RoozCfg, WorkSpec},
+    constants, container, git, image,
+    labels::{self, Labels},
+    types::{RoozCfg, RunSpec, WorkSpec},
     workspace,
 };
 
@@ -25,7 +25,58 @@ pub async fn new(
         None => (crate::id::random_suffix("tmp"), false, true),
     };
 
-    let labels = Labels::new(Some(&workspace_key), None);
+    let labels = Labels::new(Some(&workspace_key), Some(labels::ROLE_WORK));
+    if force {
+        workspace::remove(docker, &workspace_key, true).await?;
+    }
+
+    let labels_sidecar = Labels::new(Some(&workspace_key), Some(labels::ROLE_SIDECAR));
+
+    let network = if let Some(RoozCfg {
+        sidecars: Some(_), ..
+    }) = &config
+    {
+        let network_options = CreateNetworkOptions::<&str> {
+            name: &workspace_key,
+            check_duplicate: true,
+            labels: (&labels).into(),
+
+            ..Default::default()
+        };
+
+        docker.create_network(network_options).await?;
+        Some(workspace_key.as_ref())
+    } else {
+        None
+    };
+
+    if let Some(RoozCfg {
+        sidecars: Some(sidecars),
+        ..
+    }) = &config
+    {
+        for (name, s) in sidecars {
+            log::debug!("Process sidecar: {}", name);
+            image::ensure_image(docker, &s.image, spec.pull_image).await?;
+            let container_name = format!("{}-{}", workspace_key, name);
+            container::create(
+                docker,
+                RunSpec {
+                    container_name: &container_name,
+                    image: &s.image,
+                    force_recreate: force,
+                    workspace_key: &workspace_key,
+                    labels: (&labels_sidecar).into(),
+                    env: s.env.clone(),
+                    network,
+                    network_aliases: Some(vec![name.into()]),
+                    ..Default::default()
+                },
+            )
+            .await?;
+        }
+    }
+
     let orig_image_id = image::ensure_image(&docker, &orig_image, spec.pull_image).await?;
 
     let home_dir = format!("/home/{}", &orig_user);
@@ -46,6 +97,7 @@ pub async fn new(
         caches: spec.caches.clone(),
         privileged: spec.privileged,
         force_recreate: force,
+        network,
     };
 
     match &spec.git_ssh_url {
@@ -57,6 +109,7 @@ pub async fn new(
                     &container_id,
                     Some(&work_spec.container_working_dir),
                     &work_spec.shell.as_ref(),
+                    None,
                 )
                 .await?;
             }
@@ -112,7 +165,8 @@ pub async fn new(
 
                     let container_id = workspace::create(&docker, &work_spec).await?;
                     if enter {
-                        workspace::enter(&docker, &container_id, Some(&clone_dir), &sh).await?;
+                        workspace::enter(&docker, &container_id, Some(&clone_dir), &sh, None)
+                            .await?;
                     }
                     return Ok(container_id);
                 }
@@ -132,6 +186,7 @@ pub async fn new(
                             &container_id,
                             Some(&clone_dir),
                             &work_spec.shell,
+                            None,
                         )
                         .await?;
                     }

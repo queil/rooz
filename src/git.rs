@@ -1,6 +1,5 @@
 use bollard::models::MountTypeEnum::{TMPFS, VOLUME};
 use bollard::{service::Mount, Docker};
-use serde::Deserialize;
 
 use crate::labels::Labels;
 use crate::{
@@ -112,6 +111,7 @@ pub async fn clone_repo(
             force_recreate: false,
             auto_remove: true,
             labels: (&labels).into(),
+            ..Default::default()
         };
 
         let container_result = container::create(&docker, run_spec).await?;

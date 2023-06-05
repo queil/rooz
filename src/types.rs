@@ -7,7 +7,7 @@ use serde::Deserialize;
 #[derive(Debug, Deserialize)]
 pub struct RoozSidecar {
     pub image: String,
-    pub env: HashMap<String,String>
+    pub env: Option<HashMap<String, String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -15,7 +15,7 @@ pub struct RoozCfg {
     pub shell: Option<String>,
     pub image: Option<String>,
     pub caches: Option<Vec<String>>,
-    pub sidecars: Option<Vec<RoozSidecar>> 
+    pub sidecars: Option<HashMap<String, RoozSidecar>>,
 }
 
 impl RoozCfg {
@@ -133,6 +133,7 @@ pub struct WorkSpec<'a> {
     pub caches: Option<Vec<String>>,
     pub privileged: bool,
     pub force_recreate: bool,
+    pub network: Option<&'a str>,
 }
 
 pub struct RunSpec<'a> {
@@ -149,4 +150,30 @@ pub struct RunSpec<'a> {
     pub force_recreate: bool,
     pub auto_remove: bool,
     pub labels: HashMap<&'a str, &'a str>,
+    pub env: Option<HashMap<String, String>>,
+    pub network: Option<&'a str>,
+    pub network_aliases: Option<Vec<String>>,
+}
+
+impl Default for RunSpec<'_> {
+    fn default() -> Self {
+        Self {
+            reason: Default::default(),
+            image: Default::default(),
+            image_id: Default::default(),
+            user: None,
+            work_dir: None,
+            container_name: Default::default(),
+            workspace_key: Default::default(),
+            mounts: None,
+            entrypoint: None,
+            privileged: false,
+            force_recreate: false,
+            auto_remove: false,
+            labels: Default::default(),
+            env: Default::default(),
+            network: None,
+            network_aliases: None,
+        }
+    }
 }

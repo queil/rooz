@@ -47,6 +47,7 @@ chmod 400 $KEYFILE && chown -R {} /tmp/.ssh
         force_recreate: false,
         auto_remove: true,
         labels: (&labels).into(),
+        ..Default::default()
     };
 
     let result = container::create(&docker, run_spec).await?;

@@ -15,10 +15,9 @@ use crate::{
     cli::{
         Cli,
         Commands::{Enter, List, New, Remove, Stop, System, Tmp},
-        InitParams, ListParams, NewParams, RemoveParams, StopParams, TmpParams, WorkParams,
+        InitParams, ListParams, NewParams, RemoveParams, StopParams, TmpParams,
     },
-    labels::Labels,
-    types::{RoozCfg, WorkSpec},
+    types::RoozCfg,
 };
 
 use bollard::Docker;
@@ -60,9 +59,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
                     name,
                     shell,
                     work_dir,
+                    container,
                 }),
             ..
-        } => workspace::enter(&docker, &name, work_dir.as_deref(), &shell).await?,
+        } => {
+            workspace::enter(
+                &docker,
+                &name,
+                work_dir.as_deref(),
+                &shell,
+                container.as_deref(),
+            )
+            .await?
+        }
 
         Cli {
             command: List(ListParams {}),
@@ -77,20 +86,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
                     ..
                 }),
             ..
-        } => {
-            let labels = Labels::new(Some(&name), None);
-            cmd::remove::remove(&docker, (&labels).into(), force).await?
-        }
+        } => workspace::remove(&docker, &name, force).await?,
 
         Cli {
             command: Remove(RemoveParams {
                 name: None, force, ..
             }),
             ..
-        } => {
-            let labels = Labels::new(None, None);
-            cmd::remove::remove(&docker, (&labels).into(), force).await?
-        }
+        } => workspace::remove_all(&docker, force).await?,
 
         Cli {
             command: Stop(StopParams {
@@ -98,16 +101,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
             }),
             ..
         } => {
-            let labels = Labels::new(Some(&name), None);
-            cmd::stop::stop(&docker, (&labels).into()).await?
+            workspace::stop(&docker, &name).await?;
         }
 
         Cli {
             command: Stop(StopParams { name: None, .. }),
             ..
         } => {
-            let labels = Labels::new(None, None);
-            cmd::stop::stop(&docker, (&labels).into()).await?
+            workspace::stop_all(&docker).await?;
         }
 
         Cli {
