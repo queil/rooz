@@ -96,7 +96,7 @@ pub async fn clone_repo(
         );
 
         let git_vol_mount = git_volume(docker, working_dir, workspace_key, ephemeral).await?;
-        let labels = Labels::new(None, None);
+        let labels = Labels::new(Some(&workspace_key), Some("git"));
 
         let run_spec = RunSpec {
             reason: "git-clone",
