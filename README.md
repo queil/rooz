@@ -99,7 +99,7 @@ There are a few ways of specifying images:
 
 ### Caching
 
-* caching - `rooz` supports basic path-keyed shared caches. It can be set per-repo like:
+* `rooz` supports basic path-keyed shared caches. It can be set per-repo like:
 
     ```toml
     caches = [
@@ -109,6 +109,32 @@ There are a few ways of specifying images:
 
     All the repos specifying a cache path will share a container volume mounted at that path enabling cache reuse.
     It also can be set globally via `ROOZ_CACHES` (comma-separated paths). The global paths get combined with repo-specific paths.
+
+## Sidecars
+
+:warning: Experimental
+
+*It's similar to docker-compose but super simple and limited to bare minimum.*
+
+* `rooz` has a limited and experimental support for sidecars (containers running along). It is only available via `.rooz.toml`:
+
+  ```toml
+  [sidecars.sql]
+  image = "my:sql"
+
+  [sidecars.sql.env]
+  TEST="true"
+
+  [sidecars.tools]
+  image = "my:tools"
+
+  ```
+  All containers within a workspace are connected to a workspace-wide network. They can *talk* to each other using sidecar names. In the above examples that would be `sql` and `tools`. Also the usual container ID and IP works too, but it is not as convenient.
+
+* the `enter` command now lets you specify `--container` to enter (otherwise it enters the work container).
+  
+* limitations:
+  * only `image` and `env` are configurable at the moment and few (if any) additions are planned, otherwise sidecars run with the image defaults (user/shell/entrypoints/etc)
 
 ## Other facts
 

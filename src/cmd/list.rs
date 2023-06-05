@@ -3,7 +3,7 @@ use crate::labels::{self, Labels};
 use bollard::{container::ListContainersOptions, service::ContainerSummary, Docker};
 
 pub async fn list(docker: &Docker) -> Result<(), Box<dyn std::error::Error + 'static>> {
-    let labels = Labels::new(None, None);
+    let labels = Labels::new(None, Some(labels::ROLE_WORK));
     let list_options = ListContainersOptions {
         filters: (&labels).into(),
         all: true,
