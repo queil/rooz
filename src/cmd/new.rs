@@ -10,8 +10,8 @@ use crate::{
 
 pub async fn new(
     docker: &Docker,
-    git_ssh_url: Option<String>,
     spec: &WorkParams,
+    config: Option<RoozCfg>,
     persistence: Option<WorkspacePersistence>,
 ) -> Result<String, Box<dyn std::error::Error + 'static>> {
     let ephemeral = persistence.is_none();
@@ -48,7 +48,7 @@ pub async fn new(
         force_recreate: force,
     };
 
-    match git_ssh_url {
+    match &spec.git_ssh_url {
         None => {
             let container_id = workspace::create(&docker, &work_spec).await?;
             if enter {
@@ -68,7 +68,7 @@ pub async fn new(
                 &orig_image,
                 &orig_image_id,
                 &orig_uid,
-                Some(url),
+                Some(url.into()),
                 &workspace_key,
                 ephemeral,
             )

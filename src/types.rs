@@ -1,14 +1,35 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, fs};
 
 use crate::id::to_safe_id;
 use bollard::service::Mount;
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
+pub struct RoozSidecar {
+    pub image: String,
+    pub env: HashMap<String,String>
+}
+
+#[derive(Debug, Deserialize)]
 pub struct RoozCfg {
     pub shell: Option<String>,
     pub image: Option<String>,
     pub caches: Option<Vec<String>>,
+    pub sidecars: Option<Vec<RoozSidecar>> 
+}
+
+impl RoozCfg {
+    pub fn from_file(path: &str) -> Result<RoozCfg, Box<dyn std::error::Error + 'static>> {
+        Self::from_string(fs::read_to_string(path)?)
+    }
+
+    pub fn from_string(config: String) -> Result<RoozCfg, Box<dyn std::error::Error + 'static>> {
+        let f = RoozCfg::deserialize(toml::de::Deserializer::new(&config));
+        match f {
+            Ok(val) => Ok(val),
+            Err(e) => panic!("{}", e),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

@@ -37,6 +37,8 @@ pub struct WorkspacePersistence {
 
 #[derive(Parser, Debug)]
 pub struct WorkParams {
+    #[arg(short, long, alias = "git")]
+    pub git_ssh_url: Option<String>,
     #[arg(short, long, default_value = constants::DEFAULT_IMAGE, env = "ROOZ_IMAGE")]
     pub image: String,
     #[arg(long)]
@@ -62,16 +64,18 @@ pub struct WorkParams {
 pub struct NewParams {
     #[command(flatten)]
     pub persistence: WorkspacePersistence,
-    #[arg(short, long)]
-    pub git_ssh_url: Option<String>,
     #[command(flatten)]
     pub work: WorkParams,
+    #[arg(
+        long,
+        help = "Configures the new workspace from .rooz.toml at the given path"
+    )]
+    pub config: Option<String>,
 }
 
 #[derive(Parser, Debug)]
 #[command(about = "Enters an ephemeral workspace")]
 pub struct TmpParams {
-    pub git_ssh_url: Option<String>,
     #[command(flatten)]
     pub work: WorkParams,
 }

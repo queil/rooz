@@ -147,7 +147,8 @@ pub async fn clone_repo(
 
         container::remove(docker, &container_id, true).await?;
 
-        match RoozCfg::deserialize(toml::de::Deserializer::new(&rooz_cfg)).ok() {
+        let cfg = RoozCfg::from_string(rooz_cfg).ok();
+        match cfg {
             Some(cfg) => Ok((Some(cfg), Some(url))),
             None => Ok((None, Some(url))),
         }

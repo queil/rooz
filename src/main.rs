@@ -15,9 +15,10 @@ use crate::{
     cli::{
         Cli,
         Commands::{Enter, List, New, Remove, Stop, System, Tmp},
-        InitParams, ListParams, NewParams, RemoveParams, StopParams, TmpParams,
+        InitParams, ListParams, NewParams, RemoveParams, StopParams, TmpParams, WorkParams,
     },
     labels::Labels,
+    types::{RoozCfg, WorkSpec},
 };
 
 use bollard::Docker;
@@ -39,13 +40,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
         Cli {
             command:
                 New(NewParams {
-                    git_ssh_url,
                     work,
                     persistence,
+                    config,
                 }),
             ..
         } => {
-            cmd::new::new(&docker, git_ssh_url, &work, Some(persistence)).await?;
+            let cfg = match config {
+                Some(path) => Some(RoozCfg::from_file(&path)?),
+                None => None,
+            };
+
+            cmd::new::new(&docker, &work, cfg, Some(persistence)).await?;
         }
 
         Cli {
@@ -105,10 +111,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
         }
 
         Cli {
-            command: Tmp(TmpParams { git_ssh_url, work }),
+            command: Tmp(TmpParams { work }),
             ..
         } => {
-            let container_id = cmd::new::new(&docker, git_ssh_url, &work, None).await?;
+            let container_id = cmd::new::new(&docker, &work, None, None).await?;
             container::remove(&docker, &container_id, true).await?;
         }
 
