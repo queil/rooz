@@ -2,6 +2,7 @@ use bollard::models::MountTypeEnum::{TMPFS, VOLUME};
 use bollard::{service::Mount, Docker};
 use serde::Deserialize;
 
+use crate::labels::Labels;
 use crate::{
     container, id, ssh,
     types::{ContainerResult, RoozCfg, RoozVolume, RoozVolumeRole, RoozVolumeSharing, RunSpec},
@@ -95,6 +96,7 @@ pub async fn clone_repo(
         );
 
         let git_vol_mount = git_volume(docker, working_dir, workspace_key, ephemeral).await?;
+        let labels = Labels::new(None, None);
 
         let run_spec = RunSpec {
             reason: "git-clone",
@@ -109,6 +111,7 @@ pub async fn clone_repo(
             privileged: false,
             force_recreate: false,
             auto_remove: true,
+            labels: (&labels).into(),
         };
 
         let container_result = container::create(&docker, run_spec).await?;

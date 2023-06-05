@@ -1,4 +1,5 @@
 use crate::id;
+use crate::labels::Labels;
 use crate::{container, types::RunSpec};
 use bollard::models::MountTypeEnum::VOLUME;
 use bollard::{service::Mount, Docker};
@@ -23,6 +24,7 @@ chmod 400 $KEYFILE && chown -R {} /tmp/.ssh
     );
 
     let init_entrypoint = container::inject(&init_ssh, "entrypoint.sh");
+    let labels = Labels::new(None, None);
 
     let workspace_key = id::random_suffix("init");
     let run_spec = RunSpec {
@@ -44,6 +46,7 @@ chmod 400 $KEYFILE && chown -R {} /tmp/.ssh
         privileged: false,
         force_recreate: false,
         auto_remove: true,
+        labels: (&labels).into(),
     };
 
     let result = container::create(&docker, run_spec).await?;

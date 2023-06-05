@@ -1,11 +1,12 @@
 use crate::{
-    labels, ssh,
+    labels::Labels,
+    ssh,
     types::{RoozVolume, VolumeResult},
 };
 use bollard::models::MountTypeEnum::{TMPFS, VOLUME};
 use bollard::{errors::Error::DockerResponseServerError, volume::RemoveVolumeOptions};
 use bollard::{service::Mount, volume::CreateVolumeOptions, Docker};
-use std::{collections::HashMap, path::Path};
+use std::path::Path;
 
 async fn create(
     docker: &Docker,
@@ -27,16 +28,11 @@ pub async fn ensure_volume(
     workspace_key: Option<String>,
     force_recreate: bool,
 ) -> Result<VolumeResult, Box<dyn std::error::Error + 'static>> {
-    let workspace_key = workspace_key.unwrap_or_default();
-    let labels = HashMap::from([
-        (labels::ROOZ, "true"),
-        (labels::ROLE, role),
-        (labels::WORKSPACE_KEY, &workspace_key),
-    ]);
+    let labels = Labels::new(workspace_key.as_deref(), Some(role));
 
     let create_vol_options = CreateVolumeOptions::<&str> {
         name,
-        labels,
+        labels: (&labels).into(),
         ..Default::default()
     };
 

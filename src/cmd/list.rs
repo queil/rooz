@@ -1,13 +1,11 @@
-use crate::{
-    filter,
-    labels::{self},
-};
+use crate::labels::{self, Labels};
 
 use bollard::{container::ListContainersOptions, service::ContainerSummary, Docker};
 
 pub async fn list(docker: &Docker) -> Result<(), Box<dyn std::error::Error + 'static>> {
+    let labels = Labels::new(None, None);
     let list_options = ListContainersOptions {
-        filters: filter::all(),
+        filters: (&labels).into(),
         all: true,
         ..Default::default()
     };

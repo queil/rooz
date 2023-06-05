@@ -1,5 +1,4 @@
 use std::{
-    collections::HashMap,
     io::{stdin, stdout, Write},
     time::Duration,
 };
@@ -24,10 +23,7 @@ use nonblock::NonBlockingReader;
 use termion::{raw::IntoRawMode, terminal_size};
 use tokio::{io::AsyncWriteExt, spawn, time::sleep};
 
-use crate::{
-    labels,
-    types::{ContainerResult, RunSpec},
-};
+use crate::types::{ContainerResult, RunSpec};
 
 async fn start_tty(
     docker: &Docker,
@@ -264,10 +260,7 @@ pub async fn create<'a>(
                 tty: Some(true),
                 open_stdin: Some(true),
                 host_config: Some(host_config),
-                labels: Some(HashMap::from([
-                    (labels::ROOZ, "true"),
-                    (labels::WORKSPACE_KEY, &spec.workspace_key),
-                ])),
+                labels: Some(spec.labels),
                 ..Default::default()
             };
 
