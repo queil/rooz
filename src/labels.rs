@@ -40,7 +40,7 @@ impl Labels {
 
 impl<'a> From<&'a Labels> for HashMap<&'a str, &'a str> {
     fn from(value: &'a Labels) -> Self {
-        let labels:Vec::<&Label> = value.into();
+        let labels: Vec<&Label> = value.into();
         let mut h = HashMap::new();
         for l in labels {
             h.insert(l.key.as_ref(), l.value.as_ref());
@@ -51,7 +51,7 @@ impl<'a> From<&'a Labels> for HashMap<&'a str, &'a str> {
 
 impl<'a> From<&'a Labels> for HashMap<String, Vec<String>> {
     fn from(value: &'a Labels) -> Self {
-        let labels:Vec::<&Label> = value.into();
+        let labels: Vec<&Label> = value.into();
         let mut h = HashMap::new();
         for l in labels {
             h.insert(LABEL_KEY.into(), vec![l.formatted.to_string()]);
