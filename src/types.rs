@@ -27,7 +27,7 @@ impl RoozCfg {
         let f = RoozCfg::deserialize(toml::de::Deserializer::new(&config));
         match f {
             Ok(val) => Ok(val),
-            Err(e) => panic!("{}", e),
+            Err(e) => Err(Box::new(e)),
         }
     }
 }
