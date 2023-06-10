@@ -11,17 +11,20 @@ mod types;
 mod volume;
 mod workspace;
 
+use std::io;
+
 use crate::{
     cli::{
         Cli,
         Commands::{Enter, List, New, Remove, Stop, System, Tmp},
-        InitParams, ListParams, NewParams, RemoveParams, StopParams, TmpParams,
+        InitParams, ListParams, NewParams, RemoveParams, StopParams, TmpParams, CompletionParams,
     },
     types::RoozCfg,
 };
 
 use bollard::Docker;
-use clap::Parser;
+use clap::{CommandFactory, Parser};
+use clap_complete::generate;
 use cli::EnterParams;
 
 #[tokio::main]
@@ -143,6 +146,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
                 force,
             )
             .await?
+        }
+
+        Cli {
+            command:
+                System(cli::System {
+                    command: cli::SystemCommands::Completion(CompletionParams {shell}),
+                }),
+        } => {
+            let mut cli = Cli::command()
+                .disable_help_flag(true)
+                .disable_help_subcommand(true);
+            let name = &cli.get_name().to_string();
+            generate(
+                shell,
+                &mut cli,
+                name,
+                &mut io::stdout(),
+            );
         }
     };
     Ok(())
