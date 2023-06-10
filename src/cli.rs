@@ -1,4 +1,5 @@
 use clap::{Parser, Subcommand};
+use clap_complete::Shell;
 
 use crate::constants;
 
@@ -13,10 +14,17 @@ pub struct InitParams {
     pub force: bool,
 }
 
+#[derive(Parser, Debug)]
+#[command(about = "Initializes rooz system")]
+pub struct CompletionParams {
+    pub shell: Shell
+}
+
 #[derive(Subcommand, Debug)]
 pub enum SystemCommands {
     Prune(PruneParams),
     Init(InitParams),
+    Completion(CompletionParams),
 }
 
 #[derive(Parser, Debug)]
