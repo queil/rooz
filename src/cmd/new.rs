@@ -106,7 +106,7 @@ pub async fn new(
             if enter {
                 workspace::enter(
                     &docker,
-                    &container_id,
+                    &workspace_key,
                     Some(&work_spec.container_working_dir),
                     &work_spec.shell.as_ref(),
                     None,
@@ -165,7 +165,7 @@ pub async fn new(
 
                     let container_id = workspace::create(&docker, &work_spec).await?;
                     if enter {
-                        workspace::enter(&docker, &container_id, Some(&clone_dir), &sh, None)
+                        workspace::enter(&docker, &workspace_key, Some(&clone_dir), &sh, None)
                             .await?;
                     }
                     return Ok(container_id);
@@ -183,7 +183,7 @@ pub async fn new(
                     if enter {
                         workspace::enter(
                             &docker,
-                            &container_id,
+                            &workspace_key,
                             Some(&clone_dir),
                             &work_spec.shell,
                             None,
