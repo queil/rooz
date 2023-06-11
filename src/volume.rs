@@ -21,6 +21,21 @@ async fn create(
     }
 }
 
+pub async fn remove(
+    docker: &Docker,
+    name: &str,
+    force: bool,
+) -> Result<(), Box<dyn std::error::Error + 'static>> {
+    let options = RemoveVolumeOptions { force };
+    match docker.remove_volume(name, Some(options)).await {
+        Ok(_) => {
+            log::debug!("Volume removed: {}", &name);
+            return Ok(());
+        }
+        Err(e) => panic!("{}", e),
+    }
+}
+
 pub async fn ensure_volume(
     docker: &Docker,
     name: &str,

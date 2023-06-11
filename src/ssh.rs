@@ -30,7 +30,6 @@ chmod 400 $KEYFILE && chown -R {} /tmp/.ssh
     let run_spec = RunSpec {
         reason: "init-ssh",
         image,
-        image_id: "ignore",
         user: Some("root"),
         work_dir: None,
         container_name: "rooz-init-ssh",

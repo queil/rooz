@@ -12,7 +12,7 @@ use crate::{
     container,
     labels::Labels,
     ssh,
-    types::{RoozVolume, RoozVolumeRole, RoozVolumeSharing, RunSpec, WorkSpec},
+    types::{ContainerResult, RoozVolume, RoozVolumeRole, RoozVolumeSharing, RunSpec, WorkSpec},
     volume,
 };
 
@@ -69,7 +69,6 @@ pub async fn create<'a>(
     let run_spec = RunSpec {
         reason: "work",
         image: &spec.image,
-        image_id: &spec.image_id,
         user: Some(&spec.uid),
         work_dir: Some(&spec.container_working_dir),
         container_name: &spec.container_name,
@@ -78,12 +77,18 @@ pub async fn create<'a>(
         entrypoint: Some(vec!["cat"]),
         privileged: spec.privileged,
         force_recreate: spec.force_recreate,
-        auto_remove: false,
+        auto_remove: spec.ephemeral,
         labels: spec.labels.clone(),
         network: spec.network,
         ..Default::default()
     };
-    return Ok(container::create(&docker, run_spec).await?.id().to_string());
+
+    match container::create(&docker, run_spec).await? {
+        ContainerResult::Created { id } => Ok(id),
+        ContainerResult::AlreadyExists { .. } => {
+            Err(format!("Container already exists. Did you mean: rooz enter {}? Otherwise, use --force to recreate.", spec.workspace_key).into())
+        }
+    }
 }
 
 async fn remove_core(
@@ -195,6 +200,8 @@ pub async fn enter(
     working_dir: Option<&str>,
     shell: &str,
     container: Option<&str>,
+    git_vol_name: Option<&str>,
+    ephemeral: bool,
 ) -> Result<(), Box<dyn std::error::Error + 'static>> {
     start(docker, workspace_key).await?;
 
@@ -208,5 +215,11 @@ pub async fn enter(
         Some(vec![shell]),
     )
     .await?;
+    if ephemeral {
+        container::stop(docker, &container.unwrap_or(workspace_key)).await?;
+        if let Some(name) = git_vol_name {
+            volume::remove(&docker, &name, true).await?;
+        }
+    }
     Ok(())
 }

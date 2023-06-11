@@ -77,14 +77,14 @@ pub async fn new(
         }
     }
 
-    let orig_image_id = image::ensure_image(&docker, &orig_image, spec.pull_image).await?;
+    image::ensure_image(&docker, &orig_image, spec.pull_image).await?;
+    image::ensure_image(&docker, constants::DEFAULT_IMAGE, spec.pull_image).await?;
 
     let home_dir = format!("/home/{}", &orig_user);
     let work_dir = format!("{}/work", &home_dir);
 
     let work_spec = WorkSpec {
         image: &orig_image,
-        image_id: &orig_image_id,
         shell: &orig_shell,
         uid: &orig_uid,
         user: &orig_user,
@@ -110,6 +110,8 @@ pub async fn new(
                     Some(&work_spec.container_working_dir),
                     &work_spec.shell.as_ref(),
                     None,
+                    None,
+                    ephemeral,
                 )
                 .await?;
             }
@@ -118,12 +120,11 @@ pub async fn new(
         Some(url) => {
             match git::clone_repo(
                 &docker,
-                &orig_image,
-                &orig_image_id,
+                constants::DEFAULT_IMAGE,
                 &orig_uid,
-                Some(url.into()),
+                url,
                 &workspace_key,
-                ephemeral,
+                &work_dir,
             )
             .await?
             {
@@ -134,13 +135,10 @@ pub async fn new(
                         caches: repo_caches,
                         ..
                     }),
-                    Some(url),
+                    git_spec,
                 ) => {
                     log::debug!("Image config read from .rooz.toml in the cloned repo");
-                    let image_id = image::ensure_image(&docker, &img, spec.pull_image).await?;
-                    let clone_dir = git::get_clone_dir(&work_dir, Some(url.clone()));
-                    let git_vol_mount =
-                        git::git_volume(&docker, &clone_dir, &workspace_key, ephemeral).await?;
+                    image::ensure_image(&docker, &img, spec.pull_image).await?;
                     let sh = shell.or(Some(orig_shell.to_string())).unwrap();
                     let caches = spec.caches.clone();
                     let mut all_caches = vec![];
@@ -155,28 +153,32 @@ pub async fn new(
 
                     let work_spec = WorkSpec {
                         image: &img,
-                        image_id: &image_id,
                         shell: &sh,
-                        container_working_dir: &clone_dir,
-                        git_vol_mount: Some(git_vol_mount),
+                        container_working_dir: &git_spec.dir,
+                        git_vol_mount: Some(git_spec.mount),
                         caches: Some(all_caches),
                         ..work_spec
                     };
 
                     let container_id = workspace::create(&docker, &work_spec).await?;
                     if enter {
-                        workspace::enter(&docker, &workspace_key, Some(&clone_dir), &sh, None)
-                            .await?;
+                        workspace::enter(
+                            &docker,
+                            &workspace_key,
+                            Some(&git_spec.dir),
+                            &sh,
+                            None,
+                            Some(&git_spec.vol_name),
+                            ephemeral,
+                        )
+                        .await?;
                     }
                     return Ok(container_id);
                 }
-                (None, url) => {
-                    let clone_dir = git::get_clone_dir(&work_dir, url);
-                    let git_vol_mount =
-                        git::git_volume(&docker, &clone_dir, &workspace_key, ephemeral).await?;
+                (None, git_spec) => {
                     let work_spec = WorkSpec {
-                        container_working_dir: &clone_dir,
-                        git_vol_mount: Some(git_vol_mount),
+                        container_working_dir: &git_spec.dir,
+                        git_vol_mount: Some(git_spec.mount),
                         ..work_spec
                     };
                     let container_id = workspace::create(&docker, &work_spec).await?;
@@ -184,9 +186,11 @@ pub async fn new(
                         workspace::enter(
                             &docker,
                             &workspace_key,
-                            Some(&clone_dir),
+                            Some(&git_spec.dir),
                             &work_spec.shell,
                             None,
+                            Some(&git_spec.vol_name),
+                            ephemeral,
                         )
                         .await?;
                     }

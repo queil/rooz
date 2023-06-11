@@ -17,7 +17,7 @@ use crate::{
     cli::{
         Cli,
         Commands::{Enter, List, New, Remove, Stop, System, Tmp},
-        InitParams, ListParams, NewParams, RemoveParams, StopParams, TmpParams, CompletionParams,
+        CompletionParams, InitParams, ListParams, NewParams, RemoveParams, StopParams, TmpParams,
     },
     types::RoozCfg,
 };
@@ -72,6 +72,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
                 work_dir.as_deref(),
                 &shell,
                 container.as_deref(),
+                None,
+                false,
             )
             .await?
         }
@@ -118,8 +120,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
             command: Tmp(TmpParams { work }),
             ..
         } => {
-            let container_id = cmd::new::new(&docker, &work, None, None).await?;
-            container::remove(&docker, &container_id, true).await?;
+            cmd::new::new(&docker, &work, None, None).await?;
         }
 
         Cli {
@@ -151,19 +152,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
         Cli {
             command:
                 System(cli::System {
-                    command: cli::SystemCommands::Completion(CompletionParams {shell}),
+                    command: cli::SystemCommands::Completion(CompletionParams { shell }),
                 }),
         } => {
             let mut cli = Cli::command()
                 .disable_help_flag(true)
                 .disable_help_subcommand(true);
             let name = &cli.get_name().to_string();
-            generate(
-                shell,
-                &mut cli,
-                name,
-                &mut io::stdout(),
-            );
+            generate(shell, &mut cli, name, &mut io::stdout());
         }
     };
     Ok(())

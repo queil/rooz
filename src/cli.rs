@@ -17,7 +17,7 @@ pub struct InitParams {
 #[derive(Parser, Debug)]
 #[command(about = "Initializes rooz system")]
 pub struct CompletionParams {
-    pub shell: Shell
+    pub shell: Shell,
 }
 
 #[derive(Subcommand, Debug)]
