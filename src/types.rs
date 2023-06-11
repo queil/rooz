@@ -118,9 +118,16 @@ impl RoozVolume {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct GitCloneSpec {
+    pub vol_name: String,
+    pub dir: String,
+    pub mount: Mount,
+}
+
+#[derive(Clone, Debug)]
 pub struct WorkSpec<'a> {
     pub image: &'a str,
-    pub image_id: &'a str,
     pub shell: &'a str,
     pub uid: &'a str,
     pub user: &'a str,
@@ -136,10 +143,30 @@ pub struct WorkSpec<'a> {
     pub network: Option<&'a str>,
 }
 
+impl Default for WorkSpec<'_> {
+    fn default() -> Self {
+        Self {
+            image: Default::default(),
+            shell: Default::default(),
+            uid: Default::default(),
+            user: Default::default(),
+            container_working_dir: Default::default(),
+            container_name: Default::default(),
+            workspace_key: Default::default(),
+            labels: Default::default(),
+            ephemeral: false,
+            git_vol_mount: None,
+            caches: None,
+            privileged: false,
+            force_recreate: false,
+            network: None,
+        }
+    }
+}
+
 pub struct RunSpec<'a> {
     pub reason: &'a str,
     pub image: &'a str,
-    pub image_id: &'a str,
     pub user: Option<&'a str>,
     pub work_dir: Option<&'a str>,
     pub container_name: &'a str,
@@ -160,7 +187,6 @@ impl Default for RunSpec<'_> {
         Self {
             reason: Default::default(),
             image: Default::default(),
-            image_id: Default::default(),
             user: None,
             work_dir: None,
             container_name: Default::default(),

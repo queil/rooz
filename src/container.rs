@@ -222,24 +222,17 @@ pub async fn create<'a>(
     spec: RunSpec<'a>,
 ) -> Result<ContainerResult, Box<dyn std::error::Error + 'static>> {
     log::debug!(
-        "[{}]: Creating container - name: {}, user: {}, image: {}",
+        "[{}]: Creating container - name: {}, user: {}, image: {}, auto-remove: {}",
         &spec.reason,
         spec.container_name,
         spec.user.unwrap_or_default(),
-        spec.image
+        spec.image,
+        spec.auto_remove,
     );
 
     let container_id = match docker.inspect_container(&spec.container_name, None).await {
-        Ok(ContainerInspectResponse {
-            id: Some(id),
-            image: Some(img),
-            name: Some(name),
-            ..
-        }) if img.to_owned() == spec.image_id && !spec.force_recreate => {
-            log::debug!("Reusing container: {} ({})", name, id);
-            panic!("{}", "Container exists. Use force to recreate");
-            //TODO: handle it gracefully
-            //ContainerResult::AlreadyExists { id }
+        Ok(ContainerInspectResponse { id: Some(id), .. }) if !spec.force_recreate => {
+            ContainerResult::AlreadyExists { id }
         }
         s => {
             let remove_options = RemoveContainerOptions {
