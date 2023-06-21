@@ -269,6 +269,7 @@ pub async fn create<'a>(
             };
 
             let mut env_kv = vec![
+                KeyValue::new("ROOZ_META_IMAGE", &spec.image),
                 KeyValue::new("ROOZ_META_WORKSPACE", &spec.workspace_key),
                 KeyValue::new("ROOZ_META_CONTAINER_NAME", &spec.container_name),
             ];
