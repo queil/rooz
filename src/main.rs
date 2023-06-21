@@ -35,10 +35,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
 
     let args = Cli::parse();
     let docker = Docker::connect_with_local_defaults().expect("Docker API connection established");
-    let info = &docker.info().await?;
-    let container_system = info.operating_system.as_deref().unwrap_or("unknown".into());
+    let version = &docker.version().await?;
     log::debug!("Client ver: {}", &docker.client_version());
-    log::debug!("API connected: {}", container_system);
+    if let Some(ver) = &version.api_version { log::debug!("Server API ver: {}", ver); }
+    if let Some(components) = &version.components {
+        for c in components {
+            log::debug!("{}: {}", c.name, c.version.replace('\n', ", "));
+        }
+    }
 
     match args {
         Cli {
