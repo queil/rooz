@@ -70,9 +70,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
                 &docker,
                 &name,
                 work_dir.as_deref(),
+                None,
                 &shell,
                 container.as_deref(),
                 None,
+                constants::DEFAULT_UID,
                 false,
             )
             .await?

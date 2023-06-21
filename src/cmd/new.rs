@@ -108,9 +108,11 @@ pub async fn new(
                     &docker,
                     &workspace_key,
                     Some(&work_spec.container_working_dir),
+                    Some(&home_dir),
                     &work_spec.shell.as_ref(),
                     None,
                     None,
+                    &orig_uid,
                     ephemeral,
                 )
                 .await?;
@@ -166,9 +168,11 @@ pub async fn new(
                             &docker,
                             &workspace_key,
                             Some(&git_spec.dir),
+                            Some(&home_dir),
                             &sh,
                             None,
                             Some(&git_spec.vol_name),
+                            &orig_uid,
                             ephemeral,
                         )
                         .await?;
@@ -187,9 +191,11 @@ pub async fn new(
                             &docker,
                             &workspace_key,
                             Some(&git_spec.dir),
+                            Some(&home_dir),
                             &work_spec.shell,
                             None,
                             Some(&git_spec.vol_name),
+                            &orig_uid,
                             ephemeral,
                         )
                         .await?;

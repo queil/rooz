@@ -198,12 +198,27 @@ pub async fn enter(
     docker: &Docker,
     workspace_key: &str,
     working_dir: Option<&str>,
+    chown_dir: Option<&str>,
     shell: &str,
     container: Option<&str>,
     git_vol_name: Option<&str>,
+    chown_uid: &str,
     ephemeral: bool,
 ) -> Result<(), Box<dyn std::error::Error + 'static>> {
     start(docker, workspace_key).await?;
+    if let Some(dir) = &chown_dir {
+        let uid_format = format!("{}:{}", &chown_uid, &chown_uid);
+        let chown_response = container::exec_output(
+            "chown",
+            docker,
+            &container.unwrap_or(workspace_key),
+            Some("root"),
+            Some(vec!["chown", "-R", &uid_format, &dir]),
+        )
+        .await?;
+
+        log::debug!("{}", chown_response);
+    }
 
     container::exec_tty(
         "work",
