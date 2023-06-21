@@ -24,7 +24,7 @@ use tokio::{io::AsyncWriteExt, spawn, time::sleep};
 
 use crate::{
     labels::{KeyValue, Labels},
-    types::{ContainerResult, RunSpec}, constants,
+    types::{ContainerResult, RunSpec}, constants, backend::ContainerBackend,
 };
 
 async fn start_tty(
@@ -372,6 +372,11 @@ pub fn inject(script: &str, name: &str) -> Vec<String> {
 pub async fn chown(docker: &Docker, container_id: &str, uid: &str, dir: &str)
     -> Result<(), Box<dyn std::error::Error + 'static>>
 {
+    if let ContainerBackend::Podman = ContainerBackend::resolve(docker).await? {
+        log::debug!("Podman won't need chown. Skipping");
+        return Ok(())
+    };
+
     let uid_format = format!("{}:{}", &uid, &uid);
         let chown_response = exec_output(
             "chown",
