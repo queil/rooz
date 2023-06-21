@@ -73,7 +73,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
                 None,
                 &shell,
                 container.as_deref(),
-                None,
+                vec![],
                 constants::DEFAULT_UID,
                 false,
             )

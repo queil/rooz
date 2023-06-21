@@ -203,3 +203,8 @@ impl Default for RunSpec<'_> {
         }
     }
 }
+
+pub struct WorkspaceResult {
+    pub container_id: String,
+    pub volumes: Vec<String>, 
+}

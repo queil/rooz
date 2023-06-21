@@ -102,7 +102,8 @@ pub async fn new(
 
     match &spec.git_ssh_url {
         None => {
-            let container_id = workspace::create(&docker, &work_spec).await?;
+            let ws_result = workspace::create(&docker, &work_spec).await?;
+            let volumes = ws_result.volumes;
             if enter {
                 workspace::enter(
                     &docker,
@@ -111,13 +112,13 @@ pub async fn new(
                     Some(&home_dir),
                     &work_spec.shell.as_ref(),
                     None,
-                    None,
+                    volumes,
                     &orig_uid,
                     ephemeral,
                 )
                 .await?;
             }
-            return Ok(container_id);
+            return Ok(ws_result.container_id);
         }
         Some(url) => {
             match git::clone_repo(
@@ -162,7 +163,9 @@ pub async fn new(
                         ..work_spec
                     };
 
-                    let container_id = workspace::create(&docker, &work_spec).await?;
+                    let ws_result = workspace::create(&docker, &work_spec).await?;
+                    let mut volumes = ws_result.volumes;
+                    volumes.push(git_spec.vol_name);
                     if enter {
                         workspace::enter(
                             &docker,
@@ -171,13 +174,13 @@ pub async fn new(
                             Some(&home_dir),
                             &sh,
                             None,
-                            Some(&git_spec.vol_name),
+                            volumes,
                             &orig_uid,
                             ephemeral,
                         )
                         .await?;
                     }
-                    return Ok(container_id);
+                    return Ok(ws_result.container_id);
                 }
                 (None, git_spec) => {
                     let work_spec = WorkSpec {
@@ -185,7 +188,10 @@ pub async fn new(
                         git_vol_mount: Some(git_spec.mount),
                         ..work_spec
                     };
-                    let container_id = workspace::create(&docker, &work_spec).await?;
+                    let ws_result = workspace::create(&docker, &work_spec).await?;
+                    let mut volumes = ws_result.volumes;
+                    volumes.push(git_spec.vol_name);
+
                     if enter {
                         workspace::enter(
                             &docker,
@@ -194,13 +200,13 @@ pub async fn new(
                             Some(&home_dir),
                             &work_spec.shell,
                             None,
-                            Some(&git_spec.vol_name),
+                            volumes,
                             &orig_uid,
                             ephemeral,
                         )
                         .await?;
                     }
-                    return Ok(container_id);
+                    return Ok(ws_result.container_id);
                 }
                 s => {
                     println!("{:?}", s);

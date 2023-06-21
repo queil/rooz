@@ -12,14 +12,17 @@ use crate::{
     container,
     labels::Labels,
     ssh,
-    types::{ContainerResult, RoozVolume, RoozVolumeRole, RoozVolumeSharing, RunSpec, WorkSpec},
+    types::{
+        ContainerResult, RoozVolume, RoozVolumeRole, RoozVolumeSharing, RunSpec, WorkSpec,
+        WorkspaceResult,
+    },
     volume,
 };
 
 pub async fn create<'a>(
     docker: &Docker,
     spec: &WorkSpec<'a>,
-) -> Result<String, Box<dyn std::error::Error + 'static>> {
+) -> Result<WorkspaceResult, Box<dyn std::error::Error + 'static>> {
     let home_dir = format!("/home/{}", &spec.user);
     let work_dir = format!("{}/work", &home_dir);
 
@@ -60,7 +63,7 @@ pub async fn create<'a>(
         log::debug!("No caches configured. Skipping");
     }
 
-    let mut mounts = volume::ensure_mounts(&docker, volumes, &home_dir, spec.ephemeral).await?;
+    let mut mounts = volume::ensure_mounts(&docker, &volumes, &home_dir).await?;
 
     if let Some(m) = &spec.git_vol_mount {
         mounts.push(m.clone());
@@ -84,7 +87,7 @@ pub async fn create<'a>(
     };
 
     match container::create(&docker, run_spec).await? {
-        ContainerResult::Created { id } => Ok(id),
+        ContainerResult::Created { id } => Ok(WorkspaceResult { container_id: id, volumes: volumes.iter().filter_map(|v|v.safe_volume_name().ok()).collect::<Vec<_>>() }),
         ContainerResult::AlreadyExists { .. } => {
             Err(format!("Container already exists. Did you mean: rooz enter {}? Otherwise, use --force to recreate.", spec.workspace_key).into())
         }
@@ -200,30 +203,22 @@ pub async fn enter(
     working_dir: Option<&str>,
     chown_dir: Option<&str>,
     shell: &str,
-    container: Option<&str>,
-    git_vol_name: Option<&str>,
+    container_id: Option<&str>,
+    volumes: Vec<String>,
     chown_uid: &str,
     ephemeral: bool,
 ) -> Result<(), Box<dyn std::error::Error + 'static>> {
+    let container_id =  container_id.unwrap_or(workspace_key);
     start(docker, workspace_key).await?;
+    
     if let Some(dir) = &chown_dir {
-        let uid_format = format!("{}:{}", &chown_uid, &chown_uid);
-        let chown_response = container::exec_output(
-            "chown",
-            docker,
-            &container.unwrap_or(workspace_key),
-            Some("root"),
-            Some(vec!["chown", "-R", &uid_format, &dir]),
-        )
-        .await?;
-
-        log::debug!("{}", chown_response);
+        container::chown(docker, &container_id, chown_uid, dir).await?;
     }
 
     container::exec_tty(
         "work",
         &docker,
-        &container.unwrap_or(workspace_key),
+        &container_id,
         true,
         working_dir,
         None,
@@ -231,9 +226,9 @@ pub async fn enter(
     )
     .await?;
     if ephemeral {
-        container::stop(docker, &container.unwrap_or(workspace_key)).await?;
-        if let Some(name) = git_vol_name {
-            volume::remove(&docker, &name, true).await?;
+        container::stop(docker, &container_id).await?;
+        for vol in volumes {
+            volume::remove(&docker, &vol, true).await?;
         }
     }
     Ok(())

@@ -6,8 +6,9 @@ use std::{
 use base64::{engine::general_purpose, Engine as _};
 use bollard::{
     container::{
-        Config, CreateContainerOptions, ListContainersOptions, LogOutput, LogOutput::Console,
-        LogsOptions, RemoveContainerOptions, StartContainerOptions, StopContainerOptions,
+        Config, CreateContainerOptions, ListContainersOptions, LogOutput,
+        LogOutput::Console, LogsOptions, RemoveContainerOptions, StartContainerOptions,
+        StopContainerOptions,
     },
     errors::Error,
     exec::{CreateExecOptions, ResizeExecOptions, StartExecResults},
@@ -23,7 +24,7 @@ use tokio::{io::AsyncWriteExt, spawn, time::sleep};
 
 use crate::{
     labels::{KeyValue, Labels},
-    types::{ContainerResult, RunSpec},
+    types::{ContainerResult, RunSpec}, constants,
 };
 
 async fn start_tty(
@@ -207,14 +208,25 @@ pub async fn stop(
     docker: &Docker,
     container_id: &str,
 ) -> Result<(), Box<dyn std::error::Error + 'static>> {
-    Ok(docker
-        .stop_container(
-            &container_id,
-            Some(StopContainerOptions {
-                ..Default::default()
-            }),
-        )
-        .await?)
+    docker
+        .stop_container(&container_id, Some(StopContainerOptions { t: 0 }))
+        .await?;
+    let mut count = 10;
+    while count > 0 {
+        log::debug!("Waiting for container {} to be gone...", container_id);
+        let r = docker.inspect_container(&container_id, None).await;
+        if let Err(Error::DockerResponseServerError {
+            status_code: 404, ..
+        }) = r
+        {
+            break;
+        } else {
+            sleep(Duration::from_millis(100)).await;
+            count -= 1;
+        }
+    }
+
+    Ok(())
 }
 
 pub async fn create<'a>(
@@ -354,4 +366,21 @@ pub fn inject(script: &str, name: &str) -> Vec<String> {
             name
         ),
     ]
+}
+
+pub async fn chown(docker: &Docker, container_id: &str, uid: &str, dir: &str)
+    -> Result<(), Box<dyn std::error::Error + 'static>>
+{
+    let uid_format = format!("{}:{}", &uid, &uid);
+        let chown_response = exec_output(
+            "chown",
+            docker,
+            container_id,
+            Some(constants::ROOT),
+            Some(vec!["chown", "-R", &uid_format, &dir]),
+        )
+        .await?;
+
+        log::debug!("{}", chown_response);
+        Ok(())
 }

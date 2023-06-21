@@ -1,6 +1,7 @@
 use bollard::models::MountTypeEnum::VOLUME;
 use bollard::{service::Mount, Docker};
 
+use crate::constants;
 use crate::labels::Labels;
 use crate::types::GitCloneSpec;
 use crate::{
@@ -88,7 +89,7 @@ pub async fn clone_repo(
     let run_spec = RunSpec {
         reason: "git-clone",
         image,
-        user: Some(&uid),
+        user: Some(constants::ROOT),
         work_dir: None,
         container_name: &id::random_suffix("rooz-git"),
         workspace_key,
@@ -116,6 +117,7 @@ pub async fn clone_repo(
             Some(clone_cmd.iter().map(String::as_str).collect()),
         )
         .await?;
+        container::chown(&docker, &container_id, uid, &clone_dir).await?;
     };
 
     let rooz_cfg = container::exec_output(

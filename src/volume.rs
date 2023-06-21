@@ -3,7 +3,7 @@ use crate::{
     ssh,
     types::{RoozVolume, VolumeResult},
 };
-use bollard::models::MountTypeEnum::{TMPFS, VOLUME};
+use bollard::models::MountTypeEnum::VOLUME;
 use bollard::{errors::Error::DockerResponseServerError, volume::RemoveVolumeOptions};
 use bollard::{service::Mount, volume::CreateVolumeOptions, Docker};
 use std::path::Path;
@@ -71,9 +71,8 @@ pub async fn ensure_volume(
 
 pub async fn ensure_mounts(
     docker: &Docker,
-    volumes: Vec<RoozVolume>,
+    volumes: &Vec<RoozVolume>,
     home_dir: &str,
-    ephemeral: bool,
 ) -> Result<Vec<Mount>, Box<dyn std::error::Error + 'static>> {
     let mut mounts = vec![ssh::mount(
         Path::new(home_dir).join(".ssh").to_string_lossy().as_ref(),
@@ -83,17 +82,11 @@ pub async fn ensure_mounts(
         log::debug!("Process volume: {:?}", &v);
         let vol_name = v.safe_volume_name()?;
 
-        if !ephemeral {
-            ensure_volume(&docker, &vol_name, v.role.as_str(), v.key(), false).await?;
-        }
+        ensure_volume(&docker, &vol_name, v.role.as_str(), v.key(), false).await?;
 
         let mount = Mount {
-            typ: if ephemeral { Some(TMPFS) } else { Some(VOLUME) },
-            source: if ephemeral {
-                None
-            } else {
-                Some(vol_name.into())
-            },
+            typ: Some(VOLUME),
+            source: Some(vol_name.into()),
             target: Some(v.path.replace("~", &home_dir)),
             read_only: Some(false),
             ..Default::default()
