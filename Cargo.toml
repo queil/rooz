@@ -1,6 +1,6 @@
 [package]
 name = "rooz"
-version = "0.34.0"
+version = "0.35.0"
 edition = "2021"
 
 [dependencies]
@@ -13,6 +13,7 @@ clap_complete = "4.3.1"
 env_logger = "0.10.0"
 futures = "0.3.26"
 hostname = "0.3.1"
+lazy_static = "1.4.0"
 log = "0.4.17"
 nonblock = "0.2.0"
 rand = "0.8.5"

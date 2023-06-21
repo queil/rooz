@@ -87,7 +87,7 @@ pub async fn create<'a>(
     };
 
     match container::create(&docker, run_spec).await? {
-        ContainerResult::Created { id } => Ok(WorkspaceResult { container_id: id, volumes: volumes.iter().filter_map(|v|v.safe_volume_name().ok()).collect::<Vec<_>>() }),
+        ContainerResult::Created { id } => Ok(WorkspaceResult { container_id: id, volumes: volumes.iter().map(|v|v.clone()).collect::<Vec<_>>() }),
         ContainerResult::AlreadyExists { .. } => {
             Err(format!("Container already exists. Did you mean: rooz enter {}? Otherwise, use --force to recreate.", spec.workspace_key).into())
         }
@@ -204,13 +204,13 @@ pub async fn enter(
     chown_dir: Option<&str>,
     shell: &str,
     container_id: Option<&str>,
-    volumes: Vec<String>,
+    volumes: Vec<RoozVolume>,
     chown_uid: &str,
     ephemeral: bool,
 ) -> Result<(), Box<dyn std::error::Error + 'static>> {
-    let container_id =  container_id.unwrap_or(workspace_key);
+    let container_id = container_id.unwrap_or(workspace_key);
     start(docker, workspace_key).await?;
-    
+
     if let Some(dir) = &chown_dir {
         container::chown(docker, &container_id, chown_uid, dir).await?;
     }
@@ -227,8 +227,11 @@ pub async fn enter(
     .await?;
     if ephemeral {
         container::stop(docker, &container_id).await?;
-        for vol in volumes {
-            volume::remove(&docker, &vol, true).await?;
+        for vol in volumes
+            .iter()
+            .filter(|v| v.is_exclusive())
+        {
+            volume::remove(&docker, &vol.safe_volume_name(), true).await?;
         }
     }
     Ok(())

@@ -30,7 +30,7 @@ async fn git_volume(
     docker: &Docker,
     target_path: &str,
     workspace_key: &str,
-) -> Result<(String, Mount), Box<dyn std::error::Error + 'static>> {
+) -> Result<(Mount, RoozVolume), Box<dyn std::error::Error + 'static>> {
     let git_vol = RoozVolume {
         path: target_path.into(),
         sharing: RoozVolumeSharing::Exclusive {
@@ -39,8 +39,7 @@ async fn git_volume(
         role: RoozVolumeRole::Git,
     };
 
-    let vol_name = git_vol.safe_volume_name()?;
-    let v = vol_name.to_string();
+    let vol_name = git_vol.safe_volume_name();
 
     volume::ensure_volume(
         docker,
@@ -54,12 +53,12 @@ async fn git_volume(
     let git_vol_mount = Mount {
         typ: Some(VOLUME),
         source: Some(vol_name.into()),
-        target: Some(git_vol.path.into()),
+        target: Some((git_vol.path).to_string()),
         read_only: Some(false),
         ..Default::default()
     };
 
-    Ok((v, git_vol_mount))
+    Ok((git_vol_mount, git_vol.clone()))
 }
 
 pub async fn clone_repo(
@@ -83,7 +82,7 @@ pub async fn clone_repo(
             "clone.sh",
         );
 
-    let (_, tmp_git_vol_mount) = git_volume(docker, tmp_working_dir, workspace_key).await?;
+    let (tmp_git_vol_mount, _) = git_volume(docker, tmp_working_dir, workspace_key).await?;
     let labels = Labels::new(Some(&workspace_key), Some("git"));
 
     let run_spec = RunSpec {
@@ -139,12 +138,12 @@ pub async fn clone_repo(
     let cfg = RoozCfg::from_string(rooz_cfg).ok();
 
     let clone_dir = get_clone_dir(working_dir, url);
-    let (vol_name, mount) = git_volume(docker, &clone_dir, workspace_key).await?;
+    let (mount, rooz_vol) = git_volume(docker, &clone_dir, workspace_key).await?;
 
     let work_spec = GitCloneSpec {
-        vol_name,
         dir: clone_dir,
         mount,
+        volume: rooz_vol,
     };
 
     match cfg {

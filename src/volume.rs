@@ -80,7 +80,7 @@ pub async fn ensure_mounts(
 
     for v in volumes {
         log::debug!("Process volume: {:?}", &v);
-        let vol_name = v.safe_volume_name()?;
+        let vol_name = v.safe_volume_name();
 
         ensure_volume(&docker, &vol_name, v.role.as_str(), v.key(), false).await?;
 

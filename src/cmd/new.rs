@@ -165,7 +165,7 @@ pub async fn new(
 
                     let ws_result = workspace::create(&docker, &work_spec).await?;
                     let mut volumes = ws_result.volumes;
-                    volumes.push(git_spec.vol_name);
+                    volumes.push(git_spec.volume);
                     if enter {
                         workspace::enter(
                             &docker,
@@ -188,9 +188,9 @@ pub async fn new(
                         git_vol_mount: Some(git_spec.mount),
                         ..work_spec
                     };
-                    let ws_result = workspace::create(&docker, &work_spec).await?;
-                    let mut volumes = ws_result.volumes;
-                    volumes.push(git_spec.vol_name);
+                    let ws = workspace::create(&docker, &work_spec).await?;
+                    let mut volumes = ws.volumes;
+                    volumes.push(git_spec.volume);
 
                     if enter {
                         workspace::enter(
@@ -206,7 +206,7 @@ pub async fn new(
                         )
                         .await?;
                     }
-                    return Ok(ws_result.container_id);
+                    return Ok(ws.container_id);
                 }
                 s => {
                     println!("{:?}", s);
