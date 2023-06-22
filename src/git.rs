@@ -1,12 +1,13 @@
 use bollard::models::MountTypeEnum::VOLUME;
-use bollard::{service::Mount, Docker};
+use bollard::service::Mount;
 
+use crate::backend::{ContainerBackend, GitApi};
+use crate::constants;
 use crate::labels::Labels;
 use crate::types::GitCloneSpec;
 use crate::{
     container, id, ssh,
     types::{ContainerResult, RoozCfg, RoozVolume, RoozVolumeRole, RoozVolumeSharing, RunSpec},
-    volume,
 };
 
 fn get_clone_dir(root_dir: &str, git_ssh_url: &str) -> String {
@@ -25,54 +26,50 @@ fn get_clone_dir(root_dir: &str, git_ssh_url: &str) -> String {
     work_dir
 }
 
-async fn git_volume(
-    docker: &Docker,
-    target_path: &str,
-    workspace_key: &str,
-) -> Result<(String, Mount), Box<dyn std::error::Error + 'static>> {
-    let git_vol = RoozVolume {
-        path: target_path.into(),
-        sharing: RoozVolumeSharing::Exclusive {
-            key: workspace_key.into(),
-        },
-        role: RoozVolumeRole::Git,
-    };
+impl<'a> GitApi<'a> {
+    async fn git_volume(
+        &self,
+        target_path: &str,
+        workspace_key: &str,
+    ) -> Result<(Mount, RoozVolume), Box<dyn std::error::Error + 'static>> {
+        let git_vol = RoozVolume {
+            path: target_path.into(),
+            sharing: RoozVolumeSharing::Exclusive {
+                key: workspace_key.into(),
+            },
+            role: RoozVolumeRole::Git,
+        };
 
-    let vol_name = git_vol.safe_volume_name()?;
-    let v = vol_name.to_string();
+        let vol_name = git_vol.safe_volume_name();
 
-    volume::ensure_volume(
-        docker,
-        &vol_name,
-        &git_vol.role.as_str(),
-        git_vol.key(),
-        false,
-    )
-    .await?;
+        self.api
+            .volume
+            .ensure_volume(&vol_name, &git_vol.role.as_str(), git_vol.key(), false)
+            .await?;
 
-    let git_vol_mount = Mount {
-        typ: Some(VOLUME),
-        source: Some(vol_name.into()),
-        target: Some(git_vol.path.into()),
-        read_only: Some(false),
-        ..Default::default()
-    };
+        let git_vol_mount = Mount {
+            typ: Some(VOLUME),
+            source: Some(vol_name.into()),
+            target: Some((git_vol.path).to_string()),
+            read_only: Some(false),
+            ..Default::default()
+        };
 
-    Ok((v, git_vol_mount))
-}
+        Ok((git_vol_mount, git_vol.clone()))
+    }
 
-pub async fn clone_repo(
-    docker: &Docker,
-    image: &str,
-    uid: &str,
-    url: &str,
-    workspace_key: &str,
-    working_dir: &str,
-) -> Result<(Option<RoozCfg>, GitCloneSpec), Box<dyn std::error::Error + 'static>> {
-    let tmp_working_dir = "/tmp/git";
-    let clone_dir = format!("{}", &tmp_working_dir);
+    pub async fn clone_repo(
+        &self,
+        image: &str,
+        uid: &str,
+        url: &str,
+        workspace_key: &str,
+        working_dir: &str,
+    ) -> Result<(Option<RoozCfg>, GitCloneSpec), Box<dyn std::error::Error + 'static>> {
+        let tmp_working_dir = "/tmp/git";
+        let clone_dir = format!("{}", &tmp_working_dir);
 
-    let clone_cmd = container::inject(
+        let clone_cmd = container::inject(
             format!(
                     r#"export GIT_SSH_COMMAND="ssh -i /tmp/.ssh/id_ed25519 -o UserKnownHostsFile=/tmp/.ssh/known_hosts"
                     ls "{}/.git" > /dev/null 2>&1 || git clone {} {}"#,
@@ -82,71 +79,80 @@ pub async fn clone_repo(
             "clone.sh",
         );
 
-    let (_, tmp_git_vol_mount) = git_volume(docker, tmp_working_dir, workspace_key).await?;
-    let labels = Labels::new(Some(&workspace_key), Some("git"));
+        let (tmp_git_vol_mount, _) = self.git_volume(tmp_working_dir, workspace_key).await?;
+        let labels = Labels::new(Some(&workspace_key), Some("git"));
 
-    let run_spec = RunSpec {
-        reason: "git-clone",
-        image,
-        user: Some(&uid),
-        work_dir: None,
-        container_name: &id::random_suffix("rooz-git"),
-        workspace_key,
-        mounts: Some(vec![tmp_git_vol_mount.clone(), ssh::mount("/tmp/.ssh")]),
-        entrypoint: Some(vec!["cat"]),
-        privileged: false,
-        force_recreate: false,
-        auto_remove: true,
-        labels: (&labels).into(),
-        ..Default::default()
-    };
+        let run_spec = RunSpec {
+            reason: "git-clone",
+            image,
+            user: Some(if let ContainerBackend::Podman = self.api.backend {
+                &uid
+            } else {
+                constants::ROOT
+            }),
+            work_dir: None,
+            container_name: &id::random_suffix("rooz-git"),
+            workspace_key,
+            mounts: Some(vec![tmp_git_vol_mount.clone(), ssh::mount("/tmp/.ssh")]),
+            entrypoint: Some(vec!["cat"]),
+            privileged: false,
+            force_recreate: false,
+            auto_remove: true,
+            labels: (&labels).into(),
+            ..Default::default()
+        };
 
-    let container_result = container::create(&docker, run_spec).await?;
-    container::start(docker, container_result.id()).await?;
-    let container_id = container_result.id();
+        let container_result = self.api.container.create(run_spec).await?;
+        self.api.container.start(container_result.id()).await?;
+        let container_id = container_result.id();
 
-    if let ContainerResult::Created { .. } = container_result {
-        container::exec_tty(
-            "git-clone",
-            &docker,
-            &container_id,
-            true,
-            None,
-            None,
-            Some(clone_cmd.iter().map(String::as_str).collect()),
-        )
-        .await?;
-    };
+        if let ContainerResult::Created { .. } = container_result {
+            self.api
+                .exec
+                .tty(
+                    "git-clone",
+                    &container_id,
+                    true,
+                    None,
+                    None,
+                    Some(clone_cmd.iter().map(String::as_str).collect()),
+                )
+                .await?;
+            self.api.exec.chown(&container_id, uid, &clone_dir).await?;
+        };
 
-    let rooz_cfg = container::exec_output(
-        "rooz-toml",
-        &docker,
-        &container_id,
-        None,
-        Some(vec![
-            "cat",
-            format!("{}/{}", clone_dir, ".rooz.toml").as_ref(),
-        ]),
-    )
-    .await?;
+        let rooz_cfg = self
+            .api
+            .exec
+            .output(
+                "rooz-toml",
+                &container_id,
+                None,
+                Some(vec![
+                    "cat",
+                    format!("{}/{}", clone_dir, ".rooz.toml").as_ref(),
+                ]),
+            )
+            .await?;
 
-    log::debug!("Repo config result: {}", &rooz_cfg);
+        log::debug!("Repo config result: {}", &rooz_cfg);
 
-    container::remove(docker, &container_id, true).await?;
+        self.api.container.remove(&container_id, true).await?;
 
-    let cfg = RoozCfg::from_string(rooz_cfg).ok();
+        let cfg = RoozCfg::from_string(rooz_cfg).ok();
 
-    let clone_dir = get_clone_dir(working_dir, url);
-    let (vol_name, mount) = git_volume(docker, &clone_dir, workspace_key).await?;
+        let clone_dir = get_clone_dir(working_dir, url);
+        let (mount, rooz_vol) = self.git_volume(&clone_dir, workspace_key).await?;
 
-    let work_spec = GitCloneSpec {
-        vol_name,
-        dir: clone_dir,
-        mount,
-    };
+        let work_spec = GitCloneSpec {
+            dir: clone_dir,
+            mount,
+            volume: rooz_vol,
+        };
 
-    match cfg {
-        Some(cfg) => Ok((Some(cfg), work_spec)),
-        None => Ok((None, work_spec)),
+        match cfg {
+            Some(cfg) => Ok((Some(cfg), work_spec)),
+            None => Ok((None, work_spec)),
+        }
     }
 }

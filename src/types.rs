@@ -85,23 +85,22 @@ pub struct RoozVolume {
 }
 
 impl RoozVolume {
-    pub fn safe_volume_name(&self) -> Result<String, Box<dyn std::error::Error + 'static>> {
-        let safe_id = to_safe_id(self.role.as_str())?;
+    pub fn safe_volume_name(&self) -> String {
+        let safe_id = to_safe_id(self.role.as_str());
 
-        let vol_name = match self {
+        match self {
             RoozVolume {
                 sharing: RoozVolumeSharing::Exclusive { key },
                 ..
-            } => format!("rooz-{}-{}", to_safe_id(&key)?, &safe_id),
+            } => format!("rooz-{}-{}", to_safe_id(&key), &safe_id),
             RoozVolume {
                 path: p,
                 sharing: RoozVolumeSharing::Shared,
                 role: RoozVolumeRole::Cache,
                 ..
-            } => format!("rooz-{}-{}", to_safe_id(&p)?, &safe_id),
+            } => format!("rooz-{}-{}", to_safe_id(&p), &safe_id),
             RoozVolume { .. } => format!("rooz-{}", &safe_id),
-        };
-        Ok(vol_name)
+        }
     }
     pub fn key(&self) -> Option<String> {
         match self {
@@ -116,13 +115,20 @@ impl RoozVolume {
             _ => None,
         }
     }
+
+    pub fn is_exclusive(&self) -> bool {
+        match self.sharing {
+            RoozVolumeSharing::Exclusive { .. } => true,
+            _ => false,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
 pub struct GitCloneSpec {
-    pub vol_name: String,
     pub dir: String,
     pub mount: Mount,
+    pub volume: RoozVolume,
 }
 
 #[derive(Clone, Debug)]
@@ -202,4 +208,9 @@ impl Default for RunSpec<'_> {
             network_aliases: None,
         }
     }
+}
+
+pub struct WorkspaceResult {
+    pub container_id: String,
+    pub volumes: Vec<RoozVolume>,
 }

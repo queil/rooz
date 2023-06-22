@@ -1,7 +1,9 @@
+mod backend;
 mod cli;
 mod cmd;
 mod constants;
 mod container;
+mod exec;
 mod git;
 mod id;
 mod image;
@@ -14,6 +16,9 @@ mod workspace;
 use std::io;
 
 use crate::{
+    backend::{
+        Api, ContainerApi, ContainerBackend, ExecApi, GitApi, ImageApi, VolumeApi, WorkspaceApi,
+    },
     cli::{
         Cli,
         Commands::{Enter, List, New, Remove, Stop, System, Tmp},
@@ -35,8 +40,53 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
 
     let args = Cli::parse();
     let docker = Docker::connect_with_local_defaults().expect("Docker API connection established");
+    log::debug!("Client ver: {}", &docker.client_version());
 
-    log::debug!("API connected");
+    let version = &docker.version().await?;
+    let info = docker.info().await?;
+    let backend = ContainerBackend::resolve(&version, &info).await?;
+    log::debug!("Container backend: {:?}", &backend);
+
+    if let Some(ver) = &version.api_version {
+        log::debug!("Server API ver: {}", ver);
+    }
+    if let Some(components) = &version.components {
+        for c in components {
+            log::debug!("{}: {}", c.name, c.version.replace('\n', ", "));
+        }
+    }
+
+    let exec_api = ExecApi {
+        client: &docker,
+        backend: &backend,
+    };
+    let image_api = ImageApi {
+        client: &docker,
+        backend: &backend,
+    };
+    let volume_api = VolumeApi {
+        client: &docker,
+        backend: &backend,
+    };
+    let container_api = ContainerApi {
+        client: &docker,
+        backend: &backend,
+    };
+    let rooz = Api {
+        exec: &exec_api,
+        image: &image_api,
+        volume: &volume_api,
+        container: &container_api,
+        client: &docker,
+        backend: &backend,
+    };
+
+    let git_api = GitApi { api: &rooz };
+
+    let workspace = WorkspaceApi {
+        api: &rooz,
+        git: &git_api,
+    };
 
     match args {
         Cli {
@@ -52,8 +102,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
                 Some(path) => Some(RoozCfg::from_file(&path)?),
                 None => None,
             };
-
-            cmd::new::new(&docker, &work, cfg, Some(persistence)).await?;
+            workspace.new(&work, cfg, Some(persistence)).await?;
         }
 
         Cli {
@@ -66,16 +115,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
                 }),
             ..
         } => {
-            workspace::enter(
-                &docker,
-                &name,
-                work_dir.as_deref(),
-                &shell,
-                container.as_deref(),
-                None,
-                false,
-            )
-            .await?
+            workspace
+                .enter(
+                    &name,
+                    work_dir.as_deref(),
+                    None,
+                    &shell,
+                    container.as_deref(),
+                    vec![],
+                    constants::DEFAULT_UID,
+                    false,
+                )
+                .await?
         }
 
         Cli {
@@ -91,14 +142,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
                     ..
                 }),
             ..
-        } => workspace::remove(&docker, &name, force).await?,
+        } => workspace.remove(&name, force).await?,
 
         Cli {
             command: Remove(RemoveParams {
                 name: None, force, ..
             }),
             ..
-        } => workspace::remove_all(&docker, force).await?,
+        } => workspace.remove_all(force).await?,
 
         Cli {
             command: Stop(StopParams {
@@ -106,21 +157,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
             }),
             ..
         } => {
-            workspace::stop(&docker, &name).await?;
+            workspace.stop(&name).await?;
         }
 
         Cli {
             command: Stop(StopParams { name: None, .. }),
             ..
         } => {
-            workspace::stop_all(&docker).await?;
+            workspace.stop_all().await?;
         }
 
         Cli {
             command: Tmp(TmpParams { work }),
             ..
         } => {
-            cmd::new::new(&docker, &work, None, None).await?;
+            workspace.new(&work, None, None).await?;
         }
 
         Cli {
@@ -130,7 +181,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
                 }),
             ..
         } => {
-            cmd::prune::prune_system(&docker).await?;
+            rooz.prune_system().await?;
         }
 
         Cli {
@@ -140,13 +191,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
                 }),
             ..
         } => {
-            cmd::init::init(
-                &docker,
-                constants::DEFAULT_IMAGE,
-                constants::DEFAULT_UID,
-                force,
-            )
-            .await?
+            rooz.init(constants::DEFAULT_IMAGE, constants::DEFAULT_UID, force)
+                .await?
         }
 
         Cli {
