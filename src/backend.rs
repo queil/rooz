@@ -1,7 +1,19 @@
+use bollard::Docker;
 use bollard::service::SystemInfo;
 use bollard::system::Version;
-use bollard::Docker;
 
+
+pub struct ExecApi<'a> {
+  pub client: &'a Docker,
+}
+
+pub struct Api<'a> {
+  pub client: &'a Docker,
+  pub backend: ContainerBackend,
+  pub exec: &'a ExecApi<'a>,
+}
+
+#[derive(Debug)]
 pub enum ContainerBackend {
     DockerDesktop,
     RancherDesktop,
@@ -10,10 +22,7 @@ pub enum ContainerBackend {
 }
 
 impl ContainerBackend {
-    pub async fn resolve(docker: &Docker) -> Result<Self, Box<dyn std::error::Error + 'static>> {
-        let info = docker.info().await?;
-        let version = docker.version().await?;
-
+    pub async fn resolve(version: &Version, info: &SystemInfo) -> Result<Self, Box<dyn std::error::Error + 'static>> {
         fn backend(info: &SystemInfo, version: &Version) -> ContainerBackend {
             if let SystemInfo {
                 operating_system: Some(name),
