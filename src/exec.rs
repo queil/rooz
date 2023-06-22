@@ -1,5 +1,5 @@
 use crate::{
-    backend::{ContainerBackend, ExecApi, ContainerClient},
+    backend::{ContainerBackend, ExecApi},
     constants,
 };
 use bollard::{
@@ -44,7 +44,7 @@ impl<'a> ExecApi<'a> {
         if let StartExecResults::Attached {
             mut output,
             mut input,
-        } = self.client().start_exec(exec_id, None).await?
+        } = self.client.start_exec(exec_id, None).await?
         {
             let (r, mut s) = oneshot::channel::<bool>();
             let handle = spawn(async move {
@@ -69,7 +69,7 @@ impl<'a> ExecApi<'a> {
 
             if interactive {
                 match self
-                    .client()
+                    .client
                     .resize_exec(
                         exec_id,
                         ResizeExecOptions {
@@ -120,7 +120,7 @@ impl<'a> ExecApi<'a> {
             );
 
             Ok(self
-                .client()
+                .client
                 .create_exec(
                     &container_id,
                     CreateExecOptions {
@@ -163,7 +163,7 @@ impl<'a> ExecApi<'a> {
     ) -> Result<String, Box<dyn std::error::Error + 'static>> {
         let exec_id = self.exec(reason, container_id, None, user, cmd).await?;
         if let StartExecResults::Attached { output, .. } =
-            self.client().start_exec(&exec_id, None).await?
+            self.client.start_exec(&exec_id, None).await?
         {
             collect(output).await
         } else {
@@ -177,7 +177,7 @@ impl<'a> ExecApi<'a> {
         uid: &str,
         dir: &str,
     ) -> Result<(), Box<dyn std::error::Error + 'static>> {
-        if let ContainerBackend::Podman = self.client.backend {
+        if let ContainerBackend::Podman = self.backend {
             log::debug!("Podman won't need chown. Skipping");
             return Ok(());
         };

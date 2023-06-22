@@ -8,7 +8,7 @@ use bollard::{
 };
 
 use crate::{
-    backend::{Api, ContainerClient},
+    backend::{Api},
     labels::Labels,
     ssh,
     types::{
@@ -16,7 +16,6 @@ use crate::{
         WorkspaceResult,
     },
 };
-
 
 impl<'a> Api<'a> {
     pub async fn create(
@@ -63,7 +62,7 @@ impl<'a> Api<'a> {
             log::debug!("No caches configured. Skipping");
         }
 
-        let mut mounts = self.ensure_mounts(&volumes, &home_dir).await?;
+        let mut mounts = self.volume.ensure_mounts(&volumes, &home_dir).await?;
 
         if let Some(m) = &spec.git_vol_mount {
             mounts.push(m.clone());
@@ -86,7 +85,7 @@ impl<'a> Api<'a> {
             ..Default::default()
         };
 
-        match self.create_container(run_spec).await? {
+        match self.container.create(run_spec).await? {
         ContainerResult::Created { id } => Ok(WorkspaceResult { container_id: id, volumes: volumes.iter().map(|v|v.clone()).collect::<Vec<_>>() }),
         ContainerResult::AlreadyExists { .. } => {
             Err(format!("Container already exists. Did you mean: rooz enter {}? Otherwise, use --force to recreate.", spec.workspace_key).into())
@@ -106,13 +105,13 @@ impl<'a> Api<'a> {
         };
         let force_display = if force { " (force)" } else { "" };
         for cs in self
-            .client()
+            .client
             .list_containers(Some(ls_container_options))
             .await?
         {
             if let ContainerSummary { id: Some(id), .. } = cs {
                 log::debug!("Remove container: {}{}", &id, &force_display);
-                self.remove_container(&id, force).await?
+                self.container.remove(&id, force).await?
             }
         }
 
@@ -122,7 +121,7 @@ impl<'a> Api<'a> {
         };
 
         if let Some(volumes) = self
-            .client()
+            .client
             .list_volumes(Some(ls_vol_options))
             .await?
             .volumes
@@ -141,17 +140,21 @@ impl<'a> Api<'a> {
                 };
 
                 log::debug!("Remove volume: {}{}", &v.name, &force_display);
-                self.client()
+                self.client
                     .remove_volume(&v.name, Some(rm_vol_options))
                     .await?
             }
         }
 
         let ls_network_options = ListNetworksOptions { filters };
-        for n in self.client().list_networks(Some(ls_network_options)).await? {
+        for n in self
+            .client
+            .list_networks(Some(ls_network_options))
+            .await?
+        {
             if let Some(name) = n.name {
                 log::debug!("Remove network: {}{}", &name, &force_display);
-                self.client().remove_network(&name).await?
+                self.client.remove_network(&name).await?
             }
         }
 
@@ -183,8 +186,8 @@ impl<'a> Api<'a> {
         workspace_key: &str,
     ) -> Result<(), Box<dyn std::error::Error + 'static>> {
         let labels = Labels::new(Some(workspace_key), None);
-        for c in self.get_all_containers(labels).await? {
-            self.start_container(&c.id.unwrap()).await?;
+        for c in self.container.get_all(labels).await? {
+            self.container.start(&c.id.unwrap()).await?;
         }
         Ok(())
     }
@@ -194,16 +197,16 @@ impl<'a> Api<'a> {
         workspace_key: &str,
     ) -> Result<(), Box<dyn std::error::Error + 'static>> {
         let labels = Labels::new(Some(workspace_key), None);
-        for c in self.get_all_containers(labels).await? {
-            self.stop_container(&c.id.unwrap()).await?;
+        for c in self.container.get_all(labels).await? {
+            self.container.stop(&c.id.unwrap()).await?;
         }
         Ok(())
     }
 
     pub async fn stop_all(&self) -> Result<(), Box<dyn std::error::Error + 'static>> {
         let labels = Labels::new(None, None);
-        for c in self.get_all_containers(labels).await? {
-            self.stop_container(&c.id.unwrap()).await?;
+        for c in self.container.get_all(labels).await? {
+            self.container.stop(&c.id.unwrap()).await?;
         }
         Ok(())
     }
@@ -226,19 +229,22 @@ impl<'a> Api<'a> {
             self.exec.chown(&container_id, chown_uid, dir).await?;
         }
 
-        self.exec.tty(
-            "work",
-            &container_id,
-            true,
-            working_dir,
-            None,
-            Some(vec![shell]),
-        )
-        .await?;
+        self.exec
+            .tty(
+                "work",
+                &container_id,
+                true,
+                working_dir,
+                None,
+                Some(vec![shell]),
+            )
+            .await?;
         if ephemeral {
-            self.stop_container(&container_id).await?;
+            self.container.stop(&container_id).await?;
             for vol in volumes.iter().filter(|v| v.is_exclusive()) {
-                self.remove_volume(&vol.safe_volume_name(), true).await?;
+                self.volume
+                    .remove_volume(&vol.safe_volume_name(), true)
+                    .await?;
             }
         }
         Ok(())

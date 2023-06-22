@@ -61,9 +61,9 @@ chmod 400 $KEYFILE && chown -R {} /tmp/.ssh
             ..Default::default()
         };
 
-        let result = self.create_container(run_spec).await?;
-        self.start_container(result.id()).await?;
-        self.container_logs_to_stdout(result.id()).await?;
+        let result = self.container.create(run_spec).await?;
+        self.container.start(result.id()).await?;
+        self.container.logs_to_stdout(result.id()).await?;
         Ok(())
     }
 }

@@ -18,7 +18,7 @@ use futures::StreamExt;
 use tokio::time::sleep;
 
 use crate::{
-    backend::{Api, ContainerClient},
+    backend::{ContainerApi},
     labels::{KeyValue, Labels},
     types::{ContainerResult, RunSpec},
 };
@@ -37,8 +37,8 @@ pub fn inject(script: &str, name: &str) -> Vec<String> {
     ]
 }
 
-impl<'a> Api<'a> {
-    pub async fn get_all_containers(
+impl<'a> ContainerApi<'a> {
+    pub async fn get_all(
         &self,
         labels: Labels,
     ) -> Result<Vec<ContainerSummary>, Box<dyn std::error::Error + 'static>> {
@@ -48,16 +48,16 @@ impl<'a> Api<'a> {
             ..Default::default()
         };
 
-        Ok(self.client().list_containers(Some(list_options)).await?)
+        Ok(self.client.list_containers(Some(list_options)).await?)
     }
 
-    pub async fn remove_container(
+    pub async fn remove(
         &self,
         container_id: &str,
         force: bool,
     ) -> Result<(), Box<dyn std::error::Error + 'static>> {
         Ok(self
-            .client()
+            .client
             .remove_container(
                 &container_id,
                 Some(RemoveContainerOptions {
@@ -68,17 +68,17 @@ impl<'a> Api<'a> {
             .await?)
     }
 
-    pub async fn stop_container(
+    pub async fn stop(
         &self,
         container_id: &str,
     ) -> Result<(), Box<dyn std::error::Error + 'static>> {
-        self.client()
+        self.client
             .stop_container(&container_id, Some(StopContainerOptions { t: 0 }))
             .await?;
         let mut count = 10;
         while count > 0 {
             log::debug!("Waiting for container {} to be gone...", container_id);
-            let r = self.client().inspect_container(&container_id, None).await;
+            let r = self.client.inspect_container(&container_id, None).await;
             if let Err(Error::DockerResponseServerError {
                 status_code: 404, ..
             }) = r
@@ -93,7 +93,7 @@ impl<'a> Api<'a> {
         Ok(())
     }
 
-    pub async fn create_container(
+    pub async fn create(
         &self,
         spec: RunSpec<'a>,
     ) -> Result<ContainerResult, Box<dyn std::error::Error + 'static>> {
@@ -107,7 +107,7 @@ impl<'a> Api<'a> {
         );
 
         let container_id = match self
-            .client()
+            .client
             .inspect_container(&spec.container_name, None)
             .await
         {
@@ -121,7 +121,7 @@ impl<'a> Api<'a> {
                 };
 
                 if let Ok(ContainerInspectResponse { id: Some(id), .. }) = s {
-                    self.client()
+                    self.client
                         .remove_container(&id, Some(remove_options))
                         .await?;
                 }
@@ -167,7 +167,7 @@ impl<'a> Api<'a> {
                 };
 
                 let response = self
-                    .client()
+                    .client
                     .create_container(Some(options.clone()), config.clone())
                     .await?;
 
@@ -179,7 +179,7 @@ impl<'a> Api<'a> {
                             ..Default::default()
                         },
                     };
-                    self.client()
+                    self.client
                         .connect_network(network, connect_network_options)
                         .await?;
                 }
@@ -195,17 +195,17 @@ impl<'a> Api<'a> {
         Ok(container_id.clone())
     }
 
-    pub async fn start_container(
+    pub async fn start(
         &self,
         container_id: &str,
     ) -> Result<(), Box<dyn std::error::Error + 'static>> {
         Ok(self
-            .client()
+            .client
             .start_container(&container_id, None::<StartContainerOptions<String>>)
             .await?)
     }
 
-    pub async fn container_logs_to_stdout(
+    pub async fn logs_to_stdout(
         &self,
         container_name: &str,
     ) -> Result<(), Box<dyn std::error::Error + 'static>> {
@@ -215,7 +215,7 @@ impl<'a> Api<'a> {
             ..Default::default()
         };
 
-        let mut stream = self.client().logs(&container_name, Some(log_options));
+        let mut stream = self.client.logs(&container_name, Some(log_options));
 
         while let Some(l) = stream.next().await {
             match l {

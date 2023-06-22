@@ -5,7 +5,7 @@ use bollard::models::CreateImageInfo;
 use bollard::service::ImageInspect;
 use futures::StreamExt;
 use std::io::{stdout, Write};
-use crate::backend::{ImageApi, ContainerClient};
+use crate::backend::{ImageApi};
 
 impl<'a> ImageApi<'a> {
     async fn pull(
@@ -14,7 +14,7 @@ impl<'a> ImageApi<'a> {
     ) -> Result<Option<String>, Box<dyn std::error::Error + 'static>> {
         println!("Pulling image: {}", &image);
         let img_chunks = &image.split(':').collect::<Vec<&str>>();
-        let mut image_info = self.client().create_image(
+        let mut image_info = self.client.create_image(
             Some(CreateImageOptions::<&str> {
                 from_image: img_chunks[0],
                 tag: match img_chunks.len() {
@@ -54,7 +54,7 @@ impl<'a> ImageApi<'a> {
             };
         }
         println!("");
-        Ok(self.client().inspect_image(&image).await?.id)
+        Ok(self.client.inspect_image(&image).await?.id)
     }
 
     pub async fn ensure(
@@ -62,7 +62,7 @@ impl<'a> ImageApi<'a> {
         image: &str,
         always_pull: bool,
     ) -> Result<String, Box<dyn std::error::Error + 'static>> {
-        let image_id = match self.client().inspect_image(&image).await {
+        let image_id = match self.client.inspect_image(&image).await {
             Ok(ImageInspect { id, .. }) => {
                 if always_pull {
                     self.pull(image).await?

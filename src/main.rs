@@ -16,7 +16,7 @@ mod workspace;
 use std::io;
 
 use crate::{
-    backend::{Api, ContainerBackend, ExecApi, ImageApi, Client},
+    backend::{Api, ContainerApi, ContainerBackend, ExecApi, ImageApi, VolumeApi},
     cli::{
         Cli,
         Commands::{Enter, List, New, Remove, Stop, System, Tmp},
@@ -54,17 +54,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
         }
     }
 
-    let client = Client {
+    let exec_api = ExecApi {
         client: &docker,
         backend: &backend,
     };
-
-    let exec_api = ExecApi { client: &client };
-    let image_api = ImageApi { client: &client };
+    let image_api = ImageApi {
+        client: &docker,
+        backend: &backend,
+    };
+    let volume_api = VolumeApi {
+        client: &docker,
+        backend: &backend,
+    };
+    let container_api = ContainerApi {
+        client: &docker,
+        backend: &backend,
+    };
     let rooz = Api {
         exec: &exec_api,
         image: &image_api,
-        client: &client
+        volume: &volume_api,
+        container: &container_api,
+        client: &docker,
+        backend: &backend,
     };
 
     match args {

@@ -1,7 +1,7 @@
 use bollard::network::CreateNetworkOptions;
 
 use crate::{
-    backend::{Api, ContainerClient},
+    backend::{Api},
     cli::{WorkParams, WorkspacePersistence},
     constants,
     labels::{self, Labels},
@@ -45,7 +45,7 @@ impl<'a> Api<'a> {
                 ..Default::default()
             };
 
-            self.client().create_network(network_options).await?;
+            self.client.create_network(network_options).await?;
             Some(workspace_key.as_ref())
         } else {
             None
@@ -60,7 +60,7 @@ impl<'a> Api<'a> {
                 log::debug!("Process sidecar: {}", name);
                 self.image.ensure(&s.image, spec.pull_image).await?;
                 let container_name = format!("{}-{}", workspace_key, name);
-                self.create_container(
+                self.container.create(
                     RunSpec {
                         container_name: &container_name,
                         image: &s.image,

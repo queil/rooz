@@ -2,57 +2,36 @@ use bollard::service::SystemInfo;
 use bollard::system::Version;
 use bollard::Docker;
 
-pub trait ContainerClient<'a> {
-    fn client(&self) -> &Docker;
-    fn backend(&self) -> &ContainerBackend;
-}
-
 pub struct ExecApi<'a> {
-    pub client: &'a Client<'a>,
-}
-
-impl<'a> ContainerClient<'a> for ExecApi<'a> {
-    fn client(&self) -> &Docker {
-        self.client.client
-    }
-
-    fn backend(&self) -> &ContainerBackend {
-        self.client.backend
-    }
-}
-
-pub struct ImageApi<'a> {
-    pub client: &'a Client<'a>,
-}
-
-impl<'a> ContainerClient<'a> for ImageApi<'a> {
-    fn client(&self) -> &Docker {
-        self.client.client
-    }
-    fn backend(&self) -> &ContainerBackend {
-        self.client.backend
-    }
-}
-
-pub struct Client<'a> {
     pub client: &'a Docker,
     pub backend: &'a ContainerBackend,
 }
 
+pub struct ImageApi<'a> {
+    pub client: &'a Docker,
+    pub backend: &'a ContainerBackend,
+}
+
+pub struct VolumeApi<'a> {
+    pub client: &'a Docker,
+    pub backend: &'a ContainerBackend,
+}
+
+pub struct ContainerApi<'a> {
+    pub client: &'a Docker,
+    pub backend: &'a ContainerBackend,
+}
+
+
 pub struct Api<'a> {
     pub exec: &'a ExecApi<'a>,
     pub image: &'a ImageApi<'a>,
-    pub client: &'a Client<'a>,
+    pub volume: &'a VolumeApi<'a>,
+    pub container: &'a ContainerApi<'a>,
+    pub client: &'a Docker,
+    pub backend: &'a ContainerBackend,
 }
 
-impl<'a> ContainerClient<'a> for Api<'a> {
-    fn client(&self) -> &Docker {
-        self.client.client
-    }
-    fn backend(&self) -> &ContainerBackend {
-        self.client.backend
-    }
-}
 
 #[derive(Debug, Clone)]
 pub enum ContainerBackend {

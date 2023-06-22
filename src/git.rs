@@ -1,7 +1,7 @@
 use bollard::models::MountTypeEnum::VOLUME;
 use bollard::{service::Mount};
 
-use crate::backend::{Api, ContainerBackend, ContainerClient};
+use crate::backend::{Api, ContainerBackend};
 use crate::constants;
 use crate::labels::Labels;
 use crate::types::GitCloneSpec;
@@ -42,7 +42,7 @@ impl<'a> Api<'a> {
 
         let vol_name = git_vol.safe_volume_name();
 
-        self.ensure_volume(&vol_name, &git_vol.role.as_str(), git_vol.key(), false)
+        self.volume.ensure_volume(&vol_name, &git_vol.role.as_str(), git_vol.key(), false)
             .await?;
 
         let git_vol_mount = Mount {
@@ -83,7 +83,7 @@ impl<'a> Api<'a> {
         let run_spec = RunSpec {
             reason: "git-clone",
             image,
-            user: Some(if let ContainerBackend::Podman = self.backend() {
+            user: Some(if let ContainerBackend::Podman = self.backend {
                 &uid
             } else {
                 constants::ROOT
@@ -100,8 +100,8 @@ impl<'a> Api<'a> {
             ..Default::default()
         };
 
-        let container_result = self.create_container(run_spec).await?;
-        self.start_container(container_result.id()).await?;
+        let container_result = self.container.create(run_spec).await?;
+        self.container.start(container_result.id()).await?;
         let container_id = container_result.id();
 
         if let ContainerResult::Created { .. } = container_result {
@@ -130,7 +130,7 @@ impl<'a> Api<'a> {
 
         log::debug!("Repo config result: {}", &rooz_cfg);
 
-        self.remove_container(&container_id, true).await?;
+        self.container.remove(&container_id, true).await?;
 
         let cfg = RoozCfg::from_string(rooz_cfg).ok();
 
