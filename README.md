@@ -155,7 +155,6 @@ There are a few ways of specifying images:
   that way we lose things like `.bash_history`. To be resolved...
 
 * auto-resizing rooz session to fit the terminal window (if resized) is not implemented
-* running in WSL2 in Docker Desktop/Rancher Desktop(Moby) has permissions issues all the volumes get mounted as root effectively rendering rooz unusable
 
 ## Running with Podman
 
