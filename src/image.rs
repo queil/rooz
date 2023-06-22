@@ -1,3 +1,4 @@
+use crate::backend::ImageApi;
 use bollard::errors::Error;
 use bollard::errors::Error::DockerResponseServerError;
 use bollard::image::CreateImageOptions;
@@ -5,7 +6,6 @@ use bollard::models::CreateImageInfo;
 use bollard::service::ImageInspect;
 use futures::StreamExt;
 use std::io::{stdout, Write};
-use crate::backend::{ImageApi};
 
 impl<'a> ImageApi<'a> {
     async fn pull(

@@ -1,7 +1,7 @@
 use bollard::network::CreateNetworkOptions;
 
 use crate::{
-    backend::{Api},
+    backend::Api,
     cli::{WorkParams, WorkspacePersistence},
     constants,
     labels::{self, Labels},
@@ -60,8 +60,8 @@ impl<'a> Api<'a> {
                 log::debug!("Process sidecar: {}", name);
                 self.image.ensure(&s.image, spec.pull_image).await?;
                 let container_name = format!("{}-{}", workspace_key, name);
-                self.container.create(
-                    RunSpec {
+                self.container
+                    .create(RunSpec {
                         container_name: &container_name,
                         image: &s.image,
                         force_recreate: force,
@@ -71,14 +71,15 @@ impl<'a> Api<'a> {
                         network,
                         network_aliases: Some(vec![name.into()]),
                         ..Default::default()
-                    },
-                )
-                .await?;
+                    })
+                    .await?;
             }
         }
 
         self.image.ensure(&orig_image, spec.pull_image).await?;
-        self.image.ensure(constants::DEFAULT_IMAGE, spec.pull_image).await?;
+        self.image
+            .ensure(constants::DEFAULT_IMAGE, spec.pull_image)
+            .await?;
 
         let home_dir = format!("/home/{}", &orig_user);
         let work_dir = format!("{}/work", &home_dir);

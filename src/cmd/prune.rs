@@ -6,7 +6,7 @@ use bollard::{
     volume::{ListVolumesOptions, RemoveVolumeOptions},
 };
 
-use crate::{labels::Labels, backend::{Api}};
+use crate::{backend::Api, labels::Labels};
 
 impl<'a> Api<'a> {
     async fn prune(
@@ -19,7 +19,11 @@ impl<'a> Api<'a> {
             filters: filters.clone(),
             ..Default::default()
         };
-        for cs in self.client.list_containers(Some(ls_container_options)).await? {
+        for cs in self
+            .client
+            .list_containers(Some(ls_container_options))
+            .await?
+        {
             if let ContainerSummary { id: Some(id), .. } = cs {
                 log::debug!("Force remove container: {}", &id);
                 self.container.remove(&id, force).await?
@@ -31,7 +35,12 @@ impl<'a> Api<'a> {
             ..Default::default()
         };
 
-        if let Some(volumes) = self.client.list_volumes(Some(ls_vol_options)).await?.volumes {
+        if let Some(volumes) = self
+            .client
+            .list_volumes(Some(ls_vol_options))
+            .await?
+            .volumes
+        {
             let rm_vol_options = RemoveVolumeOptions {
                 force,
                 ..Default::default()
@@ -39,7 +48,9 @@ impl<'a> Api<'a> {
 
             for v in volumes {
                 log::debug!("Force remove volume: {}", &v.name);
-                self.client.remove_volume(&v.name, Some(rm_vol_options)).await?
+                self.client
+                    .remove_volume(&v.name, Some(rm_vol_options))
+                    .await?
             }
         }
         log::debug!("Prune success");

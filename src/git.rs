@@ -1,5 +1,5 @@
 use bollard::models::MountTypeEnum::VOLUME;
-use bollard::{service::Mount};
+use bollard::service::Mount;
 
 use crate::backend::{Api, ContainerBackend};
 use crate::constants;
@@ -42,7 +42,8 @@ impl<'a> Api<'a> {
 
         let vol_name = git_vol.safe_volume_name();
 
-        self.volume.ensure_volume(&vol_name, &git_vol.role.as_str(), git_vol.key(), false)
+        self.volume
+            .ensure_volume(&vol_name, &git_vol.role.as_str(), git_vol.key(), false)
             .await?;
 
         let git_vol_mount = Mount {
@@ -105,28 +106,31 @@ impl<'a> Api<'a> {
         let container_id = container_result.id();
 
         if let ContainerResult::Created { .. } = container_result {
-            self.exec.tty(
-                "git-clone",
-                &container_id,
-                true,
-                None,
-                None,
-                Some(clone_cmd.iter().map(String::as_str).collect()),
-            )
-            .await?;
+            self.exec
+                .tty(
+                    "git-clone",
+                    &container_id,
+                    true,
+                    None,
+                    None,
+                    Some(clone_cmd.iter().map(String::as_str).collect()),
+                )
+                .await?;
             self.exec.chown(&container_id, uid, &clone_dir).await?;
         };
 
-        let rooz_cfg = self.exec.output(
-            "rooz-toml",
-            &container_id,
-            None,
-            Some(vec![
-                "cat",
-                format!("{}/{}", clone_dir, ".rooz.toml").as_ref(),
-            ]),
-        )
-        .await?;
+        let rooz_cfg = self
+            .exec
+            .output(
+                "rooz-toml",
+                &container_id,
+                None,
+                Some(vec![
+                    "cat",
+                    format!("{}/{}", clone_dir, ".rooz.toml").as_ref(),
+                ]),
+            )
+            .await?;
 
         log::debug!("Repo config result: {}", &rooz_cfg);
 

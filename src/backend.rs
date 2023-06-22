@@ -22,7 +22,6 @@ pub struct ContainerApi<'a> {
     pub backend: &'a ContainerBackend,
 }
 
-
 pub struct Api<'a> {
     pub exec: &'a ExecApi<'a>,
     pub image: &'a ImageApi<'a>,
@@ -31,7 +30,6 @@ pub struct Api<'a> {
     pub client: &'a Docker,
     pub backend: &'a ContainerBackend,
 }
-
 
 #[derive(Debug, Clone)]
 pub enum ContainerBackend {

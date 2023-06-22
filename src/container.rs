@@ -18,7 +18,7 @@ use futures::StreamExt;
 use tokio::time::sleep;
 
 use crate::{
-    backend::{ContainerApi},
+    backend::ContainerApi,
     labels::{KeyValue, Labels},
     types::{ContainerResult, RunSpec},
 };

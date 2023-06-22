@@ -3,10 +3,9 @@ use crate::labels::Labels;
 use crate::{constants, id};
 use crate::{container, types::RunSpec};
 use bollard::models::MountTypeEnum::VOLUME;
-use bollard::{service::Mount};
+use bollard::service::Mount;
 
 pub const ROOZ_SSH_KEY_VOLUME_NAME: &'static str = "rooz-ssh-key-vol";
-
 
 pub fn mount(target: &str) -> Mount {
     Mount {

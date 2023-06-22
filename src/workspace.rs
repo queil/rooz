@@ -8,7 +8,7 @@ use bollard::{
 };
 
 use crate::{
-    backend::{Api},
+    backend::Api,
     labels::Labels,
     ssh,
     types::{
@@ -147,11 +147,7 @@ impl<'a> Api<'a> {
         }
 
         let ls_network_options = ListNetworksOptions { filters };
-        for n in self
-            .client
-            .list_networks(Some(ls_network_options))
-            .await?
-        {
+        for n in self.client.list_networks(Some(ls_network_options)).await? {
             if let Some(name) = n.name {
                 log::debug!("Remove network: {}{}", &name, &force_display);
                 self.client.remove_network(&name).await?
