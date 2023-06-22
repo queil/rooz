@@ -7,7 +7,7 @@ impl<'a> Api<'a> {
         uid: &str,
         force: bool,
     ) -> Result<(), Box<dyn std::error::Error + 'static>> {
-        let image_id = self.ensure_image(&image, false).await?;
+        let image_id = self.image.ensure(&image, false).await?;
 
         match self.ensure_volume(
             ssh::ROOZ_SSH_KEY_VOLUME_NAME.into(),

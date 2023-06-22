@@ -7,10 +7,15 @@ pub struct ExecApi<'a> {
   pub client: &'a Docker,
 }
 
+pub struct ImageApi<'a> {
+  pub client: &'a Docker,
+}
+
 pub struct Api<'a> {
   pub client: &'a Docker,
   pub backend: ContainerBackend,
   pub exec: &'a ExecApi<'a>,
+  pub image: &'a ImageApi<'a>,
 }
 
 #[derive(Debug)]

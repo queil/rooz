@@ -5,10 +5,10 @@ use bollard::models::CreateImageInfo;
 use bollard::service::ImageInspect;
 use futures::StreamExt;
 use std::io::{stdout, Write};
-use crate::backend::Api;
+use crate::backend::{ImageApi};
 
-impl<'a> Api<'a> {
-    async fn pull_image(
+impl<'a> ImageApi<'a> {
+    async fn pull(
         &self,
         image: &str,
     ) -> Result<Option<String>, Box<dyn std::error::Error + 'static>> {
@@ -57,7 +57,7 @@ impl<'a> Api<'a> {
         Ok(self.client.inspect_image(&image).await?.id)
     }
 
-    pub async fn ensure_image(
+    pub async fn ensure(
         &self,
         image: &str,
         always_pull: bool,
@@ -65,14 +65,14 @@ impl<'a> Api<'a> {
         let image_id = match self.client.inspect_image(&image).await {
             Ok(ImageInspect { id, .. }) => {
                 if always_pull {
-                    self.pull_image(image).await?
+                    self.pull(image).await?
                 } else {
                     id
                 }
             }
             Err(DockerResponseServerError {
                 status_code: 404, ..
-            }) => self.pull_image(image).await?,
+            }) => self.pull(image).await?,
             Err(e) => panic!("{:?}", e),
         };
 

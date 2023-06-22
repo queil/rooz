@@ -58,7 +58,7 @@ impl<'a> Api<'a> {
         {
             for (name, s) in sidecars {
                 log::debug!("Process sidecar: {}", name);
-                self.ensure_image(&s.image, spec.pull_image).await?;
+                self.image.ensure(&s.image, spec.pull_image).await?;
                 let container_name = format!("{}-{}", workspace_key, name);
                 self.create_container(
                     RunSpec {
@@ -77,8 +77,8 @@ impl<'a> Api<'a> {
             }
         }
 
-        self.ensure_image(&orig_image, spec.pull_image).await?;
-        self.ensure_image(constants::DEFAULT_IMAGE, spec.pull_image).await?;
+        self.image.ensure(&orig_image, spec.pull_image).await?;
+        self.image.ensure(constants::DEFAULT_IMAGE, spec.pull_image).await?;
 
         let home_dir = format!("/home/{}", &orig_user);
         let work_dir = format!("{}/work", &home_dir);
@@ -140,7 +140,7 @@ impl<'a> Api<'a> {
                         git_spec,
                     ) => {
                         log::debug!("Image config read from .rooz.toml in the cloned repo");
-                        self.ensure_image(&img, spec.pull_image).await?;
+                        self.image.ensure(&img, spec.pull_image).await?;
                         let sh = shell.or(Some(orig_shell.to_string())).unwrap();
                         let caches = spec.caches.clone();
                         let mut all_caches = vec![];
