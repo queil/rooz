@@ -1,7 +1,7 @@
 use bollard::models::MountTypeEnum::VOLUME;
 use bollard::service::Mount;
 
-use crate::backend::{Api, ContainerBackend};
+use crate::backend::{ContainerBackend, GitApi};
 use crate::constants;
 use crate::labels::Labels;
 use crate::types::GitCloneSpec;
@@ -26,7 +26,7 @@ fn get_clone_dir(root_dir: &str, git_ssh_url: &str) -> String {
     work_dir
 }
 
-impl<'a> Api<'a> {
+impl<'a> GitApi<'a> {
     async fn git_volume(
         &self,
         target_path: &str,
@@ -42,7 +42,8 @@ impl<'a> Api<'a> {
 
         let vol_name = git_vol.safe_volume_name();
 
-        self.volume
+        self.api
+            .volume
             .ensure_volume(&vol_name, &git_vol.role.as_str(), git_vol.key(), false)
             .await?;
 
@@ -84,7 +85,7 @@ impl<'a> Api<'a> {
         let run_spec = RunSpec {
             reason: "git-clone",
             image,
-            user: Some(if let ContainerBackend::Podman = self.backend {
+            user: Some(if let ContainerBackend::Podman = self.api.backend {
                 &uid
             } else {
                 constants::ROOT
@@ -101,12 +102,13 @@ impl<'a> Api<'a> {
             ..Default::default()
         };
 
-        let container_result = self.container.create(run_spec).await?;
-        self.container.start(container_result.id()).await?;
+        let container_result = self.api.container.create(run_spec).await?;
+        self.api.container.start(container_result.id()).await?;
         let container_id = container_result.id();
 
         if let ContainerResult::Created { .. } = container_result {
-            self.exec
+            self.api
+                .exec
                 .tty(
                     "git-clone",
                     &container_id,
@@ -116,10 +118,11 @@ impl<'a> Api<'a> {
                     Some(clone_cmd.iter().map(String::as_str).collect()),
                 )
                 .await?;
-            self.exec.chown(&container_id, uid, &clone_dir).await?;
+            self.api.exec.chown(&container_id, uid, &clone_dir).await?;
         };
 
         let rooz_cfg = self
+            .api
             .exec
             .output(
                 "rooz-toml",
@@ -134,7 +137,7 @@ impl<'a> Api<'a> {
 
         log::debug!("Repo config result: {}", &rooz_cfg);
 
-        self.container.remove(&container_id, true).await?;
+        self.api.container.remove(&container_id, true).await?;
 
         let cfg = RoozCfg::from_string(rooz_cfg).ok();
 

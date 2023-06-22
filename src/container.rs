@@ -40,10 +40,10 @@ pub fn inject(script: &str, name: &str) -> Vec<String> {
 impl<'a> ContainerApi<'a> {
     pub async fn get_all(
         &self,
-        labels: Labels,
+        labels: &Labels,
     ) -> Result<Vec<ContainerSummary>, Box<dyn std::error::Error + 'static>> {
         let list_options = ListContainersOptions {
-            filters: (&labels).into(),
+            filters: labels.into(),
             all: true,
             ..Default::default()
         };
@@ -56,8 +56,9 @@ impl<'a> ContainerApi<'a> {
         container_id: &str,
         force: bool,
     ) -> Result<(), Box<dyn std::error::Error + 'static>> {
-        Ok(self
-            .client
+        let force_display = if force { " (force)" } else { "" };
+
+        self.client
             .remove_container(
                 &container_id,
                 Some(RemoveContainerOptions {
@@ -65,7 +66,10 @@ impl<'a> ContainerApi<'a> {
                     ..Default::default()
                 }),
             )
-            .await?)
+            .await?;
+
+        log::debug!("Remove container: {}{}", &container_id, &force_display);
+        Ok(())
     }
 
     pub async fn stop(

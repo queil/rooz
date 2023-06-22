@@ -31,7 +31,8 @@ impl<'a> VolumeApi<'a> {
         let options = RemoveVolumeOptions { force };
         match &self.client.remove_volume(name, Some(options)).await {
             Ok(_) => {
-                log::debug!("Volume removed: {}", &name);
+                let force_display = if force { " (force)" } else { "" };
+                log::debug!("Volume removed: {} {}", &name, &force_display);
                 return Ok(());
             }
             Err(e) => panic!("{}", e),

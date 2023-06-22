@@ -16,7 +16,9 @@ mod workspace;
 use std::io;
 
 use crate::{
-    backend::{Api, ContainerApi, ContainerBackend, ExecApi, ImageApi, VolumeApi},
+    backend::{
+        Api, ContainerApi, ContainerBackend, ExecApi, GitApi, ImageApi, VolumeApi, WorkspaceApi,
+    },
     cli::{
         Cli,
         Commands::{Enter, List, New, Remove, Stop, System, Tmp},
@@ -79,6 +81,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
         backend: &backend,
     };
 
+    let git_api = GitApi { api: &rooz };
+
+    let workspace = WorkspaceApi {
+        api: &rooz,
+        git: &git_api,
+    };
+
     match args {
         Cli {
             command:
@@ -93,7 +102,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
                 Some(path) => Some(RoozCfg::from_file(&path)?),
                 None => None,
             };
-            rooz.new(&work, cfg, Some(persistence)).await?;
+            workspace.new(&work, cfg, Some(persistence)).await?;
         }
 
         Cli {
@@ -106,17 +115,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
                 }),
             ..
         } => {
-            rooz.enter(
-                &name,
-                work_dir.as_deref(),
-                None,
-                &shell,
-                container.as_deref(),
-                vec![],
-                constants::DEFAULT_UID,
-                false,
-            )
-            .await?
+            workspace
+                .enter(
+                    &name,
+                    work_dir.as_deref(),
+                    None,
+                    &shell,
+                    container.as_deref(),
+                    vec![],
+                    constants::DEFAULT_UID,
+                    false,
+                )
+                .await?
         }
 
         Cli {
@@ -132,14 +142,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
                     ..
                 }),
             ..
-        } => rooz.remove_workspace(&name, force).await?,
+        } => workspace.remove(&name, force).await?,
 
         Cli {
             command: Remove(RemoveParams {
                 name: None, force, ..
             }),
             ..
-        } => rooz.remove_all_workspaces(force).await?,
+        } => workspace.remove_all(force).await?,
 
         Cli {
             command: Stop(StopParams {
@@ -147,21 +157,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
             }),
             ..
         } => {
-            rooz.stop_workspace(&name).await?;
+            workspace.stop(&name).await?;
         }
 
         Cli {
             command: Stop(StopParams { name: None, .. }),
             ..
         } => {
-            rooz.stop_all().await?;
+            workspace.stop_all().await?;
         }
 
         Cli {
             command: Tmp(TmpParams { work }),
             ..
         } => {
-            rooz.new(&work, None, None).await?;
+            workspace.new(&work, None, None).await?;
         }
 
         Cli {

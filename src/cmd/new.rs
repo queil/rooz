@@ -1,14 +1,14 @@
 use bollard::network::CreateNetworkOptions;
 
 use crate::{
-    backend::Api,
+    backend::WorkspaceApi,
     cli::{WorkParams, WorkspacePersistence},
     constants,
     labels::{self, Labels},
     types::{RoozCfg, RunSpec, WorkSpec},
 };
 
-impl<'a> Api<'a> {
+impl<'a> WorkspaceApi<'a> {
     pub async fn new(
         &self,
         spec: &WorkParams,
@@ -28,7 +28,7 @@ impl<'a> Api<'a> {
 
         let labels = Labels::new(Some(&workspace_key), Some(labels::ROLE_WORK));
         if force {
-            self.remove_workspace(&workspace_key, true).await?;
+            self.remove(&workspace_key, true).await?;
         }
 
         let labels_sidecar = Labels::new(Some(&workspace_key), Some(labels::ROLE_SIDECAR));
@@ -45,7 +45,7 @@ impl<'a> Api<'a> {
                 ..Default::default()
             };
 
-            self.client.create_network(network_options).await?;
+            self.api.client.create_network(network_options).await?;
             Some(workspace_key.as_ref())
         } else {
             None
@@ -58,9 +58,10 @@ impl<'a> Api<'a> {
         {
             for (name, s) in sidecars {
                 log::debug!("Process sidecar: {}", name);
-                self.image.ensure(&s.image, spec.pull_image).await?;
+                self.api.image.ensure(&s.image, spec.pull_image).await?;
                 let container_name = format!("{}-{}", workspace_key, name);
-                self.container
+                self.api
+                    .container
                     .create(RunSpec {
                         container_name: &container_name,
                         image: &s.image,
@@ -76,8 +77,9 @@ impl<'a> Api<'a> {
             }
         }
 
-        self.image.ensure(&orig_image, spec.pull_image).await?;
-        self.image
+        self.api.image.ensure(&orig_image, spec.pull_image).await?;
+        self.api
+            .image
             .ensure(constants::DEFAULT_IMAGE, spec.pull_image)
             .await?;
 
@@ -122,6 +124,7 @@ impl<'a> Api<'a> {
             }
             Some(url) => {
                 match self
+                    .git
                     .clone_repo(
                         constants::DEFAULT_IMAGE,
                         &orig_uid,
@@ -141,7 +144,7 @@ impl<'a> Api<'a> {
                         git_spec,
                     ) => {
                         log::debug!("Image config read from .rooz.toml in the cloned repo");
-                        self.image.ensure(&img, spec.pull_image).await?;
+                        self.api.image.ensure(&img, spec.pull_image).await?;
                         let sh = shell.or(Some(orig_shell.to_string())).unwrap();
                         let caches = spec.caches.clone();
                         let mut all_caches = vec![];

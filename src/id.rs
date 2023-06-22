@@ -4,7 +4,7 @@ use rand::{thread_rng, Rng};
 use regex::Regex;
 
 lazy_static! {
-    static ref ID_REGEX: Regex = { Regex::new(r"[^a-zA-Z0-9_.-]").unwrap() };
+    static ref ID_REGEX: Regex = Regex::new(r"[^a-zA-Z0-9_.-]").unwrap();
 }
 
 pub fn random_suffix(prefix: &str) -> String {

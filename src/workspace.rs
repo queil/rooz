@@ -1,14 +1,11 @@
-use std::collections::HashMap;
-
 use bollard::{
-    container::ListContainersOptions,
     network::ListNetworksOptions,
     service::{ContainerSummary, Volume},
-    volume::{ListVolumesOptions, RemoveVolumeOptions},
+    volume::ListVolumesOptions,
 };
 
 use crate::{
-    backend::Api,
+    backend::WorkspaceApi,
     labels::Labels,
     ssh,
     types::{
@@ -17,7 +14,7 @@ use crate::{
     },
 };
 
-impl<'a> Api<'a> {
+impl<'a> WorkspaceApi<'a> {
     pub async fn create(
         &self,
         spec: &WorkSpec<'a>,
@@ -62,7 +59,7 @@ impl<'a> Api<'a> {
             log::debug!("No caches configured. Skipping");
         }
 
-        let mut mounts = self.volume.ensure_mounts(&volumes, &home_dir).await?;
+        let mut mounts = self.api.volume.ensure_mounts(&volumes, &home_dir).await?;
 
         if let Some(m) = &spec.git_vol_mount {
             mounts.push(m.clone());
@@ -85,7 +82,7 @@ impl<'a> Api<'a> {
             ..Default::default()
         };
 
-        match self.container.create(run_spec).await? {
+        match self.api.container.create(run_spec).await? {
         ContainerResult::Created { id } => Ok(WorkspaceResult { container_id: id, volumes: volumes.iter().map(|v|v.clone()).collect::<Vec<_>>() }),
         ContainerResult::AlreadyExists { .. } => {
             Err(format!("Container already exists. Did you mean: rooz enter {}? Otherwise, use --force to recreate.", spec.workspace_key).into())
@@ -95,42 +92,27 @@ impl<'a> Api<'a> {
 
     async fn remove_core(
         &self,
-        filters: HashMap<String, Vec<String>>,
+        labels: &Labels,
         force: bool,
     ) -> Result<(), Box<dyn std::error::Error + 'static>> {
-        let ls_container_options = ListContainersOptions {
-            all: true,
-            filters: filters.clone(),
-            ..Default::default()
-        };
-        let force_display = if force { " (force)" } else { "" };
-        for cs in self
-            .client
-            .list_containers(Some(ls_container_options))
-            .await?
-        {
+        for cs in self.api.container.get_all(labels).await? {
             if let ContainerSummary { id: Some(id), .. } = cs {
-                log::debug!("Remove container: {}{}", &id, &force_display);
-                self.container.remove(&id, force).await?
+                self.api.container.remove(&id, force).await?
             }
         }
 
         let ls_vol_options = ListVolumesOptions {
-            filters: filters.clone(),
+            filters: labels.into(),
             ..Default::default()
         };
 
         if let Some(volumes) = self
+            .api
             .client
             .list_volumes(Some(ls_vol_options))
             .await?
             .volumes
         {
-            let rm_vol_options = RemoveVolumeOptions {
-                force,
-                ..Default::default()
-            };
-
             for v in volumes {
                 match v {
                     Volume { ref name, .. } if name == ssh::ROOZ_SSH_KEY_VOLUME_NAME => {
@@ -138,19 +120,23 @@ impl<'a> Api<'a> {
                     }
                     _ => {}
                 };
-
-                log::debug!("Remove volume: {}{}", &v.name, &force_display);
-                self.client
-                    .remove_volume(&v.name, Some(rm_vol_options))
-                    .await?
+                self.api.volume.remove_volume(&v.name, force).await?
             }
         }
 
-        let ls_network_options = ListNetworksOptions { filters };
-        for n in self.client.list_networks(Some(ls_network_options)).await? {
+        let ls_network_options = ListNetworksOptions {
+            filters: labels.into(),
+        };
+        for n in self
+            .api
+            .client
+            .list_networks(Some(ls_network_options))
+            .await?
+        {
             if let Some(name) = n.name {
+                let force_display = if force { " (force)" } else { "" };
                 log::debug!("Remove network: {}{}", &name, &force_display);
-                self.client.remove_network(&name).await?
+                self.api.client.remove_network(&name).await?
             }
         }
 
@@ -158,7 +144,7 @@ impl<'a> Api<'a> {
         Ok(())
     }
 
-    pub async fn remove_workspace(
+    pub async fn remove(
         &self,
         workspace_key: &str,
         force: bool,
@@ -168,12 +154,12 @@ impl<'a> Api<'a> {
         Ok(())
     }
 
-    pub async fn remove_all_workspaces(
+    pub async fn remove_all(
         &self,
         force: bool,
     ) -> Result<(), Box<dyn std::error::Error + 'static>> {
         let labels = Labels::new(None, None);
-        self.remove_core((&labels).into(), force).await?;
+        self.remove_core(&labels, force).await?;
         Ok(())
     }
 
@@ -182,27 +168,27 @@ impl<'a> Api<'a> {
         workspace_key: &str,
     ) -> Result<(), Box<dyn std::error::Error + 'static>> {
         let labels = Labels::new(Some(workspace_key), None);
-        for c in self.container.get_all(labels).await? {
-            self.container.start(&c.id.unwrap()).await?;
+        for c in self.api.container.get_all(&labels).await? {
+            self.api.container.start(&c.id.unwrap()).await?;
         }
         Ok(())
     }
 
-    pub async fn stop_workspace(
+    pub async fn stop(
         &self,
         workspace_key: &str,
     ) -> Result<(), Box<dyn std::error::Error + 'static>> {
         let labels = Labels::new(Some(workspace_key), None);
-        for c in self.container.get_all(labels).await? {
-            self.container.stop(&c.id.unwrap()).await?;
+        for c in self.api.container.get_all(&labels).await? {
+            self.api.container.stop(&c.id.unwrap()).await?;
         }
         Ok(())
     }
 
     pub async fn stop_all(&self) -> Result<(), Box<dyn std::error::Error + 'static>> {
         let labels = Labels::new(None, None);
-        for c in self.container.get_all(labels).await? {
-            self.container.stop(&c.id.unwrap()).await?;
+        for c in self.api.container.get_all(&labels).await? {
+            self.api.container.stop(&c.id.unwrap()).await?;
         }
         Ok(())
     }
@@ -222,10 +208,11 @@ impl<'a> Api<'a> {
         self.start_workspace(workspace_key).await?;
 
         if let Some(dir) = &chown_dir {
-            self.exec.chown(&container_id, chown_uid, dir).await?;
+            self.api.exec.chown(&container_id, chown_uid, dir).await?;
         }
 
-        self.exec
+        self.api
+            .exec
             .tty(
                 "work",
                 &container_id,
@@ -236,9 +223,10 @@ impl<'a> Api<'a> {
             )
             .await?;
         if ephemeral {
-            self.container.stop(&container_id).await?;
+            self.api.container.stop(&container_id).await?;
             for vol in volumes.iter().filter(|v| v.is_exclusive()) {
-                self.volume
+                self.api
+                    .volume
                     .remove_volume(&vol.safe_volume_name(), true)
                     .await?;
             }

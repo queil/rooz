@@ -31,6 +31,15 @@ pub struct Api<'a> {
     pub backend: &'a ContainerBackend,
 }
 
+pub struct GitApi<'a> {
+    pub api: &'a Api<'a>,
+}
+
+pub struct WorkspaceApi<'a> {
+    pub api: &'a Api<'a>,
+    pub git: &'a GitApi<'a>,
+}
+
 #[derive(Debug, Clone)]
 pub enum ContainerBackend {
     DockerDesktop,
