@@ -1,7 +1,7 @@
 use bollard::models::MountTypeEnum::VOLUME;
 use bollard::{service::Mount};
 
-use crate::backend::{Api, ContainerBackend};
+use crate::backend::{Api, ContainerBackend, ContainerClient};
 use crate::constants;
 use crate::labels::Labels;
 use crate::types::GitCloneSpec;
@@ -83,7 +83,7 @@ impl<'a> Api<'a> {
         let run_spec = RunSpec {
             reason: "git-clone",
             image,
-            user: Some(if let ContainerBackend::Podman = self.backend {
+            user: Some(if let ContainerBackend::Podman = self.backend() {
                 &uid
             } else {
                 constants::ROOT
@@ -114,7 +114,7 @@ impl<'a> Api<'a> {
                 Some(clone_cmd.iter().map(String::as_str).collect()),
             )
             .await?;
-            self.chown(&container_id, uid, &clone_dir).await?;
+            self.exec.chown(&container_id, uid, &clone_dir).await?;
         };
 
         let rooz_cfg = self.exec.output(

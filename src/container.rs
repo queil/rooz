@@ -18,8 +18,7 @@ use futures::StreamExt;
 use tokio::time::sleep;
 
 use crate::{
-    backend::{Api, ContainerBackend},
-    constants,
+    backend::{Api, ContainerClient},
     labels::{KeyValue, Labels},
     types::{ContainerResult, RunSpec},
 };
@@ -49,7 +48,7 @@ impl<'a> Api<'a> {
             ..Default::default()
         };
 
-        Ok(self.client.list_containers(Some(list_options)).await?)
+        Ok(self.client().list_containers(Some(list_options)).await?)
     }
 
     pub async fn remove_container(
@@ -58,7 +57,7 @@ impl<'a> Api<'a> {
         force: bool,
     ) -> Result<(), Box<dyn std::error::Error + 'static>> {
         Ok(self
-            .client
+            .client()
             .remove_container(
                 &container_id,
                 Some(RemoveContainerOptions {
@@ -73,13 +72,13 @@ impl<'a> Api<'a> {
         &self,
         container_id: &str,
     ) -> Result<(), Box<dyn std::error::Error + 'static>> {
-        self.client
+        self.client()
             .stop_container(&container_id, Some(StopContainerOptions { t: 0 }))
             .await?;
         let mut count = 10;
         while count > 0 {
             log::debug!("Waiting for container {} to be gone...", container_id);
-            let r = self.client.inspect_container(&container_id, None).await;
+            let r = self.client().inspect_container(&container_id, None).await;
             if let Err(Error::DockerResponseServerError {
                 status_code: 404, ..
             }) = r
@@ -108,7 +107,7 @@ impl<'a> Api<'a> {
         );
 
         let container_id = match self
-            .client
+            .client()
             .inspect_container(&spec.container_name, None)
             .await
         {
@@ -122,7 +121,7 @@ impl<'a> Api<'a> {
                 };
 
                 if let Ok(ContainerInspectResponse { id: Some(id), .. }) = s {
-                    self.client
+                    self.client()
                         .remove_container(&id, Some(remove_options))
                         .await?;
                 }
@@ -168,7 +167,7 @@ impl<'a> Api<'a> {
                 };
 
                 let response = self
-                    .client
+                    .client()
                     .create_container(Some(options.clone()), config.clone())
                     .await?;
 
@@ -180,7 +179,7 @@ impl<'a> Api<'a> {
                             ..Default::default()
                         },
                     };
-                    self.client
+                    self.client()
                         .connect_network(network, connect_network_options)
                         .await?;
                 }
@@ -201,7 +200,7 @@ impl<'a> Api<'a> {
         container_id: &str,
     ) -> Result<(), Box<dyn std::error::Error + 'static>> {
         Ok(self
-            .client
+            .client()
             .start_container(&container_id, None::<StartContainerOptions<String>>)
             .await?)
     }
@@ -216,7 +215,7 @@ impl<'a> Api<'a> {
             ..Default::default()
         };
 
-        let mut stream = self.client.logs(&container_name, Some(log_options));
+        let mut stream = self.client().logs(&container_name, Some(log_options));
 
         while let Some(l) = stream.next().await {
             match l {
@@ -225,32 +224,6 @@ impl<'a> Api<'a> {
                 Err(e) => panic!("{}", e),
             };
         }
-        Ok(())
-    }
-
-    pub async fn chown(
-        &self,
-        container_id: &str,
-        uid: &str,
-        dir: &str,
-    ) -> Result<(), Box<dyn std::error::Error + 'static>> {
-        if let ContainerBackend::Podman = self.backend {
-            log::debug!("Podman won't need chown. Skipping");
-            return Ok(());
-        };
-
-        let uid_format = format!("{}:{}", &uid, &uid);
-        let chown_response = self
-            .exec
-            .output(
-                "chown",
-                container_id,
-                Some(constants::ROOT),
-                Some(vec!["chown", "-R", &uid_format, &dir]),
-            )
-            .await?;
-
-        log::debug!("{}", chown_response);
         Ok(())
     }
 }

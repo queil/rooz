@@ -8,7 +8,7 @@ use bollard::{
 };
 
 use crate::{
-    backend::Api,
+    backend::{Api, ContainerClient},
     labels::Labels,
     ssh,
     types::{
@@ -106,7 +106,7 @@ impl<'a> Api<'a> {
         };
         let force_display = if force { " (force)" } else { "" };
         for cs in self
-            .client
+            .client()
             .list_containers(Some(ls_container_options))
             .await?
         {
@@ -122,7 +122,7 @@ impl<'a> Api<'a> {
         };
 
         if let Some(volumes) = self
-            .client
+            .client()
             .list_volumes(Some(ls_vol_options))
             .await?
             .volumes
@@ -141,17 +141,17 @@ impl<'a> Api<'a> {
                 };
 
                 log::debug!("Remove volume: {}{}", &v.name, &force_display);
-                self.client
+                self.client()
                     .remove_volume(&v.name, Some(rm_vol_options))
                     .await?
             }
         }
 
         let ls_network_options = ListNetworksOptions { filters };
-        for n in self.client.list_networks(Some(ls_network_options)).await? {
+        for n in self.client().list_networks(Some(ls_network_options)).await? {
             if let Some(name) = n.name {
                 log::debug!("Remove network: {}{}", &name, &force_display);
-                self.client.remove_network(&name).await?
+                self.client().remove_network(&name).await?
             }
         }
 
@@ -223,7 +223,7 @@ impl<'a> Api<'a> {
         self.start_workspace(workspace_key).await?;
 
         if let Some(dir) = &chown_dir {
-            self.chown(&container_id, chown_uid, dir).await?;
+            self.exec.chown(&container_id, chown_uid, dir).await?;
         }
 
         self.exec.tty(

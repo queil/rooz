@@ -1,7 +1,7 @@
 use crate::{
     labels::Labels,
     ssh,
-    types::{RoozVolume, VolumeResult}, backend::Api,
+    types::{RoozVolume, VolumeResult}, backend::{Api, ContainerClient},
 };
 use bollard::models::MountTypeEnum::VOLUME;
 use bollard::{errors::Error::DockerResponseServerError, volume::RemoveVolumeOptions};
@@ -13,7 +13,7 @@ impl<'a> Api<'a> {
         &self,
         options: CreateVolumeOptions<&str>,
     ) -> Result<VolumeResult, Box<dyn std::error::Error + 'static>> {
-        match  &self.client.create_volume(options).await {
+        match  &self.client().create_volume(options).await {
             Ok(v) => {
                 log::debug!("Volume created: {:?}", v.name);
                 return Ok(VolumeResult::Created);
@@ -28,7 +28,7 @@ impl<'a> Api<'a> {
         force: bool,
     ) -> Result<(), Box<dyn std::error::Error + 'static>> {
         let options = RemoveVolumeOptions { force };
-        match &self.client.remove_volume(name, Some(options)).await {
+        match &self.client().remove_volume(name, Some(options)).await {
             Ok(_) => {
                 log::debug!("Volume removed: {}", &name);
                 return Ok(());
@@ -52,10 +52,10 @@ impl<'a> Api<'a> {
             ..Default::default()
         };
 
-        match self.client.inspect_volume(&name).await {
+        match self.client().inspect_volume(&name).await {
             Ok(_) if force_recreate => {
                 let options = RemoveVolumeOptions { force: true };
-                self.client.remove_volume(&name, Some(options)).await?;
+                self.client().remove_volume(&name, Some(options)).await?;
                 return self.create_volume(create_vol_options).await;
             }
             Ok(_) => {

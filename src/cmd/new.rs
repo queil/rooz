@@ -1,7 +1,7 @@
 use bollard::network::CreateNetworkOptions;
 
 use crate::{
-    backend::Api,
+    backend::{Api, ContainerClient},
     cli::{WorkParams, WorkspacePersistence},
     constants,
     labels::{self, Labels},
@@ -45,7 +45,7 @@ impl<'a> Api<'a> {
                 ..Default::default()
             };
 
-            self.client.create_network(network_options).await?;
+            self.client().create_network(network_options).await?;
             Some(workspace_key.as_ref())
         } else {
             None
