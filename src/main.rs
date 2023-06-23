@@ -103,7 +103,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
                 Some(path) => Some(RoozCfg::from_file(&path)?),
                 None => None,
             };
-            workspace.new(&work, cfg, Some(persistence)).await?;
+            workspace.new(&work, cfg, Some(persistence), false).await?;
         }
 
         Cli {
@@ -171,10 +171,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
         }
 
         Cli {
-            command: Tmp(TmpParams { work }),
+            command: Tmp(TmpParams { work, root }),
             ..
         } => {
-            workspace.new(&work, None, None).await?;
+            workspace.new(&work, None, None, root).await?;
         }
 
         Cli {

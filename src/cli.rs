@@ -91,6 +91,8 @@ pub struct NewParams {
 pub struct TmpParams {
     #[command(flatten)]
     pub work: WorkParams,
+    #[arg(short, long)]
+    pub root: bool,
 }
 
 #[derive(Parser, Debug)]

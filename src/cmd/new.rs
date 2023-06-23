@@ -12,6 +12,7 @@ impl<'a> WorkspaceApi<'a> {
         spec: &WorkParams,
         cli_config: Option<RoozCfg>,
         persistence: Option<WorkspacePersistence>,
+        root: bool,
     ) -> Result<String, Box<dyn std::error::Error + 'static>> {
         let ephemeral = persistence.is_none();
         let orig_uid = constants::DEFAULT_UID.to_string();
@@ -81,7 +82,7 @@ impl<'a> WorkspaceApi<'a> {
                         None,
                         volumes,
                         &orig_uid,
-                        false,
+                        root,
                         ephemeral,
                     )
                     .await?;
@@ -136,7 +137,7 @@ impl<'a> WorkspaceApi<'a> {
                                 None,
                                 volumes,
                                 &orig_uid,
-                                false,
+                                root,
                                 ephemeral,
                             )
                             .await?;
