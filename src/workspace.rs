@@ -205,20 +205,16 @@ impl<'a> WorkspaceApi<'a> {
         container_id: Option<&str>,
         volumes: Vec<RoozVolume>,
         chown_uid: &str,
-        user: Option<&str>,
+        root: bool,
         ephemeral: bool,
     ) -> Result<(), Box<dyn std::error::Error + 'static>> {
         let container_id = container_id.unwrap_or(workspace_key);
         self.start_workspace(workspace_key).await?;
 
-        match user {
-            Some(constants::ROOT_USER) => (),
-            Some(_) => (),
-            None => {
-                self.api.exec.ensure_user(container_id).await?;
-                if let Some(dir) = &chown_dir {
-                    self.api.exec.chown(&container_id, chown_uid, dir).await?;
-                }
+        if !root {
+            self.api.exec.ensure_user(container_id).await?;
+            if let Some(dir) = &chown_dir {
+                self.api.exec.chown(&container_id, chown_uid, dir).await?;
             }
         }
 
@@ -229,7 +225,11 @@ impl<'a> WorkspaceApi<'a> {
                 &container_id,
                 true,
                 working_dir,
-                user,
+                if root {
+                    Some(constants::ROOT_USER)
+                } else {
+                    None
+                },
                 Some(vec![shell]),
             )
             .await?;

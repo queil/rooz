@@ -53,7 +53,15 @@ impl<'a> WorkspaceApi<'a> {
                 let image = &RoozCfg::image(spec, &cli_config, &None);
                 self.api.image.ensure(&image, spec.pull_image).await?;
 
-                let network = self.ensure_sidecars(&RoozCfg::sidecars(&cli_config, &None), &labels, &workspace_key, force, spec.pull_image).await?;
+                let network = self
+                    .ensure_sidecars(
+                        &RoozCfg::sidecars(&cli_config, &None),
+                        &labels,
+                        &workspace_key,
+                        force,
+                        spec.pull_image,
+                    )
+                    .await?;
                 let work_spec = WorkSpec {
                     image,
                     shell: &RoozCfg::shell(spec, &cli_config, &None),
@@ -61,7 +69,7 @@ impl<'a> WorkspaceApi<'a> {
                     network: network.as_deref(),
                     ..work_spec
                 };
-                
+
                 let ws = self.create(&work_spec).await?;
                 let volumes = ws.volumes;
                 if enter {
@@ -73,7 +81,7 @@ impl<'a> WorkspaceApi<'a> {
                         None,
                         volumes,
                         &orig_uid,
-                        None,
+                        false,
                         ephemeral,
                     )
                     .await?;
@@ -92,15 +100,20 @@ impl<'a> WorkspaceApi<'a> {
                     )
                     .await?
                 {
-                    (
-                        repo_config,
-                        git_spec,
-                    ) => {
+                    (repo_config, git_spec) => {
                         log::debug!("Config read from .rooz.toml in the cloned repo");
 
                         let image = &RoozCfg::image(spec, &cli_config, &repo_config);
                         self.api.image.ensure(&image, spec.pull_image).await?;
-                        let network = self.ensure_sidecars(&RoozCfg::sidecars(&cli_config, &repo_config), &labels, &workspace_key, force, spec.pull_image).await?;
+                        let network = self
+                            .ensure_sidecars(
+                                &RoozCfg::sidecars(&cli_config, &repo_config),
+                                &labels,
+                                &workspace_key,
+                                force,
+                                spec.pull_image,
+                            )
+                            .await?;
                         let work_spec = WorkSpec {
                             image,
                             shell: &RoozCfg::shell(spec, &cli_config, &repo_config),
@@ -123,7 +136,7 @@ impl<'a> WorkspaceApi<'a> {
                                 None,
                                 volumes,
                                 &orig_uid,
-                                None,
+                                false,
                                 ephemeral,
                             )
                             .await?;

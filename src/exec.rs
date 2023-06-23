@@ -161,7 +161,9 @@ impl<'a> ExecApi<'a> {
         user: Option<&str>,
         cmd: Option<Vec<&str>>,
     ) -> Result<String, Box<dyn std::error::Error + 'static>> {
-        let exec_id = self.create_exec(reason, container_id, None, user, cmd).await?;
+        let exec_id = self
+            .create_exec(reason, container_id, None, user, cmd)
+            .await?;
         if let StartExecResults::Attached { output, .. } =
             self.client.start_exec(&exec_id, None).await?
         {
@@ -177,7 +179,6 @@ impl<'a> ExecApi<'a> {
         uid: &str,
         dir: &str,
     ) -> Result<(), Box<dyn std::error::Error + 'static>> {
-
         if let ContainerBackend::Podman = self.backend {
             log::debug!("Podman won't need chown. Skipping");
             return Ok(());
@@ -203,7 +204,6 @@ impl<'a> ExecApi<'a> {
         &self,
         container_id: &str,
     ) -> Result<(), Box<dyn std::error::Error + 'static>> {
-
         let ensure_user_cmd = container::inject(
             format!(
                     r#"whoami > /dev/null 2>&1 && [ "$(whoami)" = "$ROOZ_META_USER" ] || \

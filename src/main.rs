@@ -126,7 +126,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
                     container.as_deref(),
                     vec![],
                     constants::DEFAULT_UID,
-                    if root { Some(constants::ROOT_USER)} else { None },
+                    root,
                     false,
                 )
                 .await?

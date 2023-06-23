@@ -1,8 +1,7 @@
 use bollard::models::MountTypeEnum::VOLUME;
 use bollard::service::Mount;
 
-use crate::backend::{ContainerBackend, GitApi};
-use crate::constants;
+use crate::backend::GitApi;
 use crate::labels::Labels;
 use crate::types::GitCloneSpec;
 use crate::{
@@ -103,7 +102,6 @@ impl<'a> GitApi<'a> {
         let container_id = container_result.id();
 
         if let ContainerResult::Created { .. } = container_result {
-
             self.api.exec.ensure_user(container_id).await?;
             self.api.exec.chown(&container_id, uid, &clone_dir).await?;
 

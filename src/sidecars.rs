@@ -4,8 +4,9 @@ use bollard::network::CreateNetworkOptions;
 
 use crate::{
     backend::WorkspaceApi,
+    constants,
     labels::{self, Labels},
-    types::{RoozSidecar, RunSpec}, constants,
+    types::{RoozSidecar, RunSpec},
 };
 
 impl<'a> WorkspaceApi<'a> {

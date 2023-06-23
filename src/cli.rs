@@ -55,7 +55,7 @@ pub struct WorkParams {
     pub env_shell: Option<String>,
     #[arg(short, long)]
     pub shell: Option<String>,
-    #[arg(long, hide=true, env = "ROOZ_USER")]
+    #[arg(long, hide = true, env = "ROOZ_USER")]
     pub env_user: Option<String>,
     #[arg(short, long)]
     pub user: Option<String>,
