@@ -1,8 +1,7 @@
 use bollard::models::MountTypeEnum::VOLUME;
 use bollard::service::Mount;
 
-use crate::backend::{ContainerBackend, GitApi};
-use crate::constants;
+use crate::backend::GitApi;
 use crate::labels::Labels;
 use crate::types::GitCloneSpec;
 use crate::{
@@ -85,11 +84,7 @@ impl<'a> GitApi<'a> {
         let run_spec = RunSpec {
             reason: "git-clone",
             image,
-            user: Some(if let ContainerBackend::Podman = self.api.backend {
-                &uid
-            } else {
-                constants::ROOT
-            }),
+            uid: &uid,
             work_dir: None,
             container_name: &id::random_suffix("rooz-git"),
             workspace_key,
@@ -107,6 +102,9 @@ impl<'a> GitApi<'a> {
         let container_id = container_result.id();
 
         if let ContainerResult::Created { .. } = container_result {
+            self.api.exec.ensure_user(container_id).await?;
+            self.api.exec.chown(&container_id, uid, &clone_dir).await?;
+
             self.api
                 .exec
                 .tty(
@@ -118,7 +116,6 @@ impl<'a> GitApi<'a> {
                     Some(clone_cmd.iter().map(String::as_str).collect()),
                 )
                 .await?;
-            self.api.exec.chown(&container_id, uid, &clone_dir).await?;
         };
 
         let rooz_cfg = self

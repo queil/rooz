@@ -62,6 +62,8 @@ impl<'a> ImageApi<'a> {
         image: &str,
         always_pull: bool,
     ) -> Result<String, Box<dyn std::error::Error + 'static>> {
+        log::debug!("Ensuring image: {}", &image);
+
         let image_id = match self.client.inspect_image(&image).await {
             Ok(ImageInspect { id, .. }) => {
                 if always_pull {

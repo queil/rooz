@@ -6,6 +6,7 @@ use bollard::{
 
 use crate::{
     backend::WorkspaceApi,
+    constants,
     labels::Labels,
     ssh,
     types::{
@@ -68,8 +69,10 @@ impl<'a> WorkspaceApi<'a> {
         let run_spec = RunSpec {
             reason: "work",
             image: &spec.image,
-            user: Some(&spec.uid),
+            uid: &spec.uid,
+            user: &spec.user,
             work_dir: Some(&spec.container_working_dir),
+            home_dir: &home_dir,
             container_name: &spec.container_name,
             workspace_key: &spec.workspace_key,
             mounts: Some(mounts),
@@ -202,13 +205,17 @@ impl<'a> WorkspaceApi<'a> {
         container_id: Option<&str>,
         volumes: Vec<RoozVolume>,
         chown_uid: &str,
+        root: bool,
         ephemeral: bool,
     ) -> Result<(), Box<dyn std::error::Error + 'static>> {
         let container_id = container_id.unwrap_or(workspace_key);
         self.start_workspace(workspace_key).await?;
 
-        if let Some(dir) = &chown_dir {
-            self.api.exec.chown(&container_id, chown_uid, dir).await?;
+        if !root {
+            self.api.exec.ensure_user(container_id).await?;
+            if let Some(dir) = &chown_dir {
+                self.api.exec.chown(&container_id, chown_uid, dir).await?;
+            }
         }
 
         self.api
@@ -218,10 +225,15 @@ impl<'a> WorkspaceApi<'a> {
                 &container_id,
                 true,
                 working_dir,
-                None,
+                if root {
+                    Some(constants::ROOT_USER)
+                } else {
+                    None
+                },
                 Some(vec![shell]),
             )
             .await?;
+
         if ephemeral {
             self.api.container.stop(&container_id).await?;
             for vol in volumes.iter().filter(|v| v.is_exclusive()) {
