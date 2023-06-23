@@ -1,8 +1,6 @@
 use clap::{Parser, Subcommand};
 use clap_complete::Shell;
 
-use crate::constants;
-
 #[derive(Parser, Debug)]
 #[command(about = "Prunes all rooz resources")]
 pub struct PruneParams {}
@@ -47,18 +45,25 @@ pub struct WorkspacePersistence {
 pub struct WorkParams {
     #[arg(short, long, alias = "git")]
     pub git_ssh_url: Option<String>,
-    #[arg(short, long, default_value = constants::DEFAULT_IMAGE, env = "ROOZ_IMAGE")]
-    pub image: String,
+    #[arg(long, hide = true, env = "ROOZ_IMAGE")]
+    pub env_image: Option<String>,
+    #[arg(short, long)]
+    pub image: Option<String>,
     #[arg(long)]
     pub pull_image: bool,
-    #[arg(short, long, default_value = "bash", env = "ROOZ_SHELL")]
-    pub shell: String,
-    #[arg(short, long, default_value = "rooz_user", env = "ROOZ_USER")]
-    pub user: String,
+    #[arg(long, hide = true, env = "ROOZ_SHELL")]
+    pub env_shell: Option<String>,
+    #[arg(short, long)]
+    pub shell: Option<String>,
+    #[arg(long, hide=true, env = "ROOZ_USER")]
+    pub env_user: Option<String>,
+    #[arg(short, long)]
+    pub user: Option<String>,
+    #[arg(long, hide = true, env = "ROOZ_CACHES", use_value_delimiter = true)]
+    pub env_caches: Option<Vec<String>>,
     #[arg(
         short,
         long,
-        env = "ROOZ_CACHES",
         use_value_delimiter = true,
         help = "Enables defining global shared caches"
     )]
@@ -94,6 +99,8 @@ pub struct EnterParams {
     pub name: String,
     #[arg(short, long, default_value = "bash", env = "ROOZ_SHELL")]
     pub shell: String,
+    #[arg(short, long)]
+    pub root: bool,
     #[arg(short, long)]
     pub work_dir: Option<String>,
     #[arg(short, long)]

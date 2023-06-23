@@ -1,6 +1,6 @@
 use crate::{
     backend::{ContainerBackend, ExecApi},
-    constants,
+    constants, container,
 };
 use bollard::{
     container::LogOutput,
@@ -102,7 +102,7 @@ impl<'a> ExecApi<'a> {
         Ok(())
     }
 
-    async fn exec(
+    async fn create_exec(
         &self,
         reason: &str,
         container_id: &str,
@@ -149,7 +149,7 @@ impl<'a> ExecApi<'a> {
         cmd: Option<Vec<&str>>,
     ) -> Result<(), Box<dyn std::error::Error + 'static>> {
         let exec_id = self
-            .exec(reason, container_id, working_dir, user, cmd)
+            .create_exec(reason, container_id, working_dir, user, cmd)
             .await?;
         self.start_tty(&exec_id, interactive).await
     }
@@ -161,7 +161,7 @@ impl<'a> ExecApi<'a> {
         user: Option<&str>,
         cmd: Option<Vec<&str>>,
     ) -> Result<String, Box<dyn std::error::Error + 'static>> {
-        let exec_id = self.exec(reason, container_id, None, user, cmd).await?;
+        let exec_id = self.create_exec(reason, container_id, None, user, cmd).await?;
         if let StartExecResults::Attached { output, .. } =
             self.client.start_exec(&exec_id, None).await?
         {
@@ -177,22 +177,51 @@ impl<'a> ExecApi<'a> {
         uid: &str,
         dir: &str,
     ) -> Result<(), Box<dyn std::error::Error + 'static>> {
+
         if let ContainerBackend::Podman = self.backend {
             log::debug!("Podman won't need chown. Skipping");
             return Ok(());
         };
+
+        log::debug!("Changing ownership... ({} {})", &uid, &dir);
 
         let uid_format = format!("{}:{}", &uid, &uid);
         let chown_response = self
             .output(
                 "chown",
                 container_id,
-                Some(constants::ROOT),
+                Some(constants::ROOT_USER),
                 Some(vec!["chown", "-R", &uid_format, &dir]),
             )
             .await?;
 
         log::debug!("{}", chown_response);
+        Ok(())
+    }
+
+    pub async fn ensure_user(
+        &self,
+        container_id: &str,
+    ) -> Result<(), Box<dyn std::error::Error + 'static>> {
+
+        let ensure_user_cmd = container::inject(
+            format!(
+                    r#"whoami > /dev/null 2>&1 && [ "$(whoami)" = "$ROOZ_META_USER" ] || \
+                       echo "$ROOZ_META_USER:x:$ROOZ_META_UID:$ROOZ_META_UID:$ROOZ_META_USER:$ROOZ_META_HOME:/bin/sh" >> /etc/passwd"#,
+            )
+            .as_ref(),
+            "make_user.sh",
+        );
+
+        let ensure_user_output = self
+            .output(
+                "ensure_user",
+                container_id,
+                Some(constants::ROOT_UID),
+                Some(ensure_user_cmd.iter().map(String::as_str).collect()),
+            )
+            .await?;
+        log::debug!("{}", &ensure_user_output);
         Ok(())
     }
 }

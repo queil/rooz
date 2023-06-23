@@ -102,10 +102,11 @@ impl<'a> ContainerApi<'a> {
         spec: RunSpec<'a>,
     ) -> Result<ContainerResult, Box<dyn std::error::Error + 'static>> {
         log::debug!(
-            "[{}]: Creating container - name: {}, user: {}, image: {}, auto-remove: {}",
+            "[{}]: Creating container - name: {}, uid: {}, user: {}, image: {}, auto-remove: {}",
             &spec.reason,
             spec.container_name,
-            spec.user.unwrap_or_default(),
+            spec.uid,
+            spec.user,
             spec.image,
             spec.auto_remove,
         );
@@ -144,6 +145,9 @@ impl<'a> ContainerApi<'a> {
 
                 let mut env_kv = vec![
                     KeyValue::new("ROOZ_META_IMAGE", &spec.image),
+                    KeyValue::new("ROOZ_META_UID", &spec.uid),
+                    KeyValue::new("ROOZ_META_USER", &spec.user),
+                    KeyValue::new("ROOZ_META_HOME", &spec.home_dir),
                     KeyValue::new("ROOZ_META_WORKSPACE", &spec.workspace_key),
                     KeyValue::new("ROOZ_META_CONTAINER_NAME", &spec.container_name),
                 ];
@@ -158,7 +162,7 @@ impl<'a> ContainerApi<'a> {
                     image: Some(spec.image),
                     entrypoint: spec.entrypoint,
                     working_dir: spec.work_dir,
-                    user: spec.user,
+                    user: Some(spec.uid),
                     attach_stdin: Some(true),
                     attach_stdout: Some(true),
                     attach_stderr: Some(true),

@@ -1,19 +1,20 @@
 use std::{collections::HashMap, fs};
 
-use crate::id::to_safe_id;
+use crate::{cli::WorkParams, constants, id::to_safe_id};
 use bollard::service::Mount;
 use serde::Deserialize;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct RoozSidecar {
     pub image: String,
     pub env: Option<HashMap<String, String>>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct RoozCfg {
     pub shell: Option<String>,
     pub image: Option<String>,
+    pub user: Option<String>,
     pub caches: Option<Vec<String>>,
     pub sidecars: Option<HashMap<String, RoozSidecar>>,
 }
@@ -29,6 +30,87 @@ impl RoozCfg {
             Ok(val) => Ok(val),
             Err(e) => Err(Box::new(e)),
         }
+    }
+
+    pub fn shell(
+        cli: &WorkParams,
+        cli_cfg: &Option<RoozCfg>,
+        repo_cfg: &Option<RoozCfg>,
+    ) -> String {
+        cli.shell
+            .clone()
+            .or(cli_cfg.clone().map(|c| c.shell).flatten())
+            .or(repo_cfg.clone().map(|c| c.shell).flatten())
+            .or(cli.env_shell.clone())
+            .unwrap_or(constants::DEFAULT_SHELL.into())
+    }
+
+    pub fn image(
+        cli: &WorkParams,
+        cli_cfg: &Option<RoozCfg>,
+        repo_cfg: &Option<RoozCfg>,
+    ) -> String {
+        cli.image
+            .clone()
+            .or(cli_cfg.clone().map(|c| c.image).flatten())
+            .or(repo_cfg.clone().map(|c| c.image).flatten())
+            .or(cli.env_image.clone())
+            .unwrap_or(constants::DEFAULT_IMAGE.into())
+    }
+
+    pub fn user(cli: &WorkParams, cli_cfg: &Option<RoozCfg>, repo_cfg: &Option<RoozCfg>) -> String {
+        cli.user
+            .clone()
+            .or(cli_cfg.clone().map(|c| c.user).flatten())
+            .or(repo_cfg.clone().map(|c| c.user).flatten())
+            .or(cli.env_user.clone())
+            .unwrap_or(constants::DEFAULT_USER.into())
+    }
+
+    pub fn sidecars(
+        cli_cfg: &Option<RoozCfg>,
+        repo_cfg: &Option<RoozCfg>,
+    ) -> Option<HashMap<String, RoozSidecar>> {
+        //TODO: test this with duplicate keys
+        let mut all_sidecars = HashMap::<String, RoozSidecar>::new();
+
+        if let Some(sidecars) = cli_cfg.clone().map(|c| c.sidecars).flatten() {
+            all_sidecars.extend(sidecars);
+        };
+
+        if let Some(sidecars) = repo_cfg.clone().map(|c| c.sidecars).flatten() {
+            all_sidecars.extend(sidecars);
+        };
+        if all_sidecars.len() > 0 {
+            Some(all_sidecars)
+        } else {
+            None
+        }
+    }
+
+    pub fn caches(
+        cli: &WorkParams,
+        cli_cfg: &Option<RoozCfg>,
+        repo_cfg: &Option<RoozCfg>,
+    ) -> Vec<String> {
+        let mut all_caches = vec![];
+        if let Some(caches) = cli.caches.clone() {
+            all_caches.extend(caches);
+        }
+
+        if let Some(caches) = cli_cfg.clone().map(|c| c.caches).flatten() {
+            all_caches.extend(caches);
+        };
+
+        if let Some(caches) = repo_cfg.clone().map(|c| c.caches).flatten() {
+            all_caches.extend(caches);
+        };
+
+        if let Some(caches) = cli.env_caches.clone() {
+            all_caches.extend(caches);
+        }
+        all_caches.dedup();
+        all_caches
     }
 }
 
@@ -173,8 +255,10 @@ impl Default for WorkSpec<'_> {
 pub struct RunSpec<'a> {
     pub reason: &'a str,
     pub image: &'a str,
-    pub user: Option<&'a str>,
+    pub uid: &'a str,
+    pub user: &'a str,
     pub work_dir: Option<&'a str>,
+    pub home_dir: &'a str,
     pub container_name: &'a str,
     pub workspace_key: &'a str,
     pub mounts: Option<Vec<Mount>>,
@@ -193,8 +277,10 @@ impl Default for RunSpec<'_> {
         Self {
             reason: Default::default(),
             image: Default::default(),
-            user: None,
+            uid: Default::default(),
+            user: Default::default(),
             work_dir: None,
+            home_dir: Default::default(),
             container_name: Default::default(),
             workspace_key: Default::default(),
             mounts: None,

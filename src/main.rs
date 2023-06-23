@@ -8,6 +8,7 @@ mod git;
 mod id;
 mod image;
 mod labels;
+mod sidecars;
 mod ssh;
 mod types;
 mod volume;
@@ -110,6 +111,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
                 Enter(EnterParams {
                     name,
                     shell,
+                    root,
                     work_dir,
                     container,
                 }),
@@ -124,6 +126,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
                     container.as_deref(),
                     vec![],
                     constants::DEFAULT_UID,
+                    if root { Some(constants::ROOT_USER)} else { None },
                     false,
                 )
                 .await?
