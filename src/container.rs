@@ -1,4 +1,5 @@
 use std::{
+    fs,
     io::{stdout, Write},
     time::Duration,
 };
@@ -18,7 +19,7 @@ use futures::StreamExt;
 use tokio::time::sleep;
 
 use crate::{
-    backend::ContainerApi,
+    backend::{ContainerApi, ContainerBackend},
     labels::{KeyValue, Labels},
     types::{ContainerResult, RunSpec},
 };
@@ -136,9 +137,20 @@ impl<'a> ContainerApi<'a> {
                     platform: None,
                 };
 
+                let oom_score_adj = match self.backend {
+                    ContainerBackend::Podman => Some(
+                        fs::read_to_string("/proc/self/oom_score_adj")
+                            .unwrap()
+                            .trim_end()
+                            .parse::<i64>()?,
+                    ),
+                    _ => None,
+                };
+
                 let host_config = HostConfig {
                     auto_remove: Some(spec.auto_remove),
                     mounts: spec.mounts,
+                    oom_score_adj,
                     privileged: Some(spec.privileged),
                     ..Default::default()
                 };
