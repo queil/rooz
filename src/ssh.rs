@@ -1,5 +1,6 @@
 use crate::backend::Api;
 use crate::labels::Labels;
+use crate::types::AnyError;
 use crate::{constants, id};
 use crate::{container, types::RunSpec};
 use bollard::models::MountTypeEnum::VOLUME;
@@ -17,11 +18,7 @@ pub fn mount(target: &str) -> Mount {
 }
 
 impl<'a> Api<'a> {
-    pub async fn init_ssh_key(
-        &self,
-        image: &str,
-        uid: &str,
-    ) -> Result<(), Box<dyn std::error::Error + 'static>> {
+    pub async fn init_ssh_key(&self, image: &str, uid: &str) -> Result<(), AnyError> {
         let hostname = hostname::get()?;
         let init_ssh = format!(
             r#"mkdir -p /tmp/.ssh

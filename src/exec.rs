@@ -1,6 +1,7 @@
 use crate::{
     backend::{ContainerBackend, ExecApi},
     constants, container,
+    types::AnyError,
 };
 use bollard::{
     container::LogOutput,
@@ -16,9 +17,7 @@ use std::{
 use termion::{raw::IntoRawMode, terminal_size};
 use tokio::{io::AsyncWriteExt, spawn, time::sleep};
 
-async fn collect(
-    stream: impl Stream<Item = Result<LogOutput, Error>>,
-) -> Result<String, Box<dyn std::error::Error + 'static>> {
+async fn collect(stream: impl Stream<Item = Result<LogOutput, Error>>) -> Result<String, AnyError> {
     let out = stream
         .map(|x| match x {
             Ok(r) => std::str::from_utf8(r.into_bytes().as_ref())
@@ -35,11 +34,7 @@ async fn collect(
 }
 
 impl<'a> ExecApi<'a> {
-    async fn start_tty(
-        &self,
-        exec_id: &str,
-        interactive: bool,
-    ) -> Result<(), Box<dyn std::error::Error + 'static>> {
+    async fn start_tty(&self, exec_id: &str, interactive: bool) -> Result<(), AnyError> {
         let tty_size = terminal_size()?;
         if let StartExecResults::Attached {
             mut output,
@@ -109,7 +104,7 @@ impl<'a> ExecApi<'a> {
         working_dir: Option<&str>,
         user: Option<&str>,
         cmd: Option<Vec<&str>>,
-    ) -> Result<String, Box<dyn std::error::Error + 'static>> {
+    ) -> Result<String, AnyError> {
         #[cfg(not(windows))]
         {
             log::debug!(
@@ -147,7 +142,7 @@ impl<'a> ExecApi<'a> {
         working_dir: Option<&str>,
         user: Option<&str>,
         cmd: Option<Vec<&str>>,
-    ) -> Result<(), Box<dyn std::error::Error + 'static>> {
+    ) -> Result<(), AnyError> {
         let exec_id = self
             .create_exec(reason, container_id, working_dir, user, cmd)
             .await?;
@@ -160,7 +155,7 @@ impl<'a> ExecApi<'a> {
         container_id: &str,
         user: Option<&str>,
         cmd: Option<Vec<&str>>,
-    ) -> Result<String, Box<dyn std::error::Error + 'static>> {
+    ) -> Result<String, AnyError> {
         let exec_id = self
             .create_exec(reason, container_id, None, user, cmd)
             .await?;
@@ -173,12 +168,7 @@ impl<'a> ExecApi<'a> {
         }
     }
 
-    pub async fn chown(
-        &self,
-        container_id: &str,
-        uid: &str,
-        dir: &str,
-    ) -> Result<(), Box<dyn std::error::Error + 'static>> {
+    pub async fn chown(&self, container_id: &str, uid: &str, dir: &str) -> Result<(), AnyError> {
         if let ContainerBackend::Podman = self.backend {
             log::debug!("Podman won't need chown. Skipping");
             return Ok(());
@@ -200,10 +190,7 @@ impl<'a> ExecApi<'a> {
         Ok(())
     }
 
-    pub async fn ensure_user(
-        &self,
-        container_id: &str,
-    ) -> Result<(), Box<dyn std::error::Error + 'static>> {
+    pub async fn ensure_user(&self, container_id: &str) -> Result<(), AnyError> {
         let ensure_user_cmd = container::inject(
             format!(
                     r#"whoami > /dev/null 2>&1 && [ "$(whoami)" = "$ROOZ_META_USER" ] || \

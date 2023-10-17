@@ -1,12 +1,11 @@
-use crate::{backend::Api, ssh, types::VolumeResult};
+use crate::{
+    backend::Api,
+    ssh,
+    types::{AnyError, VolumeResult},
+};
 
 impl<'a> Api<'a> {
-    pub async fn init(
-        &self,
-        image: &str,
-        uid: &str,
-        force: bool,
-    ) -> Result<(), Box<dyn std::error::Error + 'static>> {
+    pub async fn init(&self, image: &str, uid: &str, force: bool) -> Result<(), AnyError> {
         let image_id = self.image.ensure(&image, false).await?;
 
         match self

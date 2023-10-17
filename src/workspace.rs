@@ -10,16 +10,13 @@ use crate::{
     labels::Labels,
     ssh,
     types::{
-        ContainerResult, RoozVolume, RoozVolumeRole, RoozVolumeSharing, RunSpec, WorkSpec,
-        WorkspaceResult,
+        AnyError, ContainerResult, RoozVolume, RoozVolumeRole, RoozVolumeSharing, RunSpec,
+        WorkSpec, WorkspaceResult,
     },
 };
 
 impl<'a> WorkspaceApi<'a> {
-    pub async fn create(
-        &self,
-        spec: &WorkSpec<'a>,
-    ) -> Result<WorkspaceResult, Box<dyn std::error::Error + 'static>> {
+    pub async fn create(&self, spec: &WorkSpec<'a>) -> Result<WorkspaceResult, AnyError> {
         let home_dir = format!("/home/{}", &spec.user);
         let work_dir = format!("{}/work", &home_dir);
 
@@ -166,10 +163,7 @@ impl<'a> WorkspaceApi<'a> {
         Ok(())
     }
 
-    pub async fn start_workspace(
-        &self,
-        workspace_key: &str,
-    ) -> Result<(), Box<dyn std::error::Error + 'static>> {
+    pub async fn start_workspace(&self, workspace_key: &str) -> Result<(), AnyError> {
         let labels = Labels::new(Some(workspace_key), None);
         for c in self.api.container.get_all(&labels).await? {
             self.api.container.start(&c.id.unwrap()).await?;
@@ -177,10 +171,7 @@ impl<'a> WorkspaceApi<'a> {
         Ok(())
     }
 
-    pub async fn stop(
-        &self,
-        workspace_key: &str,
-    ) -> Result<(), Box<dyn std::error::Error + 'static>> {
+    pub async fn stop(&self, workspace_key: &str) -> Result<(), AnyError> {
         let labels = Labels::new(Some(workspace_key), None);
         for c in self.api.container.get_all(&labels).await? {
             self.api.container.stop(&c.id.unwrap()).await?;
@@ -188,7 +179,7 @@ impl<'a> WorkspaceApi<'a> {
         Ok(())
     }
 
-    pub async fn stop_all(&self) -> Result<(), Box<dyn std::error::Error + 'static>> {
+    pub async fn stop_all(&self) -> Result<(), AnyError> {
         let labels = Labels::new(None, None);
         for c in self.api.container.get_all(&labels).await? {
             self.api.container.stop(&c.id.unwrap()).await?;

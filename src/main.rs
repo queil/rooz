@@ -32,9 +32,10 @@ use bollard::Docker;
 use clap::{CommandFactory, Parser};
 use clap_complete::generate;
 use cli::EnterParams;
+use types::AnyError;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
+async fn main() -> Result<(), AnyError> {
     env_logger::init();
 
     log::debug!("Started");

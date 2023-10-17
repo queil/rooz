@@ -3,7 +3,7 @@ use crate::{
     cli::{WorkParams, WorkspacePersistence},
     constants,
     labels::{self, Labels},
-    types::{RoozCfg, WorkSpec},
+    types::{AnyError, RoozCfg, WorkSpec},
 };
 
 impl<'a> WorkspaceApi<'a> {
@@ -13,7 +13,7 @@ impl<'a> WorkspaceApi<'a> {
         cli_config: Option<RoozCfg>,
         persistence: Option<WorkspacePersistence>,
         root: bool,
-    ) -> Result<String, Box<dyn std::error::Error + 'static>> {
+    ) -> Result<String, AnyError> {
         let ephemeral = persistence.is_none();
         let orig_uid = constants::DEFAULT_UID.to_string();
 

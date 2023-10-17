@@ -6,14 +6,14 @@ use bollard::{
     volume::{ListVolumesOptions, RemoveVolumeOptions},
 };
 
-use crate::{backend::Api, labels::Labels};
+use crate::{backend::Api, labels::Labels, types::AnyError};
 
 impl<'a> Api<'a> {
     async fn prune(
         &self,
         filters: HashMap<String, Vec<String>>,
         force: bool,
-    ) -> Result<(), Box<dyn std::error::Error + 'static>> {
+    ) -> Result<(), AnyError> {
         let ls_container_options = ListContainersOptions {
             all: true,
             filters: filters.clone(),
@@ -57,7 +57,7 @@ impl<'a> Api<'a> {
         Ok(())
     }
 
-    pub async fn prune_system(&self) -> Result<(), Box<dyn std::error::Error + 'static>> {
+    pub async fn prune_system(&self) -> Result<(), AnyError> {
         let labels = Labels::new(None, None);
         self.prune((&labels).into(), true).await
     }
