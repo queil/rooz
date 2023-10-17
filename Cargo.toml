@@ -1,12 +1,12 @@
 [package]
 name = "rooz"
-version = "0.37.0"
+version = "0.38.0"
 edition = "2021"
 
 [dependencies]
 base64 = "0.21.3"
-#bollard = "0.14.0"
-bollard = { git = "https://github.com/fussybeaver/bollard.git" }
+bollard = "0.15.0"
+#bollard = { git = "https://github.com/fussybeaver/bollard.git" }
 
 clap = { version = "4.4.2", features = ["derive", "env"] }
 clap_complete = "4.4.1"
