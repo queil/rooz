@@ -94,7 +94,7 @@ impl<'a> WorkspaceApi<'a> {
         &self,
         labels: &Labels,
         force: bool,
-    ) -> Result<(), Box<dyn std::error::Error + 'static>> {
+    ) -> Result<(), AnyError> {
         for cs in self.api.container.get_all(labels).await? {
             if let ContainerSummary { id: Some(id), .. } = cs {
                 self.api.container.remove(&id, force).await?
@@ -148,7 +148,7 @@ impl<'a> WorkspaceApi<'a> {
         &self,
         workspace_key: &str,
         force: bool,
-    ) -> Result<(), Box<dyn std::error::Error + 'static>> {
+    ) -> Result<(), AnyError> {
         let labels = Labels::new(Some(workspace_key), None);
         self.remove_core((&labels).into(), force).await?;
         Ok(())
@@ -157,7 +157,7 @@ impl<'a> WorkspaceApi<'a> {
     pub async fn remove_all(
         &self,
         force: bool,
-    ) -> Result<(), Box<dyn std::error::Error + 'static>> {
+    ) -> Result<(), AnyError> {
         let labels = Labels::new(None, None);
         self.remove_core(&labels, force).await?;
         Ok(())
@@ -198,7 +198,7 @@ impl<'a> WorkspaceApi<'a> {
         chown_uid: &str,
         root: bool,
         ephemeral: bool,
-    ) -> Result<(), Box<dyn std::error::Error + 'static>> {
+    ) -> Result<(), AnyError> {
         let container_id = container_id.unwrap_or(workspace_key);
         self.start_workspace(workspace_key).await?;
 
