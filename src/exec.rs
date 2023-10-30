@@ -9,9 +9,9 @@ use bollard::{
     exec::{CreateExecOptions, ResizeExecOptions, StartExecResults},
 };
 use futures::{channel::oneshot, Stream, StreamExt};
-use nonblock::NonBlockingReader;
+
 use std::{
-    io::{stdin, stdout, Write},
+    io::{stdout, Write, Read},
     time::Duration,
 };
 use termion::{raw::IntoRawMode, terminal_size};
@@ -44,12 +44,12 @@ impl<'a> ExecApi<'a> {
             let (r, mut s) = oneshot::channel::<bool>();
             let handle = spawn(async move {
                 if interactive {
-                    let mut stdin = NonBlockingReader::from_fd(stdin()).unwrap();
-                    loop {
-                        let mut bytes = Vec::new();
-                        match stdin.read_available(&mut bytes).ok() {
-                            Some(c) if c > 0 => {
-                                input.write_all(&bytes).await.ok();
+                    let stdin = termion::async_stdin();
+                    let mut bytes = stdin.bytes();
+                    loop {                     
+                        match bytes.next()  {   
+                            Some(Ok(b)) => {
+                                input.write(&[b]).await.ok();
                             }
                             _ => {
                                 if let Some(true) = s.try_recv().unwrap() {
@@ -84,9 +84,17 @@ impl<'a> ExecApi<'a> {
             let stdout = stdout();
             let mut stdout = stdout.lock().into_raw_mode()?;
             // pipe docker exec output into stdout
-            while let Some(Ok(output)) = output.next().await {
-                stdout.write_all(output.into_bytes().as_ref())?;
-                stdout.flush()?;
+            while let Some(Ok(out)) = output.next().await {
+
+                let bytes = out.clone().into_bytes();
+
+                while let Err(_) = stdout.write_all(bytes.as_ref()) {
+                    sleep(Duration::from_millis(10)).await;
+                }
+                
+                while let Err(_) = stdout.flush() {
+                    sleep(Duration::from_millis(10)).await;
+                }
             }
 
             if interactive {
