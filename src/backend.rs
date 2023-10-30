@@ -2,6 +2,8 @@ use bollard::service::SystemInfo;
 use bollard::system::Version;
 use bollard::Docker;
 
+use crate::types::AnyError;
+
 pub struct ExecApi<'a> {
     pub client: &'a Docker,
     pub backend: &'a ContainerBackend,
@@ -49,10 +51,7 @@ pub enum ContainerBackend {
 }
 
 impl ContainerBackend {
-    pub async fn resolve(
-        version: &Version,
-        info: &SystemInfo,
-    ) -> Result<Self, Box<dyn std::error::Error + 'static>> {
+    pub async fn resolve(version: &Version, info: &SystemInfo) -> Result<Self, AnyError> {
         fn backend(info: &SystemInfo, version: &Version) -> ContainerBackend {
             if let SystemInfo {
                 operating_system: Some(name),

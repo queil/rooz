@@ -21,7 +21,7 @@ use tokio::time::sleep;
 use crate::{
     backend::{ContainerApi, ContainerBackend},
     labels::{KeyValue, Labels},
-    types::{ContainerResult, RunSpec},
+    types::{AnyError, ContainerResult, RunSpec},
 };
 
 pub fn inject(script: &str, name: &str) -> Vec<String> {
@@ -39,10 +39,7 @@ pub fn inject(script: &str, name: &str) -> Vec<String> {
 }
 
 impl<'a> ContainerApi<'a> {
-    pub async fn get_all(
-        &self,
-        labels: &Labels,
-    ) -> Result<Vec<ContainerSummary>, Box<dyn std::error::Error + 'static>> {
+    pub async fn get_all(&self, labels: &Labels) -> Result<Vec<ContainerSummary>, AnyError> {
         let list_options = ListContainersOptions {
             filters: labels.into(),
             all: true,
@@ -52,11 +49,7 @@ impl<'a> ContainerApi<'a> {
         Ok(self.client.list_containers(Some(list_options)).await?)
     }
 
-    pub async fn remove(
-        &self,
-        container_id: &str,
-        force: bool,
-    ) -> Result<(), Box<dyn std::error::Error + 'static>> {
+    pub async fn remove(&self, container_id: &str, force: bool) -> Result<(), AnyError> {
         let force_display = if force { " (force)" } else { "" };
 
         self.client
@@ -73,10 +66,7 @@ impl<'a> ContainerApi<'a> {
         Ok(())
     }
 
-    pub async fn stop(
-        &self,
-        container_id: &str,
-    ) -> Result<(), Box<dyn std::error::Error + 'static>> {
+    pub async fn stop(&self, container_id: &str) -> Result<(), AnyError> {
         self.client
             .stop_container(&container_id, Some(StopContainerOptions { t: 0 }))
             .await?;
@@ -98,10 +88,7 @@ impl<'a> ContainerApi<'a> {
         Ok(())
     }
 
-    pub async fn create(
-        &self,
-        spec: RunSpec<'a>,
-    ) -> Result<ContainerResult, Box<dyn std::error::Error + 'static>> {
+    pub async fn create(&self, spec: RunSpec<'a>) -> Result<ContainerResult, AnyError> {
         log::debug!(
             "[{}]: Creating container - name: {}, uid: {}, user: {}, image: {}, auto-remove: {}",
             &spec.reason,
@@ -215,20 +202,14 @@ impl<'a> ContainerApi<'a> {
         Ok(container_id.clone())
     }
 
-    pub async fn start(
-        &self,
-        container_id: &str,
-    ) -> Result<(), Box<dyn std::error::Error + 'static>> {
+    pub async fn start(&self, container_id: &str) -> Result<(), AnyError> {
         Ok(self
             .client
             .start_container(&container_id, None::<StartContainerOptions<String>>)
             .await?)
     }
 
-    pub async fn logs_to_stdout(
-        &self,
-        container_name: &str,
-    ) -> Result<(), Box<dyn std::error::Error + 'static>> {
+    pub async fn logs_to_stdout(&self, container_name: &str) -> Result<(), AnyError> {
         let log_options = LogsOptions::<String> {
             stdout: true,
             follow: true,

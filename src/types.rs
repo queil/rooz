@@ -4,6 +4,8 @@ use crate::{cli::WorkParams, constants, id::to_safe_id};
 use bollard::service::Mount;
 use serde::Deserialize;
 
+pub type AnyError = Box<dyn std::error::Error + 'static>;
+
 #[derive(Debug, Deserialize, Clone)]
 pub struct RoozSidecar {
     pub image: String,

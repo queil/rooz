@@ -6,7 +6,7 @@ use crate::{
     backend::WorkspaceApi,
     constants,
     labels::{self, Labels},
-    types::{RoozSidecar, RunSpec},
+    types::{AnyError, RoozSidecar, RunSpec},
 };
 
 impl<'a> WorkspaceApi<'a> {
@@ -17,7 +17,7 @@ impl<'a> WorkspaceApi<'a> {
         workspace_key: &str,
         force: bool,
         pull_image: bool,
-    ) -> Result<Option<String>, Box<dyn std::error::Error + 'static>> {
+    ) -> Result<Option<String>, AnyError> {
         let labels_sidecar = Labels::new(Some(workspace_key), Some(labels::ROLE_SIDECAR));
 
         let network = if let Some(_) = sidecars {

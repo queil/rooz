@@ -2,7 +2,7 @@ use crate::{
     backend::VolumeApi,
     labels::Labels,
     ssh,
-    types::{RoozVolume, VolumeResult},
+    types::{AnyError, RoozVolume, VolumeResult},
 };
 use bollard::models::MountTypeEnum::VOLUME;
 use bollard::{errors::Error::DockerResponseServerError, volume::RemoveVolumeOptions};
@@ -13,7 +13,7 @@ impl<'a> VolumeApi<'a> {
     async fn create_volume(
         &self,
         options: CreateVolumeOptions<&str>,
-    ) -> Result<VolumeResult, Box<dyn std::error::Error + 'static>> {
+    ) -> Result<VolumeResult, AnyError> {
         match &self.client.create_volume(options).await {
             Ok(v) => {
                 log::debug!("Volume created: {:?}", v.name);
@@ -23,11 +23,7 @@ impl<'a> VolumeApi<'a> {
         }
     }
 
-    pub async fn remove_volume(
-        &self,
-        name: &str,
-        force: bool,
-    ) -> Result<(), Box<dyn std::error::Error + 'static>> {
+    pub async fn remove_volume(&self, name: &str, force: bool) -> Result<(), AnyError> {
         let options = RemoveVolumeOptions { force };
         match &self.client.remove_volume(name, Some(options)).await {
             Ok(_) => {
@@ -45,7 +41,7 @@ impl<'a> VolumeApi<'a> {
         role: &str,
         workspace_key: Option<String>,
         force_recreate: bool,
-    ) -> Result<VolumeResult, Box<dyn std::error::Error + 'static>> {
+    ) -> Result<VolumeResult, AnyError> {
         let labels = Labels::new(workspace_key.as_deref(), Some(role));
 
         let create_vol_options = CreateVolumeOptions::<&str> {
@@ -76,7 +72,7 @@ impl<'a> VolumeApi<'a> {
         &self,
         volumes: &Vec<RoozVolume>,
         home_dir: &str,
-    ) -> Result<Vec<Mount>, Box<dyn std::error::Error + 'static>> {
+    ) -> Result<Vec<Mount>, AnyError> {
         let mut mounts = vec![ssh::mount(
             Path::new(home_dir).join(".ssh").to_string_lossy().as_ref(),
         )];

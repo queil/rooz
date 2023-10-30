@@ -1,4 +1,4 @@
-use crate::backend::ImageApi;
+use crate::{backend::ImageApi, types::AnyError};
 use bollard::errors::Error;
 use bollard::errors::Error::DockerResponseServerError;
 use bollard::image::CreateImageOptions;
@@ -8,10 +8,7 @@ use futures::StreamExt;
 use std::io::{stdout, Write};
 
 impl<'a> ImageApi<'a> {
-    async fn pull(
-        &self,
-        image: &str,
-    ) -> Result<Option<String>, Box<dyn std::error::Error + 'static>> {
+    async fn pull(&self, image: &str) -> Result<Option<String>, AnyError> {
         println!("Pulling image: {}", &image);
         let img_chunks = &image.split(':').collect::<Vec<&str>>();
         let mut image_info = self.client.create_image(
@@ -57,11 +54,7 @@ impl<'a> ImageApi<'a> {
         Ok(self.client.inspect_image(&image).await?.id)
     }
 
-    pub async fn ensure(
-        &self,
-        image: &str,
-        always_pull: bool,
-    ) -> Result<String, Box<dyn std::error::Error + 'static>> {
+    pub async fn ensure(&self, image: &str, always_pull: bool) -> Result<String, AnyError> {
         log::debug!("Ensuring image: {}", &image);
 
         let image_id = match self.client.inspect_image(&image).await {

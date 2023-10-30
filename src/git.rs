@@ -3,7 +3,7 @@ use bollard::service::Mount;
 
 use crate::backend::GitApi;
 use crate::labels::Labels;
-use crate::types::GitCloneSpec;
+use crate::types::{AnyError, GitCloneSpec};
 use crate::{
     container, id, ssh,
     types::{ContainerResult, RoozCfg, RoozVolume, RoozVolumeRole, RoozVolumeSharing, RunSpec},
@@ -30,7 +30,7 @@ impl<'a> GitApi<'a> {
         &self,
         target_path: &str,
         workspace_key: &str,
-    ) -> Result<(Mount, RoozVolume), Box<dyn std::error::Error + 'static>> {
+    ) -> Result<(Mount, RoozVolume), AnyError> {
         let git_vol = RoozVolume {
             path: target_path.into(),
             sharing: RoozVolumeSharing::Exclusive {
@@ -64,7 +64,7 @@ impl<'a> GitApi<'a> {
         url: &str,
         workspace_key: &str,
         working_dir: &str,
-    ) -> Result<(Option<RoozCfg>, GitCloneSpec), Box<dyn std::error::Error + 'static>> {
+    ) -> Result<(Option<RoozCfg>, GitCloneSpec), AnyError> {
         let tmp_working_dir = "/tmp/git";
         let clone_dir = format!("{}", &tmp_working_dir);
 
