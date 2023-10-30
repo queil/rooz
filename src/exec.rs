@@ -11,7 +11,7 @@ use bollard::{
 use futures::{channel::oneshot, Stream, StreamExt};
 
 use std::{
-    io::{stdout, Write, Read},
+    io::{stdout, Read, Write},
     time::Duration,
 };
 use termion::{raw::IntoRawMode, terminal_size};
@@ -46,8 +46,8 @@ impl<'a> ExecApi<'a> {
                 if interactive {
                     let stdin = termion::async_stdin();
                     let mut bytes = stdin.bytes();
-                    loop {                     
-                        match bytes.next()  {   
+                    loop {
+                        match bytes.next() {
                             Some(Ok(b)) => {
                                 input.write(&[b]).await.ok();
                             }
@@ -85,13 +85,12 @@ impl<'a> ExecApi<'a> {
             let mut stdout = stdout.lock().into_raw_mode()?;
             // pipe docker exec output into stdout
             while let Some(Ok(out)) = output.next().await {
-
                 let bytes = out.clone().into_bytes();
 
                 while let Err(_) = stdout.write_all(bytes.as_ref()) {
                     sleep(Duration::from_millis(10)).await;
                 }
-                
+
                 while let Err(_) = stdout.flush() {
                     sleep(Duration::from_millis(10)).await;
                 }

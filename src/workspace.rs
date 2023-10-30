@@ -90,11 +90,7 @@ impl<'a> WorkspaceApi<'a> {
     }
     }
 
-    async fn remove_core(
-        &self,
-        labels: &Labels,
-        force: bool,
-    ) -> Result<(), AnyError> {
+    async fn remove_core(&self, labels: &Labels, force: bool) -> Result<(), AnyError> {
         for cs in self.api.container.get_all(labels).await? {
             if let ContainerSummary { id: Some(id), .. } = cs {
                 self.api.container.remove(&id, force).await?
@@ -144,20 +140,13 @@ impl<'a> WorkspaceApi<'a> {
         Ok(())
     }
 
-    pub async fn remove(
-        &self,
-        workspace_key: &str,
-        force: bool,
-    ) -> Result<(), AnyError> {
+    pub async fn remove(&self, workspace_key: &str, force: bool) -> Result<(), AnyError> {
         let labels = Labels::new(Some(workspace_key), None);
         self.remove_core((&labels).into(), force).await?;
         Ok(())
     }
 
-    pub async fn remove_all(
-        &self,
-        force: bool,
-    ) -> Result<(), AnyError> {
+    pub async fn remove_all(&self, force: bool) -> Result<(), AnyError> {
         let labels = Labels::new(None, None);
         self.remove_core(&labels, force).await?;
         Ok(())
