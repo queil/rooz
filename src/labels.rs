@@ -1,6 +1,7 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, vec};
 
 pub const WORKSPACE_KEY: &'static str = "dev.rooz.workspace";
+pub const CONTAINER: &'static str = "dev.rooz.workspace.container";
 const ROLE: &'static str = "dev.rooz.role";
 const ROOZ: &'static str = "dev.rooz";
 const LABEL_KEY: &'static str = "label";
@@ -9,6 +10,7 @@ const TRUE: &'static str = "true";
 pub const ROLE_WORK: &'static str = "work";
 pub const ROLE_SIDECAR: &'static str = "sidecar";
 
+#[derive(Clone, Debug)]
 pub struct KeyValue {
     key: String,
     value: String,
@@ -49,9 +51,11 @@ impl KeyValue {
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct Labels {
     rooz: KeyValue,
     workspace: Option<KeyValue>,
+    container: Option<KeyValue>,
     role: Option<KeyValue>,
 }
 
@@ -60,7 +64,18 @@ impl Labels {
         Labels {
             rooz: KeyValue::new(ROOZ, TRUE),
             workspace: workspace_key.map(|v| KeyValue::new(WORKSPACE_KEY, v)),
+            container: None,
             role: role.map(|v| KeyValue::new(ROLE, v)),
+        }
+    }
+
+    pub fn with_container(self, container: Option<&str>) -> Labels {
+        match container {
+            Some(c) => Labels {
+                container: Some(KeyValue::new(CONTAINER, c)),
+                ..self
+            },
+            None => self,
         }
     }
 }
@@ -80,9 +95,10 @@ impl<'a> From<&'a Labels> for HashMap<String, Vec<String>> {
     fn from(value: &'a Labels) -> Self {
         let labels: Vec<&KeyValue> = value.into();
         let mut h = HashMap::new();
-        for l in labels {
-            h.insert(LABEL_KEY.into(), vec![l.formatted.to_string()]);
-        }
+        h.insert(
+            LABEL_KEY.into(),
+            labels.iter().map(|v| v.formatted.to_string()).collect(),
+        );
         return h;
     }
 }
@@ -95,6 +111,9 @@ impl<'a> From<&'a Labels> for Vec<&'a KeyValue> {
         }
         if let Some(workspace) = &value.workspace {
             labels.push(workspace);
+        }
+        if let Some(container) = &value.container {
+            labels.push(container);
         }
         labels
     }

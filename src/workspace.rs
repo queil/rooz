@@ -188,7 +188,23 @@ impl<'a> WorkspaceApi<'a> {
         root: bool,
         ephemeral: bool,
     ) -> Result<(), AnyError> {
-        let container_id = container_id.unwrap_or(workspace_key);
+        let enter_labels = Labels::new(Some(workspace_key), None)
+            .with_container(container_id.or(Some(constants::DEFAULT_CONTAINER_NAME)));
+        let containers = Vec::from_iter(
+            self.api
+                .container
+                .get_all(&enter_labels)
+                .await?
+                .iter()
+                .map(|c| c.id.as_ref().unwrap().to_string()),
+        );
+
+        let container_id = match &containers.as_slice() {
+            &[container] => container,
+            &[] => panic!("Container not found"),
+            _ => panic!("Too many containers found"),
+        };
+
         self.start_workspace(workspace_key).await?;
 
         if !root {

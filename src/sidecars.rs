@@ -25,7 +25,6 @@ impl<'a> WorkspaceApi<'a> {
                 name: &workspace_key,
                 check_duplicate: true,
                 labels: labels.into(),
-
                 ..Default::default()
             };
 
@@ -40,6 +39,7 @@ impl<'a> WorkspaceApi<'a> {
                 log::debug!("Process sidecar: {}", name);
                 self.api.image.ensure(&s.image, pull_image).await?;
                 let container_name = format!("{}-{}", workspace_key, name);
+                let labels = labels_sidecar.clone().with_container(Some(name));
                 self.api
                     .container
                     .create(RunSpec {
@@ -48,7 +48,7 @@ impl<'a> WorkspaceApi<'a> {
                         image: &s.image,
                         force_recreate: force,
                         workspace_key: &workspace_key,
-                        labels: (&labels_sidecar).into(),
+                        labels: (&labels).into(),
                         env: s.env.clone(),
                         network,
                         network_aliases: Some(vec![name.into()]),
