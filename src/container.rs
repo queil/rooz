@@ -160,6 +160,7 @@ impl<'a> ContainerApi<'a> {
                 let config = Config {
                     image: Some(spec.image),
                     entrypoint: spec.entrypoint,
+                    cmd: spec.command,
                     working_dir: spec.work_dir,
                     user: Some(spec.uid),
                     attach_stdin: Some(true),

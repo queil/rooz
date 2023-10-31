@@ -52,6 +52,10 @@ impl<'a> WorkspaceApi<'a> {
                         env: s.env.clone(),
                         network,
                         network_aliases: Some(vec![name.into()]),
+                        command: s
+                            .command
+                            .as_ref()
+                            .map(|x| x.iter().map(|z| z.as_ref()).collect()),
                         ..Default::default()
                     })
                     .await?;

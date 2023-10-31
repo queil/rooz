@@ -10,6 +10,7 @@ pub type AnyError = Box<dyn std::error::Error + 'static>;
 pub struct RoozSidecar {
     pub image: String,
     pub env: Option<HashMap<String, String>>,
+    pub command: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -272,6 +273,7 @@ pub struct RunSpec<'a> {
     pub env: Option<HashMap<String, String>>,
     pub network: Option<&'a str>,
     pub network_aliases: Option<Vec<String>>,
+    pub command: Option<Vec<&'a str>>,
 }
 
 impl Default for RunSpec<'_> {
@@ -294,6 +296,7 @@ impl Default for RunSpec<'_> {
             env: Default::default(),
             network: None,
             network_aliases: None,
+            command: None,
         }
     }
 }

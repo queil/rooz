@@ -121,20 +121,23 @@ There are a few ways of specifying images:
   ```toml
   [sidecars.sql]
   image = "my:sql"
+  command = "--some"
 
   [sidecars.sql.env]
   TEST="true"
 
   [sidecars.tools]
   image = "my:tools"
-
+  
   ```
   All containers within a workspace are connected to a workspace-wide network. They can *talk* to each other using sidecar names. In the above examples that would be `sql` and `tools`. Also the usual container ID and IP works too, but it is not as convenient.
 
 * the `enter` command now lets you specify `--container` to enter (otherwise it enters the work container).
-  
-* limitations:
-  * only `image` and `env` are configurable at the moment and few (if any) additions are planned, otherwise sidecars run with the image defaults (user/shell/entrypoints/etc)
+
+Supported keywords:
+* `image`
+* `env`
+* `command`
 
 ## Other facts
 
