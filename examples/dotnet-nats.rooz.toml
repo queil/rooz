@@ -5,21 +5,22 @@ caches = [
 ]
 
 [sidecars.nats]
-image = "docker.io/nats:2"
-command = ["--js"]
-mounts = ["/tmp/nats/jetstream"]
+  image = "docker.io/nats:2"
+  command = ["--js"]
+  mounts = ["/tmp/nats/jetstream"]
 
-[sidecars.mssql]
-image = "mcr.microsoft.com/azure-sql-edge:latest"
-mounts = ["/var/opt/mssql"]
-
-[sidecars.mssql.env]
-MSSQL_TELEMETRY_ENABLED = "false"
-ACCEPT_EULA = "Y"
-MSSQL_SA_PASSWORD = "ulT139n13w!"
+[sidecars.sql]
+  image = "mcr.microsoft.com/azure-sql-edge:latest"
+  mounts = ["/var/opt/mssql"]
+  [sidecars.sql.env]
+    MSSQL_TELEMETRY_ENABLED = "false"
+    ACCEPT_EULA = "Y"
+    MSSQL_SA_PASSWORD = "ulT139n13w!"
  
 [sidecars.probe]
-image = "ghcr.io/queil/probe:latest"
-
-[sidecars.probe.env]
-NATS_URL = "nats:4222"
+  image = "ghcr.io/queil/probe:latest"
+  [sidecars.probe.env]
+    NATS_URL = "nats:4222"
+    SQLCMDSERVER="sql"
+    SQLCMDUSER = "sa"
+    SQLCMDPASSWORD = "ulT139n13w!"
