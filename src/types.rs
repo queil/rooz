@@ -1,7 +1,7 @@
 use std::{collections::HashMap, fs};
 
 use crate::{cli::WorkParams, constants, id::to_safe_id};
-use bollard::service::Mount;
+use bollard::service::{Mount, MountTypeEnum};
 use serde::Deserialize;
 
 pub type AnyError = Box<dyn std::error::Error + 'static>;
@@ -11,6 +11,7 @@ pub struct RoozSidecar {
     pub image: String,
     pub env: Option<HashMap<String, String>>,
     pub command: Option<Vec<String>>,
+    pub mounts: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -149,6 +150,7 @@ pub enum RoozVolumeRole {
     Work,
     Cache,
     Git,
+    Data,
 }
 
 impl RoozVolumeRole {
@@ -158,6 +160,7 @@ impl RoozVolumeRole {
             RoozVolumeRole::Work => "work",
             RoozVolumeRole::Cache => "cache",
             RoozVolumeRole::Git => "git",
+            RoozVolumeRole::Data => "data",
         }
     }
 }
@@ -205,6 +208,23 @@ impl RoozVolume {
         match self.sharing {
             RoozVolumeSharing::Exclusive { .. } => true,
             _ => false,
+        }
+    }
+
+    pub fn to_mount(&self, tilde_replacement: Option<&str>) -> Mount {
+        let vol_name = self.safe_volume_name();
+
+        let modified_path = match tilde_replacement {
+            Some(replacement) => self.path.replace("~", &replacement),
+            None => self.path.to_string(),
+        };
+
+        Mount {
+            typ: Some(MountTypeEnum::VOLUME),
+            source: Some(vol_name.into()),
+            target: Some(modified_path),
+            read_only: Some(false),
+            ..Default::default()
         }
     }
 }

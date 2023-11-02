@@ -119,6 +119,10 @@ impl<'a> WorkspaceApi<'a> {
                                 spec.pull_image,
                             )
                             .await?;
+                        let work_labels = labels
+                        .clone()
+                        .with_container(Some(constants::DEFAULT_CONTAINER_NAME));
+                        
                         let work_spec = WorkSpec {
                             image,
                             shell: &RoozCfg::shell(spec, &cli_config, &repo_config),
@@ -126,6 +130,7 @@ impl<'a> WorkspaceApi<'a> {
                             container_working_dir: &git_spec.dir,
                             git_vol_mount: Some(git_spec.mount),
                             network: network.as_deref(),
+                            labels: (&work_labels).into(),
                             ..work_spec
                         };
 

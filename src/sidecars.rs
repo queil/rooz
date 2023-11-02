@@ -4,9 +4,9 @@ use bollard::network::CreateNetworkOptions;
 
 use crate::{
     backend::WorkspaceApi,
-    constants,
+    constants, id,
     labels::{self, Labels},
-    types::{AnyError, RoozSidecar, RunSpec},
+    types::{AnyError, RoozSidecar, RoozVolume, RoozVolumeRole, RoozVolumeSharing, RunSpec},
 };
 
 impl<'a> WorkspaceApi<'a> {
@@ -28,7 +28,16 @@ impl<'a> WorkspaceApi<'a> {
                 ..Default::default()
             };
 
-            self.api.client.create_network(network_options).await?;
+            match self.api.client.create_network(network_options).await {
+                Ok(_) => (),
+                Err(bollard::errors::Error::DockerResponseServerError {
+                    status_code: 409,
+                    message,
+                }) => {
+                    log::debug!("Could not create network: {}", message);
+                }
+                e => panic!("{:?}", e),
+            };
             Some(workspace_key.as_ref())
         } else {
             None
@@ -56,6 +65,21 @@ impl<'a> WorkspaceApi<'a> {
                             .command
                             .as_ref()
                             .map(|x| x.iter().map(|z| z.as_ref()).collect()),
+                        mounts: match s.mounts.as_ref().map(|paths| {
+                            paths
+                                .iter()
+                                .map(|path| RoozVolume {
+                                    path: path.into(),
+                                    role: RoozVolumeRole::Data,
+                                    sharing: RoozVolumeSharing::Exclusive {
+                                        key: id::to_safe_id(workspace_key),
+                                    },
+                                })
+                                .collect::<Vec<_>>()
+                        }) {
+                            Some(ms) => Some(self.api.volume.ensure_mounts(&ms, None).await?),
+                            None => None,
+                        },
                         ..Default::default()
                     })
                     .await?;

@@ -135,9 +135,10 @@ There are a few ways of specifying images:
 * the `enter` command now lets you specify `--container` to enter (otherwise it enters the work container).
 
 Supported keywords:
-* `image`
-* `env`
-* `command`
+* `image` - set containers image
+* `env` - set environment variables
+* `command` - override container command
+* `mounts` - mount automatically-named rw volumes at the specified paths (so they can survive container restarts/deletes).
 
 ## Other facts
 

@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use bollard::{
     network::ListNetworksOptions,
     service::{ContainerSummary, Volume},
@@ -57,7 +59,15 @@ impl<'a> WorkspaceApi<'a> {
             log::debug!("No caches configured. Skipping");
         }
 
-        let mut mounts = self.api.volume.ensure_mounts(&volumes, &home_dir).await?;
+        let mut mounts = self
+            .api
+            .volume
+            .ensure_mounts(&volumes, Some(&home_dir))
+            .await?;
+
+        mounts.push(ssh::mount(
+            Path::new(&home_dir).join(".ssh").to_string_lossy().as_ref(),
+        ));
 
         if let Some(m) = &spec.git_vol_mount {
             mounts.push(m.clone());

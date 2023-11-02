@@ -1,13 +1,10 @@
 use crate::{
     backend::VolumeApi,
     labels::Labels,
-    ssh,
     types::{AnyError, RoozVolume, VolumeResult},
 };
-use bollard::models::MountTypeEnum::VOLUME;
 use bollard::{errors::Error::DockerResponseServerError, volume::RemoveVolumeOptions};
 use bollard::{service::Mount, volume::CreateVolumeOptions};
-use std::path::Path;
 
 impl<'a> VolumeApi<'a> {
     async fn create_volume(
@@ -71,30 +68,22 @@ impl<'a> VolumeApi<'a> {
     pub async fn ensure_mounts(
         &self,
         volumes: &Vec<RoozVolume>,
-        home_dir: &str,
+        tilde_replacement: Option<&str>,
     ) -> Result<Vec<Mount>, AnyError> {
-        let mut mounts = vec![ssh::mount(
-            Path::new(home_dir).join(".ssh").to_string_lossy().as_ref(),
-        )];
-
+        let mut mounts = vec![];
         for v in volumes {
             log::debug!("Process volume: {:?}", &v);
-            let vol_name = v.safe_volume_name();
-
-            self.ensure_volume(&vol_name, v.role.as_str(), v.key(), false)
-                .await?;
-
-            let mount = Mount {
-                typ: Some(VOLUME),
-                source: Some(vol_name.into()),
-                target: Some(v.path.replace("~", &home_dir)),
-                read_only: Some(false),
-                ..Default::default()
-            };
+            let mount = v.to_mount(tilde_replacement);
+            self.ensure_volume(
+                &mount.source.clone().unwrap(),
+                v.role.as_str(),
+                v.key(),
+                false,
+            )
+            .await?;
 
             mounts.push(mount);
         }
-
         Ok(mounts.clone())
     }
 }

@@ -7,6 +7,10 @@ caches = [
 [sidecars.nats]
 image = "docker.io/nats:2"
 command = ["--js"]
+mounts = ["/tmp/nats/jetstream"]
 
 [sidecars.probe]
 image = "ghcr.io/queil/probe:latest"
+
+[sidecars.probe.env]
+NATS_URL = "nats:4222"
