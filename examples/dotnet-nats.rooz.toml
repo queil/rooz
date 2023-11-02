@@ -9,6 +9,15 @@ image = "docker.io/nats:2"
 command = ["--js"]
 mounts = ["/tmp/nats/jetstream"]
 
+[sidecars.mssql]
+image = "mcr.microsoft.com/azure-sql-edge:latest"
+mounts = ["/var/opt/mssql"]
+
+[sidecars.mssql.env]
+MSSQL_TELEMETRY_ENABLED = "false"
+ACCEPT_EULA = "Y"
+MSSQL_SA_PASSWORD = "ulT139n13w!"
+ 
 [sidecars.probe]
 image = "ghcr.io/queil/probe:latest"
 
