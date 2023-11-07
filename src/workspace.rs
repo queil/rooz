@@ -94,7 +94,15 @@ impl<'a> WorkspaceApi<'a> {
         };
 
         match self.api.container.create(run_spec).await? {
-        ContainerResult::Created { id } => Ok(WorkspaceResult { container_id: id, volumes: volumes.iter().map(|v|v.clone()).collect::<Vec<_>>() }),
+        ContainerResult::Created { id } =>
+            Ok(
+                WorkspaceResult {
+                    workspace_key: (&spec).workspace_key.to_string(),
+                    working_dir: (&spec).container_working_dir.to_string(),
+                    home_dir,
+                    orig_uid: spec.uid.to_string(),
+                    container_id: id,
+                    volumes: volumes.iter().map(|v|v.clone()).collect::<Vec<_>>() }),
         ContainerResult::AlreadyExists { .. } => {
             Err(format!("Container already exists. Did you mean: rooz enter {}? Otherwise, use --force to recreate.", spec.workspace_key).into())
         }

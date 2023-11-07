@@ -37,16 +37,11 @@ impl RoozCfg {
         }
     }
 
-    pub fn shell(
-        cli: &WorkParams,
-        cli_cfg: &Option<RoozCfg>,
-        repo_cfg: &Option<RoozCfg>,
-    ) -> String {
-        cli.shell
+    pub fn shell(cli_shell: &str, cli_cfg: &Option<RoozCfg>, repo_cfg: &Option<RoozCfg>) -> String {
+        Some(cli_shell.into())
             .clone()
             .or(cli_cfg.clone().map(|c| c.shell).flatten())
             .or(repo_cfg.clone().map(|c| c.shell).flatten())
-            .or(cli.env_shell.clone())
             .unwrap_or(constants::DEFAULT_SHELL.into())
     }
 
@@ -345,4 +340,14 @@ impl Default for RunSpec<'_> {
 pub struct WorkspaceResult {
     pub container_id: String,
     pub volumes: Vec<RoozVolume>,
+    pub workspace_key: String,
+    pub working_dir: String,
+    pub home_dir: String,
+    pub orig_uid: String,
+}
+
+pub struct EnterSpec {
+    pub workspace: WorkspaceResult,
+    pub git_spec: Option<GitCloneSpec>,
+    pub git_repo_config: Option<RoozCfg>,
 }

@@ -49,10 +49,6 @@ pub struct WorkParams {
     pub image: Option<String>,
     #[arg(long)]
     pub pull_image: bool,
-    #[arg(long, hide = true, env = "ROOZ_SHELL")]
-    pub env_shell: Option<String>,
-    #[arg(short, long)]
-    pub shell: Option<String>,
     #[arg(long, hide = true, env = "ROOZ_USER")]
     pub env_user: Option<String>,
     #[arg(short, long)]
@@ -91,6 +87,8 @@ pub struct TmpParams {
     pub work: WorkParams,
     #[arg(short, long)]
     pub root: bool,
+    #[arg(short, long, default_value = "bash", env = "ROOZ_SHELL")]
+    pub shell: String,
 }
 
 #[derive(Parser, Debug)]

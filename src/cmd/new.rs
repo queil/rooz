@@ -3,7 +3,7 @@ use crate::{
     cli::{WorkParams, WorkspacePersistence},
     constants,
     labels::{self, Labels},
-    types::{AnyError, RoozCfg, WorkSpec},
+    types::{AnyError, EnterSpec, GitCloneSpec, RoozCfg, WorkSpec},
 };
 
 impl<'a> WorkspaceApi<'a> {
@@ -12,14 +12,13 @@ impl<'a> WorkspaceApi<'a> {
         spec: &WorkParams,
         cli_config: Option<RoozCfg>,
         persistence: Option<WorkspacePersistence>,
-        root: bool,
-    ) -> Result<String, AnyError> {
+    ) -> Result<EnterSpec, AnyError> {
         let ephemeral = persistence.is_none();
         let orig_uid = constants::DEFAULT_UID.to_string();
 
-        let (workspace_key, force, enter) = match persistence {
-            Some(p) => (p.name.to_string(), p.force, false),
-            None => (crate::id::random_suffix("tmp"), false, true),
+        let (workspace_key, force) = match persistence {
+            Some(p) => (p.name.to_string(), p.force),
+            None => (crate::id::random_suffix("tmp"), false),
         };
 
         let labels = Labels::new(Some(&workspace_key), Some(labels::ROLE_WORK));
@@ -76,22 +75,11 @@ impl<'a> WorkspaceApi<'a> {
                 };
 
                 let ws = self.create(&work_spec).await?;
-                let volumes = ws.volumes;
-                if enter {
-                    self.enter(
-                        &workspace_key,
-                        Some(&work_spec.container_working_dir),
-                        Some(&home_dir),
-                        &RoozCfg::shell(spec, &cli_config, &None),
-                        None,
-                        volumes,
-                        &orig_uid,
-                        root,
-                        ephemeral,
-                    )
-                    .await?;
-                }
-                return Ok(ws.container_id);
+                return Ok(EnterSpec {
+                    workspace: ws,
+                    git_spec: None,
+                    git_repo_config: None,
+                });
             }
             Some(url) => {
                 match self
@@ -123,38 +111,58 @@ impl<'a> WorkspaceApi<'a> {
                             .clone()
                             .with_container(Some(constants::DEFAULT_CONTAINER_NAME));
 
+                        let git_mount = &git_spec.mount;
                         let work_spec = WorkSpec {
                             image,
                             caches: Some(RoozCfg::caches(spec, &cli_config, &repo_config)),
                             env_vars: RoozCfg::env_vars(&cli_config, &repo_config),
                             container_working_dir: &git_spec.dir,
-                            git_vol_mount: Some(git_spec.mount),
+                            git_vol_mount: Some(git_mount.clone()),
                             network: network.as_deref(),
                             labels: (&work_labels).into(),
                             ..work_spec
                         };
 
                         let ws = self.create(&work_spec).await?;
-                        let mut volumes = ws.volumes;
-                        volumes.push(git_spec.volume);
-                        if enter {
-                            self.enter(
-                                &workspace_key,
-                                Some(&git_spec.dir),
-                                Some(&home_dir),
-                                &RoozCfg::shell(spec, &cli_config, &repo_config),
-                                None,
-                                volumes,
-                                &orig_uid,
-                                root,
-                                ephemeral,
-                            )
-                            .await?;
-                        }
-                        return Ok(ws.container_id);
+
+                        return Ok(EnterSpec {
+                            workspace: ws,
+                            git_spec: Some(git_spec),
+                            git_repo_config: repo_config,
+                        });
                     }
                 }
             }
         };
+    }
+
+    pub async fn tmp(&self, spec: &WorkParams, root: bool, shell: &str) -> Result<(), AnyError> {
+        let EnterSpec {
+            workspace,
+            git_spec,
+            git_repo_config,
+        } = self.new(spec, None, None).await?;
+        let mut volumes = workspace.volumes;
+
+        if let Some(GitCloneSpec { volume, .. }) = &git_spec {
+            volumes.push(volume.clone());
+        }
+
+        let working_dir = git_spec
+            .map(|v| (&v).dir.to_string())
+            .or(Some(workspace.working_dir));
+
+        self.enter(
+            &workspace.workspace_key,
+            working_dir.as_deref(),
+            Some(&workspace.home_dir),
+            &RoozCfg::shell(shell, &None, &git_repo_config),
+            None,
+            volumes,
+            &workspace.orig_uid,
+            root,
+            true,
+        )
+        .await
     }
 }

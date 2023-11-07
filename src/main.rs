@@ -104,7 +104,7 @@ async fn main() -> Result<(), AnyError> {
                 Some(path) => Some(RoozCfg::from_file(&path)?),
                 None => None,
             };
-            workspace.new(&work, cfg, Some(persistence), false).await?;
+            workspace.new(&work, cfg, Some(persistence)).await?;
         }
 
         Cli {
@@ -172,10 +172,10 @@ async fn main() -> Result<(), AnyError> {
         }
 
         Cli {
-            command: Tmp(TmpParams { work, root }),
+            command: Tmp(TmpParams { work, root, shell }),
             ..
         } => {
-            workspace.new(&work, None, None, root).await?;
+            workspace.tmp(&work, root, &shell).await?;
         }
 
         Cli {
