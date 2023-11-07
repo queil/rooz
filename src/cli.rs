@@ -37,8 +37,6 @@ pub struct WorkspacePersistence {
     pub name: String,
     #[arg(short, long)]
     pub force: bool,
-    #[arg(short, long)]
-    pub enter: bool,
 }
 
 #[derive(Parser, Debug)]

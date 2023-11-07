@@ -122,7 +122,6 @@ impl RoozCfg {
         cli_cfg: &Option<RoozCfg>,
         repo_cfg: &Option<RoozCfg>,
     ) -> Option<HashMap<String, String>> {
-
         let mut all_env_vars = HashMap::<String, String>::new();
 
         if let Some(env) = cli_cfg.clone().map(|c| c.env).flatten() {
@@ -261,7 +260,6 @@ pub struct GitCloneSpec {
 #[derive(Clone, Debug)]
 pub struct WorkSpec<'a> {
     pub image: &'a str,
-    pub shell: &'a str,
     pub uid: &'a str,
     pub user: &'a str,
     pub container_working_dir: &'a str,
@@ -274,14 +272,13 @@ pub struct WorkSpec<'a> {
     pub privileged: bool,
     pub force_recreate: bool,
     pub network: Option<&'a str>,
-    pub env_vars: Option<HashMap<String,String>>,
+    pub env_vars: Option<HashMap<String, String>>,
 }
 
 impl Default for WorkSpec<'_> {
     fn default() -> Self {
         Self {
             image: Default::default(),
-            shell: Default::default(),
             uid: Default::default(),
             user: Default::default(),
             container_working_dir: Default::default(),

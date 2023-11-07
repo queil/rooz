@@ -18,7 +18,7 @@ impl<'a> WorkspaceApi<'a> {
         let orig_uid = constants::DEFAULT_UID.to_string();
 
         let (workspace_key, force, enter) = match persistence {
-            Some(p) => (p.name.to_string(), p.force, p.enter),
+            Some(p) => (p.name.to_string(), p.force, false),
             None => (crate::id::random_suffix("tmp"), false, true),
         };
 
@@ -68,7 +68,6 @@ impl<'a> WorkspaceApi<'a> {
                     .with_container(Some(constants::DEFAULT_CONTAINER_NAME));
                 let work_spec = WorkSpec {
                     image,
-                    shell: &RoozCfg::shell(spec, &cli_config, &None),
                     caches: Some(RoozCfg::caches(spec, &cli_config, &None)),
                     env_vars: RoozCfg::env_vars(&cli_config, &None),
                     network: network.as_deref(),
@@ -83,7 +82,7 @@ impl<'a> WorkspaceApi<'a> {
                         &workspace_key,
                         Some(&work_spec.container_working_dir),
                         Some(&home_dir),
-                        &work_spec.shell.as_ref(),
+                        &RoozCfg::shell(spec, &cli_config, &None),
                         None,
                         volumes,
                         &orig_uid,
@@ -121,12 +120,11 @@ impl<'a> WorkspaceApi<'a> {
                             )
                             .await?;
                         let work_labels = labels
-                        .clone()
-                        .with_container(Some(constants::DEFAULT_CONTAINER_NAME));
-                        
+                            .clone()
+                            .with_container(Some(constants::DEFAULT_CONTAINER_NAME));
+
                         let work_spec = WorkSpec {
                             image,
-                            shell: &RoozCfg::shell(spec, &cli_config, &repo_config),
                             caches: Some(RoozCfg::caches(spec, &cli_config, &repo_config)),
                             env_vars: RoozCfg::env_vars(&cli_config, &repo_config),
                             container_working_dir: &git_spec.dir,
@@ -144,7 +142,7 @@ impl<'a> WorkspaceApi<'a> {
                                 &workspace_key,
                                 Some(&git_spec.dir),
                                 Some(&home_dir),
-                                &work_spec.shell,
+                                &RoozCfg::shell(spec, &cli_config, &repo_config),
                                 None,
                                 volumes,
                                 &orig_uid,
