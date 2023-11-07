@@ -70,6 +70,7 @@ impl<'a> WorkspaceApi<'a> {
                     image,
                     shell: &RoozCfg::shell(spec, &cli_config, &None),
                     caches: Some(RoozCfg::caches(spec, &cli_config, &None)),
+                    env_vars: RoozCfg::env_vars(&cli_config, &None),
                     network: network.as_deref(),
                     labels: (&work_labels).into(),
                     ..work_spec
@@ -127,6 +128,7 @@ impl<'a> WorkspaceApi<'a> {
                             image,
                             shell: &RoozCfg::shell(spec, &cli_config, &repo_config),
                             caches: Some(RoozCfg::caches(spec, &cli_config, &repo_config)),
+                            env_vars: RoozCfg::env_vars(&cli_config, &repo_config),
                             container_working_dir: &git_spec.dir,
                             git_vol_mount: Some(git_spec.mount),
                             network: network.as_deref(),

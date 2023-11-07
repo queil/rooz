@@ -89,6 +89,7 @@ impl<'a> WorkspaceApi<'a> {
             auto_remove: spec.ephemeral,
             labels: spec.labels.clone(),
             network: spec.network,
+            env: spec.env_vars.clone(),
             ..Default::default()
         };
 

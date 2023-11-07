@@ -21,6 +21,7 @@ pub struct RoozCfg {
     pub user: Option<String>,
     pub caches: Option<Vec<String>>,
     pub sidecars: Option<HashMap<String, RoozSidecar>>,
+    pub env: Option<HashMap<String, String>>,
 }
 
 impl RoozCfg {
@@ -115,6 +116,27 @@ impl RoozCfg {
         }
         all_caches.dedup();
         all_caches
+    }
+
+    pub fn env_vars(
+        cli_cfg: &Option<RoozCfg>,
+        repo_cfg: &Option<RoozCfg>,
+    ) -> Option<HashMap<String, String>> {
+
+        let mut all_env_vars = HashMap::<String, String>::new();
+
+        if let Some(env) = cli_cfg.clone().map(|c| c.env).flatten() {
+            all_env_vars.extend(env);
+        };
+
+        if let Some(env) = repo_cfg.clone().map(|c| c.env).flatten() {
+            all_env_vars.extend(env);
+        };
+        if all_env_vars.len() > 0 {
+            Some(all_env_vars)
+        } else {
+            None
+        }
     }
 }
 
@@ -252,6 +274,7 @@ pub struct WorkSpec<'a> {
     pub privileged: bool,
     pub force_recreate: bool,
     pub network: Option<&'a str>,
+    pub env_vars: Option<HashMap<String,String>>,
 }
 
 impl Default for WorkSpec<'_> {
@@ -271,6 +294,7 @@ impl Default for WorkSpec<'_> {
             privileged: false,
             force_recreate: false,
             network: None,
+            env_vars: None,
         }
     }
 }

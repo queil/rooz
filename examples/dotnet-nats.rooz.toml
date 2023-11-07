@@ -1,8 +1,10 @@
-image = "ghcr.io/queil/image:dotnet-7"
+image = "ghcr.io/queil/image:dotnet-all"
 shell = "bash"
 caches = [
   "~/.nuget"
 ]
+[env]
+  MY_TEST = "oh yeah"
 
 [sidecars.nats]
   image = "docker.io/nats:2"
