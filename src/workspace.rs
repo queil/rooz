@@ -104,18 +104,22 @@ impl<'a> WorkspaceApi<'a> {
                     container_id: id,
                     volumes: volumes.iter().map(|v|v.clone()).collect::<Vec<_>>() }),
         ContainerResult::AlreadyExists { .. } => {
-            Err(format!("Container already exists. Did you mean: rooz enter {}? Otherwise, use --force to recreate.", spec.workspace_key).into())
+            Err(format!("Container already exists. Did you mean: rooz enter {}? Otherwise, use --apply to reconfigure containers or --replace to recreate the whole workspace.", spec.workspace_key).into())
         }
     }
     }
 
-    async fn remove_core(&self, labels: &Labels, force: bool) -> Result<(), AnyError> {
+    async fn remove_containers(&self, labels: &Labels, force: bool) -> Result<(), AnyError> {
         for cs in self.api.container.get_all(labels).await? {
             if let ContainerSummary { id: Some(id), .. } = cs {
                 self.api.container.remove(&id, force).await?
             }
         }
+        Ok(())
+    }
 
+    async fn remove_core(&self, labels: &Labels, force: bool) -> Result<(), AnyError> {
+        self.remove_containers(labels, force).await?;
         let ls_vol_options = ListVolumesOptions {
             filters: labels.into(),
             ..Default::default()
@@ -162,6 +166,16 @@ impl<'a> WorkspaceApi<'a> {
     pub async fn remove(&self, workspace_key: &str, force: bool) -> Result<(), AnyError> {
         let labels = Labels::new(Some(workspace_key), None);
         self.remove_core((&labels).into(), force).await?;
+        Ok(())
+    }
+
+    pub async fn remove_containers_only(
+        &self,
+        workspace_key: &str,
+        force: bool,
+    ) -> Result<(), AnyError> {
+        let labels = Labels::new(Some(workspace_key), None);
+        self.remove_containers((&labels).into(), force).await?;
         Ok(())
     }
 

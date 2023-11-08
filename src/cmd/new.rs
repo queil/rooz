@@ -16,12 +16,17 @@ impl<'a> WorkspaceApi<'a> {
         let ephemeral = persistence.is_none();
         let orig_uid = constants::DEFAULT_UID.to_string();
 
-        let (workspace_key, force) = match persistence {
-            Some(p) => (p.name.to_string(), p.force),
-            None => (crate::id::random_suffix("tmp"), false),
+        let (workspace_key, force, apply) = match persistence {
+            Some(p) => (p.name.to_string(), p.replace, p.apply),
+            None => (crate::id::random_suffix("tmp"), false, false),
         };
 
         let labels = Labels::new(Some(&workspace_key), Some(labels::ROLE_WORK));
+
+        if apply {
+            self.remove_containers_only(&workspace_key, true).await?;
+        }
+
         if force {
             self.remove(&workspace_key, true).await?;
         }
