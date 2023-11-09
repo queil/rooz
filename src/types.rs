@@ -160,6 +160,8 @@ pub enum RoozVolumeSharing {
     Exclusive { key: String },
 }
 
+pub const CACHE_ROLE: &'static str = "cache";
+
 #[derive(Debug, Clone)]
 pub enum RoozVolumeRole {
     Home,
@@ -167,6 +169,7 @@ pub enum RoozVolumeRole {
     Cache,
     Git,
     Data,
+    SshKey,
 }
 
 impl RoozVolumeRole {
@@ -174,9 +177,10 @@ impl RoozVolumeRole {
         match self {
             RoozVolumeRole::Home => "home",
             RoozVolumeRole::Work => "work",
-            RoozVolumeRole::Cache => "cache",
+            RoozVolumeRole::Cache => CACHE_ROLE,
             RoozVolumeRole::Git => "git",
             RoozVolumeRole::Data => "data",
+            RoozVolumeRole::SshKey => "ssh-key",
         }
     }
 }

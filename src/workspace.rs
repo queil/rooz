@@ -9,11 +9,11 @@ use bollard::{
 use crate::{
     backend::WorkspaceApi,
     constants,
-    labels::Labels,
+    labels::{Labels, ROLE},
     ssh,
     types::{
         AnyError, ContainerResult, RoozVolume, RoozVolumeRole, RoozVolumeSharing, RunSpec,
-        WorkSpec, WorkspaceResult,
+        WorkSpec, WorkspaceResult, CACHE_ROLE,
     },
 };
 
@@ -137,7 +137,10 @@ impl<'a> WorkspaceApi<'a> {
                     Volume { ref name, .. } if name == ssh::ROOZ_SSH_KEY_VOLUME_NAME => {
                         continue;
                     }
-                    _ => {}
+                    Volume { labels, .. } => match labels.get(ROLE) {
+                        Some(role) if role == CACHE_ROLE => continue,
+                        _ => {}
+                    },
                 };
                 self.api.volume.remove_volume(&v.name, force).await?
             }

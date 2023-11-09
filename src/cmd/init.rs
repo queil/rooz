@@ -1,7 +1,7 @@
 use crate::{
     backend::Api,
     ssh,
-    types::{AnyError, VolumeResult},
+    types::{AnyError, RoozVolumeRole, VolumeResult},
 };
 
 impl<'a> Api<'a> {
@@ -12,7 +12,7 @@ impl<'a> Api<'a> {
             .volume
             .ensure_volume(
                 ssh::ROOZ_SSH_KEY_VOLUME_NAME.into(),
-                "ssh-key",
+                &RoozVolumeRole::SshKey,
                 Some("ssh-key".into()),
                 force,
             )

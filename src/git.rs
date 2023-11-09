@@ -43,7 +43,7 @@ impl<'a> GitApi<'a> {
 
         self.api
             .volume
-            .ensure_volume(&vol_name, &git_vol.role.as_str(), git_vol.key(), false)
+            .ensure_volume(&vol_name, &git_vol.role, git_vol.key(), false)
             .await?;
 
         let git_vol_mount = Mount {

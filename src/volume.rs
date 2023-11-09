@@ -1,7 +1,7 @@
 use crate::{
     backend::VolumeApi,
     labels::Labels,
-    types::{AnyError, RoozVolume, VolumeResult},
+    types::{AnyError, RoozVolume, RoozVolumeRole, VolumeResult},
 };
 use bollard::{errors::Error::DockerResponseServerError, volume::RemoveVolumeOptions};
 use bollard::{service::Mount, volume::CreateVolumeOptions};
@@ -35,11 +35,16 @@ impl<'a> VolumeApi<'a> {
     pub async fn ensure_volume(
         &self,
         name: &str,
-        role: &str,
+        role: &RoozVolumeRole,
         workspace_key: Option<String>,
         force_recreate: bool,
     ) -> Result<VolumeResult, AnyError> {
-        let labels = Labels::new(workspace_key.as_deref(), Some(role));
+        let workspace_key_label = match role {
+            RoozVolumeRole::Cache => None,
+            _ => workspace_key,
+        };
+
+        let labels = Labels::new(workspace_key_label.as_deref(), Some(role.as_str()));
 
         let create_vol_options = CreateVolumeOptions::<&str> {
             name,
@@ -74,13 +79,8 @@ impl<'a> VolumeApi<'a> {
         for v in volumes {
             log::debug!("Process volume: {:?}", &v);
             let mount = v.to_mount(tilde_replacement);
-            self.ensure_volume(
-                &mount.source.clone().unwrap(),
-                v.role.as_str(),
-                v.key(),
-                false,
-            )
-            .await?;
+            self.ensure_volume(&mount.source.clone().unwrap(), &v.role, v.key(), false)
+                .await?;
 
             mounts.push(mount);
         }

@@ -35,9 +35,19 @@ pub struct System {
 #[derive(Parser, Debug)]
 pub struct WorkspacePersistence {
     pub name: String,
-    #[arg(short, long, help="Replace an existing workspace with a new empty one. WARNING: potential data loss ahead")]
+    #[arg(
+        short,
+        long,
+        help = "Replace an existing workspace with a new empty one. WARNING: potential data loss ahead"
+    )]
     pub replace: bool,
-    #[arg(short, long, conflicts_with="replace", requires="config", help="Recreates workspace containers with the given configuration")]
+    #[arg(
+        short,
+        long,
+        conflicts_with = "replace",
+        requires = "config",
+        help = "Recreates workspace containers with the given configuration"
+    )]
     pub apply: bool,
 }
 

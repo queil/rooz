@@ -2,7 +2,7 @@ use std::{collections::HashMap, vec};
 
 pub const WORKSPACE_KEY: &'static str = "dev.rooz.workspace";
 pub const CONTAINER: &'static str = "dev.rooz.workspace.container";
-const ROLE: &'static str = "dev.rooz.role";
+pub const ROLE: &'static str = "dev.rooz.role";
 const ROOZ: &'static str = "dev.rooz";
 const LABEL_KEY: &'static str = "label";
 const TRUE: &'static str = "true";
