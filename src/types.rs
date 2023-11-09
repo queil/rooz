@@ -194,20 +194,31 @@ pub struct RoozVolume {
 
 impl RoozVolume {
     pub fn safe_volume_name(&self) -> String {
-        let safe_id = to_safe_id(self.role.as_str());
+        let role_segment = to_safe_id(self.role.as_str());
 
         match self {
             RoozVolume {
+                path,
+                role: RoozVolumeRole::Data,
                 sharing: RoozVolumeSharing::Exclusive { key },
                 ..
-            } => format!("rooz-{}-{}", to_safe_id(&key), &safe_id),
+            } => format!(
+                "rooz_{}_{}_{}",
+                to_safe_id(&key),
+                to_safe_id(&path),
+                &role_segment
+            ),
             RoozVolume {
-                path: p,
+                path,
                 sharing: RoozVolumeSharing::Shared,
                 role: RoozVolumeRole::Cache,
                 ..
-            } => format!("rooz-{}-{}", to_safe_id(&p), &safe_id),
-            RoozVolume { .. } => format!("rooz-{}", &safe_id),
+            } => format!("rooz_{}_{}", &role_segment, to_safe_id(&path)),
+            RoozVolume {
+                sharing: RoozVolumeSharing::Exclusive { key },
+                ..
+            } => format!("rooz_{}_{}", to_safe_id(&key), &role_segment),
+            RoozVolume { .. } => format!("rooz_{}", &role_segment),
         }
     }
     pub fn key(&self) -> Option<String> {

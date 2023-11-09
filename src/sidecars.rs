@@ -72,12 +72,17 @@ impl<'a> WorkspaceApi<'a> {
                                     path: path.into(),
                                     role: RoozVolumeRole::Data,
                                     sharing: RoozVolumeSharing::Exclusive {
-                                        key: id::to_safe_id(workspace_key),
+                                        key: container_name.to_string()
                                     },
                                 })
                                 .collect::<Vec<_>>()
                         }) {
-                            Some(ms) => Some(self.api.volume.ensure_mounts(&ms, None).await?),
+                            Some(ms) => Some(
+                                self.api
+                                    .volume
+                                    .ensure_mounts(&ms, None)
+                                    .await?,
+                            ),
                             None => None,
                         },
                         ..Default::default()
