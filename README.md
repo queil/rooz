@@ -133,8 +133,6 @@ ports = [
 
 ## Sidecars
 
-:warning: Experimental
-
 *It's similar to docker-compose but super simple and limited to bare minimum.*
 
 * `rooz` has a limited and experimental support for sidecars (containers running along). It is only available via `.rooz.toml`:
