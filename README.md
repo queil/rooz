@@ -78,7 +78,7 @@ Most of the settings can be configured via:
 * `.rooz.toml` file specified via `--config` (on `rooz new`)
 * cmd-line parameters
 
-The configuration file (`.rooz.toml`) 
+The configuration file (`.rooz.toml`) provides the most options: [example](examples/dotnet-nats.rooz.toml)
 
 ### Images
 

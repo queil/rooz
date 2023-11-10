@@ -11,7 +11,6 @@ ports = [
   "1313:1313"
 ]
 
-
 [sidecars.nats]
   image = "docker.io/nats:2"
   command = ["--js"]
