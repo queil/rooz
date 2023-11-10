@@ -206,4 +206,4 @@ export DOCKER_HOST=unix:///run/user/1000/podman/podman.sock
 
 ## Resources
 
-* [my image I use with rooz](https://github.com/queil/image/blob/main/src/Dockerfile)
+* [my image I use with rooz](https://github.com/queil/image/blob/main/src/Containerfile)
