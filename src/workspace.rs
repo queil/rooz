@@ -90,6 +90,7 @@ impl<'a> WorkspaceApi<'a> {
             labels: spec.labels.clone(),
             network: spec.network,
             env: spec.env_vars.clone(),
+            ports: spec.ports.clone(),
             ..Default::default()
         };
 

@@ -22,6 +22,7 @@ pub struct RoozCfg {
     pub caches: Option<Vec<String>>,
     pub sidecars: Option<HashMap<String, RoozSidecar>>,
     pub env: Option<HashMap<String, String>>,
+    pub ports: Option<Vec<String>>,
 }
 
 impl RoozCfg {
@@ -111,6 +112,37 @@ impl RoozCfg {
         }
         all_caches.dedup();
         all_caches
+    }
+
+    fn parse_port(port_mapping: &String) -> (u16, u16) {
+        match port_mapping.split(":").collect::<Vec<_>>().as_slice() {
+            &[a, b] => (a.parse::<u16>().unwrap(), b.parse::<u16>().unwrap()),
+            _ => panic!("Invalid port mapping specification: {}", port_mapping),
+        }
+    }
+
+    pub fn ports(
+        cli_cfg: &Option<RoozCfg>,
+        repo_cfg: &Option<RoozCfg>,
+    ) -> Option<HashMap<String, String>> {
+        let mut all_ports = HashMap::<String, String>::new();
+
+        if let Some(ports) = cli_cfg.clone().map(|c| c.ports).flatten() {
+            for (source, target) in ports.iter().map(RoozCfg::parse_port) {
+                all_ports.insert(source.to_string(), target.to_string());
+            }
+        };
+
+        if let Some(ports) = repo_cfg.clone().map(|c| c.ports).flatten() {
+            for (source, target) in ports.iter().map(RoozCfg::parse_port) {
+                all_ports.insert(source.to_string(), target.to_string());
+            }
+        };
+        if all_ports.len() > 0 {
+            Some(all_ports)
+        } else {
+            None
+        }
     }
 
     pub fn env_vars(
@@ -283,6 +315,7 @@ pub struct WorkSpec<'a> {
     pub force_recreate: bool,
     pub network: Option<&'a str>,
     pub env_vars: Option<HashMap<String, String>>,
+    pub ports: Option<HashMap<String, String>>,
 }
 
 impl Default for WorkSpec<'_> {
@@ -302,6 +335,7 @@ impl Default for WorkSpec<'_> {
             force_recreate: false,
             network: None,
             env_vars: None,
+            ports: None,
         }
     }
 }
@@ -322,6 +356,7 @@ pub struct RunSpec<'a> {
     pub auto_remove: bool,
     pub labels: HashMap<&'a str, &'a str>,
     pub env: Option<HashMap<String, String>>,
+    pub ports: Option<HashMap<String, String>>,
     pub network: Option<&'a str>,
     pub network_aliases: Option<Vec<String>>,
     pub command: Option<Vec<&'a str>>,
@@ -348,6 +383,7 @@ impl Default for RunSpec<'_> {
             network: None,
             network_aliases: None,
             command: None,
+            ports: None,
         }
     }
 }
