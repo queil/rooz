@@ -71,6 +71,15 @@ rooz tmp --image alpine --shell sh
 
 ## Configuration
 
+Most of the settings can be configured via:
+
+* environment variables
+* `.rooz.toml` in the cloned repository (if any)
+* `.rooz.toml` file specified via `--config` (on `rooz new`)
+* cmd-line parameters
+
+The configuration file (`.rooz.toml`) 
+
 ### Images
 
 :information_source: the default image is `docker.io/bitnami/git:latest`
@@ -87,28 +96,40 @@ There are a few ways of specifying images:
 
 ### User
 
-* `rooz` runs as uid `1000` (always - it's hard-coded) so make sure it exists in your image
+`rooz` runs as uid `1000` (always - it's hard-coded) so make sure it exists in your image
 (with `rooz_user` as the name - it can be overridden via `ROOZ_USER` or `--user`)
 
 ### Shell
 
-* the default shell is `bash` but you can override it via:
-    * `ROOZ_SHELL` env var
-    * `--shell` cmd-line parameter
-    * in `.rooz.toml` via `shell`
+The default shell is `bash` but you can override it via:
+
+* `ROOZ_SHELL` env var
+* `--shell` cmd-line parameter (on `rooz enter`)
+* in `.rooz.toml` via `shell`
 
 ### Caching
 
-* `rooz` supports basic path-keyed shared caches. It can be set per-repo like:
+`rooz` supports basic path-keyed shared caches. It can be set per-repo like:
 
-    ```toml
-    caches = [
-      "~/.nuget"
-    ]
-    ```
+```toml
+caches = [
+  "~/.nuget"
+]
+```
 
-    All the repos specifying a cache path will share a container volume mounted at that path enabling cache reuse.
-    It also can be set globally via `ROOZ_CACHES` (comma-separated paths). The global paths get combined with repo-specific paths.
+All the repos specifying a cache path will share a container volume mounted at that path enabling cache reuse.
+It also can be set globally via `ROOZ_CACHES` (comma-separated paths). The global paths get combined with repo-specific paths.
+
+### Port mappings
+
+Port mappings for the work container can be specified via `.rooz.toml` only:
+
+```toml
+ports = [
+  "80:8080",
+  "22:8022"
+]
+```
 
 ## Sidecars
 
