@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     fs,
     io::{stdout, Write},
     time::Duration,
@@ -13,7 +14,7 @@ use bollard::{
     errors::Error,
     models::HostConfig,
     network::ConnectNetworkOptions,
-    service::{ContainerInspectResponse, ContainerSummary, EndpointSettings},
+    service::{ContainerInspectResponse, ContainerSummary, EndpointSettings, PortBinding},
 };
 use futures::StreamExt;
 use tokio::time::sleep;
@@ -134,11 +135,29 @@ impl<'a> ContainerApi<'a> {
                     _ => None,
                 };
 
+                let localhost = "127.0.0.1";
+                let port_bindings = spec.ports.map(|ports| {
+                    let mut bindings = HashMap::<String, Option<Vec<PortBinding>>>::new();
+
+                    for (source, target) in &ports {
+                        bindings.insert(
+                            source.to_string(),
+                            Some(vec![PortBinding {
+                                host_port: Some(target.to_string()),
+                                host_ip: Some(localhost.to_string()),
+                            }]),
+                        );
+                    }
+
+                    bindings
+                });
+
                 let host_config = HostConfig {
                     auto_remove: Some(spec.auto_remove),
                     mounts: spec.mounts,
                     oom_score_adj,
                     privileged: Some(spec.privileged),
+                    port_bindings,
                     ..Default::default()
                 };
 
