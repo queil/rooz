@@ -6,7 +6,9 @@ use crate::{
     backend::WorkspaceApi,
     constants,
     labels::{self, Labels},
-    types::{AnyError, RoozSidecar, RoozVolume, RoozVolumeRole, RoozVolumeSharing, RunSpec},
+    types::{
+        AnyError, RoozCfg, RoozSidecar, RoozVolume, RoozVolumeRole, RoozVolumeSharing, RunSpec,
+    },
 };
 
 impl<'a> WorkspaceApi<'a> {
@@ -49,6 +51,9 @@ impl<'a> WorkspaceApi<'a> {
                 self.api.image.ensure(&s.image, pull_image).await?;
                 let container_name = format!("{}-{}", workspace_key, name);
                 let labels = labels_sidecar.clone().with_container(Some(name));
+                let mut ports = HashMap::<String, String>::new();
+                RoozCfg::parse_ports(&mut ports, s.ports.clone());
+
                 self.api
                     .container
                     .create(RunSpec {
@@ -80,6 +85,7 @@ impl<'a> WorkspaceApi<'a> {
                             Some(ms) => Some(self.api.volume.ensure_mounts(&ms, None).await?),
                             None => None,
                         },
+                        ports: Some(ports),
                         ..Default::default()
                     })
                     .await?;

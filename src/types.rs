@@ -12,6 +12,7 @@ pub struct RoozSidecar {
     pub env: Option<HashMap<String, String>>,
     pub command: Option<Vec<String>>,
     pub mounts: Option<Vec<String>>,
+    pub ports: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -114,6 +115,21 @@ impl RoozCfg {
         all_caches
     }
 
+    pub fn parse_ports<'a>(
+        map: &'a mut HashMap<String, String>,
+        ports: Option<Vec<String>>,
+    ) -> &'a HashMap<String, String> {
+        match ports {
+            None => map,
+            Some(ports) => {
+                for (source, target) in ports.iter().map(RoozCfg::parse_port) {
+                    map.insert(source.to_string(), target.to_string());
+                }
+                map
+            }
+        }
+    }
+
     fn parse_port(port_mapping: &String) -> (u16, u16) {
         match port_mapping.split(":").collect::<Vec<_>>().as_slice() {
             &[a, b] => (a.parse::<u16>().unwrap(), b.parse::<u16>().unwrap()),
@@ -127,17 +143,9 @@ impl RoozCfg {
     ) -> Option<HashMap<String, String>> {
         let mut all_ports = HashMap::<String, String>::new();
 
-        if let Some(ports) = cli_cfg.clone().map(|c| c.ports).flatten() {
-            for (source, target) in ports.iter().map(RoozCfg::parse_port) {
-                all_ports.insert(source.to_string(), target.to_string());
-            }
-        };
+        RoozCfg::parse_ports(&mut all_ports, cli_cfg.clone().map(|c| c.ports).flatten());
+        RoozCfg::parse_ports(&mut all_ports, repo_cfg.clone().map(|c| c.ports).flatten());
 
-        if let Some(ports) = repo_cfg.clone().map(|c| c.ports).flatten() {
-            for (source, target) in ports.iter().map(RoozCfg::parse_port) {
-                all_ports.insert(source.to_string(), target.to_string());
-            }
-        };
         if all_ports.len() > 0 {
             Some(all_ports)
         } else {
