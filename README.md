@@ -177,7 +177,7 @@ Supported keywords:
   one image to another. A workaround could be to drop the home dir volume so that it gets recreated with the new content, however
   that way we lose things like `.bash_history`. To be resolved...
 
-* auto-resizing rooz session to fit the terminal window (if resized) is not implemented
+* auto-resizing rooz session to fit the terminal window (if resized) is not implemented. Workaround: exit the container, resize the window to your liking, enter the container.
 
 ## Running with Podman
 
