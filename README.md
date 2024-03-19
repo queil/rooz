@@ -140,7 +140,7 @@ ports = [
   ```toml
   [sidecars.sql]
   image = "my:sql"
-  command = "--some"
+  command = ["--some"]
 
   [sidecars.sql.env]
   TEST="true"
