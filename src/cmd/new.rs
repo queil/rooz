@@ -105,6 +105,7 @@ impl<'a> WorkspaceApi<'a> {
                         
                         
                         if let Some(_) = &repo_config { log::debug!("Config read from .rooz.toml in the cloned repo"); }
+                        else { log::debug!(".rooz.toml ignored") }
 
                         let image = &RoozCfg::image(spec, &cli_config, &repo_config);
                         self.api.image.ensure(&image, spec.pull_image).await?;
@@ -131,6 +132,7 @@ impl<'a> WorkspaceApi<'a> {
                             git_vol_mount: Some(git_mount.clone()),
                             network: network.as_deref(),
                             labels: (&work_labels).into(),
+                            privileged: RoozCfg::privileged(spec, &cli_config, &repo_config),
                             ..work_spec
                         };
 
