@@ -53,7 +53,9 @@ impl<'a> WorkspaceApi<'a> {
             ..Default::default()
         };
 
-        match &spec.git_ssh_url {
+        let git_ssh_url = &RoozCfg::git_ssh_url(spec, &cli_config);
+
+        match &git_ssh_url {
             None => {
                 let image = &RoozCfg::image(spec, &cli_config, &None);
                 self.api.image.ensure(&image, spec.pull_image).await?;
