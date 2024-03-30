@@ -52,9 +52,7 @@ impl<'a> WorkspaceApi<'a> {
             ..Default::default()
         };
 
-        let git_ssh_url = &RoozCfg::git_ssh_url(spec, &cli_config);
-
-        match &git_ssh_url {
+        match &RoozCfg::git_ssh_url(spec, &cli_config) {
             None => {
                 let image = &RoozCfg::image(spec, &cli_config, &None);
                 self.api.image.ensure(&image, spec.pull_image).await?;
@@ -102,10 +100,11 @@ impl<'a> WorkspaceApi<'a> {
                     .await?
                 {
                     (repo_config, git_spec) => {
-                        
-                        
-                        if let Some(_) = &repo_config { log::debug!("Config read from .rooz.toml in the cloned repo"); }
-                        else { log::debug!(".rooz.toml ignored") }
+                        if let Some(_) = &repo_config {
+                            log::debug!("Config read from .rooz.toml in the cloned repo");
+                        } else {
+                            log::debug!(".rooz.toml ignored")
+                        }
 
                         let image = &RoozCfg::image(spec, &cli_config, &repo_config);
                         self.api.image.ensure(&image, spec.pull_image).await?;

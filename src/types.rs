@@ -78,19 +78,22 @@ impl RoozCfg {
             .or(cli.git_ssh_url.clone())
     }
 
-    pub fn privileged(cli: &WorkParams, cli_cfg: &Option<RoozCfg>, repo_cfg: &Option<RoozCfg>) -> bool {
+    pub fn privileged(
+        cli: &WorkParams,
+        cli_cfg: &Option<RoozCfg>,
+        repo_cfg: &Option<RoozCfg>,
+    ) -> bool {
         cli.privileged
-        .clone()
-        .or(cli_cfg.clone().map(|c| c.privileged).flatten())
-        .or(repo_cfg.clone().map(|c| c.privileged).flatten())
-        .unwrap_or(false)
+            .clone()
+            .or(cli_cfg.clone().map(|c| c.privileged).flatten())
+            .or(repo_cfg.clone().map(|c| c.privileged).flatten())
+            .unwrap_or(false)
     }
 
     pub fn sidecars(
         cli_cfg: &Option<RoozCfg>,
         repo_cfg: &Option<RoozCfg>,
     ) -> Option<HashMap<String, RoozSidecar>> {
-
         let mut all_sidecars = HashMap::<String, RoozSidecar>::new();
 
         if let Some(sidecars) = cli_cfg.clone().map(|c| c.sidecars).flatten() {
