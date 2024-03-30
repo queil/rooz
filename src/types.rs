@@ -24,6 +24,8 @@ pub struct RoozCfg {
     pub sidecars: Option<HashMap<String, RoozSidecar>>,
     pub env: Option<HashMap<String, String>>,
     pub ports: Option<Vec<String>>,
+    pub git_ssh_url: Option<String>,
+    pub privileged: Option<bool>,
 }
 
 impl RoozCfg {
@@ -69,11 +71,29 @@ impl RoozCfg {
             .unwrap_or(constants::DEFAULT_USER.into())
     }
 
+    pub fn git_ssh_url(cli: &WorkParams, cli_cfg: &Option<RoozCfg>) -> Option<String> {
+        cli.git_ssh_url
+            .clone()
+            .or(cli_cfg.clone().map(|c| c.git_ssh_url).flatten())
+            .or(cli.git_ssh_url.clone())
+    }
+
+    pub fn privileged(
+        cli: &WorkParams,
+        cli_cfg: &Option<RoozCfg>,
+        repo_cfg: &Option<RoozCfg>,
+    ) -> bool {
+        cli.privileged
+            .clone()
+            .or(cli_cfg.clone().map(|c| c.privileged).flatten())
+            .or(repo_cfg.clone().map(|c| c.privileged).flatten())
+            .unwrap_or(false)
+    }
+
     pub fn sidecars(
         cli_cfg: &Option<RoozCfg>,
         repo_cfg: &Option<RoozCfg>,
     ) -> Option<HashMap<String, RoozSidecar>> {
-        //TODO: test this with duplicate keys
         let mut all_sidecars = HashMap::<String, RoozSidecar>::new();
 
         if let Some(sidecars) = cli_cfg.clone().map(|c| c.sidecars).flatten() {
