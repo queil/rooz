@@ -75,7 +75,7 @@ pub struct WorkParams {
     )]
     pub caches: Option<Vec<String>>,
     #[arg(short, long)]
-    pub privileged: bool,
+    pub privileged: Option<bool>,
 }
 
 #[derive(Parser, Debug)]

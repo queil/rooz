@@ -47,7 +47,6 @@ impl<'a> WorkspaceApi<'a> {
             workspace_key: &workspace_key,
             labels: (&labels).into(),
             ephemeral,
-            privileged: spec.privileged,
             force_recreate: force,
             user: orig_user,
             ..Default::default()
@@ -79,6 +78,7 @@ impl<'a> WorkspaceApi<'a> {
                     ports: RoozCfg::ports(&cli_config, &None),
                     network: network.as_deref(),
                     labels: (&work_labels).into(),
+                    privileged: RoozCfg::privileged(spec, &cli_config, &None),
                     ..work_spec
                 };
 
@@ -102,7 +102,9 @@ impl<'a> WorkspaceApi<'a> {
                     .await?
                 {
                     (repo_config, git_spec) => {
-                        log::debug!("Config read from .rooz.toml in the cloned repo");
+                        
+                        
+                        if let Some(_) = &repo_config { log::debug!("Config read from .rooz.toml in the cloned repo"); }
 
                         let image = &RoozCfg::image(spec, &cli_config, &repo_config);
                         self.api.image.ensure(&image, spec.pull_image).await?;
