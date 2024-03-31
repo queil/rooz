@@ -13,6 +13,8 @@ pub struct RoozSidecar {
     pub command: Option<Vec<String>>,
     pub mounts: Option<Vec<String>>,
     pub ports: Option<Vec<String>>,
+    pub mount_work: Option<bool>,
+    pub work_dir: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -227,7 +229,6 @@ pub enum RoozVolumeRole {
     Home,
     Work,
     Cache,
-    Git,
     Data,
     SshKey,
 }
@@ -238,7 +239,6 @@ impl RoozVolumeRole {
             RoozVolumeRole::Home => "home",
             RoozVolumeRole::Work => "work",
             RoozVolumeRole::Cache => CACHE_ROLE,
-            RoozVolumeRole::Git => "git",
             RoozVolumeRole::Data => "data",
             RoozVolumeRole::SshKey => "ssh-key",
         }
@@ -323,8 +323,6 @@ impl RoozVolume {
 #[derive(Clone, Debug)]
 pub struct GitCloneSpec {
     pub dir: String,
-    pub mount: Mount,
-    pub volume: RoozVolume,
 }
 
 #[derive(Clone, Debug)]
@@ -337,7 +335,6 @@ pub struct WorkSpec<'a> {
     pub workspace_key: &'a str,
     pub labels: HashMap<&'a str, &'a str>,
     pub ephemeral: bool,
-    pub git_vol_mount: Option<Mount>,
     pub caches: Option<Vec<String>>,
     pub privileged: bool,
     pub force_recreate: bool,
@@ -357,7 +354,6 @@ impl Default for WorkSpec<'_> {
             workspace_key: Default::default(),
             labels: Default::default(),
             ephemeral: false,
-            git_vol_mount: None,
             caches: None,
             privileged: false,
             force_recreate: false,
