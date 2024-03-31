@@ -161,7 +161,6 @@ impl<'a> WorkspaceApi<'a> {
         self.enter(
             &workspace.workspace_key,
             working_dir.as_deref(),
-            Some(&workspace.home_dir),
             &RoozCfg::shell(shell, &None, &git_repo_config),
             None,
             workspace.volumes,

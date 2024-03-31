@@ -222,7 +222,11 @@ pub enum RoozVolumeSharing {
     Exclusive { key: String },
 }
 
+pub const HOME_ROLE: &'static str = "home";
+pub const WORK_ROLE: &'static str = "work";
 pub const CACHE_ROLE: &'static str = "cache";
+pub const DATA_ROLE: &'static str = "data";
+pub const SSH_KEY_ROLE: &'static str = "ssh-key";
 
 #[derive(Debug, Clone)]
 pub enum RoozVolumeRole {
@@ -236,11 +240,11 @@ pub enum RoozVolumeRole {
 impl RoozVolumeRole {
     pub fn as_str(&self) -> &str {
         match self {
-            RoozVolumeRole::Home => "home",
-            RoozVolumeRole::Work => "work",
+            RoozVolumeRole::Home => HOME_ROLE,
+            RoozVolumeRole::Work => WORK_ROLE,
             RoozVolumeRole::Cache => CACHE_ROLE,
-            RoozVolumeRole::Data => "data",
-            RoozVolumeRole::SshKey => "ssh-key",
+            RoozVolumeRole::Data => DATA_ROLE,
+            RoozVolumeRole::SshKey => SSH_KEY_ROLE,
         }
     }
 }
@@ -302,20 +306,54 @@ impl RoozVolume {
         }
     }
 
-    pub fn to_mount(&self, tilde_replacement: Option<&str>) -> Mount {
-        let vol_name = self.safe_volume_name();
-
-        let modified_path = match tilde_replacement {
+    fn expanded_path(&self, tilde_replacement: Option<&str>) -> String {
+        match tilde_replacement {
             Some(replacement) => self.path.replace("~", &replacement),
             None => self.path.to_string(),
-        };
+        }
+    }
+
+    pub fn to_mount(&self, tilde_replacement: Option<&str>) -> Mount {
+        let vol_name = self.safe_volume_name();
 
         Mount {
             typ: Some(MountTypeEnum::VOLUME),
             source: Some(vol_name.into()),
-            target: Some(modified_path),
+            target: Some(self.expanded_path(tilde_replacement)),
             read_only: Some(false),
             ..Default::default()
+        }
+    }
+
+    pub fn work(key: &str, path: &str) -> RoozVolume {
+        RoozVolume {
+            path: path.into(),
+            sharing: RoozVolumeSharing::Exclusive { key: key.into() },
+            role: RoozVolumeRole::Work,
+        }
+    }
+
+    pub fn home(key: &str, path: &str) -> RoozVolume {
+        RoozVolume {
+            path: path.into(),
+            sharing: RoozVolumeSharing::Exclusive { key: key.into() },
+            role: RoozVolumeRole::Home,
+        }
+    }
+
+    pub fn cache(path: &str) -> RoozVolume {
+        RoozVolume {
+            path: path.into(),
+            sharing: RoozVolumeSharing::Shared,
+            role: RoozVolumeRole::Cache,
+        }
+    }
+
+    pub fn sidecar_data(key: &str, path: &str) -> RoozVolume {
+        RoozVolume {
+            path: path.into(),
+            role: RoozVolumeRole::Data,
+            sharing: RoozVolumeSharing::Exclusive { key: key.into() },
         }
     }
 }
