@@ -3,7 +3,7 @@ use crate::{
     cli::{WorkParams, WorkspacePersistence},
     constants,
     labels::{self, Labels},
-    types::{AnyError, EnterSpec, GitCloneSpec, RoozCfg, WorkSpec},
+    types::{AnyError, EnterSpec, RoozCfg, WorkSpec},
 };
 
 impl<'a> WorkspaceApi<'a> {
@@ -37,8 +37,7 @@ impl<'a> WorkspaceApi<'a> {
             .await?;
 
         let orig_user = &RoozCfg::user(spec, &cli_config, &None);
-        let home_dir = format!("/home/{}", &orig_user);
-        let work_dir = format!("{}/work", &home_dir);
+        let work_dir = constants::WORK_DIR;
 
         let work_spec = WorkSpec {
             uid: &orig_uid,
@@ -64,6 +63,7 @@ impl<'a> WorkspaceApi<'a> {
                         &workspace_key,
                         force,
                         spec.pull_image,
+                        &work_dir,
                     )
                     .await?;
                 let work_labels = labels
@@ -115,20 +115,19 @@ impl<'a> WorkspaceApi<'a> {
                                 &workspace_key,
                                 force,
                                 spec.pull_image,
+                                &work_dir,
                             )
                             .await?;
                         let work_labels = labels
                             .clone()
                             .with_container(Some(constants::DEFAULT_CONTAINER_NAME));
 
-                        let git_mount = &git_spec.mount;
                         let work_spec = WorkSpec {
                             image,
                             caches: Some(RoozCfg::caches(spec, &cli_config, &repo_config)),
                             env_vars: RoozCfg::env_vars(&cli_config, &repo_config),
                             ports: RoozCfg::ports(&cli_config, &repo_config),
                             container_working_dir: &git_spec.dir,
-                            git_vol_mount: Some(git_mount.clone()),
                             network: network.as_deref(),
                             labels: (&work_labels).into(),
                             privileged: RoozCfg::privileged(spec, &cli_config, &repo_config),
@@ -154,11 +153,6 @@ impl<'a> WorkspaceApi<'a> {
             git_spec,
             git_repo_config,
         } = self.new(spec, None, None).await?;
-        let mut volumes = workspace.volumes;
-
-        if let Some(GitCloneSpec { volume, .. }) = &git_spec {
-            volumes.push(volume.clone());
-        }
 
         let working_dir = git_spec
             .map(|v| (&v).dir.to_string())
@@ -170,7 +164,7 @@ impl<'a> WorkspaceApi<'a> {
             Some(&workspace.home_dir),
             &RoozCfg::shell(shell, &None, &git_repo_config),
             None,
-            volumes,
+            workspace.volumes,
             &workspace.orig_uid,
             root,
             true,

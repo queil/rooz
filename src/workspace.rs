@@ -20,7 +20,6 @@ use crate::{
 impl<'a> WorkspaceApi<'a> {
     pub async fn create(&self, spec: &WorkSpec<'a>) -> Result<WorkspaceResult, AnyError> {
         let home_dir = format!("/home/{}", &spec.user);
-        let work_dir = format!("{}/work", &home_dir);
 
         let mut volumes = vec![
             RoozVolume {
@@ -30,13 +29,10 @@ impl<'a> WorkspaceApi<'a> {
                 },
                 role: RoozVolumeRole::Home,
             },
-            RoozVolume {
-                path: work_dir.clone(),
-                sharing: RoozVolumeSharing::Exclusive {
-                    key: spec.container_name.into(),
-                },
-                role: RoozVolumeRole::Work,
-            },
+            self.api
+                .volume
+                .work_volume(spec.container_name, constants::WORK_DIR)
+                .await?,
         ];
 
         if let Some(caches) = &spec.caches {
@@ -68,10 +64,6 @@ impl<'a> WorkspaceApi<'a> {
         mounts.push(ssh::mount(
             Path::new(&home_dir).join(".ssh").to_string_lossy().as_ref(),
         ));
-
-        if let Some(m) = &spec.git_vol_mount {
-            mounts.push(m.clone());
-        }
 
         let run_spec = RunSpec {
             reason: "work",

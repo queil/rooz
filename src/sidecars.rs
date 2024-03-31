@@ -19,6 +19,7 @@ impl<'a> WorkspaceApi<'a> {
         workspace_key: &str,
         force: bool,
         pull_image: bool,
+        work_dir: &str,
     ) -> Result<Option<String>, AnyError> {
         let labels_sidecar = Labels::new(Some(workspace_key), Some(labels::ROLE_SIDECAR));
 
@@ -54,6 +55,37 @@ impl<'a> WorkspaceApi<'a> {
                 let mut ports = HashMap::<String, String>::new();
                 RoozCfg::parse_ports(&mut ports, s.ports.clone());
 
+                let mut mounts = Vec::<RoozVolume>::new();
+
+                let auto_mounts = s.mounts.as_ref().map(|paths| {
+                    paths
+                        .iter()
+                        .map(|path| RoozVolume {
+                            path: path.into(),
+                            role: RoozVolumeRole::Data,
+                            sharing: RoozVolumeSharing::Exclusive {
+                                key: container_name.to_string(),
+                            },
+                        })
+                        .collect::<Vec<_>>()
+                });
+
+                if let Some(v) = auto_mounts {
+                    mounts.extend_from_slice(&v.as_slice());
+                }
+
+                let work_mount = if let Some(true) = s.mount_work {
+                    Some(vec![
+                        self.api.volume.work_volume(workspace_key, work_dir).await?,
+                    ])
+                } else {
+                    None
+                };
+
+                if let Some(v) = work_mount {
+                    mounts.extend_from_slice(&v.as_slice());
+                }
+
                 self.api
                     .container
                     .create(RunSpec {
@@ -70,22 +102,9 @@ impl<'a> WorkspaceApi<'a> {
                             .command
                             .as_ref()
                             .map(|x| x.iter().map(|z| z.as_ref()).collect()),
-                        mounts: match s.mounts.as_ref().map(|paths| {
-                            paths
-                                .iter()
-                                .map(|path| RoozVolume {
-                                    path: path.into(),
-                                    role: RoozVolumeRole::Data,
-                                    sharing: RoozVolumeSharing::Exclusive {
-                                        key: container_name.to_string(),
-                                    },
-                                })
-                                .collect::<Vec<_>>()
-                        }) {
-                            Some(ms) => Some(self.api.volume.ensure_mounts(&ms, None).await?),
-                            None => None,
-                        },
+                        mounts: Some(self.api.volume.ensure_mounts(&mounts, None).await?),
                         ports: Some(ports),
+                        work_dir: Some(s.work_dir.as_deref().unwrap_or(work_dir)),
                         ..Default::default()
                     })
                     .await?;
