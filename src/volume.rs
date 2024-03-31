@@ -1,7 +1,7 @@
 use crate::{
     backend::VolumeApi,
     labels::Labels,
-    types::{AnyError, RoozVolume, RoozVolumeRole, RoozVolumeSharing, VolumeResult},
+    types::{AnyError, RoozVolume, RoozVolumeRole, VolumeResult},
 };
 use bollard::{errors::Error::DockerResponseServerError, volume::RemoveVolumeOptions};
 use bollard::{service::Mount, volume::CreateVolumeOptions};
@@ -85,21 +85,5 @@ impl<'a> VolumeApi<'a> {
             mounts.push(mount);
         }
         Ok(mounts.clone())
-    }
-
-    pub async fn work_volume(
-        &self,
-        workspace_key: &str,
-        path: &str,
-    ) -> Result<RoozVolume, AnyError> {
-        let vol = RoozVolume {
-            path: path.into(),
-            sharing: RoozVolumeSharing::Exclusive {
-                key: workspace_key.into(),
-            },
-            role: RoozVolumeRole::Work,
-        };
-        self.ensure_mounts(&vec![vol.clone().into()], None).await?;
-        Ok(vol)
     }
 }

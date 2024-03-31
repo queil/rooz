@@ -1,6 +1,6 @@
 use crate::backend::GitApi;
 use crate::labels::Labels;
-use crate::types::{AnyError, GitCloneSpec};
+use crate::types::{AnyError, GitCloneSpec, RoozVolume};
 use crate::{
     container, id, ssh,
     types::{ContainerResult, RoozCfg, RunSpec},
@@ -45,10 +45,11 @@ impl<'a> GitApi<'a> {
 
         let labels = Labels::new(Some(&workspace_key), Some("git"));
 
-        let vol = self
-            .api
+        let vol = RoozVolume::work(workspace_key, working_dir);
+
+        self.api
             .volume
-            .work_volume(workspace_key, working_dir)
+            .ensure_mounts(&vec![vol.clone().into()], None)
             .await?;
 
         let run_spec = RunSpec {

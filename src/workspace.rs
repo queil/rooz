@@ -12,8 +12,7 @@ use crate::{
     labels::{Labels, ROLE},
     ssh,
     types::{
-        AnyError, ContainerResult, RoozVolume, RoozVolumeRole, RoozVolumeSharing, RunSpec,
-        WorkSpec, WorkspaceResult, CACHE_ROLE,
+        AnyError, ContainerResult, RoozVolume, RunSpec, WorkSpec, WorkspaceResult, CACHE_ROLE,
     },
 };
 
@@ -22,28 +21,15 @@ impl<'a> WorkspaceApi<'a> {
         let home_dir = format!("/home/{}", &spec.user);
 
         let mut volumes = vec![
-            RoozVolume {
-                path: home_dir.clone(),
-                sharing: RoozVolumeSharing::Exclusive {
-                    key: spec.container_name.into(),
-                },
-                role: RoozVolumeRole::Home,
-            },
-            self.api
-                .volume
-                .work_volume(spec.container_name, constants::WORK_DIR)
-                .await?,
+            RoozVolume::home(spec.container_name.into(), &home_dir),
+            RoozVolume::work(spec.container_name, constants::WORK_DIR),
         ];
 
         if let Some(caches) = &spec.caches {
             log::debug!("Processing caches");
             let cache_vols = caches
                 .iter()
-                .map(|p| RoozVolume {
-                    path: p.to_string(),
-                    sharing: RoozVolumeSharing::Shared,
-                    role: RoozVolumeRole::Cache,
-                })
+                .map(|p| RoozVolume::cache(p))
                 .collect::<Vec<_>>();
 
             for c in caches {
@@ -88,6 +74,7 @@ impl<'a> WorkspaceApi<'a> {
 
         match self.api.container.create(run_spec).await? {
         ContainerResult::Created { id } =>
+
             Ok(
                 WorkspaceResult {
                     workspace_key: (&spec).workspace_key.to_string(),
@@ -96,6 +83,7 @@ impl<'a> WorkspaceApi<'a> {
                     orig_uid: spec.uid.to_string(),
                     container_id: id,
                     volumes: volumes.iter().map(|v|v.clone()).collect::<Vec<_>>() }),
+
         ContainerResult::AlreadyExists { .. } => {
             Err(format!("Container already exists. Did you mean: rooz enter {}? Otherwise, use --apply to reconfigure containers or --replace to recreate the whole workspace.", spec.workspace_key).into())
         }
@@ -209,7 +197,6 @@ impl<'a> WorkspaceApi<'a> {
         &self,
         workspace_key: &str,
         working_dir: Option<&str>,
-        chown_dir: Option<&str>,
         shell: &str,
         container_id: Option<&str>,
         volumes: Vec<RoozVolume>,
@@ -238,8 +225,11 @@ impl<'a> WorkspaceApi<'a> {
 
         if !root {
             self.api.exec.ensure_user(container_id).await?;
-            if let Some(dir) = &chown_dir {
-                self.api.exec.chown(&container_id, chown_uid, dir).await?;
+            for v in &volumes {
+                self.api
+                    .exec
+                    .chown(&container_id, chown_uid, &v.path)
+                    .await?;
             }
         }
 

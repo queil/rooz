@@ -189,7 +189,15 @@ impl<'a> ExecApi<'a> {
                 "chown",
                 container_id,
                 Some(constants::ROOT_USER),
-                Some(vec!["chown", "-R", &uid_format, &dir]),
+                Some(vec![
+                    "sh",
+                    "-c",
+                    &format!(
+                        "chown -R {} {}",
+                        &uid_format,
+                        &dir.replace("~", "${ROOZ_META_HOME}")
+                    ),
+                ]),
             )
             .await?;
 

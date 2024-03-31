@@ -122,7 +122,6 @@ async fn main() -> Result<(), AnyError> {
                 .enter(
                     &name,
                     work_dir.as_deref(),
-                    None,
                     &shell,
                     container.as_deref(),
                     vec![],

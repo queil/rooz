@@ -6,9 +6,7 @@ use crate::{
     backend::WorkspaceApi,
     constants,
     labels::{self, Labels},
-    types::{
-        AnyError, RoozCfg, RoozSidecar, RoozVolume, RoozVolumeRole, RoozVolumeSharing, RunSpec,
-    },
+    types::{AnyError, RoozCfg, RoozSidecar, RoozVolume, RunSpec},
 };
 
 impl<'a> WorkspaceApi<'a> {
@@ -60,13 +58,7 @@ impl<'a> WorkspaceApi<'a> {
                 let auto_mounts = s.mounts.as_ref().map(|paths| {
                     paths
                         .iter()
-                        .map(|path| RoozVolume {
-                            path: path.into(),
-                            role: RoozVolumeRole::Data,
-                            sharing: RoozVolumeSharing::Exclusive {
-                                key: container_name.to_string(),
-                            },
-                        })
+                        .map(|path| RoozVolume::sidecar_data(&container_name, path))
                         .collect::<Vec<_>>()
                 });
 
@@ -75,9 +67,7 @@ impl<'a> WorkspaceApi<'a> {
                 }
 
                 let work_mount = if let Some(true) = s.mount_work {
-                    Some(vec![
-                        self.api.volume.work_volume(workspace_key, work_dir).await?,
-                    ])
+                    Some(vec![RoozVolume::work(workspace_key, work_dir)])
                 } else {
                     None
                 };
