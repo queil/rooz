@@ -107,8 +107,10 @@ pub struct TmpParams {
 #[command(about = "Opens an interactive shell to a workspace's container")]
 pub struct EnterParams {
     pub name: String,
-    #[arg(short, long, default_value = "bash", env = "ROOZ_SHELL")]
-    pub shell: String,
+    #[arg(short, long)]
+    pub shell: Option<String>,
+    #[arg(long, hide = true, env = "ROOZ_SHELL")]
+    pub env_shell: Option<String>,
     #[arg(short, long)]
     pub root: bool,
     #[arg(short, long)]

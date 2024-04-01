@@ -65,7 +65,7 @@ impl<'a> WorkspaceApi<'a> {
 
                 let network = self
                     .ensure_sidecars(
-                        cfg.sidecars,
+                        &cfg.sidecars,
                         &labels,
                         &workspace_key,
                         force,
@@ -75,7 +75,8 @@ impl<'a> WorkspaceApi<'a> {
                     .await?;
                 let work_labels = labels
                     .clone()
-                    .with_container(Some(constants::DEFAULT_CONTAINER_NAME));
+                    .with_container(Some(constants::DEFAULT_CONTAINER_NAME))
+                    .with_config(cfg.clone());
                 let work_spec = WorkSpec {
                     image: &cfg.image,
                     user: &cfg.user,
@@ -124,7 +125,7 @@ impl<'a> WorkspaceApi<'a> {
                         self.api.image.ensure(&cfg.image, spec.pull_image).await?;
                         let network = self
                             .ensure_sidecars(
-                                cfg.sidecars,
+                                &cfg.sidecars,
                                 &labels,
                                 &workspace_key,
                                 force,
@@ -134,7 +135,8 @@ impl<'a> WorkspaceApi<'a> {
                             .await?;
                         let work_labels = labels
                             .clone()
-                            .with_container(Some(constants::DEFAULT_CONTAINER_NAME));
+                            .with_container(Some(constants::DEFAULT_CONTAINER_NAME))
+                            .with_config(cfg.clone());
 
                         let work_spec = WorkSpec {
                             image: &cfg.image,
@@ -163,7 +165,6 @@ impl<'a> WorkspaceApi<'a> {
     }
 
     pub async fn tmp(&self, spec: &WorkParams, root: bool, shell: &str) -> Result<(), AnyError> {
-        
         let EnterSpec {
             workspace,
             git_spec,
@@ -174,11 +175,15 @@ impl<'a> WorkspaceApi<'a> {
             .map(|v| (&v).dir.to_string())
             .or(Some(workspace.working_dir));
 
-        let cfg = FinalCfg::from(&RoozCfg {shell: Some(shell.into()),..config});
+        let cfg = FinalCfg::from(&RoozCfg {
+            shell: Some(shell.into()),
+            ..config
+        });
         self.enter(
             &workspace.workspace_key,
             working_dir.as_deref(),
-            &cfg.shell,
+            Some(&cfg.shell),
+            None,
             None,
             workspace.volumes,
             &workspace.orig_uid,

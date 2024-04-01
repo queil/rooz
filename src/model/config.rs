@@ -1,8 +1,10 @@
 use crate::{cli::WorkParams, constants};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fs};
 
-#[derive(Debug, Deserialize, Clone)]
+use super::types::AnyError;
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct RoozSidecar {
     pub image: String,
     pub env: Option<HashMap<String, String>>,
@@ -133,7 +135,7 @@ impl Default for RoozCfg {
     }
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct FinalCfg {
     pub shell: String,
     pub image: String,
@@ -144,6 +146,22 @@ pub struct FinalCfg {
     pub ports: HashMap<String, String>,
     pub git_ssh_url: Option<String>,
     pub privileged: bool,
+}
+
+impl FinalCfg {
+    pub fn from_string(config: String) -> Result<FinalCfg, Box<dyn std::error::Error + 'static>> {
+        let f = Self::deserialize(toml::de::Deserializer::new(&config));
+        match f {
+            Ok(val) => Ok(val),
+            Err(e) => Err(Box::new(e)),
+        }
+    }
+
+    pub fn to_string(&self) -> Result<String, AnyError> {
+        let mut ret = String::new();
+        Self::serialize(&self, toml::ser::Serializer::new(&mut ret))?;
+        Ok(ret)
+    }
 }
 
 impl Default for FinalCfg {

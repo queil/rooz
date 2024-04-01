@@ -9,8 +9,9 @@ use bollard::{
 use crate::{
     api::WorkspaceApi,
     constants,
-    labels::{Labels, ROLE},
+    labels::{self, Labels, ROLE},
     model::{
+        config::FinalCfg,
         types::{AnyError, ContainerResult, RunSpec, WorkSpec, WorkspaceResult},
         volume::{RoozVolume, CACHE_ROLE},
     },
@@ -198,7 +199,8 @@ impl<'a> WorkspaceApi<'a> {
         &self,
         workspace_key: &str,
         working_dir: Option<&str>,
-        shell: &str,
+        shell: Option<&str>,
+        env_shell: Option<&str>,
         container_id: Option<&str>,
         volumes: Vec<RoozVolume>,
         chown_uid: &str,
@@ -207,20 +209,29 @@ impl<'a> WorkspaceApi<'a> {
     ) -> Result<(), AnyError> {
         let enter_labels = Labels::new(Some(workspace_key), None)
             .with_container(container_id.or(Some(constants::DEFAULT_CONTAINER_NAME)));
-        let containers = Vec::from_iter(
-            self.api
-                .container
-                .get_all(&enter_labels)
-                .await?
-                .iter()
-                .map(|c| c.id.as_ref().unwrap().to_string()),
-        );
+        let summaries = self.api.container.get_all(&enter_labels).await?;
 
-        let container_id = match &containers.as_slice() {
+        let summary = match &summaries.as_slice() {
             &[container] => container,
             &[] => panic!("Container not found"),
             _ => panic!("Too many containers found"),
         };
+
+        let mut shell_value = String::new();
+
+        if let Some(shell) = env_shell {
+            shell_value = shell.into();
+        }
+
+        if let Some(labels) = &summary.labels {
+            shell_value = FinalCfg::from_string(labels[labels::CONFIG].clone())?.shell;
+        }
+
+        if let Some(shell) = shell {
+            shell_value = shell.into();
+        }
+
+        let container_id = summary.id.as_deref().unwrap();
 
         self.start_workspace(workspace_key).await?;
 
@@ -246,7 +257,7 @@ impl<'a> WorkspaceApi<'a> {
                 } else {
                     None
                 },
-                Some(vec![shell]),
+                Some(vec![&shell_value]),
             )
             .await?;
 

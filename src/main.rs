@@ -105,6 +105,7 @@ async fn main() -> Result<(), AnyError> {
                 Enter(EnterParams {
                     name,
                     shell,
+                    env_shell,
                     root,
                     work_dir,
                     container,
@@ -115,7 +116,8 @@ async fn main() -> Result<(), AnyError> {
                 .enter(
                     &name,
                     work_dir.as_deref(),
-                    &shell,
+                    shell.as_deref(),
+                    env_shell.as_deref(),
                     container.as_deref(),
                     vec![],
                     constants::DEFAULT_UID,

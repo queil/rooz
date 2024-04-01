@@ -16,7 +16,7 @@ use crate::{
 impl<'a> WorkspaceApi<'a> {
     pub async fn ensure_sidecars(
         &self,
-        sidecars: HashMap<String, RoozSidecar>,
+        sidecars: &HashMap<String, RoozSidecar>,
         labels: &Labels,
         workspace_key: &str,
         force: bool,

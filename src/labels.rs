@@ -1,8 +1,11 @@
 use std::{collections::HashMap, vec};
 
+use crate::model::config::FinalCfg;
+
 pub const WORKSPACE_KEY: &'static str = "dev.rooz.workspace";
 pub const CONTAINER: &'static str = "dev.rooz.workspace.container";
 pub const ROLE: &'static str = "dev.rooz.role";
+pub const CONFIG: &'static str = "dev.rooz.config";
 const ROOZ: &'static str = "dev.rooz";
 const LABEL_KEY: &'static str = "label";
 const TRUE: &'static str = "true";
@@ -56,6 +59,7 @@ pub struct Labels {
     rooz: KeyValue,
     workspace: Option<KeyValue>,
     container: Option<KeyValue>,
+    config: Option<KeyValue>,
     role: Option<KeyValue>,
 }
 
@@ -65,6 +69,7 @@ impl Labels {
             rooz: KeyValue::new(ROOZ, TRUE),
             workspace: workspace_key.map(|v| KeyValue::new(WORKSPACE_KEY, v)),
             container: None,
+            config: None,
             role: role.map(|v| KeyValue::new(ROLE, v)),
         }
     }
@@ -76,6 +81,13 @@ impl Labels {
                 ..self
             },
             None => self,
+        }
+    }
+
+    pub fn with_config(self, config: FinalCfg) -> Self {
+        Labels {
+            config: Some(KeyValue::new(CONFIG, &config.to_string().unwrap())),
+            ..self
         }
     }
 }
@@ -114,6 +126,9 @@ impl<'a> From<&'a Labels> for Vec<&'a KeyValue> {
         }
         if let Some(container) = &value.container {
             labels.push(container);
+        }
+        if let Some(config) = &value.config {
+            labels.push(config);
         }
         labels
     }
