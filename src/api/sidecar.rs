@@ -3,10 +3,14 @@ use std::collections::HashMap;
 use bollard::network::CreateNetworkOptions;
 
 use crate::{
-    backend::WorkspaceApi,
+    api::WorkspaceApi,
     constants,
     labels::{self, Labels},
-    types::{AnyError, RoozCfg, RoozSidecar, RoozVolume, RunSpec},
+    model::{
+        config::{RoozCfg, RoozSidecar},
+        types::{AnyError, RunSpec},
+        volume::RoozVolume,
+    },
 };
 
 impl<'a> WorkspaceApi<'a> {

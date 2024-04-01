@@ -1,6 +1,6 @@
 use crate::{
     labels::{self, Labels},
-    types::AnyError,
+    model::types::AnyError,
 };
 
 use bollard::{container::ListContainersOptions, service::ContainerSummary, Docker};

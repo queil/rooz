@@ -7,13 +7,14 @@ use bollard::{
 };
 
 use crate::{
-    backend::WorkspaceApi,
+    api::WorkspaceApi,
     constants,
     labels::{Labels, ROLE},
-    ssh,
-    types::{
-        AnyError, ContainerResult, RoozVolume, RunSpec, WorkSpec, WorkspaceResult, CACHE_ROLE,
+    model::{
+        types::{AnyError, ContainerResult, RunSpec, WorkSpec, WorkspaceResult},
+        volume::{RoozVolume, CACHE_ROLE},
     },
+    ssh,
 };
 
 impl<'a> WorkspaceApi<'a> {

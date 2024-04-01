@@ -1,9 +1,13 @@
-use crate::backend::GitApi;
-use crate::labels::Labels;
-use crate::types::{AnyError, GitCloneSpec, RoozVolume};
 use crate::{
-    container, id, ssh,
-    types::{ContainerResult, RoozCfg, RunSpec},
+    api::{container, GitApi},
+    id,
+    labels::Labels,
+    model::{
+        config::RoozCfg,
+        types::{AnyError, ContainerResult, GitCloneSpec, RunSpec},
+        volume::RoozVolume,
+    },
+    ssh,
 };
 
 fn get_clone_dir(root_dir: &str, git_ssh_url: &str) -> String {

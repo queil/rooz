@@ -1,9 +1,12 @@
 use crate::{
-    backend::WorkspaceApi,
+    api::WorkspaceApi,
     cli::{WorkParams, WorkspacePersistence},
     constants,
     labels::{self, Labels},
-    types::{AnyError, EnterSpec, RoozCfg, WorkSpec},
+    model::{
+        config::RoozCfg,
+        types::{AnyError, EnterSpec, WorkSpec},
+    },
 };
 
 impl<'a> WorkspaceApi<'a> {

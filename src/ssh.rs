@@ -1,8 +1,10 @@
-use crate::backend::Api;
-use crate::labels::Labels;
-use crate::types::AnyError;
-use crate::{constants, id};
-use crate::{container, types::RunSpec};
+use crate::{
+    api::{container, Api},
+    constants, id,
+    labels::Labels,
+    model::types::{AnyError, RunSpec},
+};
+
 use bollard::models::MountTypeEnum::VOLUME;
 use bollard::service::Mount;
 

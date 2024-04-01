@@ -1,46 +1,6 @@
+use crate::model::types::AnyError;
 use bollard::service::SystemInfo;
 use bollard::system::Version;
-use bollard::Docker;
-
-use crate::types::AnyError;
-
-pub struct ExecApi<'a> {
-    pub client: &'a Docker,
-    pub backend: &'a ContainerBackend,
-}
-
-pub struct ImageApi<'a> {
-    pub client: &'a Docker,
-    pub backend: &'a ContainerBackend,
-}
-
-pub struct VolumeApi<'a> {
-    pub client: &'a Docker,
-    pub backend: &'a ContainerBackend,
-}
-
-pub struct ContainerApi<'a> {
-    pub client: &'a Docker,
-    pub backend: &'a ContainerBackend,
-}
-
-pub struct Api<'a> {
-    pub exec: &'a ExecApi<'a>,
-    pub image: &'a ImageApi<'a>,
-    pub volume: &'a VolumeApi<'a>,
-    pub container: &'a ContainerApi<'a>,
-    pub client: &'a Docker,
-    pub backend: &'a ContainerBackend,
-}
-
-pub struct GitApi<'a> {
-    pub api: &'a Api<'a>,
-}
-
-pub struct WorkspaceApi<'a> {
-    pub api: &'a Api<'a>,
-    pub git: &'a GitApi<'a>,
-}
 
 #[derive(Debug, Clone)]
 pub enum ContainerBackend {
