@@ -51,7 +51,7 @@ pub struct WorkspacePersistence {
     pub apply: bool,
 }
 
-#[derive(Parser, Debug)]
+#[derive(Clone, Parser, Debug)]
 pub struct WorkParams {
     #[arg(short, long, alias = "git")]
     pub git_ssh_url: Option<String>,

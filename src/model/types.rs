@@ -128,5 +128,5 @@ pub struct WorkspaceResult {
 pub struct EnterSpec {
     pub workspace: WorkspaceResult,
     pub git_spec: Option<GitCloneSpec>,
-    pub git_repo_config: Option<RoozCfg>,
+    pub config: RoozCfg,
 }

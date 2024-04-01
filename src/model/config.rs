@@ -1,8 +1,6 @@
-use std::{collections::HashMap, fs};
-
-use serde::Deserialize;
-
 use crate::{cli::WorkParams, constants};
+use serde::Deserialize;
+use std::{collections::HashMap, fs};
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct RoozSidecar {
@@ -41,98 +39,59 @@ impl RoozCfg {
         }
     }
 
-    pub fn shell(cli_shell: &str, cli_cfg: &Option<RoozCfg>, repo_cfg: &Option<RoozCfg>) -> String {
-        Some(cli_shell.into())
-            .clone()
-            .or(cli_cfg.clone().map(|c| c.shell).flatten())
-            .or(repo_cfg.clone().map(|c| c.shell).flatten())
-            .unwrap_or(constants::DEFAULT_SHELL.into())
+    fn extend_if_any<A, T: Extend<A> + IntoIterator<Item = A>>(
+        target: Option<T>,
+        other: Option<T>,
+    ) -> Option<T> {
+        if let Some(caches) = other {
+            let mut ret = target.unwrap();
+            ret.extend(caches);
+            Some(ret)
+        } else {
+            target
+        }
     }
 
-    pub fn image(
-        cli: &WorkParams,
-        cli_cfg: &Option<RoozCfg>,
-        repo_cfg: &Option<RoozCfg>,
-    ) -> String {
-        cli.image
-            .clone()
-            .or(cli_cfg.clone().map(|c| c.image).flatten())
-            .or(repo_cfg.clone().map(|c| c.image).flatten())
-            .or(cli.env_image.clone())
-            .unwrap_or(constants::DEFAULT_IMAGE.into())
+    pub fn from_cli(self, cli: WorkParams, shell: Option<String>) -> Self {
+        RoozCfg {
+            shell: shell.or(self.shell),
+            image: cli.image.or(self.image),
+            user: cli.user.or(self.user),
+            git_ssh_url: cli.git_ssh_url.or(self.git_ssh_url),
+            privileged: cli.privileged.or(self.privileged),
+            caches: Self::extend_if_any(self.caches, cli.caches),
+            ..Default::default()
+        }
     }
 
-    pub fn user(cli: &WorkParams, cli_cfg: &Option<RoozCfg>, repo_cfg: &Option<RoozCfg>) -> String {
-        cli.user
-            .clone()
-            .or(cli_cfg.clone().map(|c| c.user).flatten())
-            .or(repo_cfg.clone().map(|c| c.user).flatten())
-            .or(cli.env_user.clone())
-            .unwrap_or(constants::DEFAULT_USER.into())
+    pub fn from_config(self, config: RoozCfg) -> Self {
+        RoozCfg {
+            shell: config.shell.or(self.shell),
+            image: config.image.or(self.image),
+            user: config.user.or(self.user),
+            git_ssh_url: config.git_ssh_url.or(self.git_ssh_url),
+            privileged: config.privileged.or(self.privileged),
+            caches: Self::extend_if_any(self.caches, config.caches),
+            sidecars: Self::extend_if_any(self.sidecars, config.sidecars),
+            ports: Self::extend_if_any(self.ports, config.ports),
+            env: Self::extend_if_any(self.env, config.env),
+        }
+    }
+
+    pub fn from_cli_env(self, cli: WorkParams) -> Self {
+        RoozCfg {
+            image: cli.env_image.or(self.image.clone()),
+            user: cli.env_user.or(self.user.clone()),
+            caches: Self::extend_if_any(self.caches.clone(), cli.env_caches),
+            git_ssh_url: cli.git_ssh_url.or(self.git_ssh_url.clone()),
+            ..self.clone()
+        }
     }
 
     pub fn git_ssh_url(cli: &WorkParams, cli_cfg: &Option<RoozCfg>) -> Option<String> {
         cli.git_ssh_url
             .clone()
             .or(cli_cfg.clone().map(|c| c.git_ssh_url).flatten())
-            .or(cli.git_ssh_url.clone())
-    }
-
-    pub fn privileged(
-        cli: &WorkParams,
-        cli_cfg: &Option<RoozCfg>,
-        repo_cfg: &Option<RoozCfg>,
-    ) -> bool {
-        cli.privileged
-            .clone()
-            .or(cli_cfg.clone().map(|c| c.privileged).flatten())
-            .or(repo_cfg.clone().map(|c| c.privileged).flatten())
-            .unwrap_or(false)
-    }
-
-    pub fn sidecars(
-        cli_cfg: &Option<RoozCfg>,
-        repo_cfg: &Option<RoozCfg>,
-    ) -> Option<HashMap<String, RoozSidecar>> {
-        let mut all_sidecars = HashMap::<String, RoozSidecar>::new();
-
-        if let Some(sidecars) = cli_cfg.clone().map(|c| c.sidecars).flatten() {
-            all_sidecars.extend(sidecars);
-        };
-
-        if let Some(sidecars) = repo_cfg.clone().map(|c| c.sidecars).flatten() {
-            all_sidecars.extend(sidecars);
-        };
-        if all_sidecars.len() > 0 {
-            Some(all_sidecars)
-        } else {
-            None
-        }
-    }
-
-    pub fn caches(
-        cli: &WorkParams,
-        cli_cfg: &Option<RoozCfg>,
-        repo_cfg: &Option<RoozCfg>,
-    ) -> Vec<String> {
-        let mut all_caches = vec![];
-        if let Some(caches) = cli.caches.clone() {
-            all_caches.extend(caches);
-        }
-
-        if let Some(caches) = cli_cfg.clone().map(|c| c.caches).flatten() {
-            all_caches.extend(caches);
-        };
-
-        if let Some(caches) = repo_cfg.clone().map(|c| c.caches).flatten() {
-            all_caches.extend(caches);
-        };
-
-        if let Some(caches) = cli.env_caches.clone() {
-            all_caches.extend(caches);
-        }
-        all_caches.dedup();
-        all_caches
     }
 
     pub fn parse_ports<'a>(
@@ -156,40 +115,75 @@ impl RoozCfg {
             _ => panic!("Invalid port mapping specification: {}", port_mapping),
         }
     }
+}
 
-    pub fn ports(
-        cli_cfg: &Option<RoozCfg>,
-        repo_cfg: &Option<RoozCfg>,
-    ) -> Option<HashMap<String, String>> {
-        let mut all_ports = HashMap::<String, String>::new();
-
-        RoozCfg::parse_ports(&mut all_ports, cli_cfg.clone().map(|c| c.ports).flatten());
-        RoozCfg::parse_ports(&mut all_ports, repo_cfg.clone().map(|c| c.ports).flatten());
-
-        if all_ports.len() > 0 {
-            Some(all_ports)
-        } else {
-            None
+impl Default for RoozCfg {
+    fn default() -> Self {
+        Self {
+            shell: Some(constants::DEFAULT_SHELL.into()),
+            image: Some(constants::DEFAULT_IMAGE.into()),
+            user: Some(constants::DEFAULT_USER.into()),
+            caches: Some(Vec::new()),
+            sidecars: Some(HashMap::new()),
+            env: Some(HashMap::new()),
+            ports: Some(Vec::new()),
+            git_ssh_url: None,
+            privileged: None,
         }
     }
+}
 
-    pub fn env_vars(
-        cli_cfg: &Option<RoozCfg>,
-        repo_cfg: &Option<RoozCfg>,
-    ) -> Option<HashMap<String, String>> {
-        let mut all_env_vars = HashMap::<String, String>::new();
+#[derive(Debug, Deserialize, Clone)]
+pub struct FinalCfg {
+    pub shell: String,
+    pub image: String,
+    pub user: String,
+    pub caches: Vec<String>,
+    pub sidecars: HashMap<String, RoozSidecar>,
+    pub env: HashMap<String, String>,
+    pub ports: HashMap<String, String>,
+    pub git_ssh_url: Option<String>,
+    pub privileged: bool,
+}
 
-        if let Some(env) = cli_cfg.clone().map(|c| c.env).flatten() {
-            all_env_vars.extend(env);
-        };
+impl Default for FinalCfg {
+    fn default() -> Self {
+        Self {
+            shell: constants::DEFAULT_SHELL.into(),
+            image: constants::DEFAULT_IMAGE.into(),
+            user: constants::DEFAULT_USER.into(),
+            caches: Vec::new(),
+            sidecars: HashMap::new(),
+            env: HashMap::new(),
+            ports: HashMap::new(),
+            git_ssh_url: None,
+            privileged: false,
+        }
+    }
+}
 
-        if let Some(env) = repo_cfg.clone().map(|c| c.env).flatten() {
-            all_env_vars.extend(env);
-        };
-        if all_env_vars.len() > 0 {
-            Some(all_env_vars)
-        } else {
-            None
+impl<'a> From<&'a RoozCfg> for FinalCfg {
+    fn from(value: &'a RoozCfg) -> Self {
+        let default = FinalCfg::default();
+
+        let mut ports = HashMap::<String, String>::new();
+        RoozCfg::parse_ports(&mut ports, value.clone().ports);
+
+        FinalCfg {
+            shell: value.shell.as_deref().unwrap_or(&default.shell).into(),
+            image: value.image.as_deref().unwrap_or(&default.image).into(),
+            user: value.user.as_deref().unwrap_or(&default.user).into(),
+            caches: {
+                let mut val = value.caches.as_deref().unwrap_or(&default.caches).to_vec();
+                val.dedup();
+                val
+            },
+            sidecars: value.sidecars.as_ref().unwrap().clone(),
+            env: value.env.as_ref().unwrap().clone(),
+            ports,
+            git_ssh_url: value.git_ssh_url.clone(),
+            privileged: value.privileged.unwrap_or(default.privileged),
+            ..default
         }
     }
 }
