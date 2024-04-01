@@ -1,38 +1,31 @@
+mod api;
 mod backend;
 mod cli;
 mod cmd;
 mod constants;
-mod container;
-mod exec;
 mod git;
 mod id;
-mod image;
 mod labels;
-mod sidecars;
+mod model;
 mod ssh;
-mod types;
-mod volume;
-mod workspace;
 
 use std::io;
 
 use crate::{
-    backend::{
-        Api, ContainerApi, ContainerBackend, ExecApi, GitApi, ImageApi, VolumeApi, WorkspaceApi,
-    },
+    api::{Api, ContainerApi, ExecApi, GitApi, ImageApi, VolumeApi, WorkspaceApi},
+    backend::ContainerBackend,
     cli::{
         Cli,
         Commands::{Enter, List, New, Remove, Stop, System, Tmp},
         CompletionParams, InitParams, ListParams, NewParams, RemoveParams, StopParams, TmpParams,
     },
-    types::RoozCfg,
+    model::{config::RoozCfg, types::AnyError},
 };
 
 use bollard::Docker;
 use clap::{CommandFactory, Parser};
 use clap_complete::generate;
 use cli::EnterParams;
-use types::AnyError;
 
 #[tokio::main]
 async fn main() -> Result<(), AnyError> {

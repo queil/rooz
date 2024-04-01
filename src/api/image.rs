@@ -1,4 +1,4 @@
-use crate::{backend::ImageApi, types::AnyError};
+use crate::{api::ImageApi, model::types::AnyError};
 use bollard::errors::Error;
 use bollard::errors::Error::DockerResponseServerError;
 use bollard::image::CreateImageOptions;

@@ -20,9 +20,10 @@ use futures::StreamExt;
 use tokio::time::sleep;
 
 use crate::{
-    backend::{ContainerApi, ContainerBackend},
+    api::ContainerApi,
+    backend::ContainerBackend,
     labels::{KeyValue, Labels},
-    types::{AnyError, ContainerResult, RunSpec},
+    model::types::{AnyError, ContainerResult, RunSpec},
 };
 
 pub fn inject(script: &str, name: &str) -> Vec<String> {

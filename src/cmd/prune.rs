@@ -6,7 +6,7 @@ use bollard::{
     volume::{ListVolumesOptions, RemoveVolumeOptions},
 };
 
-use crate::{backend::Api, labels::Labels, types::AnyError};
+use crate::{api::Api, labels::Labels, model::types::AnyError};
 
 impl<'a> Api<'a> {
     async fn prune(

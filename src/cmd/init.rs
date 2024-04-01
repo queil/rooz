@@ -1,7 +1,10 @@
 use crate::{
-    backend::Api,
+    api::Api,
+    model::{
+        types::{AnyError, VolumeResult},
+        volume::RoozVolumeRole,
+    },
     ssh,
-    types::{AnyError, RoozVolumeRole, VolumeResult},
 };
 
 impl<'a> Api<'a> {
