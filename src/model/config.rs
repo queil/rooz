@@ -56,13 +56,13 @@ impl RoozCfg {
 
     pub fn from_cli(self, cli: WorkParams, shell: Option<String>) -> Self {
         RoozCfg {
-            shell: shell.or(self.shell),
-            image: cli.image.or(self.image),
-            user: cli.user.or(self.user),
-            git_ssh_url: cli.git_ssh_url.or(self.git_ssh_url),
-            privileged: cli.privileged.or(self.privileged),
-            caches: Self::extend_if_any(self.caches, cli.caches),
-            ..Default::default()
+            shell: shell.or(self.shell.clone()),
+            image: cli.image.or(self.image.clone()),
+            user: cli.user.or(self.user.clone()),
+            git_ssh_url: cli.git_ssh_url.or(self.git_ssh_url.clone()),
+            privileged: cli.privileged.or(self.privileged.clone()),
+            caches: Self::extend_if_any(self.caches.clone(), cli.caches),
+            ..self.clone()
         }
     }
 
