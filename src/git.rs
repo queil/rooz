@@ -114,13 +114,16 @@ impl<'a> GitApi<'a> {
 
         self.api.container.remove(&container_id, true).await?;
 
-        let cfg = RoozCfg::from_string(rooz_cfg).ok();
+        let cfg = RoozCfg::from_string(rooz_cfg);
 
         let work_spec = GitCloneSpec { dir: clone_dir };
 
         match cfg {
-            Some(cfg) => Ok((Some(cfg), work_spec)),
-            None => Ok((None, work_spec)),
+            Ok(cfg) => Ok((Some(cfg), work_spec)),
+            Err(e) => {
+                println!("{}", e);
+                Ok((None, work_spec))
+            },
         }
     }
 }
