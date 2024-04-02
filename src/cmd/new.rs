@@ -4,7 +4,7 @@ use crate::{
     constants,
     labels::{self, Labels},
     model::{
-        config::RoozCfg,
+        config::{FinalCfg, RoozCfg},
         types::{AnyError, EnterSpec, WorkSpec},
     },
 };
@@ -39,7 +39,6 @@ impl<'a> WorkspaceApi<'a> {
             .ensure(constants::DEFAULT_IMAGE, spec.pull_image)
             .await?;
 
-        let orig_user = &RoozCfg::user(spec, &cli_config, &None);
         let work_dir = constants::WORK_DIR;
 
         let work_spec = WorkSpec {
@@ -50,18 +49,23 @@ impl<'a> WorkspaceApi<'a> {
             labels: (&labels).into(),
             ephemeral,
             force_recreate: force,
-            user: orig_user,
             ..Default::default()
         };
 
         match &RoozCfg::git_ssh_url(spec, &cli_config) {
             None => {
-                let image = &RoozCfg::image(spec, &cli_config, &None);
-                self.api.image.ensure(&image, spec.pull_image).await?;
+                let mut cfg_builder = RoozCfg::default().from_cli_env(spec.clone());
+                if let Some(c) = &cli_config {
+                    cfg_builder = cfg_builder.from_config(c.clone());
+                }
+                cfg_builder = cfg_builder.from_cli(spec.clone(), None);
+                let cfg = FinalCfg::from(&cfg_builder);
+
+                self.api.image.ensure(&cfg.image, spec.pull_image).await?;
 
                 let network = self
                     .ensure_sidecars(
-                        &RoozCfg::sidecars(&cli_config, &None),
+                        &cfg.sidecars,
                         &labels,
                         &workspace_key,
                         force,
@@ -71,15 +75,17 @@ impl<'a> WorkspaceApi<'a> {
                     .await?;
                 let work_labels = labels
                     .clone()
-                    .with_container(Some(constants::DEFAULT_CONTAINER_NAME));
+                    .with_container(Some(constants::DEFAULT_CONTAINER_NAME))
+                    .with_config(cfg.clone());
                 let work_spec = WorkSpec {
-                    image,
-                    caches: Some(RoozCfg::caches(spec, &cli_config, &None)),
-                    env_vars: RoozCfg::env_vars(&cli_config, &None),
-                    ports: RoozCfg::ports(&cli_config, &None),
+                    image: &cfg.image,
+                    user: &cfg.user,
+                    caches: Some(cfg.caches),
+                    env_vars: Some(cfg.env),
+                    ports: Some(cfg.ports),
                     network: network.as_deref(),
                     labels: (&work_labels).into(),
-                    privileged: RoozCfg::privileged(spec, &cli_config, &None),
+                    privileged: cfg.privileged,
                     ..work_spec
                 };
 
@@ -87,7 +93,7 @@ impl<'a> WorkspaceApi<'a> {
                 return Ok(EnterSpec {
                     workspace: ws,
                     git_spec: None,
-                    git_repo_config: None,
+                    config: cfg_builder,
                 });
             }
             Some(url) => {
@@ -103,17 +109,23 @@ impl<'a> WorkspaceApi<'a> {
                     .await?
                 {
                     (repo_config, git_spec) => {
-                        if let Some(_) = &repo_config {
+                        let mut cfg_builder = RoozCfg::default().from_cli_env(spec.clone());
+                        if let Some(c) = &repo_config {
                             log::debug!("Config read from .rooz.toml in the cloned repo");
+                            cfg_builder = cfg_builder.from_config(c.clone());
                         } else {
                             log::debug!(".rooz.toml ignored")
                         }
+                        if let Some(c) = &cli_config {
+                            cfg_builder = cfg_builder.from_config(c.clone());
+                        }
+                        cfg_builder = cfg_builder.from_cli(spec.clone(), None);
+                        let cfg = FinalCfg::from(&cfg_builder);
 
-                        let image = &RoozCfg::image(spec, &cli_config, &repo_config);
-                        self.api.image.ensure(&image, spec.pull_image).await?;
+                        self.api.image.ensure(&cfg.image, spec.pull_image).await?;
                         let network = self
                             .ensure_sidecars(
-                                &RoozCfg::sidecars(&cli_config, &repo_config),
+                                &cfg.sidecars,
                                 &labels,
                                 &workspace_key,
                                 force,
@@ -123,17 +135,19 @@ impl<'a> WorkspaceApi<'a> {
                             .await?;
                         let work_labels = labels
                             .clone()
-                            .with_container(Some(constants::DEFAULT_CONTAINER_NAME));
+                            .with_container(Some(constants::DEFAULT_CONTAINER_NAME))
+                            .with_config(cfg.clone());
 
                         let work_spec = WorkSpec {
-                            image,
-                            caches: Some(RoozCfg::caches(spec, &cli_config, &repo_config)),
-                            env_vars: RoozCfg::env_vars(&cli_config, &repo_config),
-                            ports: RoozCfg::ports(&cli_config, &repo_config),
+                            image: &cfg.image,
+                            user: &cfg.user,
+                            caches: Some(cfg.caches),
+                            env_vars: Some(cfg.env),
+                            ports: Some(cfg.ports),
                             container_working_dir: &git_spec.dir,
                             network: network.as_deref(),
                             labels: (&work_labels).into(),
-                            privileged: RoozCfg::privileged(spec, &cli_config, &repo_config),
+                            privileged: cfg.privileged,
                             ..work_spec
                         };
 
@@ -142,7 +156,7 @@ impl<'a> WorkspaceApi<'a> {
                         return Ok(EnterSpec {
                             workspace: ws,
                             git_spec: Some(git_spec),
-                            git_repo_config: repo_config,
+                            config: cfg_builder,
                         });
                     }
                 }
@@ -154,17 +168,22 @@ impl<'a> WorkspaceApi<'a> {
         let EnterSpec {
             workspace,
             git_spec,
-            git_repo_config,
+            config,
         } = self.new(spec, None, None).await?;
 
         let working_dir = git_spec
             .map(|v| (&v).dir.to_string())
             .or(Some(workspace.working_dir));
 
+        let cfg = FinalCfg::from(&RoozCfg {
+            shell: Some(shell.into()),
+            ..config
+        });
         self.enter(
             &workspace.workspace_key,
             working_dir.as_deref(),
-            &RoozCfg::shell(shell, &None, &git_repo_config),
+            Some(&cfg.shell),
+            None,
             None,
             workspace.volumes,
             &workspace.orig_uid,

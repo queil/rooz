@@ -51,7 +51,7 @@ pub struct WorkspacePersistence {
     pub apply: bool,
 }
 
-#[derive(Parser, Debug)]
+#[derive(Clone, Parser, Debug)]
 pub struct WorkParams {
     #[arg(short, long, alias = "git")]
     pub git_ssh_url: Option<String>,
@@ -107,8 +107,10 @@ pub struct TmpParams {
 #[command(about = "Opens an interactive shell to a workspace's container")]
 pub struct EnterParams {
     pub name: String,
-    #[arg(short, long, default_value = "bash", env = "ROOZ_SHELL")]
-    pub shell: String,
+    #[arg(short, long)]
+    pub shell: Option<String>,
+    #[arg(long, hide = true, env = "ROOZ_SHELL")]
+    pub env_shell: Option<String>,
     #[arg(short, long)]
     pub root: bool,
     #[arg(short, long)]
@@ -141,6 +143,13 @@ pub struct StopParams {
     pub all: bool,
 }
 
+#[derive(Parser, Debug)]
+#[command(about = "Describes a workspace")]
+pub struct DescribeParams {
+    #[arg()]
+    pub name: String,
+}
+
 #[derive(Subcommand, Debug)]
 pub enum Commands {
     New(NewParams),
@@ -148,6 +157,7 @@ pub enum Commands {
     Tmp(TmpParams),
     List(ListParams),
     Remove(RemoveParams),
+    Describe(DescribeParams),
     Stop(StopParams),
     System(System),
 }
