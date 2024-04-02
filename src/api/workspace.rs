@@ -234,7 +234,9 @@ impl<'a> WorkspaceApi<'a> {
         }
 
         if let Some(labels) = &summary.labels {
-            shell_value = FinalCfg::from_string(labels[labels::CONFIG].clone())?.shell;
+            if labels.contains_key(labels::CONFIG) {
+                shell_value = FinalCfg::from_string(labels[labels::CONFIG].clone())?.shell;
+            }
         }
 
         if let Some(shell) = shell {
