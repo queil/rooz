@@ -13,7 +13,7 @@ use crate::{
     model::{
         config::FinalCfg,
         types::{AnyError, ContainerResult, RunSpec, WorkSpec, WorkspaceResult},
-        volume::{RoozVolume, CACHE_ROLE},
+        volume::{RoozVolume, CACHE_ROLE, WORK_ROLE},
     },
     ssh,
 };
@@ -191,6 +191,16 @@ impl<'a> WorkspaceApi<'a> {
         let labels = Labels::new(None, None);
         for c in self.api.container.get_all(&labels).await? {
             self.api.container.stop(&c.id.unwrap()).await?;
+        }
+        Ok(())
+    }
+
+    pub async fn show_config(&self, workspace_key: &str) -> Result<(), AnyError> {
+        let labels = Labels::new(Some(workspace_key), Some(WORK_ROLE));
+        for c in self.api.container.get_all(&labels).await? {
+            if let Some(labels) = c.labels {
+                println!("{}", labels[labels::CONFIG]);
+            }
         }
         Ok(())
     }

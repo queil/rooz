@@ -143,6 +143,13 @@ pub struct StopParams {
     pub all: bool,
 }
 
+#[derive(Parser, Debug)]
+#[command(about = "Describes a workspace")]
+pub struct DescribeParams {
+    #[arg()]
+    pub name: String,
+}
+
 #[derive(Subcommand, Debug)]
 pub enum Commands {
     New(NewParams),
@@ -150,6 +157,7 @@ pub enum Commands {
     Tmp(TmpParams),
     List(ListParams),
     Remove(RemoveParams),
+    Describe(DescribeParams),
     Stop(StopParams),
     System(System),
 }

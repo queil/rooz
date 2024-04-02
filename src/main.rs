@@ -16,8 +16,9 @@ use crate::{
     backend::ContainerBackend,
     cli::{
         Cli,
-        Commands::{Enter, List, New, Remove, Stop, System, Tmp},
-        CompletionParams, InitParams, ListParams, NewParams, RemoveParams, StopParams, TmpParams,
+        Commands::{Describe, Enter, List, New, Remove, Stop, System, Tmp},
+        CompletionParams, DescribeParams, InitParams, ListParams, NewParams, RemoveParams,
+        StopParams, TmpParams,
     },
     model::{config::RoozCfg, types::AnyError},
 };
@@ -163,6 +164,13 @@ async fn main() -> Result<(), AnyError> {
             ..
         } => {
             workspace.stop_all().await?;
+        }
+
+        Cli {
+            command: Describe(DescribeParams { name, .. }),
+            ..
+        } => {
+            workspace.show_config(&name).await?;
         }
 
         Cli {
