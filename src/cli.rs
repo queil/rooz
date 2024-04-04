@@ -32,7 +32,7 @@ pub struct System {
     pub command: SystemCommands,
 }
 
-#[derive(Parser, Debug)]
+#[derive(Clone, Parser, Debug)]
 pub struct WorkspacePersistence {
     pub name: String,
     #[arg(
@@ -63,6 +63,8 @@ pub struct WorkParams {
     pub pull_image: bool,
     #[arg(long, hide = true, env = "ROOZ_USER")]
     pub env_user: Option<String>,
+    #[arg(long, hide = true, env = "ROOZ_SHELL")]
+    pub env_shell: Option<String>,
     #[arg(short, long)]
     pub user: Option<String>,
     #[arg(long, hide = true, env = "ROOZ_CACHES", use_value_delimiter = true)]
@@ -109,8 +111,6 @@ pub struct EnterParams {
     pub name: String,
     #[arg(short, long)]
     pub shell: Option<String>,
-    #[arg(long, hide = true, env = "ROOZ_SHELL")]
-    pub env_shell: Option<String>,
     #[arg(short, long)]
     pub root: bool,
     #[arg(short, long)]

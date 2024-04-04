@@ -1,6 +1,6 @@
 [package]
 name = "rooz"
-version = "0.58.0"
+version = "0.59.0"
 edition = "2021"
 
 [dependencies]
@@ -10,6 +10,7 @@ bollard = "0.15.0"
 
 clap = { version = "4.4.2", features = ["derive", "env"] }
 clap_complete = "4.4.1"
+colored = "2.1.0"
 env_logger = "0.10.0"
 futures = "0.3.26"
 hostname = "0.3.1"

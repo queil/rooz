@@ -8,6 +8,7 @@ use crate::{
         types::{AnyError, EnterSpec, WorkSpec},
     },
 };
+use colored::Colorize;
 
 impl<'a> WorkspaceApi<'a> {
     pub async fn new(
@@ -110,12 +111,20 @@ impl<'a> WorkspaceApi<'a> {
                 {
                     (repo_config, git_spec) => {
                         let mut cfg_builder = RoozCfg::default().from_cli_env(spec.clone());
-                        if let Some(c) = &repo_config {
-                            log::debug!("Config read from .rooz.toml in the cloned repo");
-                            cfg_builder = cfg_builder.from_config(c.clone());
-                        } else {
-                            log::debug!(".rooz.toml ignored")
+
+                        match repo_config {
+                            Some(Ok(c)) => {
+                                log::debug!(".rooz.toml found in the repository and applied.");
+                                cfg_builder = cfg_builder.from_config(c.clone());
+                            }
+                            Some(Err(e)) => {
+                                eprintln!("{}\n{}", e, "WARNING: Ignoring the invalid .rooz.toml file from the repository".yellow());
+                            }
+                            None => {
+                                log::debug!(".rooz.toml not found in the repository");
+                            }
                         }
+
                         if let Some(c) = &cli_config {
                             cfg_builder = cfg_builder.from_config(c.clone());
                         }
@@ -179,11 +188,11 @@ impl<'a> WorkspaceApi<'a> {
             shell: Some(shell.into()),
             ..config
         });
+
         self.enter(
             &workspace.workspace_key,
             working_dir.as_deref(),
             Some(&cfg.shell),
-            None,
             None,
             workspace.volumes,
             &workspace.orig_uid,

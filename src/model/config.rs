@@ -82,6 +82,7 @@ impl RoozCfg {
 
     pub fn from_cli_env(self, cli: WorkParams) -> Self {
         RoozCfg {
+            shell: cli.env_shell.or(self.shell.clone()),
             image: cli.env_image.or(self.image.clone()),
             user: cli.env_user.or(self.user.clone()),
             caches: Self::extend_if_any(self.caches.clone(), cli.env_caches),

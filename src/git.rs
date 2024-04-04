@@ -34,7 +34,7 @@ impl<'a> GitApi<'a> {
         url: &str,
         workspace_key: &str,
         working_dir: &str,
-    ) -> Result<(Option<RoozCfg>, GitCloneSpec), AnyError> {
+    ) -> Result<(Option<Result<RoozCfg, AnyError>>, GitCloneSpec), AnyError> {
         let clone_dir = get_clone_dir(working_dir, url);
 
         let clone_cmd = container::inject(
@@ -104,8 +104,13 @@ impl<'a> GitApi<'a> {
                 &container_id,
                 None,
                 Some(vec![
-                    "cat",
-                    format!("{}/{}", clone_dir, ".rooz.toml").as_ref(),
+                    "sh",
+                    "-c",
+                    format!(
+                        "ls {}/.rooz.toml > /dev/null 2>&1 && cat {}/.rooz.toml",
+                        clone_dir, clone_dir
+                    )
+                    .as_ref(),
                 ]),
             )
             .await?;
@@ -114,16 +119,13 @@ impl<'a> GitApi<'a> {
 
         self.api.container.remove(&container_id, true).await?;
 
-        let cfg = RoozCfg::from_string(rooz_cfg);
-
-        let work_spec = GitCloneSpec { dir: clone_dir };
-
-        match cfg {
-            Ok(cfg) => Ok((Some(cfg), work_spec)),
-            Err(e) => {
-                println!("{}", e);
-                Ok((None, work_spec))
+        Ok((
+            if rooz_cfg.is_empty() {
+                None
+            } else {
+                Some(RoozCfg::from_string(rooz_cfg))
             },
-        }
+            GitCloneSpec { dir: clone_dir },
+        ))
     }
 }

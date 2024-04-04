@@ -210,13 +210,15 @@ impl<'a> WorkspaceApi<'a> {
         workspace_key: &str,
         working_dir: Option<&str>,
         shell: Option<&str>,
-        env_shell: Option<&str>,
         container_id: Option<&str>,
         volumes: Vec<RoozVolume>,
         chown_uid: &str,
         root: bool,
         ephemeral: bool,
     ) -> Result<(), AnyError> {
+
+        println!("{}", termion::clear::All);
+
         let enter_labels = Labels::new(Some(workspace_key), None)
             .with_container(container_id.or(Some(constants::DEFAULT_CONTAINER_NAME)));
         let summaries = self.api.container.get_all(&enter_labels).await?;
@@ -228,10 +230,6 @@ impl<'a> WorkspaceApi<'a> {
         };
 
         let mut shell_value = String::new();
-
-        if let Some(shell) = env_shell {
-            shell_value = shell.into();
-        }
 
         if let Some(labels) = &summary.labels {
             if labels.contains_key(labels::CONFIG) {

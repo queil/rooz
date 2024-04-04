@@ -75,7 +75,6 @@ impl<'a> ExecApi<'a> {
                     Ok(_) => (),
                     Err(err) => println!("Resize exec: {:?}", err),
                 };
-                println!("{}", termion::clear::All);
             };
 
             // set stdout in raw mode so we can do tty stuff

@@ -98,7 +98,11 @@ async fn main() -> Result<(), AnyError> {
                 Some(path) => Some(RoozCfg::from_file(&path)?),
                 None => None,
             };
-            workspace.new(&work, cfg, Some(persistence)).await?;
+            workspace.new(&work, cfg, Some(persistence.clone())).await?;
+            println!(
+                "\nThe workspace is ready. Run 'rooz enter {}' to enter.",
+                persistence.name
+            );
         }
 
         Cli {
@@ -106,7 +110,6 @@ async fn main() -> Result<(), AnyError> {
                 Enter(EnterParams {
                     name,
                     shell,
-                    env_shell,
                     root,
                     work_dir,
                     container,
@@ -118,7 +121,6 @@ async fn main() -> Result<(), AnyError> {
                     &name,
                     work_dir.as_deref(),
                     shell.as_deref(),
-                    env_shell.as_deref(),
                     container.as_deref(),
                     vec![],
                     constants::DEFAULT_UID,
