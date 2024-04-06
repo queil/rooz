@@ -167,6 +167,6 @@ pub enum Commands {
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
-    #[arg(hide = true, env = "ROOZ_REMOTE")]
-    pub env_remote: Option<bool>,
+    #[arg(hide = true, env = "ROOZ_SSH_URL", help = "If set, $DOCKER_HOST is treated as a remote daemon socket and an SSH connection is established")]
+    pub env_ssh_url: Option<String>,
 }

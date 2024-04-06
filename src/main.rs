@@ -9,7 +9,7 @@ mod labels;
 mod model;
 mod ssh;
 
-use std::io;
+use std::{io, path::Path, time::Duration};
 
 use crate::{
     api::{Api, ContainerApi, ExecApi, GitApi, ImageApi, VolumeApi, WorkspaceApi},
@@ -23,10 +23,12 @@ use crate::{
     model::{config::RoozCfg, types::AnyError},
 };
 
-use bollard::Docker;
+use bollard::{Docker, API_DEFAULT_VERSION};
 use clap::{CommandFactory, Parser};
 use clap_complete::generate;
 use cli::EnterParams;
+use openssh::{ForwardType, KnownHosts, Session, SessionBuilder};
+use tokio::net::TcpListener;
 
 #[tokio::main]
 async fn main() -> Result<(), AnyError> {
@@ -36,12 +38,42 @@ async fn main() -> Result<(), AnyError> {
 
     let args = Cli::parse();
 
+    // The SSH session is kept here because Docker::connect_with_http doesn't take its ownership.
+    let mut _session : Session;
+
     let connection = if let Cli {
-        env_remote: Some(true),
+        env_ssh_url: Some(ssh_url),
         command: _,
-    } = args
+    } = &args
     {
-        Docker::connect_with_ssl_defaults()
+        _session = SessionBuilder::default()
+            .known_hosts_check(KnownHosts::Accept)
+            .connect_timeout(Duration::from_secs(5))
+            .connect(ssh_url)
+            .await?;
+
+        log::debug!("SSH session to {} established", ssh_url);
+
+        let local_addr = {
+            let listener = TcpListener::bind("127.0.0.1:0").await?;
+            listener.local_addr()?
+        };
+
+        let socket_url = String::from_utf8(_session.command("echo").arg("-n").raw_arg("$DOCKER_HOST").output().await?.stdout)?;
+        
+        if socket_url.is_empty() {
+            panic!("Env var DOCKER_HOST is not set on the remote host. Can't get docker.socket path.")
+        }
+
+        log::debug!("Read remote socket from env var DOCKER_HOST: {}", socket_url);
+
+        let connect_socket = Path::new(&socket_url);
+
+        _session
+            .request_port_forward(ForwardType::Local, local_addr, connect_socket)
+            .await?;
+
+        Docker::connect_with_http(&local_addr.to_string(), 120, API_DEFAULT_VERSION)
     } else {
         Docker::connect_with_local_defaults()
     };
@@ -220,7 +252,7 @@ async fn main() -> Result<(), AnyError> {
                 System(cli::System {
                     command: cli::SystemCommands::Completion(CompletionParams { shell }),
                 }),
-            env_remote: _,
+            env_ssh_url: _,
         } => {
             let mut cli = Cli::command()
                 .disable_help_flag(true)

@@ -186,19 +186,21 @@ Supported keywords:
 
 ## Connecting to a remote Docker host
 
-Rooz connects to a local Docker daemon by default. However, it also supports working with
-a remote mTLS-protected Docker socket.
+Rooz connects to a local Docker daemon by default. However, it can connect to remote
+hosts via SSH.
 
-:warning: make sure the Docker daemon has [remote access enabled](https://docs.docker.com/config/daemon/remote-access/) and is [mTLS-protected](https://docs.docker.com/engine/security/protect-access/#create-a-ca-server-and-client-keys-with-openssl)
+### Perpatation
 
-Configure rooz to connect to a remote daemon:
+On the client side add to your `~/.bashrc`:
+* `export ROOZ_SSH_URL=ssh://your-user@remote-host`
 
-* env: `export ROOZ_REMOTE=true`
-* env: `export DOCKER_HOST=tcp://X.X.X.X:2376`
-* make sure you have the following files in `~/.docker/`:
-  * `ca.pem` (Docker daemon's CA cert)
-  * `cert.pem` (Your client cert)
-  * `key.pem` (Your client key)
+On the remote host side:
+
+* In `~/.bashrc` at the top:
+  
+  For rootless daemon: `export DOCKER_HOST=/run/user/1000/docker.sock` (assuming your-user has uid=1000)
+
+  For a deamon running as root: `export DOCKER_HOST=/var/run/docker.sock`
 
 ## Running with Podman
 
