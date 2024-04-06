@@ -184,6 +184,22 @@ Supported keywords:
 
 * auto-resizing rooz session to fit the terminal window (if resized) is not implemented. Workaround: exit the session, resize the window to your liking, enter the container.
 
+## Connecting to a remote Docker host
+
+Rooz connects to a local Docker daemon by default. However, it also supports working with
+a remote mTLS-protected Docker socket.
+
+:warning: make sure the Docker daemon has [remote access enabled](https://docs.docker.com/config/daemon/remote-access/) and is [mTLS-protected](https://docs.docker.com/engine/security/protect-access/#create-a-ca-server-and-client-keys-with-openssl)
+
+Configure rooz to connect to a remote daemon:
+
+* env: `export ROOZ_REMOTE=true`
+* env: `export DOCKER_HOST=tcp://X.X.X.X:2376`
+* make sure you have the following files in `~/.docker/`:
+  * `ca.pem` (Docker daemon's CA cert)
+  * `cert.pem` (Your client cert)
+  * `key.pem` (Your client key)
+
 ## Running with Podman
 
 1. Make sure podman remote socket is enabled:

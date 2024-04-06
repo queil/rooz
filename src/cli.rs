@@ -167,4 +167,6 @@ pub enum Commands {
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
+    #[arg(hide = true, env = "ROOZ_REMOTE")]
+    pub env_remote: Option<bool>,
 }

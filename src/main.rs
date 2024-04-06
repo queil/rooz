@@ -35,7 +35,15 @@ async fn main() -> Result<(), AnyError> {
     log::debug!("Started");
 
     let args = Cli::parse();
-    let docker = Docker::connect_with_local_defaults().expect("Docker API connection established");
+
+    let connection = if let Cli{env_remote:Some(true), command:_ } = args {
+        Docker::connect_with_ssl_defaults()
+    } else {
+        Docker::connect_with_local_defaults()
+    };
+
+    let docker = connection.expect("Docker API connection established");
+     
     log::debug!("Client ver: {}", &docker.client_version());
 
     let version = &docker.version().await?;
@@ -203,12 +211,7 @@ async fn main() -> Result<(), AnyError> {
                 .await?
         }
 
-        Cli {
-            command:
-                System(cli::System {
-                    command: cli::SystemCommands::Completion(CompletionParams { shell }),
-                }),
-        } => {
+        Cli {command:System(cli::System{command:cli::SystemCommands::Completion(CompletionParams{shell}),}), env_remote: _ } => {
             let mut cli = Cli::command()
                 .disable_help_flag(true)
                 .disable_help_subcommand(true);
