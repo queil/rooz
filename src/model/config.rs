@@ -1,6 +1,6 @@
 use crate::{cli::WorkParams, constants};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, fs};
+use std::{collections::HashMap, ffi::OsStr, fs, path::Path};
 
 use super::types::AnyError;
 
@@ -28,17 +28,41 @@ pub struct RoozCfg {
     pub privileged: Option<bool>,
 }
 
-impl RoozCfg {
-    pub fn from_file(path: &str) -> Result<RoozCfg, Box<dyn std::error::Error + 'static>> {
-        Self::from_string(fs::read_to_string(path)?)
+#[derive(Debug, Clone)]
+pub enum FileFormat {
+    Toml,
+    Yaml,
+}
+
+impl FileFormat {
+    pub fn to_string(&self) -> String {
+        match self {
+            FileFormat::Toml => "toml".into(),
+            FileFormat::Yaml => "y*ml".into(),
+        }
     }
 
-    pub fn from_string(config: String) -> Result<RoozCfg, Box<dyn std::error::Error + 'static>> {
-        let f = RoozCfg::deserialize(toml::de::Deserializer::new(&config));
-        match f {
-            Ok(val) => Ok(val),
-            Err(e) => Err(Box::new(e)),
+    pub fn from_path(path: &str) -> FileFormat {
+        match Path::new(path).extension().and_then(OsStr::to_str) {
+            Some("yaml") => FileFormat::Yaml,
+            Some("yml") => FileFormat::Yaml,
+            Some("toml") => FileFormat::Toml,
+            Some(other) => panic!("Config file format: {} is not supported", other),
+            None => panic!("Only toml and yaml config file formats are supported."),
         }
+    }
+}
+
+impl RoozCfg {
+    pub fn from_file(path: &str) -> Result<RoozCfg, AnyError> {
+        Self::from_string(fs::read_to_string(path)?, FileFormat::from_path(&path))
+    }
+
+    pub fn from_string(config: String, file_format: FileFormat) -> Result<RoozCfg, AnyError> {
+        Ok(match file_format {
+            FileFormat::Yaml => RoozCfg::deserialize(serde_yaml::Deserializer::from_str(&config))?,
+            FileFormat::Toml => RoozCfg::deserialize(toml::de::Deserializer::new(&config))?,
+        })
     }
 
     fn extend_if_any<A, T: Extend<A> + IntoIterator<Item = A>>(

@@ -1,9 +1,9 @@
 use crate::{
-    api::{container, GitApi},
+    api::{container, ExecApi, GitApi},
     id,
     labels::Labels,
     model::{
-        config::RoozCfg,
+        config::{FileFormat, RoozCfg},
         types::{AnyError, ContainerResult, GitCloneSpec, RunSpec},
         volume::RoozVolume,
     },
@@ -24,6 +24,35 @@ fn get_clone_dir(root_dir: &str, git_ssh_url: &str) -> String {
 
     log::debug!("Full clone dir: {:?}", &work_dir);
     work_dir
+}
+
+impl<'a> ExecApi<'a> {
+    pub async fn read_rooz_config(
+        &self,
+        container_id: &str,
+        clone_dir: &str,
+        file_format: FileFormat,
+    ) -> Result<(FileFormat, String), AnyError> {
+        let file_path = &format!("{}/.rooz.{}", clone_dir, file_format.to_string());
+
+        let a = self
+            .output(
+                "rooz-cfg",
+                &container_id,
+                None,
+                Some(vec![
+                    "sh",
+                    "-c",
+                    format!(
+                        "ls {} > /dev/null 2>&1 && cat `ls {} | head -1`",
+                        file_path, file_path
+                    )
+                    .as_ref(),
+                ]),
+            )
+            .await?;
+        Ok((file_format, a))
+    }
 }
 
 impl<'a> GitApi<'a> {
@@ -96,24 +125,16 @@ impl<'a> GitApi<'a> {
                 .await?;
         };
 
-        let rooz_cfg = self
+        let (file_format, rooz_cfg) = self
             .api
             .exec
-            .output(
-                "rooz-toml",
-                &container_id,
-                None,
-                Some(vec![
-                    "sh",
-                    "-c",
-                    format!(
-                        "ls {}/.rooz.toml > /dev/null 2>&1 && cat {}/.rooz.toml",
-                        clone_dir, clone_dir
-                    )
-                    .as_ref(),
-                ]),
-            )
-            .await?;
+            .read_rooz_config(container_id, &clone_dir, FileFormat::Toml)
+            .await
+            .or(self
+                .api
+                .exec
+                .read_rooz_config(container_id, &clone_dir, FileFormat::Yaml)
+                .await)?;
 
         log::debug!("Repo config result: {}", &rooz_cfg);
 
@@ -123,7 +144,7 @@ impl<'a> GitApi<'a> {
             if rooz_cfg.is_empty() {
                 None
             } else {
-                Some(RoozCfg::from_string(rooz_cfg))
+                Some(RoozCfg::from_string(rooz_cfg, file_format))
             },
             GitCloneSpec { dir: clone_dir },
         ))

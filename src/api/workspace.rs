@@ -216,7 +216,6 @@ impl<'a> WorkspaceApi<'a> {
         root: bool,
         ephemeral: bool,
     ) -> Result<(), AnyError> {
-
         println!("{}", termion::clear::All);
 
         let enter_labels = Labels::new(Some(workspace_key), None)
