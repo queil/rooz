@@ -35,7 +35,7 @@ impl<'a> ExecApi<'a> {
     ) -> Result<(FileFormat, String), AnyError> {
         let file_path = &format!("{}/.rooz.{}", clone_dir, file_format.to_string());
 
-        let a = self
+        let config = self
             .output(
                 "rooz-cfg",
                 &container_id,
@@ -51,7 +51,7 @@ impl<'a> ExecApi<'a> {
                 ]),
             )
             .await?;
-        Ok((file_format, a))
+        Ok((file_format, config))
     }
 }
 
