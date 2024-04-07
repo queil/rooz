@@ -32,6 +32,26 @@ pub struct System {
     pub command: SystemCommands,
 }
 
+#[derive(Parser, Debug)]
+#[command(about = "Establishes a connection to a remote host")]
+pub struct RemoteParams {
+    #[arg(
+        long,
+        short,
+        env = "ROOZ_REMOTE_SSH_URL",
+        help = "Remote host's SSH url"
+    )]
+    pub ssh_url: String,
+    #[arg(
+        long,
+        short,
+        default_value = "~/.rooz/remote.sock",
+        env = "ROOZ_REMOTE_LOCAL_SOCK",
+        help = "A local unix sock forwarded to the remote docker socket. Without the prefix unix://"
+    )]
+    pub local_socket: String,
+}
+
 #[derive(Clone, Parser, Debug)]
 pub struct WorkspacePersistence {
     pub name: String,
@@ -106,7 +126,10 @@ pub struct TmpParams {
 }
 
 #[derive(Parser, Debug)]
-#[command(about = "Opens an interactive shell to a workspace's container")]
+#[command(
+    about = "Opens an interactive shell to a workspace's container",
+    alias = "jump"
+)]
 pub struct EnterParams {
     pub name: String,
     #[arg(short, long)]
@@ -159,6 +182,7 @@ pub enum Commands {
     Remove(RemoveParams),
     Describe(DescribeParams),
     Stop(StopParams),
+    Remote(RemoteParams),
     System(System),
 }
 
@@ -167,6 +191,4 @@ pub enum Commands {
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
-    #[arg(hide = true, env = "ROOZ_SSH_URL", help = "If set, $DOCKER_HOST is treated as a remote daemon socket and an SSH connection is established")]
-    pub env_ssh_url: Option<String>,
 }
