@@ -28,8 +28,7 @@ use clap::{CommandFactory, Parser};
 use clap_complete::generate;
 use cli::EnterParams;
 use futures::channel::oneshot::{self, Sender};
-use openssh::{ForwardType, KnownHosts,  SessionBuilder};
-
+use openssh::{ForwardType, KnownHosts, SessionBuilder};
 
 #[tokio::main]
 async fn main() -> Result<(), AnyError> {
@@ -40,15 +39,15 @@ async fn main() -> Result<(), AnyError> {
     let args = Cli::parse();
 
     if let Cli {
-        command: Remote(cli::RemoteParams {
-            ssh_url,
-            local_socket,
-        }),
+        command:
+            Remote(cli::RemoteParams {
+                ssh_url,
+                local_socket,
+            }),
     } = &args
     {
-
         let (sender, receiver) = oneshot::channel::<()>();
-        
+
         let tx_mutex = Mutex::<Option<Sender<()>>>::new(Some(sender));
 
         ctrlc::set_handler(move || {
@@ -99,8 +98,16 @@ async fn main() -> Result<(), AnyError> {
             .request_port_forward(ForwardType::Local, local_socket_path, remote_socket)
             .await?;
 
-        println!("Forwarding: {} -> {}:{}", local_socket_path.display(), &ssh_url, &remote_socket.display());
-        println!("Run 'export DOCKER_HOST=unix://{}' to make the socket useful for local tools", local_socket_path.display());
+        println!(
+            "Forwarding: {} -> {}:{}",
+            local_socket_path.display(),
+            &ssh_url,
+            &remote_socket.display()
+        );
+        println!(
+            "Run 'export DOCKER_HOST=unix://{}' to make the socket useful for local tools",
+            local_socket_path.display()
+        );
 
         futures::executor::block_on(receiver)?;
 
