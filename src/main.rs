@@ -58,6 +58,13 @@ async fn main() -> Result<(), AnyError> {
         }),
     } = &args
     {
+
+        let local_socket = Path::new("/home/queil/.rooz/remote.sock");
+
+        if local_socket.exists() {
+            fs::remove_file(local_socket)?;
+        }
+
         let session = SessionBuilder::default()
             .known_hosts_check(KnownHosts::Accept)
             .connect_timeout(Duration::from_secs(5))
@@ -67,14 +74,14 @@ async fn main() -> Result<(), AnyError> {
         println!("SSH:{} connected", &ssh_url);
 
         
-        let local_addr = {
-            let listener = TcpListener::bind("127.0.0.1:0").await?;
-            listener.local_addr()?
-        };
+        // let local_addr = {
+        //     let listener = UnixListener::bind(path)?;
+        //     listener.local_addr()?
+        // };
 
 
 
-        println!("Remote socket candidate: {}", &local_addr.to_string());
+        println!("Remote socket candidate: {}", &local_socket.display());
 
         let socket_url = String::from_utf8(
             session
@@ -97,94 +104,98 @@ async fn main() -> Result<(), AnyError> {
             socket_url
         );
 
-        let connect_socket = Path::new(&socket_url);
+        let remote_socket = Path::new(&socket_url);
 
         session
-            .request_port_forward(ForwardType::Local, local_addr, connect_socket)
+            .request_port_forward(ForwardType::Local, local_socket, remote_socket)
             .await?;
 
-        println!("Remote socket available at: {}", &local_addr.to_string());
+        println!("Remote socket available at: {}", local_socket.to_string_lossy());
 
-        let path = Path::new("/home/queil/.rooz/remote.sock");
 
-        if path.exists() {
-            fs::remove_file(path)?;
-        }
+        
 
-        let listener = UnixListener::bind(path)?;
+        // let listener = UnixListener::bind(path)?;
 
-        println!("Listening for connections at {}.", path.display());
+        // println!("Listening for connections at {}.", path.display());
 
-        loop {
-            let (stream, _) = listener.accept().await?;
-            let io = TokioIo::new(stream);
+        // loop {
+        //     let (stream, _) = listener.accept().await?;
+        //     let io = TokioIo::new(stream);
 
-            println!("Accepting connection.");
+        //     println!("Accepting connection.");
 
 
 
  
             
-            tokio::task::spawn(async move {
-                let svc_fn = service_fn(|req| async {
+        //     tokio::task::spawn(async move {
+        //         let svc_fn = service_fn(|req| async {
 
-                    //req.post().await?
+        //             //req.post().await?
 
                                
-                    // Open a TCP connection to the remote host
-                    let stream = TcpStream::connect(&local_addr).await.unwrap();
+        //             // Open a TCP connection to the remote host
+        //             let stream = TcpStream::connect(&local_addr).await.unwrap();
                     
-                    // Use an adapter to access something implementing `tokio::io` traits as if they implement
-                    // `hyper::rt` IO traits.
-                    let io2 = TokioIo::new(stream);
+        //             // Use an adapter to access something implementing `tokio::io` traits as if they implement
+        //             // `hyper::rt` IO traits.
+        //             let io2 = TokioIo::new(stream);
                     
-                    // Create the Hyper client
-                    let (mut sender, conn) = hyper::client::conn::http1::handshake(io2).await?;
+        //             // Create the Hyper client
+        //             let (mut sender, conn) = hyper::client::conn::http1::handshake(io2).await?;
                     
-                    // Spawn a task to poll the connection, driving the HTTP state
-                    tokio::task::spawn(async move {
-                        if let Err(err) = conn.await {
-                            println!("Connection failed: {:?}", err);
-                        }
-                    });
-                    let res = sender.send_request(req).await?;
-                    println!("Response: {}", res.status());
-                        println!("Headers: {:#?}\n", res.headers());
+        //             // Spawn a task to poll the connection, driving the HTTP state
+        //             tokio::task::spawn(async move {
+        //                 if let Err(err) = conn.await {
+        //                     println!("Connection failed: {:?}", err);
+        //                 }
+        //             });
+        //             let res = sender.send_request(req).await?;
+        //             println!("Response: {}", res.status());
+        //                 println!("Headers: {:#?}\n", res.headers());
 
      
-                    Ok::<_, hyper::Error>(res)
-                });
+        //             Ok::<_, hyper::Error>(res)
+        //         });
 
-                // On linux, serve_connection will return right away with Result::Ok.
-                //
-                // On OSX, serve_connection will block until the client disconnects,
-                // and return Result::Err(hyper::Error) with a source (inner/cause)
-                // socket error indicating the client connection is no longer open.
-                match hyper::server::conn::http1::Builder::new()
-                    .serve_connection(io, svc_fn)
-                    .await
-                {
-                    Ok(()) => {
-                        println!("Accepted connection.");
-                    }
-                    Err(err) => {
-                        let source: Option<&std::io::Error> =
-                            err.source().and_then(|s| s.downcast_ref());
+        //         // On linux, serve_connection will return right away with Result::Ok.
+        //         //
+        //         // On OSX, serve_connection will block until the client disconnects,
+        //         // and return Result::Err(hyper::Error) with a source (inner/cause)
+        //         // socket error indicating the client connection is no longer open.
+        //         match hyper::server::conn::http1::Builder::new()
+        //             .serve_connection(io, svc_fn)
+        //             .await
+        //         {
+        //             Ok(()) => {
+        //                 println!("Accepted connection.");
+        //             }
+        //             Err(err) => {
+        //                 let source: Option<&std::io::Error> =
+        //                     err.source().and_then(|s| s.downcast_ref());
 
-                        match source {
-                            Some(io_err) if io_err.kind() == ErrorKind::NotConnected => {
-                                println!("Client disconnected.");
-                            }
-                            _ => {
-                                eprintln!("Failed to accept connection: {err:?}");
-                            }
-                        }
-                    }
-                };
-            });
+        //                 match source {
+        //                     Some(io_err) if io_err.kind() == ErrorKind::NotConnected => {
+        //                         println!("Client disconnected.");
+        //                     }
+        //                     _ => {
+        //                         eprintln!("Failed to accept connection: {err:?}");
+        //                     }
+        //                 }
+        //             }
+        //         };
+        //     });
+        // }
+
+        thread::sleep(Duration::from_secs(30));
+
+        if local_socket.exists() {
+            fs::remove_file(local_socket)?;
         }
 
-        thread::sleep(Duration::from_secs(36000))
+        println!("EXIT");
+
     }
 
     let connection = Docker::connect_with_local_defaults();
