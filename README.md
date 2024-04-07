@@ -201,17 +201,22 @@ hosts via SSH and forward a local unix socket to the remote's Docker/Podman sock
 
 ### The local host
 
-add to your `~/.bashrc`:
+* `mkdir ~/.rooz`
+
+Add to your `~/.bashrc`:
+
 * `export ROOZ_REMOTE_SSH_URL=ssh://your-user@remote-host`
 * `export DOCKER_HOST=unix:///home/your-user/.rooz/remote.sock`  (this is the default path that can be changed via `ROOZ_REMOTE_LOCAL_SOCK` - without the `unix://` prefix)
 
-To enable VsCode to attach to remote containers also set the below in `settings.json`:
+Now run: `rooz remote &`. You can stop forwarding by `fg` and `CTRL+C`.
+
+:information_source: To enable VsCode to attach to remote containers also set the below in `settings.json`:
 
 ```json
    "docker.host": "unix:///home/your-user/.rooz/remote.sock"
 ```
 
-Now run: `rooz remote &`. You can stop forwarding by `fg` and `CTRL+C`.
+
 
 ## Running with Podman
 
