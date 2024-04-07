@@ -195,9 +195,10 @@ hosts via SSH and forward a local unix socket to the remote's Docker/Podman sock
 
 * In `~/.bashrc` at the top:
   
-  For rootless daemon: `export DOCKER_HOST=/run/user/1000/docker.sock` (assuming your-user has uid=1000)
+  * For Docker as root: `export DOCKER_HOST=/var/run/docker.sock`
+  * For rootless Docker: `export DOCKER_HOST=/run/user/1000/docker.sock` (assuming your-user has uid=1000)
+  * For Podman: `export DOCKER_HOST=/run/user/1000/podman/podman.sock` (assuming your-user has uid=1000)
 
-  For a deamon running as root: `export DOCKER_HOST=/var/run/docker.sock`
 
 ### The local host
 
@@ -215,8 +216,6 @@ Now run: `rooz remote &`. You can stop forwarding by `fg` and `CTRL+C`.
 ```json
    "docker.host": "unix:///home/your-user/.rooz/remote.sock"
 ```
-
-
 
 ## Running with Podman
 
