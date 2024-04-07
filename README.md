@@ -189,7 +189,7 @@ Supported keywords:
 Rooz connects to a local Docker daemon by default. However, it can connect to remote
 hosts via SSH and forward a local unix socket to the remote's Docker/Podman socket.
 
-### Perpatation
+### Preparation
 
 #### The remote host
 
