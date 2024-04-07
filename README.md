@@ -187,20 +187,31 @@ Supported keywords:
 ## Connecting to a remote Docker/Podman host
 
 Rooz connects to a local Docker daemon by default. However, it can connect to remote
-hosts via SSH.
+hosts via SSH and forward a local unix socket to the remote's Docker/Podman socket.
 
 ### Perpatation
 
-On the client side add to your `~/.bashrc`:
-* `export ROOZ_SSH_URL=ssh://your-user@remote-host`
-
-On the remote host side:
+#### The remote host
 
 * In `~/.bashrc` at the top:
   
   For rootless daemon: `export DOCKER_HOST=/run/user/1000/docker.sock` (assuming your-user has uid=1000)
 
   For a deamon running as root: `export DOCKER_HOST=/var/run/docker.sock`
+
+### The local host
+
+add to your `~/.bashrc`:
+* `export ROOZ_REMOTE_SSH_URL=ssh://your-user@remote-host`
+* `export DOCKER_HOST=/home/your-user/.rooz/remote.sock`  (this is the default path that can be changed via `ROOZ_REMOTE_LOCAL_SOCK`)
+
+To enable VsCode to attach to remote containers also set the below in `settings.json`:
+
+```json
+   "docker.host": "unix:///home/your-user/.rooz/remote.sock"
+```
+
+Now run: `rooz remote &`. You can stop forwarding by `fg` and `CTRL+C`.
 
 ## Running with Podman
 

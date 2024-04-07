@@ -39,7 +39,7 @@ impl<'a> ExecApi<'a> {
             mut input,
         } = self.client.start_exec(exec_id, None).await?
         {
-            let (r, mut s) = oneshot::channel::<bool>();
+            let (s, mut r) = oneshot::channel::<bool>();
             let handle = spawn(async move {
                 if interactive {
                     let stdin = termion::async_stdin();
@@ -50,7 +50,7 @@ impl<'a> ExecApi<'a> {
                                 input.write(&[b]).await.ok();
                             }
                             _ => {
-                                if let Some(true) = s.try_recv().unwrap() {
+                                if let Some(true) = r.try_recv().unwrap() {
                                     break;
                                 }
                                 sleep(Duration::from_millis(10)).await;
@@ -94,7 +94,7 @@ impl<'a> ExecApi<'a> {
             }
 
             if interactive {
-                r.send(true).ok();
+                s.send(true).ok();
                 handle.await?;
             }
         }

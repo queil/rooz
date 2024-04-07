@@ -45,11 +45,11 @@ pub struct RemoteParams {
     #[arg(
         long,
         short,
-        default_value = "23750",
-        env = "ROOZ_REMOTE_LOCAL_PORT",
-        help = "A local port forwarded to the remote docker socket"
+        default_value = "~/.rooz/remote.sock",
+        env = "ROOZ_REMOTE_LOCAL_SOCK",
+        help = "A local unix sock forwarded to the remote docker socket. Without the prefix unix://"
     )]
-    pub local_port: i16,
+    pub local_socket: String,
 }
 
 #[derive(Clone, Parser, Debug)]
