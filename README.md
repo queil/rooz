@@ -184,7 +184,7 @@ Supported keywords:
 
 * auto-resizing rooz session to fit the terminal window (if resized) is not implemented. Workaround: exit the session, resize the window to your liking, enter the container.
 
-## Connecting to a remote Docker host
+## Connecting to a remote Docker/Podman host
 
 Rooz connects to a local Docker daemon by default. However, it can connect to remote
 hosts via SSH.
