@@ -9,14 +9,14 @@ mod labels;
 mod model;
 mod ssh;
 
-use std::{io, path::Path, time::Duration};
+use std::{fs, io, path::Path, thread, time::Duration};
 
 use crate::{
     api::{Api, ContainerApi, ExecApi, GitApi, ImageApi, VolumeApi, WorkspaceApi},
     backend::ContainerBackend,
     cli::{
         Cli,
-        Commands::{Describe, Enter, List, New, Remove, Stop, System, Tmp},
+        Commands::{Describe, Enter, List, New, Remote, Remove, Stop, System, Tmp},
         CompletionParams, DescribeParams, InitParams, ListParams, NewParams, RemoveParams,
         StopParams, TmpParams,
     },
@@ -27,8 +27,21 @@ use bollard::{Docker, API_DEFAULT_VERSION};
 use clap::{CommandFactory, Parser};
 use clap_complete::generate;
 use cli::EnterParams;
+use hyper::{service::service_fn, Request, Response};
+use hyper_util::rt::TokioIo;
 use openssh::{ForwardType, KnownHosts, Session, SessionBuilder};
-use tokio::net::TcpListener;
+use std::{error::Error, io::ErrorKind};
+use tokio::net::{TcpListener, TcpStream, UnixListener};
+
+use std::env;
+
+use bytes::Bytes;
+use http_body_util::{BodyExt, Empty};
+
+use tokio::io::{ AsyncWriteExt as _};
+
+
+const PHRASE: &str = "It's a Unix system. I know this.\n";
 
 #[tokio::main]
 async fn main() -> Result<(), AnyError> {
@@ -38,45 +51,143 @@ async fn main() -> Result<(), AnyError> {
 
     let args = Cli::parse();
 
-    // The SSH session is kept here because Docker::connect_with_http doesn't take its ownership.
-    let mut _session : Session;
-
-    let connection = if let Cli {
-        env_ssh_url: Some(ssh_url),
-        command: _,
+    if let Cli {
+        command: Remote(cli::RemoteParams {
+            ssh_url,
+            local_port,
+        }),
     } = &args
     {
-        _session = SessionBuilder::default()
+        let session = SessionBuilder::default()
             .known_hosts_check(KnownHosts::Accept)
             .connect_timeout(Duration::from_secs(5))
-            .connect(ssh_url)
+            .connect(&ssh_url)
             .await?;
 
-        log::debug!("SSH session to {} established", ssh_url);
+        println!("SSH:{} connected", &ssh_url);
 
+        
         let local_addr = {
             let listener = TcpListener::bind("127.0.0.1:0").await?;
             listener.local_addr()?
         };
 
-        let socket_url = String::from_utf8(_session.command("echo").arg("-n").raw_arg("$DOCKER_HOST").output().await?.stdout)?;
-        
+
+
+        println!("Remote socket candidate: {}", &local_addr.to_string());
+
+        let socket_url = String::from_utf8(
+            session
+                .command("echo")
+                .arg("-n")
+                .raw_arg("$DOCKER_HOST")
+                .output()
+                .await?
+                .stdout,
+        )?;
+
         if socket_url.is_empty() {
-            panic!("Env var DOCKER_HOST is not set on the remote host. Can't get docker.socket path.")
+            panic!(
+                "Env var DOCKER_HOST is not set on the remote host. Can't get docker.socket path."
+            )
         }
 
-        log::debug!("Read remote socket from env var DOCKER_HOST: {}", socket_url);
+        log::debug!(
+            "Read remote socket from env var DOCKER_HOST: {}",
+            socket_url
+        );
 
         let connect_socket = Path::new(&socket_url);
 
-        _session
+        session
             .request_port_forward(ForwardType::Local, local_addr, connect_socket)
             .await?;
 
-        Docker::connect_with_http(&local_addr.to_string(), 120, API_DEFAULT_VERSION)
-    } else {
-        Docker::connect_with_local_defaults()
-    };
+        println!("Remote socket available at: {}", &local_addr.to_string());
+
+        let path = Path::new("/home/queil/.rooz/remote.sock");
+
+        if path.exists() {
+            fs::remove_file(path)?;
+        }
+
+        let listener = UnixListener::bind(path)?;
+
+        println!("Listening for connections at {}.", path.display());
+
+        loop {
+            let (stream, _) = listener.accept().await?;
+            let io = TokioIo::new(stream);
+
+            println!("Accepting connection.");
+
+
+
+ 
+            
+            tokio::task::spawn(async move {
+                let svc_fn = service_fn(|req| async {
+
+                    //req.post().await?
+
+                               
+                    // Open a TCP connection to the remote host
+                    let stream = TcpStream::connect(&local_addr).await.unwrap();
+                    
+                    // Use an adapter to access something implementing `tokio::io` traits as if they implement
+                    // `hyper::rt` IO traits.
+                    let io2 = TokioIo::new(stream);
+                    
+                    // Create the Hyper client
+                    let (mut sender, conn) = hyper::client::conn::http1::handshake(io2).await?;
+                    
+                    // Spawn a task to poll the connection, driving the HTTP state
+                    tokio::task::spawn(async move {
+                        if let Err(err) = conn.await {
+                            println!("Connection failed: {:?}", err);
+                        }
+                    });
+                    let res = sender.send_request(req).await?;
+                    println!("Response: {}", res.status());
+                        println!("Headers: {:#?}\n", res.headers());
+
+     
+                    Ok::<_, hyper::Error>(res)
+                });
+
+                // On linux, serve_connection will return right away with Result::Ok.
+                //
+                // On OSX, serve_connection will block until the client disconnects,
+                // and return Result::Err(hyper::Error) with a source (inner/cause)
+                // socket error indicating the client connection is no longer open.
+                match hyper::server::conn::http1::Builder::new()
+                    .serve_connection(io, svc_fn)
+                    .await
+                {
+                    Ok(()) => {
+                        println!("Accepted connection.");
+                    }
+                    Err(err) => {
+                        let source: Option<&std::io::Error> =
+                            err.source().and_then(|s| s.downcast_ref());
+
+                        match source {
+                            Some(io_err) if io_err.kind() == ErrorKind::NotConnected => {
+                                println!("Client disconnected.");
+                            }
+                            _ => {
+                                eprintln!("Failed to accept connection: {err:?}");
+                            }
+                        }
+                    }
+                };
+            });
+        }
+
+        thread::sleep(Duration::from_secs(36000))
+    }
+
+    let connection = Docker::connect_with_local_defaults();
 
     let docker = connection.expect("Docker API connection established");
 
@@ -228,6 +339,55 @@ async fn main() -> Result<(), AnyError> {
 
         Cli {
             command:
+                Remote(cli::RemoteParams {
+                    ssh_url,
+                    local_port,
+                }),
+        } => {
+            let session = SessionBuilder::default()
+                .known_hosts_check(KnownHosts::Accept)
+                .connect_timeout(Duration::from_secs(5))
+                .connect(&ssh_url)
+                .await?;
+
+            println!("SSH:{} connected", &ssh_url);
+
+            let local_addr = {
+                let listener = TcpListener::bind(format!("127.0.0.1:{}", local_port)).await?;
+                listener.local_addr()?
+            };
+
+            let socket_url = String::from_utf8(
+                session
+                    .command("echo")
+                    .arg("-n")
+                    .raw_arg("$DOCKER_HOST")
+                    .output()
+                    .await?
+                    .stdout,
+            )?;
+
+            if socket_url.is_empty() {
+                panic!("Env var DOCKER_HOST is not set on the remote host. Can't get docker.socket path.")
+            }
+
+            log::debug!(
+                "Read remote socket from env var DOCKER_HOST: {}",
+                socket_url
+            );
+
+            let connect_socket = Path::new(&socket_url);
+
+            session
+                .request_port_forward(ForwardType::Local, local_addr, connect_socket)
+                .await?;
+
+            println!("Remote socket available at: {}", &local_addr.to_string());
+            thread::sleep(Duration::from_secs(36000))
+        }
+
+        Cli {
+            command:
                 System(cli::System {
                     command: cli::SystemCommands::Prune(_),
                 }),
@@ -252,7 +412,6 @@ async fn main() -> Result<(), AnyError> {
                 System(cli::System {
                     command: cli::SystemCommands::Completion(CompletionParams { shell }),
                 }),
-            env_ssh_url: _,
         } => {
             let mut cli = Cli::command()
                 .disable_help_flag(true)
