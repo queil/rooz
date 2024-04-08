@@ -101,6 +101,7 @@ impl<'a> Api<'a> {
                     r#"mkdir -p /tmp/.age && \
                         echo -n '{}' > /tmp/.age/age.key && \
                         echo -n '{}' > /tmp/.age/age.pub && \
+                        chmod 400 /tmp/.age/age.key && \
                         chown -R {} /tmp/.age
                         "#,
                     &key.to_string().expose_secret(),

@@ -15,8 +15,8 @@ pub const ROLE_SIDECAR: &'static str = "sidecar";
 
 #[derive(Clone, Debug)]
 pub struct KeyValue {
-    key: String,
-    value: String,
+    pub key: String,
+    pub value: String,
     formatted: String,
 }
 
