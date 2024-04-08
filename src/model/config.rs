@@ -7,34 +7,40 @@ use super::types::AnyError;
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct RoozSidecar {
     pub image: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub env: Option<HashMap<String, String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub command: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub mounts: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub ports: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub mount_work: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub work_dir: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct RoozCfg {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub shell: Option<String>,
+    pub git_ssh_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub image: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub user: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub caches: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub sidecars: Option<HashMap<String, RoozSidecar>>,
+    pub shell: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub env: Option<HashMap<String, String>>,
+    pub user: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ports: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub git_ssh_url: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub privileged: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub env: Option<HashMap<String, String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sidecars: Option<HashMap<String, RoozSidecar>>,
 }
 
 #[derive(Debug, Clone)]
@@ -193,15 +199,15 @@ impl Default for RoozCfg {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct FinalCfg {
-    pub shell: String,
+    pub git_ssh_url: Option<String>,
     pub image: String,
+    pub shell: String,
     pub user: String,
     pub caches: Vec<String>,
-    pub sidecars: HashMap<String, RoozSidecar>,
-    pub env: HashMap<String, String>,
     pub ports: HashMap<String, String>,
-    pub git_ssh_url: Option<String>,
     pub privileged: bool,
+    pub env: HashMap<String, String>,
+    pub sidecars: HashMap<String, RoozSidecar>,
 }
 
 impl FinalCfg {
