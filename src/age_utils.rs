@@ -1,6 +1,8 @@
-use crate::api::{ContainerApi, ExecApi};
-use crate::labels::KeyValue;
-use crate::model::types::AnyError;
+use crate::api::container::inject;
+use crate::api::WorkspaceApi;
+use crate::labels::Labels;
+use crate::model::types::{AnyError, ContainerResult, RunSpec};
+use crate::{constants, id};
 use age::x25519::{Identity, Recipient};
 use age::IdentityFileEntry::Native;
 use bollard::models::MountTypeEnum::VOLUME;
@@ -8,10 +10,9 @@ use bollard::service::Mount;
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::iter;
-use base64::{engine::general_purpose, Engine as _};
 
 pub const VOLUME_NAME: &'static str = "rooz-age-key-vol";
-const AGE_HEADER: &'static str = "age-encryption.org/v1";
+const SECRET_HEADER: &'static str = "-----BEGIN AGE ENCRYPTED FILE-----";
 
 pub fn mount(target: &str) -> Mount {
     Mount {
@@ -22,30 +23,66 @@ pub fn mount(target: &str) -> Mount {
     }
 }
 
-impl<'a> ContainerApi<'a> {
+impl<'a> WorkspaceApi<'a> {
     pub async fn read_age_identity(&self) -> Result<Identity, AnyError> {
-        
-        Ok(age::x25519::Identity::generate())
+        let workspace_key = id::random_suffix("tmp");
+        let labels = Labels::new(None, None);
+        let work_dir = "/tmp/.age";
+        let entrypoint = inject(&format!("cat {}/age.key", work_dir), "entrypoint.sh");
+        let run_spec = RunSpec {
+            reason: "read-age-key",
+            image: constants::DEFAULT_IMAGE,
+            uid: constants::ROOT_UID,
+            work_dir: None,
+            container_name: &id::random_suffix("read-age"),
+            workspace_key: &workspace_key,
+            mounts: Some(vec![mount(work_dir)]),
+            entrypoint: Some(vec!["cat"]),
+            privileged: false,
+            force_recreate: false,
+            auto_remove: true,
+            labels: (&labels).into(),
+            ..Default::default()
+        };
 
-        // let data = "TODO: READ FROM CONTAINER".as_bytes();
+        let container_result = self.api.container.create(run_spec).await?;
+        self.api.container.start(container_result.id()).await?;
+        let container_id = container_result.id();
 
-        // let identity_file = age::IdentityFile::from_buffer(data)?;
-        // match identity_file.into_identities().first().unwrap() {
-        //     Native(id2) => Ok(id2)
-        // }
+        match container_result {
+            ContainerResult::Created { .. } => {
+                let data = self
+                    .api
+                    .exec
+                    .output(
+                        "read age key",
+                        container_id,
+                        None,
+                        Some(entrypoint.iter().map(String::as_str).collect()),
+                    )
+                    .await?;
+                self.api.container.remove(&container_id, true).await?;
+
+                let identity_file = age::IdentityFile::from_buffer(data.as_bytes())?;
+                match identity_file.into_identities().first().unwrap() {
+                    Native(id2) => Ok(id2.clone()),
+                }
+            }
+            _ => panic!("Could not read age identity"),
+        }
     }
 }
 
-pub fn needs_decryption(env_vars: Option<HashMap<String,String>>) -> Option<HashMap<String,String>> {
+pub fn needs_decryption(
+    env_vars: Option<HashMap<String, String>>,
+) -> Option<HashMap<String, String>> {
     if let Some(vars) = env_vars {
-        if vars.iter().any(|(_,v)| v.starts_with(AGE_HEADER)) {
+        if vars.iter().any(|(_, v)| v.starts_with(SECRET_HEADER)) {
             Some(vars)
-        }else
-        {
+        } else {
             None
         }
-    }
-    else {
+    } else {
         None
     }
 }
@@ -53,38 +90,42 @@ pub fn needs_decryption(env_vars: Option<HashMap<String,String>>) -> Option<Hash
 pub fn encrypt(plaintext: String, recipient: Recipient) -> Result<String, AnyError> {
     let encryptor = age::Encryptor::with_recipients(vec![Box::new(recipient)]).unwrap();
     let mut encrypted = vec![];
-    let mut writer = encryptor.wrap_output(&mut encrypted)?;
+    let mut writer = encryptor.wrap_output(age::armor::ArmoredWriter::wrap_output(
+        &mut encrypted,
+        age::armor::Format::AsciiArmor,
+    )?)?;
     writer.write_all(plaintext.as_bytes())?;
-    writer.finish()?;
-    Ok(general_purpose::STANDARD.encode(&encrypted))
+    writer.finish().and_then(|armor| armor.finish())?;
+    Ok(std::str::from_utf8(&encrypted)?.to_string())
 }
 
 pub fn decrypt(
     identity: &dyn age::Identity,
-    env_vars: HashMap<String,String>,
-) -> Result<HashMap<String,String>, AnyError> {
-   
-        let mut ret = HashMap::<String,String>::new();
-        for (k,v) in env_vars.iter() {
-
-            let decoded_vec = &general_purpose::STANDARD.decode(&v).unwrap();
-            let decoded = std::str::from_utf8(decoded_vec)?;
-            if decoded.starts_with(AGE_HEADER) {
-                let decrypted = {
-                    let decryptor = match age::Decryptor::new(&decoded.as_bytes()[..])? {
+    env_vars: HashMap<String, String>,
+) -> Result<HashMap<String, String>, AnyError> {
+    let mut ret = HashMap::<String, String>::new();
+    for (k, v) in env_vars.iter() {
+        if v.starts_with(SECRET_HEADER) {
+            let encrypted = v.as_bytes();
+            let decrypted = {
+                let decryptor =
+                    match age::Decryptor::new(age::armor::ArmoredReader::new(encrypted))? {
                         age::Decryptor::Recipients(d) => d,
                         _ => unreachable!(),
                     };
 
-                    let mut decrypted = vec![];
-                    let mut reader = decryptor.decrypt(iter::once(identity))?;
-                    reader.read_to_end(&mut decrypted)?;
+                let mut decrypted = vec![];
+                let mut reader = decryptor.decrypt(iter::once(identity))?;
+                reader.read_to_end(&mut decrypted)?;
 
-                    decrypted
-                };
+                decrypted
+            };
 
-                ret.insert(k.to_string(), std::str::from_utf8(&decrypted[..])?.to_string());
-            }
+            ret.insert(
+                k.to_string(),
+                std::str::from_utf8(&decrypted[..])?.to_string(),
+            );
         }
-        Ok(ret)
+    }
+    Ok(ret)
 }

@@ -286,9 +286,9 @@ async fn main() -> Result<(), AnyError> {
             let cfg = RoozCfg::from_file(&config)?;
             if let Some(vars) = cfg.env {
                 if vars.contains_key(&env_var) {
-                    let identity = container_api.read_age_identity().await?;
-                    let pub2 = identity.to_public();
-                    let encrypted = age_utils::encrypt(vars[&env_var].to_string(), pub2)?;
+                    let identity = workspace.read_age_identity().await?;
+                    let pub_key = identity.to_public();
+                    let encrypted = age_utils::encrypt(vars[&env_var].to_string(), pub_key)?;
                     let mut new_vars = vars.clone();
                     new_vars.insert(env_var, encrypted);
                     RoozCfg {

@@ -196,15 +196,10 @@ pub struct FinalCfg {
     pub shell: String,
     pub image: String,
     pub user: String,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub caches: Vec<String>,
-    #[serde(skip_serializing_if = "HashMap::is_empty")]
     pub sidecars: HashMap<String, RoozSidecar>,
-    #[serde(skip_serializing_if = "HashMap::is_empty")]
     pub env: HashMap<String, String>,
-    #[serde(skip_serializing_if = "HashMap::is_empty")]
     pub ports: HashMap<String, String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub git_ssh_url: Option<String>,
     pub privileged: bool,
 }

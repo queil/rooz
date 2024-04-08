@@ -4,7 +4,7 @@ version = "0.64.0"
 edition = "2021"
 
 [dependencies]
-age = "0.10.0"
+age = {version = "0.10.0", features = ["armor"] }
 base64 = "0.21.3"
 bollard = { version = "0.16.1" }
 clap = { version = "4.4.2", features = ["derive", "env"] }
