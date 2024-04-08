@@ -4,7 +4,7 @@
 
 <h1 align="center">rooz</h1>
 
-Rooz is a CLI tool that enables you to work in containers. It is intended for developers and DevOps engineers. Because of that, it comes with a built-in support for git repositories, SSH keys generation, shared caches, and a robust CLI. Rooz is similar to [toolbox](https://docs.fedoraproject.org/en-US/fedora-silverblue/toolbox/)
+Rooz is a CLI tool that enables you to work in containers. It is intended for developers and DevOps engineers. Because of that, it comes with a built-in support for git repositories, SSH keys generation, support for git-safe secrets, shared caches, and a robust CLI. Rooz is similar to [toolbox](https://docs.fedoraproject.org/en-US/fedora-silverblue/toolbox/)
 and [distrobox](https://github.com/89luca89/distrobox) but unlike them it aims to share as little as possible with the host.
 
 ## Quick start
@@ -18,14 +18,25 @@ curl -sSL https://github.com/queil/rooz/releases/latest/download/rooz -o ./rooz 
 ```
 ### Initialize
 
-The below command creates an SSH key pair (ed25519). You can use it to authenticate wherever SSH keys can be used (like github.com):
+:warning: If you intend to use a remote Docker host with rooz please [configure it first](#connecting-to-a-remote-dockerpodman-host)
+
+To initialize rooz run the following command:
 
 ```sh
 rooz system init
 ```
-The generated key gets stored in a volume and then mounted under `~/.ssh` to all rooz containers.
 
-💡 You can regenerate the key by specifying the `--force` parameter. Please note that the existing key will be wiped out.
+The command creates:
+
+* an SSH key pair (ed25519) intended to use for auth wherever SSH keys can be used (like github.com)
+  
+  The generated key gets stored in a volume and then mounted under `~/.ssh` to all rooz containers.
+
+* an age encryption key pair intended to use for encryption of sensitive config data (i.e. secrets)
+
+  The generated key gets stored in a volume and then mounted under `~/.age` to all rooz containers.
+
+You can regenerate the keys by specifying the `--force` parameter. Please note that the existing keys will be wiped out.
 
 ### Configure
 
@@ -133,6 +144,66 @@ ports = [
   "80:8080",
   "22:8022"
 ]
+```
+
+## Secrets
+
+Rooz uses [age](https://github.com/C2SP/C2SP/blob/main/age.md) encryption to safely store
+sensitive data (like API keys) in config files.
+
+:warning: Only environment variables are supported which means it's likely not safe to use it 
+in non-trusted Docker hosts.
+
+### Example
+
+Create `example-secrets.rooz.yaml` (don't commit it to git!):
+
+```yaml
+env:
+  API_URL: https://api.rooz.dev/v1
+  API_KEY: 1744420283158995
+
+```
+
+Now, encrypt the value:
+
+```sh
+rooz encrypt --config ./examples/encrypt/example-secrets.rooz.yaml --env API_KEY
+```
+
+View the file. If the result looks like the below (things may have got re-ordered
+a bit):
+
+```yaml
+env:
+  API_KEY: |
+    -----BEGIN AGE ENCRYPTED FILE-----
+    YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSBmN01ueG1QRGpSK2QvUzFw
+    OEdSSEFLMGhXeWQ5dHVlZzcySmNuRDFrbEVnCmFZYzF4Q2hwampQdTNDbHFFVGlw
+    K29lTWlieVBHd2RWQmxEamNSSkRHNWMKLT4gdEAxUT1LaS8tZ3JlYXNlCi9FcVE5
+    dHhwa3hNc0FDNi9YckU4bGg3MjdHM1lhZ2NrMERpZlNMUS9FUXFEWkFZQ1RvK1pS
+    MkN1cnBMcW81cFkKcFBJWkJmUkFBMzI0d3h0TENLOVdpaU1WZUVGMWZxTjlYeTVo
+    blEKLS0tIDl0YmdWOTdWYlVsUHljVm9HM2RnTml0elhQU0RJUE9QZElIamczVTlH
+    dUUKHkIxngFXYXoYM66/LkCd3Dda6TqOHYQYoLaS69PyQVSdy54hI5JnOIggRAOb
+    Zv7U
+    -----END AGE ENCRYPTED FILE-----
+  API_URL: https://api.rooz.dev/v1
+
+```
+
+Now, we can create a new workspace like:
+
+```sh
+rooz new secrets-test --config ./examples/encrypt/example-secrets.rooz.yaml
+```
+
+And enter the container and the `API_KEY` var is value gets decrypted and injected:
+
+```sh
+rooz enter secrets-test
+
+> echo $API_KEY
+1744420283158995
 ```
 
 ## Sidecars
