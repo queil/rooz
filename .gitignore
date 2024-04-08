@@ -11,3 +11,6 @@
 # Added by cargo
 
 /target
+
+# Test files
+test.rooz.yaml

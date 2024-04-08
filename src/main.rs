@@ -1,3 +1,4 @@
+mod age_utils;
 mod api;
 mod backend;
 mod cli;
@@ -16,9 +17,9 @@ use crate::{
     backend::ContainerBackend,
     cli::{
         Cli,
-        Commands::{Describe, Enter, List, New, Remote, Remove, Stop, System, Tmp},
-        CompletionParams, DescribeParams, InitParams, ListParams, NewParams, RemoveParams,
-        StopParams, TmpParams,
+        Commands::{Describe, Encrypt, Enter, List, New, Remote, Remove, Stop, System, Tmp},
+        CompletionParams, DescribeParams, EncryptParams, InitParams, ListParams, NewParams,
+        RemoveParams, StopParams, TmpParams,
     },
     model::{config::RoozCfg, types::AnyError},
 };
@@ -277,6 +278,28 @@ async fn main() -> Result<(), AnyError> {
             //TODO: this needs to be handled more elegantly. I.e. Rooz should
             // only connect to Docker API when actually running commands requiring that
             // this command only forwards a local socket to a remote one.
+        }
+
+        Cli {
+            command: Encrypt(EncryptParams { config, env_var }),
+        } => {
+            let cfg = RoozCfg::from_file(&config)?;
+            if let Some(vars) = cfg.env {
+                if vars.contains_key(&env_var) {
+                    let identity = workspace.read_age_identity().await?;
+                    let pub_key = identity.to_public();
+                    let encrypted = age_utils::encrypt(vars[&env_var].to_string(), pub_key)?;
+                    let mut new_vars = vars.clone();
+                    new_vars.insert(env_var, encrypted);
+                    RoozCfg {
+                        env: Some(new_vars),
+                        ..cfg
+                    }
+                    .to_file(&config)?
+                }
+            } else {
+                println!("Env var {} not found in {}", &env_var, &config)
+            }
         }
 
         Cli {

@@ -109,7 +109,7 @@ pub struct NewParams {
     pub work: WorkParams,
     #[arg(
         long,
-        help = "Configures the new workspace from .rooz.toml at the given path"
+        help = "Configures the new workspace from a config file given by the path."
     )]
     pub config: Option<String>,
 }
@@ -173,6 +173,15 @@ pub struct DescribeParams {
     pub name: String,
 }
 
+#[derive(Parser, Debug)]
+#[command(about = "Encrypts an env variable in a provided config file")]
+pub struct EncryptParams {
+    #[arg(long, short, help = "Target config file")]
+    pub config: String,
+    #[arg(long, short, help = "Target environment variable name", alias = "env")]
+    pub env_var: String,
+}
+
 #[derive(Subcommand, Debug)]
 pub enum Commands {
     New(NewParams),
@@ -183,6 +192,7 @@ pub enum Commands {
     Describe(DescribeParams),
     Stop(StopParams),
     Remote(RemoteParams),
+    Encrypt(EncryptParams),
     System(System),
 }
 

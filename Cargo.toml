@@ -1,9 +1,10 @@
 [package]
 name = "rooz"
-version = "0.63.0"
+version = "0.64.0"
 edition = "2021"
 
 [dependencies]
+age = {version = "0.10.0", features = ["armor"] }
 base64 = "0.21.3"
 bollard = { version = "0.16.1" }
 clap = { version = "4.4.2", features = ["derive", "env"] }
@@ -12,7 +13,6 @@ colored = "2.1.0"
 ctrlc = "3.4.4"
 env_logger = "0.10.0"
 futures = "0.3.26"
-hostname = "0.3.1"
 lazy_static = "1.4.0"
 log = "0.4.20"
 openssh = "0.10.3"
