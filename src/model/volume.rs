@@ -12,6 +12,7 @@ pub const WORK_ROLE: &'static str = "work";
 pub const CACHE_ROLE: &'static str = "cache";
 pub const DATA_ROLE: &'static str = "data";
 pub const SSH_KEY_ROLE: &'static str = "ssh-key";
+pub const AGE_KEY_ROLE: &'static str = "age-key";
 
 #[derive(Debug, Clone)]
 pub enum RoozVolumeRole {
@@ -20,6 +21,7 @@ pub enum RoozVolumeRole {
     Cache,
     Data,
     SshKey,
+    AgeKey,
 }
 
 impl RoozVolumeRole {
@@ -30,6 +32,7 @@ impl RoozVolumeRole {
             RoozVolumeRole::Cache => CACHE_ROLE,
             RoozVolumeRole::Data => DATA_ROLE,
             RoozVolumeRole::SshKey => SSH_KEY_ROLE,
+            RoozVolumeRole::AgeKey => AGE_KEY_ROLE,
         }
     }
 }

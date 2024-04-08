@@ -53,6 +53,10 @@ impl<'a> WorkspaceApi<'a> {
             Path::new(&home_dir).join(".ssh").to_string_lossy().as_ref(),
         ));
 
+        mounts.push(crate::age::mount(
+            Path::new(&home_dir).join(".age").to_string_lossy().as_ref(),
+        ));
+
         let run_spec = RunSpec {
             reason: "work",
             image: &spec.image,
@@ -117,7 +121,7 @@ impl<'a> WorkspaceApi<'a> {
         {
             for v in volumes {
                 match v {
-                    Volume { ref name, .. } if name == ssh::ROOZ_SSH_KEY_VOLUME_NAME => {
+                    Volume { ref name, .. } if name == ssh::VOLUME_NAME => {
                         continue;
                     }
                     Volume { labels, .. } => match labels.get(ROLE) {

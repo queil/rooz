@@ -1,7 +1,7 @@
 use bollard::models::MountTypeEnum::VOLUME;
 use bollard::service::Mount;
 
-pub const VOLUME_NAME: &'static str = "rooz-ssh-key-vol";
+pub const VOLUME_NAME: &'static str = "rooz-age-key-vol";
 
 pub fn mount(target: &str) -> Mount {
     Mount {
