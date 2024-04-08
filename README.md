@@ -73,14 +73,16 @@ rooz tmp --image alpine --shell sh
 
 ## Configuration
 
+:information_source: Rooz supports both `toml` and `yaml` as configuration formats. The examples here are all in `toml`.
+
 Most of the settings can be configured via:
 
 * environment variables
-* `.rooz.toml` in the cloned repository (if any)
-* `.rooz.toml` file specified via `--config` (on `rooz new`)
+* a config file in the cloned repository (if any)  (`.rooz.toml`, `rooz.yaml`)
+* a config file specified via `--config` (on `rooz new`) (`toml/yaml`)
 * cmd-line parameters
 
-The configuration file (`.rooz.toml`) provides the most options: [example](examples/dotnet-nats.rooz.toml)
+The configuration file provides the most options: [example](examples/dotnet-nats.rooz.toml)
 
 ### Images
 

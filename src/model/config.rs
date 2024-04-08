@@ -15,16 +15,25 @@ pub struct RoozSidecar {
     pub work_dir: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct RoozCfg {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub shell: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub image: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub user: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub caches: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub sidecars: Option<HashMap<String, RoozSidecar>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub env: Option<HashMap<String, String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub ports: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub git_ssh_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub privileged: Option<bool>,
 }
 
@@ -54,14 +63,36 @@ impl FileFormat {
 }
 
 impl RoozCfg {
-    pub fn from_file(path: &str) -> Result<RoozCfg, AnyError> {
+    pub fn from_file(path: &str) -> Result<Self, AnyError> {
         Self::from_string(fs::read_to_string(path)?, FileFormat::from_path(&path))
     }
 
-    pub fn from_string(config: String, file_format: FileFormat) -> Result<RoozCfg, AnyError> {
+    pub fn from_string(config: String, file_format: FileFormat) -> Result<Self, AnyError> {
         Ok(match file_format {
-            FileFormat::Yaml => RoozCfg::deserialize(serde_yaml::Deserializer::from_str(&config))?,
-            FileFormat::Toml => RoozCfg::deserialize(toml::de::Deserializer::new(&config))?,
+            FileFormat::Yaml => Self::deserialize(serde_yaml::Deserializer::from_str(&config))?,
+            FileFormat::Toml => Self::deserialize(toml::de::Deserializer::new(&config))?,
+        })
+    }
+
+    pub fn to_file(&self, path: &str) -> Result<(), AnyError> {
+        let file_format = FileFormat::from_path(path);
+        fs::write(path, self.to_string(file_format)?)?;
+        Ok(())
+    }
+
+    pub fn to_string(&self, file_format: FileFormat) -> Result<String, AnyError> {
+        Ok(match file_format {
+            FileFormat::Yaml => {
+                let mut ret = Vec::new();
+                let mut ser = serde_yaml::Serializer::new(&mut ret);
+                self.serialize(&mut ser)?;
+                std::str::from_utf8(&ret)?.to_string()
+            }
+            FileFormat::Toml => {
+                let mut ret = String::new();
+                Self::serialize(&self, toml::ser::Serializer::new(&mut ret))?;
+                ret
+            }
         })
     }
 
@@ -165,10 +196,15 @@ pub struct FinalCfg {
     pub shell: String,
     pub image: String,
     pub user: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub caches: Vec<String>,
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
     pub sidecars: HashMap<String, RoozSidecar>,
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
     pub env: HashMap<String, String>,
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
     pub ports: HashMap<String, String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub git_ssh_url: Option<String>,
     pub privileged: bool,
 }

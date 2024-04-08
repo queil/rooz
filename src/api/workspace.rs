@@ -7,6 +7,7 @@ use bollard::{
 };
 
 use crate::{
+    age_utils,
     api::WorkspaceApi,
     constants,
     labels::{self, Labels, ROLE},
@@ -53,11 +54,11 @@ impl<'a> WorkspaceApi<'a> {
             Path::new(&home_dir).join(".ssh").to_string_lossy().as_ref(),
         ));
 
-        mounts.push(crate::age::mount(
+        mounts.push(crate::age_utils::mount(
             Path::new(&home_dir).join(".age").to_string_lossy().as_ref(),
         ));
 
-        let run_spec = RunSpec {
+        let mut run_spec = RunSpec {
             reason: "work",
             image: &spec.image,
             uid: &spec.uid,
@@ -77,6 +78,12 @@ impl<'a> WorkspaceApi<'a> {
             ports: spec.ports.clone(),
             ..Default::default()
         };
+
+        if let Some(vars) = age_utils::needs_decryption(run_spec.env.clone()) {
+            let identity = self.api.container.read_age_identity().await?;
+            let decrypted_kv = age_utils::decrypt(&identity, vars)?;
+            run_spec = RunSpec { env: Some(decrypted_kv), ..run_spec }
+        }
 
         match self.api.container.create(run_spec).await? {
         ContainerResult::Created { id } =>
@@ -121,7 +128,9 @@ impl<'a> WorkspaceApi<'a> {
         {
             for v in volumes {
                 match v {
-                    Volume { ref name, .. } if name == ssh::VOLUME_NAME => {
+                    Volume { ref name, .. }
+                        if name == ssh::VOLUME_NAME || name == age_utils::VOLUME_NAME =>
+                    {
                         continue;
                     }
                     Volume { labels, .. } => match labels.get(ROLE) {

@@ -174,9 +174,8 @@ impl<'a> ContainerApi<'a> {
                 if let Some(env) = spec.env {
                     env_kv.extend(KeyValue::to_vec(env));
                 }
-                let decrypted_kv = crate::age::decrypt(env_kv)?;
 
-                let env = KeyValue::to_vec_str(&decrypted_kv);
+                let env = KeyValue::to_vec_str(&env_kv);
 
                 let config = Config {
                     image: Some(spec.image),

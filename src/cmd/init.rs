@@ -86,7 +86,7 @@ impl<'a> Api<'a> {
         match self
             .volume
             .ensure_volume(
-                crate::age::VOLUME_NAME.into(),
+                crate::age_utils::VOLUME_NAME.into(),
                 &RoozVolumeRole::AgeKey,
                 Some("age-key".into()),
                 force,
@@ -109,8 +109,13 @@ impl<'a> Api<'a> {
                     &uid
                 );
 
-                self.execute_init(entrypoint, crate::age::VOLUME_NAME, "/tmp/.age", &image_id)
-                    .await?;
+                self.execute_init(
+                    entrypoint,
+                    crate::age_utils::VOLUME_NAME,
+                    "/tmp/.age",
+                    &image_id,
+                )
+                .await?;
                 println!("{}", pubkey);
             }
             VolumeResult::AlreadyExists => {
