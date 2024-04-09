@@ -1,3 +1,5 @@
+use colored::Colorize;
+
 use crate::{
     api::{container, ExecApi, GitApi},
     id,
@@ -32,7 +34,7 @@ impl<'a> ExecApi<'a> {
         container_id: &str,
         clone_dir: &str,
         file_format: FileFormat,
-    ) -> Result<(FileFormat, String), AnyError> {
+    ) -> Result<Option<RoozCfg>, AnyError> {
         let file_path = &format!("{}/.rooz.{}", clone_dir, file_format.to_string());
 
         let config = self
@@ -51,7 +53,27 @@ impl<'a> ExecApi<'a> {
                 ]),
             )
             .await?;
-        Ok((file_format, config))
+
+        if config.is_empty() {
+            Ok(None)
+        } else {
+            match RoozCfg::from_string(config, file_format) {
+                Ok(cfg) => Ok(Some(cfg)),
+                Err(e) => {
+                    eprintln!(
+                        "{}\n{}",
+                        format!(
+                            "WARNING: Could not read repo config ({})",
+                            file_format.to_string()
+                        )
+                        .bold()
+                        .yellow(),
+                        e.to_string().yellow()
+                    );
+                    Ok(None)
+                }
+            }
+        }
     }
 }
 
@@ -63,7 +85,7 @@ impl<'a> GitApi<'a> {
         url: &str,
         workspace_key: &str,
         working_dir: &str,
-    ) -> Result<(Option<Result<RoozCfg, AnyError>>, GitCloneSpec), AnyError> {
+    ) -> Result<(Option<RoozCfg>, GitCloneSpec), AnyError> {
         let clone_dir = get_clone_dir(working_dir, url);
 
         let clone_cmd = container::inject(
@@ -125,28 +147,27 @@ impl<'a> GitApi<'a> {
                 .await?;
         };
 
-        let (file_format, rooz_cfg) = self
-            .api
-            .exec
-            .read_rooz_config(container_id, &clone_dir, FileFormat::Toml)
-            .await
-            .or(self
-                .api
-                .exec
-                .read_rooz_config(container_id, &clone_dir, FileFormat::Yaml)
-                .await)?;
+        let exec = &self.api.exec;
 
-        log::debug!("Repo config result: {}", &rooz_cfg);
+        let rooz_cfg = if let Some(cfg) = exec
+            .read_rooz_config(container_id, &clone_dir, FileFormat::Toml)
+            .await?
+        {
+            log::debug!("Config file found (TOML)");
+            Some(cfg)
+        } else if let Some(cfg) = exec
+            .read_rooz_config(container_id, &clone_dir, FileFormat::Yaml)
+            .await?
+        {
+            log::debug!("Config file found (YAML)");
+            Some(cfg)
+        } else {
+            log::debug!("No valid config file found");
+            None
+        };
 
         self.api.container.remove(&container_id, true).await?;
 
-        Ok((
-            if rooz_cfg.is_empty() {
-                None
-            } else {
-                Some(RoozCfg::from_string(rooz_cfg, file_format))
-            },
-            GitCloneSpec { dir: clone_dir },
-        ))
+        Ok((rooz_cfg, GitCloneSpec { dir: clone_dir }))
     }
 }

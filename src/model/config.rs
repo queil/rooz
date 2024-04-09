@@ -43,7 +43,7 @@ pub struct RoozCfg {
     pub sidecars: Option<HashMap<String, RoozSidecar>>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum FileFormat {
     Toml,
     Yaml,

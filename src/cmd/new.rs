@@ -8,7 +8,6 @@ use crate::{
         types::{AnyError, EnterSpec, WorkSpec},
     },
 };
-use colored::Colorize;
 
 impl<'a> WorkspaceApi<'a> {
     pub async fn new(
@@ -113,15 +112,12 @@ impl<'a> WorkspaceApi<'a> {
                         let mut cfg_builder = RoozCfg::default().from_cli_env(spec.clone());
 
                         match repo_config {
-                            Some(Ok(c)) => {
-                                log::debug!(".rooz.toml found in the repository and applied.");
+                            Some(c) => {
+                                log::debug!("Config file applied.");
                                 cfg_builder = cfg_builder.from_config(c.clone());
                             }
-                            Some(Err(e)) => {
-                                eprintln!("{}\n{}", e, "WARNING: Ignoring the invalid .rooz.toml file from the repository".yellow());
-                            }
                             None => {
-                                log::debug!(".rooz.toml not found in the repository");
+                                log::debug!("No valid config file found in the repository.");
                             }
                         }
 
