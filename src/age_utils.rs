@@ -125,6 +125,8 @@ pub fn decrypt(
                 k.to_string(),
                 std::str::from_utf8(&decrypted[..])?.to_string(),
             );
+        } else {
+            ret.insert(k.to_string(), v.to_string());
         }
     }
     Ok(ret)
