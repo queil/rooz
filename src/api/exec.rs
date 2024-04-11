@@ -39,6 +39,12 @@ impl<'a> ExecApi<'a> {
             mut input,
         } = self.client.start_exec(exec_id, None).await?
         {
+            let exec_state = self.client.inspect_exec(&exec_id).await?;
+            if let Some(exit_code) = exec_state.exit_code {
+                if exit_code != 0 {
+                    panic!("Exec terminated with exit code: {}.", exit_code);
+                }
+            };
             let (s, mut r) = oneshot::channel::<bool>();
             let handle = spawn(async move {
                 if interactive {
@@ -61,8 +67,7 @@ impl<'a> ExecApi<'a> {
             });
 
             if interactive {
-                match self
-                    .client
+                self.client
                     .resize_exec(
                         exec_id,
                         ResizeExecOptions {
@@ -70,11 +75,7 @@ impl<'a> ExecApi<'a> {
                             width: tty_size.0,
                         },
                     )
-                    .await
-                {
-                    Ok(_) => (),
-                    Err(err) => println!("Resize exec: {:?}", err),
-                };
+                    .await?;
             };
 
             // set stdout in raw mode so we can do tty stuff
@@ -214,7 +215,7 @@ impl<'a> ExecApi<'a> {
 
         let ensure_user_output = self
             .output(
-                "ensure_user",
+                "ensure-user",
                 container_id,
                 Some(constants::ROOT_UID),
                 Some(ensure_user_cmd.iter().map(String::as_str).collect()),

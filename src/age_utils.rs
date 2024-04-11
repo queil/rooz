@@ -61,7 +61,7 @@ impl<'a> WorkspaceApi<'a> {
                         Some(entrypoint.iter().map(String::as_str).collect()),
                     )
                     .await?;
-                self.api.container.remove(&container_id, true).await?;
+                self.api.container.kill(&container_id).await?;
 
                 let identity_file = age::IdentityFile::from_buffer(data.as_bytes())?;
                 match identity_file.into_identities().first().unwrap() {

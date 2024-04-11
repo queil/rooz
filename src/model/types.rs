@@ -1,4 +1,7 @@
-use crate::model::{config::RoozCfg, volume::RoozVolume};
+use crate::{
+    git::RootRepoCloneResult,
+    model::{config::RoozCfg, volume::RoozVolume},
+};
 use bollard::service::Mount;
 use std::collections::HashMap;
 
@@ -22,11 +25,6 @@ impl ContainerResult {
 pub enum VolumeResult {
     Created,
     AlreadyExists,
-}
-
-#[derive(Clone, Debug)]
-pub struct GitCloneSpec {
-    pub dir: String,
 }
 
 #[derive(Clone, Debug)]
@@ -127,6 +125,6 @@ pub struct WorkspaceResult {
 
 pub struct EnterSpec {
     pub workspace: WorkspaceResult,
-    pub git_spec: Option<GitCloneSpec>,
+    pub git_spec: Option<RootRepoCloneResult>,
     pub config: RoozCfg,
 }

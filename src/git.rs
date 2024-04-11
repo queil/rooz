@@ -6,11 +6,31 @@ use crate::{
     labels::Labels,
     model::{
         config::{FileFormat, RoozCfg},
-        types::{AnyError, ContainerResult, GitCloneSpec, RunSpec},
+        types::{AnyError, ContainerResult, RunSpec},
         volume::RoozVolume,
     },
     ssh,
 };
+
+#[derive(Clone, Debug)]
+pub enum CloneUrls {
+    Root { url: String },
+    Extra { urls: Vec<String> },
+}
+
+#[derive(Clone, Debug)]
+pub struct CloneSpec {
+    pub image: String,
+    pub uid: String,
+    pub workspace_key: String,
+    pub working_dir: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct RootRepoCloneResult {
+    pub config: Option<RoozCfg>,
+    pub dir: String,
+}
 
 fn get_clone_dir(root_dir: &str, git_ssh_url: &str) -> String {
     let clone_work_dir = git_ssh_url
@@ -78,29 +98,34 @@ impl<'a> ExecApi<'a> {
 }
 
 impl<'a> GitApi<'a> {
-    pub async fn clone_repo(
+    async fn clone_from_spec(
         &self,
-        image: &str,
-        uid: &str,
-        url: &str,
-        workspace_key: &str,
-        working_dir: &str,
-    ) -> Result<(Option<RoozCfg>, GitCloneSpec), AnyError> {
-        let clone_dir = get_clone_dir(working_dir, url);
-
-        let clone_cmd = container::inject(
-            format!(
-                    r#"export GIT_SSH_COMMAND="ssh -i /tmp/.ssh/id_ed25519 -o UserKnownHostsFile=/tmp/.ssh/known_hosts"
-                    ls "{}/.git" > /dev/null 2>&1 || git clone {}"#,
-                &clone_dir, &url
+        spec: &CloneSpec,
+        urls: &CloneUrls,
+    ) -> Result<String, AnyError> {
+        let mut clone_script = "export GIT_SSH_COMMAND='ssh -i /tmp/.ssh/id_ed25519 -o UserKnownHostsFile=/tmp/.ssh/known_hosts'\n".to_string();
+        let all_urls: Vec<String> = match &urls {
+            CloneUrls::Root { url } => vec![url.to_string()],
+            CloneUrls::Extra { urls } => {
+                urls.iter().map(|x| x.to_string()).collect::<Vec<String>>()
+            }
+        };
+        for url in all_urls {
+            let clone_dir = get_clone_dir(&spec.working_dir, &url);
+            clone_script.push_str(
+                format!(
+                    "ls '{}/.git' > /dev/null 2>&1 || git clone {}\n",
+                    &clone_dir, &url
+                )
+                .as_str(),
             )
-            .as_ref(),
-            "clone.sh",
-        );
+        }
 
-        let labels = Labels::new(Some(&workspace_key), Some("git"));
+        let clone_cmd = container::inject(&clone_script, "clone.sh");
 
-        let vol = RoozVolume::work(workspace_key, working_dir);
+        let labels = Labels::new(Some(&spec.workspace_key), Some("git"));
+
+        let vol = RoozVolume::work(&spec.workspace_key, &spec.working_dir);
 
         self.api
             .volume
@@ -109,11 +134,11 @@ impl<'a> GitApi<'a> {
 
         let run_spec = RunSpec {
             reason: "git-clone",
-            image,
-            uid: &uid,
-            work_dir: Some(&working_dir),
+            image: &spec.image,
+            uid: &spec.uid,
+            work_dir: Some(&spec.working_dir),
             container_name: &id::random_suffix("rooz-git"),
-            workspace_key,
+            workspace_key: &spec.workspace_key,
             mounts: Some(vec![vol.to_mount(None), ssh::mount("/tmp/.ssh")]),
             entrypoint: Some(vec!["cat"]),
             privileged: false,
@@ -123,40 +148,51 @@ impl<'a> GitApi<'a> {
             ..Default::default()
         };
 
-        let container_result = self.api.container.create(run_spec).await?;
-        self.api.container.start(container_result.id()).await?;
-        let container_id = container_result.id();
-
-        if let ContainerResult::Created { .. } = container_result {
-            self.api.exec.ensure_user(container_id).await?;
+        if let ContainerResult::Created { id } = self.api.container.create(run_spec).await? {
+            self.api.container.start(&id).await?;
+            self.api.exec.ensure_user(&id).await?;
             self.api
                 .exec
-                .chown(&container_id, uid, &working_dir)
+                .chown(&id, &spec.uid, &spec.working_dir)
                 .await?;
 
             self.api
                 .exec
                 .tty(
                     "git-clone",
-                    &container_id,
+                    &id,
                     true,
                     None,
                     None,
                     Some(clone_cmd.iter().map(String::as_str).collect()),
                 )
                 .await?;
-        };
+            Ok(id.to_string())
+        } else {
+            unreachable!("Random suffix gets generated each time")
+        }
+    }
 
+    pub async fn clone_root_repo(
+        &self,
+        url: &str,
+        spec: &CloneSpec,
+    ) -> Result<RootRepoCloneResult, AnyError> {
+        let container_id = self
+            .clone_from_spec(&spec, &CloneUrls::Root { url: url.into() })
+            .await?;
         let exec = &self.api.exec;
 
+        let clone_dir = get_clone_dir(&spec.working_dir, &url);
+
         let rooz_cfg = if let Some(cfg) = exec
-            .read_rooz_config(container_id, &clone_dir, FileFormat::Toml)
+            .read_rooz_config(&container_id, &clone_dir, FileFormat::Toml)
             .await?
         {
             log::debug!("Config file found (TOML)");
             Some(cfg)
         } else if let Some(cfg) = exec
-            .read_rooz_config(container_id, &clone_dir, FileFormat::Yaml)
+            .read_rooz_config(&container_id, &clone_dir, FileFormat::Yaml)
             .await?
         {
             log::debug!("Config file found (YAML)");
@@ -166,8 +202,22 @@ impl<'a> GitApi<'a> {
             None
         };
 
-        self.api.container.remove(&container_id, true).await?;
+        self.api.container.kill(&container_id).await?;
+        Ok(RootRepoCloneResult {
+            config: rooz_cfg,
+            dir: clone_dir,
+        })
+    }
 
-        Ok((rooz_cfg, GitCloneSpec { dir: clone_dir }))
+    pub async fn clone_extra_repos(
+        &self,
+        spec: CloneSpec,
+        urls: Vec<String>,
+    ) -> Result<(), AnyError> {
+        let container_id = self
+            .clone_from_spec(&spec, &CloneUrls::Extra { urls })
+            .await?;
+        self.api.container.kill(&container_id).await?;
+        Ok(())
     }
 }
