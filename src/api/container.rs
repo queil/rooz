@@ -8,8 +8,9 @@ use std::{
 use base64::{engine::general_purpose, Engine as _};
 use bollard::{
     container::{
-        Config, CreateContainerOptions, ListContainersOptions, LogOutput::Console, LogsOptions,
-        RemoveContainerOptions, StartContainerOptions, StopContainerOptions,
+        Config, CreateContainerOptions, InspectContainerOptions, KillContainerOptions,
+        ListContainersOptions, LogOutput::Console, LogsOptions, RemoveContainerOptions,
+        StartContainerOptions, StopContainerOptions,
     },
     errors::Error,
     models::HostConfig,
@@ -54,6 +55,20 @@ impl<'a> ContainerApi<'a> {
     pub async fn remove(&self, container_id: &str, force: bool) -> Result<(), AnyError> {
         let force_display = if force { " (force)" } else { "" };
 
+        if force {
+            if let ContainerInspectResponse {
+                state: Some(state), ..
+            } = self
+                .client
+                .inspect_container(container_id, None::<InspectContainerOptions>)
+                .await?
+            {
+                if let Some(true) = state.running {
+                    self.kill(container_id).await?;
+                }
+            }
+        }
+
         self.client
             .remove_container(
                 &container_id,
@@ -66,6 +81,17 @@ impl<'a> ContainerApi<'a> {
 
         log::debug!("Remove container: {}{}", &container_id, &force_display);
         Ok(())
+    }
+
+    pub async fn kill(&self, container_id: &str) -> Result<(), AnyError> {
+        match self
+            .client
+            .kill_container(&container_id, None::<KillContainerOptions<String>>)
+            .await
+        {
+            Ok(_) => Ok(()),
+            Err(e) => Err(Box::new(e)),
+        }
     }
 
     pub async fn stop(&self, container_id: &str) -> Result<(), AnyError> {
@@ -224,10 +250,14 @@ impl<'a> ContainerApi<'a> {
     }
 
     pub async fn start(&self, container_id: &str) -> Result<(), AnyError> {
-        Ok(self
+        match self
             .client
             .start_container(&container_id, None::<StartContainerOptions<String>>)
-            .await?)
+            .await.map_err(|e|Box::new(e))
+        {
+            Ok(_) => Ok(()),
+            Err(e) => Err(Box::new(e)),
+        }
     }
 
     pub async fn logs_to_stdout(&self, container_name: &str) -> Result<(), AnyError> {

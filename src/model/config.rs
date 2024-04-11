@@ -26,6 +26,8 @@ pub struct RoozCfg {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub git_ssh_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub extra_repos: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub image: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub caches: Option<Vec<String>>,
@@ -138,6 +140,7 @@ impl RoozCfg {
             sidecars: Self::extend_if_any(self.sidecars, config.sidecars),
             ports: Self::extend_if_any(self.ports, config.ports),
             env: Self::extend_if_any(self.env, config.env),
+            extra_repos: Self::extend_if_any(self.extra_repos, config.extra_repos),
         }
     }
 
@@ -184,15 +187,16 @@ impl RoozCfg {
 impl Default for RoozCfg {
     fn default() -> Self {
         Self {
-            shell: Some(constants::DEFAULT_SHELL.into()),
-            image: Some(constants::DEFAULT_IMAGE.into()),
-            user: Some(constants::DEFAULT_USER.into()),
-            caches: Some(Vec::new()),
-            sidecars: Some(HashMap::new()),
-            env: Some(HashMap::new()),
-            ports: Some(Vec::new()),
             git_ssh_url: None,
+            extra_repos: Some(Vec::new()),
+            image: Some(constants::DEFAULT_IMAGE.into()),
+            caches: Some(Vec::new()),
+            shell: Some(constants::DEFAULT_SHELL.into()),
+            user: Some(constants::DEFAULT_USER.into()),
+            ports: Some(Vec::new()),
             privileged: None,
+            env: Some(HashMap::new()),
+            sidecars: Some(HashMap::new()),
         }
     }
 }
@@ -200,10 +204,11 @@ impl Default for RoozCfg {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct FinalCfg {
     pub git_ssh_url: Option<String>,
+    pub extra_repos: Vec<String>,
     pub image: String,
+    pub caches: Vec<String>,
     pub shell: String,
     pub user: String,
-    pub caches: Vec<String>,
     pub ports: HashMap<String, String>,
     pub privileged: bool,
     pub env: HashMap<String, String>,
@@ -229,15 +234,16 @@ impl FinalCfg {
 impl Default for FinalCfg {
     fn default() -> Self {
         Self {
-            shell: constants::DEFAULT_SHELL.into(),
+            git_ssh_url: None,
+            extra_repos: Vec::new(),
             image: constants::DEFAULT_IMAGE.into(),
-            user: constants::DEFAULT_USER.into(),
             caches: Vec::new(),
+            shell: constants::DEFAULT_SHELL.into(),
+            user: constants::DEFAULT_USER.into(),
+            ports: HashMap::new(),
+            privileged: false,
             sidecars: HashMap::new(),
             env: HashMap::new(),
-            ports: HashMap::new(),
-            git_ssh_url: None,
-            privileged: false,
         }
     }
 }
@@ -250,6 +256,12 @@ impl<'a> From<&'a RoozCfg> for FinalCfg {
         RoozCfg::parse_ports(&mut ports, value.clone().ports);
 
         FinalCfg {
+            git_ssh_url: value.git_ssh_url.clone(),
+            extra_repos: value
+                .extra_repos
+                .as_deref()
+                .unwrap_or(&default.extra_repos)
+                .to_vec(),
             shell: value.shell.as_deref().unwrap_or(&default.shell).into(),
             image: value.image.as_deref().unwrap_or(&default.image).into(),
             user: value.user.as_deref().unwrap_or(&default.user).into(),
@@ -261,7 +273,6 @@ impl<'a> From<&'a RoozCfg> for FinalCfg {
             sidecars: value.sidecars.as_ref().unwrap().clone(),
             env: value.env.as_ref().unwrap().clone(),
             ports,
-            git_ssh_url: value.git_ssh_url.clone(),
             privileged: value.privileged.unwrap_or(default.privileged),
             ..default
         }
