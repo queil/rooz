@@ -161,9 +161,11 @@ below the var definition (in the document order).
 vars:
   sqlUser: admin
   sqlPassword: '----BEGIN AGE ENCRYPTED FILE-----|YWdlLWVuY3J ... truncated'
+  sqlConnectionString: "uid={{ sqlUser }};pwd={{ sqlPassword }}"
 
 env:
-  SQL_CONNECTION: "uid={{ sqlUser }};pwd={{ sqlPassword }}"
+  SQL_CONNECTION_A: "database=A;{{ sqlConnectionString }}"
+  SQL_CONNECTION_B: "database=B;{{ sqlConnectionString }}"
 
 sidecars:
   tool:
