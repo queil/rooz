@@ -96,7 +96,7 @@ pub fn encrypt(plaintext: String, recipient: Recipient) -> Result<String, AnyErr
     )?)?;
     writer.write_all(plaintext.as_bytes())?;
     writer.finish().and_then(|armor| armor.finish())?;
-    Ok(std::str::from_utf8(&encrypted)?.to_string())
+    Ok(std::str::from_utf8(&encrypted)?.to_string().replace("\n", "|"))
 }
 
 pub fn decrypt(
@@ -106,7 +106,8 @@ pub fn decrypt(
     let mut ret = HashMap::<String, String>::new();
     for (k, v) in env_vars.iter() {
         if v.starts_with(SECRET_HEADER) {
-            let encrypted = v.as_bytes();
+            let formatted = v.replace("|", "\n");
+            let encrypted = formatted.as_bytes();
             let decrypted = {
                 let decryptor =
                     match age::Decryptor::new(age::armor::ArmoredReader::new(encrypted))? {

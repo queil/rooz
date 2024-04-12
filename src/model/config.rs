@@ -4,6 +4,31 @@ use std::{collections::HashMap, ffi::OsStr, fs, path::Path};
 
 use super::types::AnyError;
 
+#[derive(Debug, Clone, Copy)]
+pub enum FileFormat {
+    Toml,
+    Yaml,
+}
+
+impl FileFormat {
+    pub fn to_string(&self) -> String {
+        match self {
+            FileFormat::Toml => "toml".into(),
+            FileFormat::Yaml => "y*ml".into(),
+        }
+    }
+
+    pub fn from_path(path: &str) -> FileFormat {
+        match Path::new(path).extension().and_then(OsStr::to_str) {
+            Some("yaml") => FileFormat::Yaml,
+            Some("yml") => FileFormat::Yaml,
+            Some("toml") => FileFormat::Toml,
+            Some(other) => panic!("Config file format: {} is not supported", other),
+            None => panic!("Only toml and yaml config file formats are supported."),
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct RoozSidecar {
     pub image: String,
@@ -23,6 +48,8 @@ pub struct RoozSidecar {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct RoozCfg {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vars: Option<HashMap<String, String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub git_ssh_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -45,27 +72,20 @@ pub struct RoozCfg {
     pub sidecars: Option<HashMap<String, RoozSidecar>>,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub enum FileFormat {
-    Toml,
-    Yaml,
-}
-
-impl FileFormat {
-    pub fn to_string(&self) -> String {
-        match self {
-            FileFormat::Toml => "toml".into(),
-            FileFormat::Yaml => "y*ml".into(),
-        }
-    }
-
-    pub fn from_path(path: &str) -> FileFormat {
-        match Path::new(path).extension().and_then(OsStr::to_str) {
-            Some("yaml") => FileFormat::Yaml,
-            Some("yml") => FileFormat::Yaml,
-            Some("toml") => FileFormat::Toml,
-            Some(other) => panic!("Config file format: {} is not supported", other),
-            None => panic!("Only toml and yaml config file formats are supported."),
+impl Default for RoozCfg {
+    fn default() -> Self {
+        Self {
+            vars: Some(HashMap::new()),
+            git_ssh_url: None,
+            extra_repos: Some(Vec::new()),
+            image: Some(constants::DEFAULT_IMAGE.into()),
+            caches: Some(Vec::new()),
+            shell: Some(constants::DEFAULT_SHELL.into()),
+            user: Some(constants::DEFAULT_USER.into()),
+            ports: Some(Vec::new()),
+            privileged: None,
+            env: Some(HashMap::new()),
+            sidecars: Some(HashMap::new()),
         }
     }
 }
@@ -131,16 +151,17 @@ impl RoozCfg {
 
     pub fn from_config(&mut self, config: &RoozCfg) -> () {
         *self = RoozCfg {
-            shell: config.shell.clone().or(self.shell.clone()),
-            image: config.image.clone().or(self.image.clone()),
-            user: config.user.clone().or(self.user.clone()),
+            vars: Self::extend_if_any(self.vars.clone(), config.vars.clone()),
             git_ssh_url: config.git_ssh_url.clone().or(self.git_ssh_url.clone()),
-            privileged: config.privileged.clone().or(self.privileged.clone()),
-            caches: Self::extend_if_any(self.caches.clone(), config.caches.clone()),
-            sidecars: Self::extend_if_any(self.sidecars.clone(), config.sidecars.clone()),
-            ports: Self::extend_if_any(self.ports.clone(), config.ports.clone()),
-            env: Self::extend_if_any(self.env.clone(), config.env.clone()),
             extra_repos: Self::extend_if_any(self.extra_repos.clone(), config.extra_repos.clone()),
+            image: config.image.clone().or(self.image.clone()),
+            caches: Self::extend_if_any(self.caches.clone(), config.caches.clone()),
+            shell: config.shell.clone().or(self.shell.clone()),
+            user: config.user.clone().or(self.user.clone()),
+            ports: Self::extend_if_any(self.ports.clone(), config.ports.clone()),
+            privileged: config.privileged.clone().or(self.privileged.clone()),
+            env: Self::extend_if_any(self.env.clone(), config.env.clone()),
+            sidecars: Self::extend_if_any(self.sidecars.clone(), config.sidecars.clone()),
         }
     }
 
@@ -180,23 +201,6 @@ impl RoozCfg {
         match port_mapping.split(":").collect::<Vec<_>>().as_slice() {
             &[a, b] => (a.parse::<u16>().unwrap(), b.parse::<u16>().unwrap()),
             _ => panic!("Invalid port mapping specification: {}", port_mapping),
-        }
-    }
-}
-
-impl Default for RoozCfg {
-    fn default() -> Self {
-        Self {
-            git_ssh_url: None,
-            extra_repos: Some(Vec::new()),
-            image: Some(constants::DEFAULT_IMAGE.into()),
-            caches: Some(Vec::new()),
-            shell: Some(constants::DEFAULT_SHELL.into()),
-            user: Some(constants::DEFAULT_USER.into()),
-            ports: Some(Vec::new()),
-            privileged: None,
-            env: Some(HashMap::new()),
-            sidecars: Some(HashMap::new()),
         }
     }
 }

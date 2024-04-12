@@ -281,24 +281,24 @@ async fn main() -> Result<(), AnyError> {
         }
 
         Cli {
-            command: Encrypt(EncryptParams { config, env_var }),
+            command: Encrypt(EncryptParams { config, name }),
         } => {
             let cfg = RoozCfg::from_file(&config)?;
-            if let Some(vars) = cfg.env {
-                if vars.contains_key(&env_var) {
+            if let Some(vars) = cfg.vars {
+                if vars.contains_key(&name) {
                     let identity = workspace.read_age_identity().await?;
                     let pub_key = identity.to_public();
-                    let encrypted = age_utils::encrypt(vars[&env_var].to_string(), pub_key)?;
+                    let encrypted = age_utils::encrypt(vars[&name].to_string(), pub_key)?;
                     let mut new_vars = vars.clone();
-                    new_vars.insert(env_var, encrypted);
+                    new_vars.insert(name, encrypted);
                     RoozCfg {
-                        env: Some(new_vars),
+                        vars: Some(new_vars),
                         ..cfg
                     }
                     .to_file(&config)?
                 }
             } else {
-                println!("Env var {} not found in {}", &env_var, &config)
+                println!("Var {} not found in {}", &name, &config)
             }
         }
 

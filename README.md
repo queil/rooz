@@ -159,9 +159,12 @@ in non-trusted Docker hosts.
 Create `example-secrets.rooz.yaml` (don't commit it to git!):
 
 ```yaml
+vars:
+  apiKey: 1744420283158995
+
 env:
   API_URL: https://api.rooz.dev/v1
-  API_KEY: 1744420283158995
+  API_KEY: "{{ apiKey }}"
 
 ```
 
@@ -175,8 +178,8 @@ View the file. If the result looks like the below (things may have got re-ordere
 a bit):
 
 ```yaml
-env:
-  API_KEY: |
+vars:
+  apiKey: |
     -----BEGIN AGE ENCRYPTED FILE-----
     YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSBmN01ueG1QRGpSK2QvUzFw
     OEdSSEFLMGhXeWQ5dHVlZzcySmNuRDFrbEVnCmFZYzF4Q2hwampQdTNDbHFFVGlw
@@ -187,7 +190,10 @@ env:
     dUUKHkIxngFXYXoYM66/LkCd3Dda6TqOHYQYoLaS69PyQVSdy54hI5JnOIggRAOb
     Zv7U
     -----END AGE ENCRYPTED FILE-----
+
+env:
   API_URL: https://api.rooz.dev/v1
+  API_KEY: "{{ apiKey }}"
 
 ```
 

@@ -58,7 +58,7 @@ impl<'a> WorkspaceApi<'a> {
             Path::new(&home_dir).join(".age").to_string_lossy().as_ref(),
         ));
 
-        let mut run_spec = RunSpec {
+        let run_spec = RunSpec {
             reason: "work",
             image: &spec.image,
             uid: &spec.uid,
@@ -78,19 +78,6 @@ impl<'a> WorkspaceApi<'a> {
             ports: spec.ports.clone(),
             ..Default::default()
         };
-
-        log::debug!("Checking if env vars need decryption");
-        if let Some(vars) = age_utils::needs_decryption(run_spec.env.clone()) {
-            log::debug!("Decrypting vars");
-            let identity = self.read_age_identity().await?;
-            let decrypted_kv = age_utils::decrypt(&identity, vars)?;
-            run_spec = RunSpec {
-                env: Some(decrypted_kv),
-                ..run_spec
-            }
-        } else {
-            log::debug!("No encrypted vars found");
-        }
 
         match self.api.container.create(run_spec).await? {
         ContainerResult::Created { id } =>
