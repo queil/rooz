@@ -1,5 +1,5 @@
 use crate::{cli::WorkParams, constants};
-use handlebars::Handlebars;
+use handlebars::{no_escape, Handlebars};
 use linked_hash_map::LinkedHashMap;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, ffi::OsStr, fs, path::Path};
@@ -209,7 +209,8 @@ impl RoozCfg {
     pub fn expand_vars(&mut self) -> Result<(), AnyError> {
         if let Some(vars) = &self.vars {
             let cfg_string = &self.to_string(FileFormat::Yaml)?;
-            let reg = Handlebars::new();
+            let mut reg = Handlebars::new();
+            reg.register_escape_fn(no_escape);
             let mut built_vars = LinkedHashMap::<String, String>::new();
 
             for (k, v) in vars {
