@@ -117,30 +117,30 @@ impl RoozCfg {
         }
     }
 
-    pub fn from_cli(self, cli: WorkParams, shell: Option<String>) -> Self {
-        RoozCfg {
+    pub fn from_cli(&mut self, cli: &WorkParams, shell: Option<String>) -> () {
+        *self = RoozCfg {
             shell: shell.or(self.shell.clone()),
-            image: cli.image.or(self.image.clone()),
-            user: cli.user.or(self.user.clone()),
-            git_ssh_url: cli.git_ssh_url.or(self.git_ssh_url.clone()),
-            privileged: cli.privileged.or(self.privileged.clone()),
-            caches: Self::extend_if_any(self.caches.clone(), cli.caches),
+            image: cli.image.clone().or(self.image.clone()),
+            user: cli.user.clone().or(self.user.clone()),
+            git_ssh_url: cli.git_ssh_url.clone().or(self.git_ssh_url.clone()),
+            privileged: cli.privileged.or(self.privileged),
+            caches: Self::extend_if_any(self.caches.clone(), cli.caches.clone()),
             ..self.clone()
         }
     }
 
-    pub fn from_config(self, config: RoozCfg) -> Self {
-        RoozCfg {
-            shell: config.shell.or(self.shell),
-            image: config.image.or(self.image),
-            user: config.user.or(self.user),
-            git_ssh_url: config.git_ssh_url.or(self.git_ssh_url),
-            privileged: config.privileged.or(self.privileged),
-            caches: Self::extend_if_any(self.caches, config.caches),
-            sidecars: Self::extend_if_any(self.sidecars, config.sidecars),
-            ports: Self::extend_if_any(self.ports, config.ports),
-            env: Self::extend_if_any(self.env, config.env),
-            extra_repos: Self::extend_if_any(self.extra_repos, config.extra_repos),
+    pub fn from_config(&mut self, config: &RoozCfg) -> () {
+        *self = RoozCfg {
+            shell: config.shell.clone().or(self.shell.clone()),
+            image: config.image.clone().or(self.image.clone()),
+            user: config.user.clone().or(self.user.clone()),
+            git_ssh_url: config.git_ssh_url.clone().or(self.git_ssh_url.clone()),
+            privileged: config.privileged.clone().or(self.privileged.clone()),
+            caches: Self::extend_if_any(self.caches.clone(), config.caches.clone()),
+            sidecars: Self::extend_if_any(self.sidecars.clone(), config.sidecars.clone()),
+            ports: Self::extend_if_any(self.ports.clone(), config.ports.clone()),
+            env: Self::extend_if_any(self.env.clone(), config.env.clone()),
+            extra_repos: Self::extend_if_any(self.extra_repos.clone(), config.extra_repos.clone()),
         }
     }
 

@@ -253,7 +253,8 @@ impl<'a> ContainerApi<'a> {
         match self
             .client
             .start_container(&container_id, None::<StartContainerOptions<String>>)
-            .await.map_err(|e|Box::new(e))
+            .await
+            .map_err(|e| Box::new(e))
         {
             Ok(_) => Ok(()),
             Err(e) => Err(Box::new(e)),

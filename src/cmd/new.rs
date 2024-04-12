@@ -2,7 +2,7 @@ use crate::{
     api::WorkspaceApi,
     cli::{WorkParams, WorkspacePersistence},
     constants,
-    git::{CloneSpec, RootRepoCloneResult},
+    git::{CloneEnv, RootRepoCloneResult},
     labels::{self, Labels},
     model::{
         config::{FinalCfg, RoozCfg},
@@ -11,9 +11,76 @@ use crate::{
 };
 
 impl<'a> WorkspaceApi<'a> {
+    async fn new_core(
+        &self,
+        cfg_builder: &mut RoozCfg,
+        cli_config: Option<RoozCfg>,
+        cli_params: &WorkParams,
+        work_spec: &WorkSpec<'a>,
+        clone_spec: &CloneEnv,
+        root_git_repo: Option<RootRepoCloneResult>,
+        workspace_key: &str,
+        force: bool,
+        work_dir: &str,
+        labels: &Labels,
+    ) -> Result<EnterSpec, AnyError> {
+        if let Some(c) = &cli_config {
+            cfg_builder.from_config(c);
+        }
+        cfg_builder.from_cli(cli_params, None);
+        let cfg = FinalCfg::from(&*cfg_builder);
+
+        self.api
+            .image
+            .ensure(&cfg.image, cli_params.pull_image)
+            .await?;
+
+        let network = self
+            .ensure_sidecars(
+                &cfg.sidecars,
+                labels,
+                workspace_key,
+                force,
+                cli_params.pull_image,
+                &work_dir,
+            )
+            .await?;
+        let work_labels = labels
+            .clone()
+            .with_container(Some(constants::DEFAULT_CONTAINER_NAME))
+            .with_config(cfg.clone());
+        let work_spec = WorkSpec {
+            image: &cfg.image,
+            user: &cfg.user,
+            caches: Some(cfg.caches),
+            env_vars: Some(cfg.env),
+            ports: Some(cfg.ports),
+            container_working_dir: &root_git_repo
+                .clone()
+                .map(|r| r.dir)
+                .unwrap_or(constants::WORK_DIR.to_string()),
+            network: network.as_deref(),
+            labels: (&work_labels).into(),
+            privileged: cfg.privileged,
+            ..*work_spec
+        };
+
+        let ws = self.create(&work_spec).await?;
+        if !cfg.extra_repos.is_empty() {
+            self.git
+                .clone_extra_repos(clone_spec.clone(), cfg.extra_repos)
+                .await?;
+        }
+        Ok(EnterSpec {
+            workspace: ws,
+            git_spec: root_git_repo,
+            config: cfg_builder.clone(),
+        })
+    }
+
     pub async fn new(
         &self,
-        spec: &WorkParams,
+        cli_params: &WorkParams,
         cli_config: Option<RoozCfg>,
         persistence: Option<WorkspacePersistence>,
     ) -> Result<EnterSpec, AnyError> {
@@ -37,7 +104,7 @@ impl<'a> WorkspaceApi<'a> {
 
         self.api
             .image
-            .ensure(constants::DEFAULT_IMAGE, spec.pull_image)
+            .ensure(constants::DEFAULT_IMAGE, cli_params.pull_image)
             .await?;
 
         let work_dir = constants::WORK_DIR;
@@ -53,132 +120,60 @@ impl<'a> WorkspaceApi<'a> {
             ..Default::default()
         };
 
-        let clone_spec = CloneSpec {
+        let clone_env = CloneEnv {
             image: constants::DEFAULT_IMAGE.into(),
             uid: orig_uid.to_string(),
             workspace_key: workspace_key.to_string(),
             working_dir: work_dir.to_string(),
         };
 
-        match &RoozCfg::git_ssh_url(spec, &cli_config) {
+        match &RoozCfg::git_ssh_url(cli_params, &cli_config) {
             None => {
-                let mut cfg_builder = RoozCfg::default().from_cli_env(spec.clone());
-                if let Some(c) = &cli_config {
-                    cfg_builder = cfg_builder.from_config(c.clone());
-                }
-                cfg_builder = cfg_builder.from_cli(spec.clone(), None);
-                let cfg = FinalCfg::from(&cfg_builder);
-
-                self.api.image.ensure(&cfg.image, spec.pull_image).await?;
-
-                let network = self
-                    .ensure_sidecars(
-                        &cfg.sidecars,
-                        &labels,
-                        &workspace_key,
-                        force,
-                        spec.pull_image,
-                        &work_dir,
-                    )
-                    .await?;
-                let work_labels = labels
-                    .clone()
-                    .with_container(Some(constants::DEFAULT_CONTAINER_NAME))
-                    .with_config(cfg.clone());
-                let work_spec = WorkSpec {
-                    image: &cfg.image,
-                    user: &cfg.user,
-                    caches: Some(cfg.caches),
-                    env_vars: Some(cfg.env),
-                    ports: Some(cfg.ports),
-                    network: network.as_deref(),
-                    labels: (&work_labels).into(),
-                    privileged: cfg.privileged,
-                    ..work_spec
-                };
-
-                let ws = self.create(&work_spec).await?;
-                if !cfg.extra_repos.is_empty() {
-                    self.git
-                        .clone_extra_repos(clone_spec, cfg.extra_repos)
-                        .await?;
-                }
-                return Ok(EnterSpec {
-                    workspace: ws,
-                    git_spec: None,
-                    config: cfg_builder,
-                });
+                let mut cfg_builder = RoozCfg::default().from_cli_env(cli_params.clone());
+                self.new_core(
+                    &mut cfg_builder,
+                    cli_config,
+                    cli_params,
+                    &work_spec,
+                    &clone_env,
+                    None,
+                    &workspace_key,
+                    force,
+                    work_dir,
+                    &labels,
+                )
+                .await
             }
 
-            Some(url) => match self.git.clone_root_repo(&url, &clone_spec).await? {
-                RootRepoCloneResult {
-                    config: repo_config,
-                    dir: clone_dir,
-                } => {
-                    let mut cfg_builder = RoozCfg::default().from_cli_env(spec.clone());
+            Some(url) => match self.git.clone_root_repo(&url, &clone_env).await? {
+                root_repo_result => {
+                    let mut cfg_builder = RoozCfg::default().from_cli_env(cli_params.clone());
 
-                    match &repo_config {
+                    match &root_repo_result.config {
                         Some(c) => {
                             log::debug!("Config file applied.");
-                            cfg_builder = cfg_builder.from_config(c.clone());
+                            cfg_builder.from_config(c);
                         }
                         None => {
                             log::debug!("No valid config file found in the repository.");
                         }
                     }
-
-                    if let Some(c) = &cli_config {
-                        cfg_builder = cfg_builder.from_config(c.clone());
-                    }
-                    cfg_builder = cfg_builder.from_cli(spec.clone(), None);
-                    let cfg = FinalCfg::from(&cfg_builder);
-
-                    self.api.image.ensure(&cfg.image, spec.pull_image).await?;
-                    let network = self
-                        .ensure_sidecars(
-                            &cfg.sidecars,
-                            &labels,
-                            &workspace_key,
-                            force,
-                            spec.pull_image,
-                            &work_dir,
-                        )
-                        .await?;
-                    let work_labels = labels
-                        .clone()
-                        .with_container(Some(constants::DEFAULT_CONTAINER_NAME))
-                        .with_config(cfg.clone());
-
-                    let work_spec = WorkSpec {
-                        image: &cfg.image,
-                        user: &cfg.user,
-                        caches: Some(cfg.caches),
-                        env_vars: Some(cfg.env),
-                        ports: Some(cfg.ports),
-                        container_working_dir: &clone_dir,
-                        network: network.as_deref(),
-                        labels: (&work_labels).into(),
-                        privileged: cfg.privileged,
-                        ..work_spec
-                    };
-
-                    let ws = self.create(&work_spec).await?;
-                    if !cfg.extra_repos.is_empty() {
-                        self.git
-                            .clone_extra_repos(clone_spec, cfg.extra_repos)
-                            .await?;
-                    }
-                    return Ok(EnterSpec {
-                        workspace: ws,
-                        git_spec: Some(RootRepoCloneResult {
-                            config: repo_config.clone(),
-                            dir: clone_dir,
-                        }),
-                        config: cfg_builder,
-                    });
+                    self.new_core(
+                        &mut cfg_builder,
+                        cli_config,
+                        cli_params,
+                        &work_spec,
+                        &clone_env,
+                        Some(root_repo_result),
+                        &workspace_key,
+                        force,
+                        work_dir,
+                        &labels,
+                    )
+                    .await
                 }
             },
-        };
+        }
     }
 
     pub async fn tmp(&self, spec: &WorkParams, root: bool, shell: &str) -> Result<(), AnyError> {
