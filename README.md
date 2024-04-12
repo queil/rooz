@@ -152,8 +152,9 @@ Rooz supports basic variable replacement/templating:
 * [handlebars](https://handlebarsjs.com/guide/) syntax is used
 * variables are declared in `vars`
 * encrypted variables are decrypted before expanding
-* referencing variables in other variables' declarations is not supported
-* otherwise handlebars can be used everywhere in the file as long as it is a valid TOML/YAML
+* handlebars can be used everywhere in the file as long as it is a valid TOML/YAML
+* var replacement works within variables themselves too. However, only if the var usage is 
+below the var definition (in the document order).
 
 ```yaml
 

@@ -7,7 +7,7 @@ use age::x25519::{Identity, Recipient};
 use age::IdentityFileEntry::Native;
 use bollard::models::MountTypeEnum::VOLUME;
 use bollard::service::Mount;
-use std::collections::HashMap;
+use linked_hash_map::LinkedHashMap;
 use std::io::{Read, Write};
 use std::iter;
 
@@ -74,8 +74,8 @@ impl<'a> WorkspaceApi<'a> {
 }
 
 pub fn needs_decryption(
-    env_vars: Option<HashMap<String, String>>,
-) -> Option<HashMap<String, String>> {
+    env_vars: Option<LinkedHashMap<String, String>>,
+) -> Option<LinkedHashMap<String, String>> {
     if let Some(vars) = env_vars {
         if vars.iter().any(|(_, v)| v.starts_with(SECRET_HEADER)) {
             Some(vars)
@@ -96,14 +96,16 @@ pub fn encrypt(plaintext: String, recipient: Recipient) -> Result<String, AnyErr
     )?)?;
     writer.write_all(plaintext.as_bytes())?;
     writer.finish().and_then(|armor| armor.finish())?;
-    Ok(std::str::from_utf8(&encrypted)?.to_string().replace("\n", "|"))
+    Ok(std::str::from_utf8(&encrypted)?
+        .to_string()
+        .replace("\n", "|"))
 }
 
 pub fn decrypt(
     identity: &dyn age::Identity,
-    env_vars: HashMap<String, String>,
-) -> Result<HashMap<String, String>, AnyError> {
-    let mut ret = HashMap::<String, String>::new();
+    env_vars: LinkedHashMap<String, String>,
+) -> Result<LinkedHashMap<String, String>, AnyError> {
+    let mut ret = LinkedHashMap::<String, String>::new();
     for (k, v) in env_vars.iter() {
         if v.starts_with(SECRET_HEADER) {
             let formatted = v.replace("|", "\n");
