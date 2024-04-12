@@ -1,5 +1,6 @@
 use crate::{cli::WorkParams, constants};
 use handlebars::Handlebars;
+use linked_hash_map::LinkedHashMap;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, ffi::OsStr, fs, path::Path};
 
@@ -34,7 +35,7 @@ impl FileFormat {
 pub struct RoozSidecar {
     pub image: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub env: Option<HashMap<String, String>>,
+    pub env: Option<LinkedHashMap<String, String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub command: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -50,7 +51,7 @@ pub struct RoozSidecar {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct RoozCfg {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub vars: Option<HashMap<String, String>>,
+    pub vars: Option<LinkedHashMap<String, String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub git_ssh_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -68,15 +69,15 @@ pub struct RoozCfg {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub privileged: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub env: Option<HashMap<String, String>>,
+    pub env: Option<LinkedHashMap<String, String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub sidecars: Option<HashMap<String, RoozSidecar>>,
+    pub sidecars: Option<LinkedHashMap<String, RoozSidecar>>,
 }
 
 impl Default for RoozCfg {
     fn default() -> Self {
         Self {
-            vars: Some(HashMap::new()),
+            vars: Some(LinkedHashMap::new()),
             git_ssh_url: None,
             extra_repos: Some(Vec::new()),
             image: Some(constants::DEFAULT_IMAGE.into()),
@@ -85,8 +86,8 @@ impl Default for RoozCfg {
             user: Some(constants::DEFAULT_USER.into()),
             ports: Some(Vec::new()),
             privileged: None,
-            env: Some(HashMap::new()),
-            sidecars: Some(HashMap::new()),
+            env: Some(LinkedHashMap::new()),
+            sidecars: Some(LinkedHashMap::new()),
         }
     }
 }
@@ -205,12 +206,17 @@ impl RoozCfg {
         }
     }
 
-    pub fn expand_vars(& mut self) -> Result<(), AnyError> {
-
+    pub fn expand_vars(&mut self) -> Result<(), AnyError> {
         if let Some(vars) = &self.vars {
             let cfg_string = &self.to_string(FileFormat::Yaml)?;
             let reg = Handlebars::new();
-            let rendered = reg.render_template(&cfg_string, &vars)?;
+            let mut built_vars = LinkedHashMap::<String, String>::new();
+
+            for (k, v) in vars {
+                built_vars.insert(k.to_string(), reg.render_template(&v, &built_vars)?);
+            }
+
+            let rendered = reg.render_template(&cfg_string, &built_vars)?;
             let s = RoozCfg::from_string(rendered, FileFormat::Yaml)?;
             *self = s;
         }
@@ -232,22 +238,6 @@ pub struct FinalCfg {
     pub sidecars: HashMap<String, RoozSidecar>,
 }
 
-impl FinalCfg {
-    pub fn from_string(config: String) -> Result<FinalCfg, Box<dyn std::error::Error + 'static>> {
-        let f = Self::deserialize(toml::de::Deserializer::new(&config));
-        match f {
-            Ok(val) => Ok(val),
-            Err(e) => Err(Box::new(e)),
-        }
-    }
-
-    pub fn to_string(&self) -> Result<String, AnyError> {
-        let mut ret = String::new();
-        Self::serialize(&self, toml::ser::Serializer::new(&mut ret))?;
-        Ok(ret)
-    }
-}
-
 impl Default for FinalCfg {
     fn default() -> Self {
         Self {
@@ -262,6 +252,22 @@ impl Default for FinalCfg {
             sidecars: HashMap::new(),
             env: HashMap::new(),
         }
+    }
+}
+
+impl FinalCfg {
+    pub fn from_string(config: String) -> Result<FinalCfg, Box<dyn std::error::Error + 'static>> {
+        let f = Self::deserialize(toml::de::Deserializer::new(&config));
+        match f {
+            Ok(val) => Ok(val),
+            Err(e) => Err(Box::new(e)),
+        }
+    }
+
+    pub fn to_string(&self) -> Result<String, AnyError> {
+        let mut ret = String::new();
+        Self::serialize(&self, toml::ser::Serializer::new(&mut ret))?;
+        Ok(ret)
     }
 }
 
@@ -287,8 +293,20 @@ impl<'a> From<&'a RoozCfg> for FinalCfg {
                 val.dedup();
                 val
             },
-            sidecars: value.sidecars.as_ref().unwrap().clone(),
-            env: value.env.as_ref().unwrap().clone(),
+            sidecars: value
+                .sidecars
+                .as_ref()
+                .unwrap()
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect::<HashMap<_, _>>(),
+            env: value
+                .env
+                .as_ref()
+                .unwrap()
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect::<HashMap<_, _>>(),
             ports,
             privileged: value.privileged.unwrap_or(default.privileged),
             ..default

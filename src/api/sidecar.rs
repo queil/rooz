@@ -88,7 +88,11 @@ impl<'a> WorkspaceApi<'a> {
                     force_recreate: force,
                     workspace_key: &workspace_key,
                     labels: (&labels).into(),
-                    env: s.env.clone(),
+                    env: s.env.clone().map(|x| {
+                        x.iter()
+                            .map(|(k, v)| (k.clone(), v.clone()))
+                            .collect::<HashMap<_, _>>()
+                    }),
                     network,
                     network_aliases: Some(vec![name.into()]),
                     command: s
