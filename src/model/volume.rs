@@ -137,11 +137,11 @@ impl RoozVolume {
         }
     }
 
-    pub fn sidecar_data(key: &str, path: &str) -> RoozVolume {
+    pub fn sidecar_data(workspace_key: &str, path: &str) -> RoozVolume {
         RoozVolume {
             path: path.into(),
             role: RoozVolumeRole::Data,
-            sharing: RoozVolumeSharing::Exclusive { key: key.into() },
+            sharing: RoozVolumeSharing::Exclusive { key: workspace_key.into() },
         }
     }
 }

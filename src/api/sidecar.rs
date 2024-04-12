@@ -61,7 +61,7 @@ impl<'a> WorkspaceApi<'a> {
             let auto_mounts = s.mounts.as_ref().map(|paths| {
                 paths
                     .iter()
-                    .map(|path| RoozVolume::sidecar_data(&container_name, path))
+                    .map(|path| RoozVolume::sidecar_data(workspace_key, path))
                     .collect::<Vec<_>>()
             });
 

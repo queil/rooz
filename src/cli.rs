@@ -151,9 +151,9 @@ pub struct ListParams {}
 pub struct RemoveParams {
     #[arg(required_unless_present = "all")]
     pub name: Option<String>,
-    #[arg(short, long)]
+    #[arg(short, long, help = "Kill running containers")]
     pub force: bool,
-    #[arg(short, long, conflicts_with = "name")]
+    #[arg(short, long, conflicts_with = "name", help = "Remove all workspaces")]
     pub all: bool,
 }
 
