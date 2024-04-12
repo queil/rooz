@@ -96,7 +96,7 @@ impl<'a> ContainerApi<'a> {
 
     pub async fn stop(&self, container_id: &str) -> Result<(), AnyError> {
         self.client
-            .stop_container(&container_id, Some(StopContainerOptions { t: 30 }))
+            .stop_container(&container_id, Some(StopContainerOptions { t: 0 }))
             .await?;
         let mut count = 10;
         while count > 0 {

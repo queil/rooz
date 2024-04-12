@@ -1,4 +1,5 @@
 use crate::{cli::WorkParams, constants};
+use handlebars::Handlebars;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, ffi::OsStr, fs, path::Path};
 
@@ -202,6 +203,18 @@ impl RoozCfg {
             &[a, b] => (a.parse::<u16>().unwrap(), b.parse::<u16>().unwrap()),
             _ => panic!("Invalid port mapping specification: {}", port_mapping),
         }
+    }
+
+    pub fn expand_vars(& mut self) -> Result<(), AnyError> {
+
+        if let Some(vars) = &self.vars {
+            let cfg_string = &self.to_string(FileFormat::Yaml)?;
+            let reg = Handlebars::new();
+            let rendered = reg.render_template(&cfg_string, &vars)?;
+            let s = RoozCfg::from_string(rendered, FileFormat::Yaml)?;
+            *self = s;
+        }
+        Ok(())
     }
 }
 

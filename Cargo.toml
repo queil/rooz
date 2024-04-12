@@ -1,6 +1,6 @@
 [package]
 name = "rooz"
-version = "0.69.0"
+version = "0.70.0"
 edition = "2021"
 
 [dependencies]
@@ -13,6 +13,7 @@ colored = "2.1.0"
 ctrlc = "3.4.4"
 env_logger = "0.10.0"
 futures = "0.3.26"
+handlebars = "5.1.2"
 lazy_static = "1.4.0"
 log = "0.4.20"
 openssh = "0.10.3"

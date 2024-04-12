@@ -40,6 +40,8 @@ impl<'a> WorkspaceApi<'a> {
             log::debug!("No encrypted vars found");
         }
 
+        cfg_builder.expand_vars()?;
+
         let cfg = FinalCfg::from(&*cfg_builder);
 
         self.api
