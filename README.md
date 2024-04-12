@@ -146,22 +146,48 @@ ports = [
 ]
 ```
 
+## Variables/templating
+
+Rooz supports basic variable replacement/templating:
+* [handlebars](https://handlebarsjs.com/guide/) syntax is used
+* variables are declared in `vars`
+* encrypted variables are decrypted before expanding
+* referencing variables in other variables' declarations is not supported
+* otherwise handlebars can be used everywhere in the file as long as it is a valid TOML/YAML
+
+```yaml
+
+vars:
+  sqlUser: admin
+  sqlPassword: '----BEGIN AGE ENCRYPTED FILE-----|YWdlLWVuY3J ... truncated'
+
+env:
+  SQL_CONNECTION: "uid={{ sqlUser }};pwd={{ sqlPassword }}"
+
+sidecars:
+  tool:
+    env:
+      SQL_USER: "{{ sqlUser }}"
+      SQL_PASSWORD: "{{ sqlPassword }}"
+
+```
+
 ## Secrets
 
 Rooz uses [age](https://github.com/C2SP/C2SP/blob/main/age.md) encryption to safely store
 sensitive data (like API keys) in config files.
-
-:warning: Only environment variables are supported which means it's likely not safe to use it 
-in non-trusted Docker hosts.
 
 ### Example
 
 Create `example-secrets.rooz.yaml` (don't commit it to git!):
 
 ```yaml
+vars:
+  apiKey: 1744420283158995
+
 env:
   API_URL: https://api.rooz.dev/v1
-  API_KEY: 1744420283158995
+  API_KEY: "{{ apiKey }}"
 
 ```
 
@@ -175,19 +201,11 @@ View the file. If the result looks like the below (things may have got re-ordere
 a bit):
 
 ```yaml
+vars:
+  apiKey: '----BEGIN AGE ENCRYPTED FILE-----|YWdlLWVuY3J ... truncated'
 env:
-  API_KEY: |
-    -----BEGIN AGE ENCRYPTED FILE-----
-    YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSBmN01ueG1QRGpSK2QvUzFw
-    OEdSSEFLMGhXeWQ5dHVlZzcySmNuRDFrbEVnCmFZYzF4Q2hwampQdTNDbHFFVGlw
-    K29lTWlieVBHd2RWQmxEamNSSkRHNWMKLT4gdEAxUT1LaS8tZ3JlYXNlCi9FcVE5
-    dHhwa3hNc0FDNi9YckU4bGg3MjdHM1lhZ2NrMERpZlNMUS9FUXFEWkFZQ1RvK1pS
-    MkN1cnBMcW81cFkKcFBJWkJmUkFBMzI0d3h0TENLOVdpaU1WZUVGMWZxTjlYeTVo
-    blEKLS0tIDl0YmdWOTdWYlVsUHljVm9HM2RnTml0elhQU0RJUE9QZElIamczVTlH
-    dUUKHkIxngFXYXoYM66/LkCd3Dda6TqOHYQYoLaS69PyQVSdy54hI5JnOIggRAOb
-    Zv7U
-    -----END AGE ENCRYPTED FILE-----
   API_URL: https://api.rooz.dev/v1
+  API_KEY: "{{ apiKey }}"
 
 ```
 

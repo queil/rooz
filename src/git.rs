@@ -19,7 +19,7 @@ pub enum CloneUrls {
 }
 
 #[derive(Clone, Debug)]
-pub struct CloneSpec {
+pub struct CloneEnv {
     pub image: String,
     pub uid: String,
     pub workspace_key: String,
@@ -98,11 +98,7 @@ impl<'a> ExecApi<'a> {
 }
 
 impl<'a> GitApi<'a> {
-    async fn clone_from_spec(
-        &self,
-        spec: &CloneSpec,
-        urls: &CloneUrls,
-    ) -> Result<String, AnyError> {
+    async fn clone_from_spec(&self, spec: &CloneEnv, urls: &CloneUrls) -> Result<String, AnyError> {
         let mut clone_script = "export GIT_SSH_COMMAND='ssh -i /tmp/.ssh/id_ed25519 -o UserKnownHostsFile=/tmp/.ssh/known_hosts'\n".to_string();
         let all_urls: Vec<String> = match &urls {
             CloneUrls::Root { url } => vec![url.to_string()],
@@ -176,7 +172,7 @@ impl<'a> GitApi<'a> {
     pub async fn clone_root_repo(
         &self,
         url: &str,
-        spec: &CloneSpec,
+        spec: &CloneEnv,
     ) -> Result<RootRepoCloneResult, AnyError> {
         let container_id = self
             .clone_from_spec(&spec, &CloneUrls::Root { url: url.into() })
@@ -211,7 +207,7 @@ impl<'a> GitApi<'a> {
 
     pub async fn clone_extra_repos(
         &self,
-        spec: CloneSpec,
+        spec: CloneEnv,
         urls: Vec<String>,
     ) -> Result<(), AnyError> {
         let container_id = self

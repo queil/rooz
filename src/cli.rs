@@ -174,12 +174,12 @@ pub struct DescribeParams {
 }
 
 #[derive(Parser, Debug)]
-#[command(about = "Encrypts an env variable in a provided config file")]
+#[command(about = "Encrypts a variable in the vars section of the provided config file")]
 pub struct EncryptParams {
     #[arg(long, short, help = "Target config file")]
     pub config: String,
-    #[arg(long, short, help = "Target environment variable name", alias = "env")]
-    pub env_var: String,
+    #[arg(help = "Target variable name")]
+    pub name: String,
 }
 
 #[derive(Subcommand, Debug)]

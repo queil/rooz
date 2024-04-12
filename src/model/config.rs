@@ -1,49 +1,9 @@
 use crate::{cli::WorkParams, constants};
+use handlebars::Handlebars;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, ffi::OsStr, fs, path::Path};
 
 use super::types::AnyError;
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct RoozSidecar {
-    pub image: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub env: Option<HashMap<String, String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub command: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub mounts: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ports: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub mount_work: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub work_dir: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct RoozCfg {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub git_ssh_url: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub extra_repos: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub image: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub caches: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub shell: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub user: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ports: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub privileged: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub env: Option<HashMap<String, String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub sidecars: Option<HashMap<String, RoozSidecar>>,
-}
 
 #[derive(Debug, Clone, Copy)]
 pub enum FileFormat {
@@ -66,6 +26,67 @@ impl FileFormat {
             Some("toml") => FileFormat::Toml,
             Some(other) => panic!("Config file format: {} is not supported", other),
             None => panic!("Only toml and yaml config file formats are supported."),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct RoozSidecar {
+    pub image: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub env: Option<HashMap<String, String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mounts: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ports: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mount_work: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub work_dir: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct RoozCfg {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vars: Option<HashMap<String, String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub git_ssh_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extra_repos: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub image: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub caches: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub shell: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ports: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub privileged: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub env: Option<HashMap<String, String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sidecars: Option<HashMap<String, RoozSidecar>>,
+}
+
+impl Default for RoozCfg {
+    fn default() -> Self {
+        Self {
+            vars: Some(HashMap::new()),
+            git_ssh_url: None,
+            extra_repos: Some(Vec::new()),
+            image: Some(constants::DEFAULT_IMAGE.into()),
+            caches: Some(Vec::new()),
+            shell: Some(constants::DEFAULT_SHELL.into()),
+            user: Some(constants::DEFAULT_USER.into()),
+            ports: Some(Vec::new()),
+            privileged: None,
+            env: Some(HashMap::new()),
+            sidecars: Some(HashMap::new()),
         }
     }
 }
@@ -117,30 +138,31 @@ impl RoozCfg {
         }
     }
 
-    pub fn from_cli(self, cli: WorkParams, shell: Option<String>) -> Self {
-        RoozCfg {
+    pub fn from_cli(&mut self, cli: &WorkParams, shell: Option<String>) -> () {
+        *self = RoozCfg {
             shell: shell.or(self.shell.clone()),
-            image: cli.image.or(self.image.clone()),
-            user: cli.user.or(self.user.clone()),
-            git_ssh_url: cli.git_ssh_url.or(self.git_ssh_url.clone()),
-            privileged: cli.privileged.or(self.privileged.clone()),
-            caches: Self::extend_if_any(self.caches.clone(), cli.caches),
+            image: cli.image.clone().or(self.image.clone()),
+            user: cli.user.clone().or(self.user.clone()),
+            git_ssh_url: cli.git_ssh_url.clone().or(self.git_ssh_url.clone()),
+            privileged: cli.privileged.or(self.privileged),
+            caches: Self::extend_if_any(self.caches.clone(), cli.caches.clone()),
             ..self.clone()
         }
     }
 
-    pub fn from_config(self, config: RoozCfg) -> Self {
-        RoozCfg {
-            shell: config.shell.or(self.shell),
-            image: config.image.or(self.image),
-            user: config.user.or(self.user),
-            git_ssh_url: config.git_ssh_url.or(self.git_ssh_url),
-            privileged: config.privileged.or(self.privileged),
-            caches: Self::extend_if_any(self.caches, config.caches),
-            sidecars: Self::extend_if_any(self.sidecars, config.sidecars),
-            ports: Self::extend_if_any(self.ports, config.ports),
-            env: Self::extend_if_any(self.env, config.env),
-            extra_repos: Self::extend_if_any(self.extra_repos, config.extra_repos),
+    pub fn from_config(&mut self, config: &RoozCfg) -> () {
+        *self = RoozCfg {
+            vars: Self::extend_if_any(self.vars.clone(), config.vars.clone()),
+            git_ssh_url: config.git_ssh_url.clone().or(self.git_ssh_url.clone()),
+            extra_repos: Self::extend_if_any(self.extra_repos.clone(), config.extra_repos.clone()),
+            image: config.image.clone().or(self.image.clone()),
+            caches: Self::extend_if_any(self.caches.clone(), config.caches.clone()),
+            shell: config.shell.clone().or(self.shell.clone()),
+            user: config.user.clone().or(self.user.clone()),
+            ports: Self::extend_if_any(self.ports.clone(), config.ports.clone()),
+            privileged: config.privileged.clone().or(self.privileged.clone()),
+            env: Self::extend_if_any(self.env.clone(), config.env.clone()),
+            sidecars: Self::extend_if_any(self.sidecars.clone(), config.sidecars.clone()),
         }
     }
 
@@ -182,22 +204,17 @@ impl RoozCfg {
             _ => panic!("Invalid port mapping specification: {}", port_mapping),
         }
     }
-}
 
-impl Default for RoozCfg {
-    fn default() -> Self {
-        Self {
-            git_ssh_url: None,
-            extra_repos: Some(Vec::new()),
-            image: Some(constants::DEFAULT_IMAGE.into()),
-            caches: Some(Vec::new()),
-            shell: Some(constants::DEFAULT_SHELL.into()),
-            user: Some(constants::DEFAULT_USER.into()),
-            ports: Some(Vec::new()),
-            privileged: None,
-            env: Some(HashMap::new()),
-            sidecars: Some(HashMap::new()),
+    pub fn expand_vars(& mut self) -> Result<(), AnyError> {
+
+        if let Some(vars) = &self.vars {
+            let cfg_string = &self.to_string(FileFormat::Yaml)?;
+            let reg = Handlebars::new();
+            let rendered = reg.render_template(&cfg_string, &vars)?;
+            let s = RoozCfg::from_string(rendered, FileFormat::Yaml)?;
+            *self = s;
         }
+        Ok(())
     }
 }
 
