@@ -248,7 +248,7 @@ impl<'a> WorkspaceApi<'a> {
             _ => panic!("Too many containers found"),
         };
 
-        let mut shell_value = String::new();
+        let mut shell_value = constants::DEFAULT_SHELL.to_string();
 
         if let Some(labels) = &summary.labels {
             if labels.contains_key(labels::CONFIG) {
