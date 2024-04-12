@@ -284,15 +284,15 @@ async fn main() -> Result<(), AnyError> {
             command: Encrypt(EncryptParams { config, name }),
         } => {
             let cfg = RoozCfg::from_file(&config)?;
-            if let Some(vars) = cfg.vars {
-                if vars.contains_key(&name) {
+            if !cfg.vars.is_empty() {
+                if cfg.vars.contains_key(&name) {
                     let identity = workspace.read_age_identity().await?;
                     let pub_key = identity.to_public();
-                    let encrypted = age_utils::encrypt(vars[&name].to_string(), pub_key)?;
-                    let mut new_vars = vars.clone();
+                    let encrypted = age_utils::encrypt(cfg.vars[&name].to_string(), pub_key)?;
+                    let mut new_vars = cfg.vars.clone();
                     new_vars.insert(name, encrypted);
                     RoozCfg {
-                        vars: Some(new_vars),
+                        vars: new_vars,
                         ..cfg
                     }
                     .to_file(&config)?

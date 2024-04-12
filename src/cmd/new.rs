@@ -35,7 +35,7 @@ impl<'a> WorkspaceApi<'a> {
             log::debug!("Decrypting vars");
             let identity = self.read_age_identity().await?;
             let decrypted_kv = age_utils::decrypt(&identity, vars)?;
-            cfg_builder.vars = Some(decrypted_kv);
+            cfg_builder.vars = decrypted_kv;
         } else {
             log::debug!("No encrypted vars found");
         }

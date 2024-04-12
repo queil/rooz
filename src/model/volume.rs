@@ -141,7 +141,9 @@ impl RoozVolume {
         RoozVolume {
             path: path.into(),
             role: RoozVolumeRole::Data,
-            sharing: RoozVolumeSharing::Exclusive { key: workspace_key.into() },
+            sharing: RoozVolumeSharing::Exclusive {
+                key: workspace_key.into(),
+            },
         }
     }
 }
