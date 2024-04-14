@@ -42,10 +42,8 @@ pub struct RemoteParams {
         help = "Remote host's SSH url"
     )]
     pub ssh_url: String,
-    #[arg(
-        env = "DOCKER_HOST",
-    )]
-    pub docker_host: String,
+    #[arg(env = "DOCKER_HOST", hide = true)]
+    pub local_docker_host: String,
 }
 
 #[derive(Clone, Parser, Debug)]
