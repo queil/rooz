@@ -1,6 +1,6 @@
 [package]
 name = "rooz"
-version = "0.74.0"
+version = "0.75.0"
 edition = "2021"
 
 [dependencies]
@@ -17,7 +17,7 @@ handlebars = "5.1.2"
 lazy_static = "1.4.0"
 linked-hash-map = { version = "0.5.6", features = ["serde", "serde_impl"] }
 log = "0.4.20"
-openssh = "0.10.3"
+openssh = { version = "0.10.3", features = ["native-mux"] }
 rand = "0.8.5"
 regex = "1.7.1"
 serde = "1.0.188"
