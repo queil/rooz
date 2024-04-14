@@ -185,23 +185,24 @@ impl RoozCfg {
     }
 
     pub fn parse_ports<'a>(
-        map: &'a mut HashMap<String, String>,
+        map: &'a mut HashMap<String, Option<String>>,
         ports: Option<Vec<String>>,
-    ) -> &'a HashMap<String, String> {
+    ) -> &'a HashMap<String, Option<String>> {
         match ports {
             None => map,
             Some(ports) => {
                 for (source, target) in ports.iter().map(RoozCfg::parse_port) {
-                    map.insert(source.to_string(), target.to_string());
+                    map.insert(source.to_string(), target.map(|p| p.to_string()));
                 }
                 map
             }
         }
     }
 
-    fn parse_port(port_mapping: &String) -> (u16, u16) {
+    fn parse_port(port_mapping: &String) -> (u16, Option<u16>) {
         match port_mapping.split(":").collect::<Vec<_>>().as_slice() {
-            &[a, b] => (a.parse::<u16>().unwrap(), b.parse::<u16>().unwrap()),
+            &[a] => (a.parse::<u16>().unwrap(), None),
+            &[a, b] => (a.parse::<u16>().unwrap(), Some(b.parse::<u16>().unwrap())),
             _ => panic!("Invalid port mapping specification: {}", port_mapping),
         }
     }
@@ -233,7 +234,7 @@ pub struct FinalCfg {
     pub caches: Vec<String>,
     pub shell: String,
     pub user: String,
-    pub ports: HashMap<String, String>,
+    pub ports: HashMap<String, Option<String>>,
     pub privileged: bool,
     pub env: HashMap<String, String>,
     pub sidecars: HashMap<String, RoozSidecar>,
@@ -276,7 +277,7 @@ impl<'a> From<&'a RoozCfg> for FinalCfg {
     fn from(value: &'a RoozCfg) -> Self {
         let default = FinalCfg::default();
 
-        let mut ports = HashMap::<String, String>::new();
+        let mut ports = HashMap::<String, Option<String>>::new();
         RoozCfg::parse_ports(&mut ports, value.clone().ports);
 
         FinalCfg {

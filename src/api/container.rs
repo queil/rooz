@@ -170,7 +170,7 @@ impl<'a> ContainerApi<'a> {
                         bindings.insert(
                             source.to_string(),
                             Some(vec![PortBinding {
-                                host_port: Some(target.to_string()),
+                                host_port: target.as_deref().map(|x| x.to_string()),
                                 host_ip: Some(localhost.to_string()),
                             }]),
                         );

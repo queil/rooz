@@ -42,7 +42,7 @@ pub struct WorkSpec<'a> {
     pub force_recreate: bool,
     pub network: Option<&'a str>,
     pub env_vars: Option<HashMap<String, String>>,
-    pub ports: Option<HashMap<String, String>>,
+    pub ports: Option<HashMap<String, Option<String>>>,
 }
 
 impl Default for WorkSpec<'_> {
@@ -82,7 +82,7 @@ pub struct RunSpec<'a> {
     pub auto_remove: bool,
     pub labels: HashMap<&'a str, &'a str>,
     pub env: Option<HashMap<String, String>>,
-    pub ports: Option<HashMap<String, String>>,
+    pub ports: Option<HashMap<String, Option<String>>>,
     pub network: Option<&'a str>,
     pub network_aliases: Option<Vec<String>>,
     pub command: Option<Vec<&'a str>>,

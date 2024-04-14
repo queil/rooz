@@ -53,7 +53,7 @@ impl<'a> WorkspaceApi<'a> {
             self.api.image.ensure(&s.image, pull_image).await?;
             let container_name = format!("{}-{}", workspace_key, name);
             let labels = labels_sidecar.clone().with_container(Some(&name));
-            let mut ports = HashMap::<String, String>::new();
+            let mut ports = HashMap::<String, Option<String>>::new();
             RoozCfg::parse_ports(&mut ports, s.ports.clone());
 
             let mut mounts = Vec::<RoozVolume>::new();
