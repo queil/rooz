@@ -30,6 +30,7 @@ use clap_complete::generate;
 use cli::EnterParams;
 use futures::channel::oneshot::{self, Sender};
 use openssh::{ForwardType, KnownHosts, SessionBuilder};
+use regex::Regex;
 
 #[tokio::main]
 async fn main() -> Result<(), AnyError> {
@@ -43,7 +44,7 @@ async fn main() -> Result<(), AnyError> {
         command:
             Remote(cli::RemoteParams {
                 ssh_url,
-                local_socket,
+                docker_host,
             }),
     } = &args
     {
@@ -57,8 +58,13 @@ async fn main() -> Result<(), AnyError> {
             }
         })?;
 
-        let expanded_socket = shellexpand::tilde(&local_socket).into_owned();
+        let re = Regex::new(r"^unix://").unwrap();
+        let expanded_socket = shellexpand::tilde(&re.replace(&docker_host, "")).into_owned();
         let local_socket_path = Path::new(&expanded_socket);
+
+        if let Some(path) = local_socket_path.parent() {
+            fs::create_dir_all(path)?;
+        }
 
         if local_socket_path.exists() {
             fs::remove_file(local_socket_path)?;
@@ -272,7 +278,7 @@ async fn main() -> Result<(), AnyError> {
             command:
                 Remote(cli::RemoteParams {
                     ssh_url: _,
-                    local_socket: _,
+                    docker_host: _,
                 }),
         } => {
             //TODO: this needs to be handled more elegantly. I.e. Rooz should

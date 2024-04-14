@@ -43,13 +43,9 @@ pub struct RemoteParams {
     )]
     pub ssh_url: String,
     #[arg(
-        long,
-        short,
-        default_value = "~/.rooz/remote.sock",
-        env = "ROOZ_REMOTE_LOCAL_SOCK",
-        help = "A local unix sock forwarded to the remote docker socket. Without the prefix unix://"
+        env = "DOCKER_HOST",
     )]
-    pub local_socket: String,
+    pub docker_host: String,
 }
 
 #[derive(Clone, Parser, Debug)]

@@ -301,7 +301,7 @@ hosts via SSH and forward a local unix socket to the remote's Docker/Podman sock
 Add to your `~/.bashrc`:
 
 * `export ROOZ_REMOTE_SSH_URL=ssh://your-user@remote-host`
-* `export DOCKER_HOST=unix:///home/your-user/.rooz/remote.sock`  (this is the default path that can be changed via `ROOZ_REMOTE_LOCAL_SOCK` - without the `unix://` prefix)
+* `export DOCKER_HOST=unix:///home/your-user/.rooz/remote.sock`
 
 Now run: `rooz remote &`. You can stop forwarding by `fg` and `CTRL+C`.
 
