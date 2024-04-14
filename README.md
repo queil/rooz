@@ -293,10 +293,7 @@ hosts via SSH and forward a local unix socket to the remote's Docker/Podman sock
   * For rootless Docker: `export DOCKER_HOST=/run/user/1000/docker.sock` (assuming your-user has uid=1000)
   * For Podman: `export DOCKER_HOST=/run/user/1000/podman/podman.sock` (assuming your-user has uid=1000)
 
-
 #### The local host
-
-* `mkdir ~/.rooz`
 
 Add to your `~/.bashrc`:
 
