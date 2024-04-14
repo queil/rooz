@@ -10,7 +10,7 @@ mod labels;
 mod model;
 mod ssh;
 
-use std::{fs, io, path::Path, sync::Mutex, time::Duration};
+use std::io;
 
 use crate::{
     api::{Api, ContainerApi, ExecApi, GitApi, ImageApi, VolumeApi, WorkspaceApi},
@@ -21,6 +21,7 @@ use crate::{
         CompletionParams, DescribeParams, EncryptParams, InitParams, ListParams, NewParams,
         RemoveParams, StopParams, TmpParams,
     },
+    cmd::remote,
     model::{config::RoozCfg, types::AnyError},
 };
 
@@ -28,8 +29,6 @@ use bollard::Docker;
 use clap::{CommandFactory, Parser};
 use clap_complete::generate;
 use cli::EnterParams;
-use futures::channel::oneshot::{self, Sender};
-use openssh::{ForwardType, KnownHosts, SessionBuilder};
 
 #[tokio::main]
 async fn main() -> Result<(), AnyError> {
@@ -43,79 +42,11 @@ async fn main() -> Result<(), AnyError> {
         command:
             Remote(cli::RemoteParams {
                 ssh_url,
-                local_socket,
+                local_docker_host,
             }),
     } = &args
     {
-        let (sender, receiver) = oneshot::channel::<()>();
-
-        let tx_mutex = Mutex::<Option<Sender<()>>>::new(Some(sender));
-
-        ctrlc::set_handler(move || {
-            if let Some(tx) = tx_mutex.lock().unwrap().take() {
-                tx.send(()).unwrap();
-            }
-        })?;
-
-        let expanded_socket = shellexpand::tilde(&local_socket).into_owned();
-        let local_socket_path = Path::new(&expanded_socket);
-
-        if local_socket_path.exists() {
-            fs::remove_file(local_socket_path)?;
-        }
-
-        let session = SessionBuilder::default()
-            .known_hosts_check(KnownHosts::Accept)
-            .connect_timeout(Duration::from_secs(5))
-            .connect(&ssh_url)
-            .await?;
-
-        println!("SSH: connected to {}", &ssh_url);
-
-        let socket_url = String::from_utf8(
-            session
-                .command("echo")
-                .arg("-n")
-                .raw_arg("$DOCKER_HOST")
-                .output()
-                .await?
-                .stdout,
-        )?;
-
-        if socket_url.is_empty() {
-            panic!(
-                "Env var DOCKER_HOST is not set on the remote host. Can't get docker.socket path."
-            )
-        }
-
-        log::debug!(
-            "Read remote socket from env var DOCKER_HOST: {}",
-            socket_url
-        );
-
-        let remote_socket = Path::new(&socket_url);
-
-        session
-            .request_port_forward(ForwardType::Local, local_socket_path, remote_socket)
-            .await?;
-
-        println!(
-            "Forwarding: {} -> {}:{}",
-            local_socket_path.display(),
-            &ssh_url,
-            &remote_socket.display()
-        );
-        println!(
-            "Run 'export DOCKER_HOST=unix://{}' to make the socket useful for local tools",
-            local_socket_path.display()
-        );
-
-        futures::executor::block_on(receiver)?;
-
-        if local_socket_path.exists() {
-            fs::remove_file(local_socket_path)?;
-        }
-        std::process::exit(0);
+        remote::remote(ssh_url, local_docker_host).await?
     }
 
     let connection = Docker::connect_with_local_defaults();
@@ -272,7 +203,7 @@ async fn main() -> Result<(), AnyError> {
             command:
                 Remote(cli::RemoteParams {
                     ssh_url: _,
-                    local_socket: _,
+                    local_docker_host: _,
                 }),
         } => {
             //TODO: this needs to be handled more elegantly. I.e. Rooz should
