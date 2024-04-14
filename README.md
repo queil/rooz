@@ -300,7 +300,8 @@ Add to your `~/.bashrc`:
 * `export ROOZ_REMOTE_SSH_URL=ssh://your-user@remote-host`
 * `export DOCKER_HOST=unix:///home/your-user/.rooz/remote.sock`
 
-Now run: `rooz remote &`. You can stop forwarding by `fg` and `CTRL+C`.
+Now run: `rooz remote`. If any remote containers
+expose ports, these will be automatically forwarded.
 
 :information_source: To enable VsCode to attach to remote containers also set the below in `settings.json`:
 
