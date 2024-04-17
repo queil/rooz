@@ -153,12 +153,7 @@ impl<'a> ContainerApi<'a> {
                 };
 
                 let oom_score_adj = match self.backend {
-                    ContainerBackend::Podman => Some(
-                        fs::read_to_string("/proc/self/oom_score_adj")
-                            .unwrap()
-                            .trim_end()
-                            .parse::<i64>()?,
-                    ),
+                    ContainerBackend::Podman => Some(100),
                     _ => None,
                 };
 
