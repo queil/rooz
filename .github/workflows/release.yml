@@ -23,7 +23,7 @@ jobs:
 
   build-release:
     name: Build Release
-    needs: create_release
+    needs: create-release
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest]
