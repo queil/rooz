@@ -1,6 +1,5 @@
 use std::{
     collections::HashMap,
-    fs,
     io::{stdout, Write},
     time::Duration,
 };
