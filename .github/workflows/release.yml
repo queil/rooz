@@ -36,6 +36,11 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
+
+      - name: rustc add target
+        if: matrix.os == 'macos-latest'
+        run: rustup target add aarch64-apple-darwin
+
       - name: build
         run: |
           cargo build --release --verbose --target ${{ matrix.build_target }}
