@@ -9,13 +9,20 @@ and [distrobox](https://github.com/89luca89/distrobox) but unlike them it aims t
 
 ## Quick start
 
-:warning: The binary is only available for `linux_amd64` at the moment.
-
 ### Install
 
+#### MacOs
+
 ```sh
-curl -sSL https://github.com/queil/rooz/releases/latest/download/rooz -o ./rooz && chmod +x ./rooz && sudo mv ./rooz /usr/local/bin
+curl -sSL https://github.com/queil/rooz/releases/latest/download/rooz-aarch64-apple-darwin -o ./rooz && chmod +x ./rooz && sudo mv ./rooz /usr/local/bin
 ```
+
+#### Linux
+
+```sh
+curl -sSL https://github.com/queil/rooz/releases/latest/download/rooz-x86_64-unknown-linux-gnu -o ./rooz && chmod +x ./rooz && sudo mv ./rooz /usr/local/bin
+```
+
 ### Initialize
 
 :warning: If you intend to use a remote Docker host with rooz please [configure it first](#connecting-to-a-remote-dockerpodman-host)
