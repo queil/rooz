@@ -7,16 +7,9 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
-
+  create-release:
     runs-on: ubuntu-latest
-
     steps:
-    - uses: actions/checkout@v3
-    - name: Build
-      run: cargo build --release --verbose
-    - name: Run tests
-      run: cargo test --verbose
     - name: Create GitHub release
       uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v0.1.15
       env:
@@ -27,5 +20,29 @@ jobs:
         draft: ${{ env.DRAFT_RELEASE }}
         prerelease: ${{ env.PRE_RELEASE }}
         body: "Initial release"
-        files: |
-          target/release/rooz
+
+  build-release:
+    name: Build Release
+    needs: create_release
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            build_target: x86_64-unknown-linux-gnu
+          - os: macos-latest
+            build_target: aarch64-apple-darwin
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+      - name: build
+        run: |
+          cargo build --release --verbose --target ${{ matrix.build_target }}
+          mv target/${{ matrix.build_target }}/release/rooz /target/${{ matrix.build_target }}/release/rooz-${{ matrix.build_target }}
+
+      - name: Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ needs.create_release.outputs.tag-name }}
+          files: target/${{ matrix.build_target }}/release/rooz-${{ matrix.build_target }}
