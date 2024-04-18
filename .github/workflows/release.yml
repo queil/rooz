@@ -44,7 +44,7 @@ jobs:
       - name: build
         run: |
           cargo build --release --verbose --target ${{ matrix.build_target }}
-          mv target/${{ matrix.build_target }}/release/rooz /target/${{ matrix.build_target }}/release/rooz-${{ matrix.build_target }}
+          mv target/${{ matrix.build_target }}/release/rooz target/${{ matrix.build_target }}/release/rooz-${{ matrix.build_target }}
 
       - name: Release
         uses: softprops/action-gh-release@v1
