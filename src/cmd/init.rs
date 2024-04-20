@@ -1,5 +1,8 @@
+use std::str::FromStr;
+
 use crate::{
     api::{container, Api},
+    cli::InitParams,
     constants, id,
     labels::Labels,
     model::{
@@ -55,7 +58,7 @@ impl<'a> Api<'a> {
         Ok(())
     }
 
-    pub async fn init(&self, image: &str, uid: &str, force: bool) -> Result<(), AnyError> {
+    pub async fn init(&self, image: &str, uid: &str, spec: &InitParams) -> Result<(), AnyError> {
         let image_id = self.image.ensure(&image, false).await?;
         match self
             .volume
@@ -63,7 +66,7 @@ impl<'a> Api<'a> {
                 ssh::VOLUME_NAME.into(),
                 &RoozVolumeRole::SshKey,
                 Some("ssh-key".into()),
-                force,
+                spec.force,
             )
             .await?
         {
@@ -99,13 +102,23 @@ impl<'a> Api<'a> {
                 crate::age_utils::VOLUME_NAME.into(),
                 &RoozVolumeRole::AgeKey,
                 Some("age-key".into()),
-                force,
+                spec.force,
             )
             .await?
         {
             VolumeResult::Created { .. } => {
-                let key = age::x25519::Identity::generate();
-                let pubkey = key.to_public();
+                let (key, pubkey) = match spec.age_identity.clone() {
+                    None => {
+                        let key = age::x25519::Identity::generate();
+                        let pubkey = key.to_public();
+                        (key, pubkey)
+                    }
+                    Some(identity) => {
+                        let key = age::x25519::Identity::from_str(&identity)?;
+                        let pubkey = key.to_public();
+                        (key, pubkey)
+                    }
+                };
 
                 let entrypoint = &format!(
                     r#"mkdir -p /tmp/.age && \

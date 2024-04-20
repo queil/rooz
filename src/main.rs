@@ -18,7 +18,7 @@ use crate::{
     cli::{
         Cli,
         Commands::{Describe, Encrypt, Enter, List, New, Remote, Remove, Stop, System, Tmp},
-        CompletionParams, DescribeParams, EncryptParams, InitParams, ListParams, NewParams,
+        CompletionParams, DescribeParams, EncryptParams, ListParams, NewParams,
         RemoveParams, StopParams, TmpParams,
     },
     cmd::remote,
@@ -246,12 +246,16 @@ async fn main() -> Result<(), AnyError> {
         Cli {
             command:
                 System(cli::System {
-                    command: cli::SystemCommands::Init(InitParams { force }),
+                    command: cli::SystemCommands::Init(init_params),
                 }),
             ..
         } => {
-            rooz.init(constants::DEFAULT_IMAGE, constants::DEFAULT_UID, force)
-                .await?
+            rooz.init(
+                constants::DEFAULT_IMAGE,
+                constants::DEFAULT_UID,
+                &init_params,
+            )
+            .await?
         }
 
         Cli {

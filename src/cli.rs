@@ -10,10 +10,15 @@ pub struct PruneParams {}
 pub struct InitParams {
     #[arg(short, long)]
     pub force: bool,
+    #[arg(
+        long,
+        help = "Initializes rooz with the provided age identity rather than generating a new one"
+    )]
+    pub age_identity: Option<String>,
 }
 
 #[derive(Parser, Debug)]
-#[command(about = "Initializes rooz system")]
+#[command(about = "Outputs shell completion scripts")]
 pub struct CompletionParams {
     pub shell: Shell,
 }
