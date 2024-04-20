@@ -18,8 +18,8 @@ use crate::{
     cli::{
         Cli,
         Commands::{Describe, Encrypt, Enter, List, New, Remote, Remove, Stop, System, Tmp},
-        CompletionParams, DescribeParams, EncryptParams, ListParams, NewParams,
-        RemoveParams, StopParams, TmpParams,
+        CompletionParams, DescribeParams, EncryptParams, ListParams, NewParams, RemoveParams,
+        StopParams, TmpParams,
     },
     cmd::remote,
     model::{config::RoozCfg, types::AnyError},

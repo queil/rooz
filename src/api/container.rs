@@ -12,8 +12,9 @@ use bollard::{
         StartContainerOptions, StopContainerOptions,
     },
     errors::Error,
-    models::HostConfig,
+    models::{ContainerState, HostConfig},
     network::ConnectNetworkOptions,
+    secret::ContainerStateStatusEnum,
     service::{ContainerInspectResponse, ContainerSummary, EndpointSettings, PortBinding},
 };
 use futures::StreamExt;
@@ -55,16 +56,30 @@ impl<'a> ContainerApi<'a> {
         let force_display = if force { " (force)" } else { "" };
 
         if force {
-            if let ContainerInspectResponse {
-                state: Some(state), ..
-            } = self
+            match self
                 .client
                 .inspect_container(container_id, None::<InspectContainerOptions>)
-                .await?
+                .await
             {
-                if let Some(true) = state.running {
-                    self.kill(container_id).await?;
+                Ok(ContainerInspectResponse { state, .. }) => {
+                    if let Some(ContainerState {
+                        status: Some(ContainerStateStatusEnum::RUNNING),
+                        ..
+                    }) = state
+                    {
+                        self.kill(container_id).await?;
+                    }
                 }
+                Err(Error::JsonDataError { message, .. }) => {
+                    if message.starts_with("unknown variant `stopped`") {
+                        // hack: https://github.com/containers/podman/issues/17728
+                        // nothing to kill as the container is already stopped
+                        ()
+                    } else {
+                        panic!("{}", message)
+                    }
+                }
+                Err(e) => panic!("{}", e),
             }
         }
 
