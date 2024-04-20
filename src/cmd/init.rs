@@ -15,6 +15,7 @@ use bollard::service::Mount;
 impl<'a> Api<'a> {
     pub async fn execute_init(
         &self,
+        container_name: &str,
         entrypoint: &str,
         vol_name: &str,
         vol_mount_path: &str,
@@ -28,7 +29,7 @@ impl<'a> Api<'a> {
             image,
             uid: constants::ROOT_UID,
             work_dir: None,
-            container_name: "rooz-init-age",
+            container_name,
             workspace_key: &workspace_key,
             mounts: Some(vec![Mount {
                 typ: Some(VOLUME),
@@ -40,7 +41,9 @@ impl<'a> Api<'a> {
             entrypoint: Some(entrypoint.iter().map(String::as_str).collect()),
             privileged: false,
             force_recreate: false,
-            auto_remove: true,
+            // init containers must not be auto-removed as it may happen
+            // before rooz manages to read their stdout
+            auto_remove: false,
             labels: (&labels).into(),
             ..Default::default()
         };
@@ -48,6 +51,7 @@ impl<'a> Api<'a> {
         let result = self.container.create(run_spec).await?;
         self.container.start(result.id()).await?;
         self.container.logs_to_stdout(result.id()).await?;
+        self.container.remove(result.id(), true).await?;
         Ok(())
     }
 
@@ -75,8 +79,14 @@ impl<'a> Api<'a> {
                     &hostname, &uid,
                 );
 
-                self.execute_init(&init_ssh, crate::ssh::VOLUME_NAME, "/tmp/.ssh", &image_id)
-                    .await?;
+                self.execute_init(
+                    "rooz-init-ssh",
+                    &init_ssh,
+                    crate::ssh::VOLUME_NAME,
+                    "/tmp/.ssh",
+                    &image_id,
+                )
+                .await?;
             }
             VolumeResult::AlreadyExists => {
                 println!("Rooz has been already initialized. Use --force to reinitialize.")
@@ -110,6 +120,7 @@ impl<'a> Api<'a> {
                 );
 
                 self.execute_init(
+                    "rooz-init-age",
                     entrypoint,
                     crate::age_utils::VOLUME_NAME,
                     "/tmp/.age",
