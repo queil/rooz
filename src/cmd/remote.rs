@@ -45,6 +45,7 @@ pub async fn remote(ssh_url: &str, local_docker_host: &str) -> Result<(), AnyErr
     let session = SessionBuilder::default()
         .known_hosts_check(KnownHosts::Accept)
         .connect_timeout(Duration::from_secs(5))
+        .server_alive_interval(Duration::from_secs(60))
         .connect_mux(&ssh_url)
         .await?;
 
