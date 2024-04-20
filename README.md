@@ -43,6 +43,10 @@ The command creates:
 
   The generated key gets stored in a volume and then mounted under `~/.age` to all rooz containers.
 
+  :information_source: It's important to back up the generated age identity (`~/.age/age.key`).
+  If the key is lost all the existing config files with encrypted vars won't decrypt and re-encrypting will be required.
+  To init rooz with an existing age identity use the `--age-identity` switch.
+
 You can regenerate the keys by specifying the `--force` parameter. Please note that the existing keys will be wiped out.
 
 ### Configure
