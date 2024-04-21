@@ -166,7 +166,7 @@ pub struct StopParams {
 }
 
 #[derive(Parser, Debug)]
-#[command(about = "Describes a workspace")]
+#[command(about = "Describes a workspace", alias = "desc")]
 pub struct DescribeParams {
     #[arg()]
     pub name: String,
