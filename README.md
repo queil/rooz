@@ -77,7 +77,7 @@ rooz new myworkspace
 ### Create a workspace from a git repo
 
 ```sh
-rooz new -g git@github.com:your/repo.git myworkspace2
+rooz new -g git@github.com:your/repo myworkspace2
 ```
 ### 
 
@@ -102,6 +102,7 @@ Most of the settings can be configured via:
 * environment variables
 * a config file in the cloned repository (if any)  (`.rooz.toml`, `rooz.yaml`)
 * a config file specified via `--config` (on `rooz new`) (`toml/yaml`)
+  :information_source: it can be a local file path or a remote git file like: `git@github.com/my/configs//path/in/repo/config.rooz.yaml`
 * cmd-line parameters
 
 The configuration file provides the most options: [example](examples/dotnet-nats.rooz.toml)
