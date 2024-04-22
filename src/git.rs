@@ -54,8 +54,12 @@ impl<'a> ExecApi<'a> {
         container_id: &str,
         clone_dir: &str,
         file_format: FileFormat,
+        exact_path: Option<&str>,
     ) -> Result<Option<RoozCfg>, AnyError> {
-        let file_path = &format!("{}/.rooz.{}", clone_dir, file_format.to_string());
+        let file_path = match exact_path {
+            Some(p) => format!("{}/{}", clone_dir, p.to_string()),
+            None => format!("{}/.rooz.{}", clone_dir, file_format.to_string()),
+        };
 
         let config = self
             .output(
@@ -110,7 +114,7 @@ impl<'a> GitApi<'a> {
             let clone_dir = get_clone_dir(&spec.working_dir, &url);
             clone_script.push_str(
                 format!(
-                    "ls '{}/.git' > /dev/null 2>&1 || git clone {}\n",
+                    "ls '{}/.git' > /dev/null 2>&1 || git clone --filter=blob:none {}\n",
                     &clone_dir, &url
                 )
                 .as_str(),
@@ -169,26 +173,21 @@ impl<'a> GitApi<'a> {
         }
     }
 
-    pub async fn clone_root_repo(
+    async fn try_read_config(
         &self,
-        url: &str,
-        spec: &CloneEnv,
-    ) -> Result<RootRepoCloneResult, AnyError> {
-        let container_id = self
-            .clone_from_spec(&spec, &CloneUrls::Root { url: url.into() })
-            .await?;
-        let exec = &self.api.exec;
-
-        let clone_dir = get_clone_dir(&spec.working_dir, &url);
+        container_id: &str,
+        clone_dir: &str,
+    ) -> Result<Option<RoozCfg>, AnyError> {
+        let exec = self.api.exec;
 
         let rooz_cfg = if let Some(cfg) = exec
-            .read_rooz_config(&container_id, &clone_dir, FileFormat::Toml)
+            .read_rooz_config(&container_id, &clone_dir, FileFormat::Toml, None)
             .await?
         {
             log::debug!("Config file found (TOML)");
             Some(cfg)
         } else if let Some(cfg) = exec
-            .read_rooz_config(&container_id, &clone_dir, FileFormat::Yaml)
+            .read_rooz_config(&container_id, &clone_dir, FileFormat::Yaml, None)
             .await?
         {
             log::debug!("Config file found (YAML)");
@@ -197,7 +196,19 @@ impl<'a> GitApi<'a> {
             log::debug!("No valid config file found");
             None
         };
+        Ok(rooz_cfg)
+    }
 
+    pub async fn clone_root_repo(
+        &self,
+        url: &str,
+        spec: &CloneEnv,
+    ) -> Result<RootRepoCloneResult, AnyError> {
+        let container_id = self
+            .clone_from_spec(&spec, &CloneUrls::Root { url: url.into() })
+            .await?;
+        let clone_dir = get_clone_dir(&spec.working_dir, &url);
+        let rooz_cfg = self.try_read_config(&container_id, &clone_dir).await?;
         self.api.container.kill(&container_id).await?;
         Ok(RootRepoCloneResult {
             config: rooz_cfg,
@@ -215,5 +226,30 @@ impl<'a> GitApi<'a> {
             .await?;
         self.api.container.kill(&container_id).await?;
         Ok(())
+    }
+
+    pub async fn clone_config_repo(
+        &self,
+        spec: CloneEnv,
+        url: &str,
+        path: &str,
+    ) -> Result<Option<RoozCfg>, AnyError> {
+        let container_id = self
+            .clone_from_spec(
+                &spec,
+                &CloneUrls::Extra {
+                    urls: vec![url.into()],
+                },
+            )
+            .await?;
+        let clone_dir = get_clone_dir(&spec.working_dir, &url);
+        let file_format = FileFormat::from_path(path);
+        let rooz_cfg = self
+            .api
+            .exec
+            .read_rooz_config(&container_id, &clone_dir, file_format, Some(path))
+            .await?;
+        self.api.container.kill(&container_id).await?;
+        Ok(rooz_cfg)
     }
 }

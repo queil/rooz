@@ -64,7 +64,7 @@ pub struct WorkspacePersistence {
         short,
         long,
         conflicts_with = "replace",
-        requires = "config",
+        requires = "config_path",
         help = "Recreates workspace containers with the given configuration"
     )]
     pub apply: bool,
@@ -108,9 +108,10 @@ pub struct NewParams {
     pub work: WorkParams,
     #[arg(
         long,
-        help = "Configures the new workspace from a config file given by the path."
+        help = "Configures the new workspace from a config file given by the path.",
+        alias = "config"
     )]
-    pub config: Option<String>,
+    pub config_path: Option<String>,
 }
 
 #[derive(Parser, Debug)]
@@ -175,8 +176,8 @@ pub struct DescribeParams {
 #[derive(Parser, Debug)]
 #[command(about = "Encrypts a variable in the vars section of the provided config file")]
 pub struct EncryptParams {
-    #[arg(long, short, help = "Target config file")]
-    pub config: String,
+    #[arg(long, short, help = "Target config file", alias = "config")]
+    pub config_file_path: String,
     #[arg(help = "Target variable name")]
     pub name: String,
 }
