@@ -107,15 +107,13 @@ async fn main() -> Result<(), AnyError> {
                 New(NewParams {
                     work,
                     persistence,
-                    config,
+                    config_path,
                 }),
             ..
         } => {
-            let cfg = match config {
-                Some(path) => Some(RoozCfg::from_file(&path)?),
-                None => None,
-            };
-            workspace.new(&work, cfg, Some(persistence.clone())).await?;
+            workspace
+                .new(&work, config_path, Some(persistence.clone()))
+                .await?;
             println!(
                 "\nThe workspace is ready. Run 'rooz enter {}' to enter.",
                 persistence.name
@@ -212,9 +210,13 @@ async fn main() -> Result<(), AnyError> {
         }
 
         Cli {
-            command: Encrypt(EncryptParams { config, name }),
+            command:
+                Encrypt(EncryptParams {
+                    config_file_path,
+                    name,
+                }),
         } => {
-            let cfg = RoozCfg::from_file(&config)?;
+            let cfg = RoozCfg::from_file(&config_file_path)?;
             if let Some(vars) = cfg.vars {
                 if vars.contains_key(&name) {
                     let identity = workspace.read_age_identity().await?;
@@ -226,10 +228,10 @@ async fn main() -> Result<(), AnyError> {
                         vars: Some(new_vars),
                         ..cfg
                     }
-                    .to_file(&config)?
+                    .to_file(&config_file_path)?
                 }
             } else {
-                println!("Var {} not found in {}", &name, &config)
+                println!("Var {} not found in {}", &name, &config_file_path)
             }
         }
 

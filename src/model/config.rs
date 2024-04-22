@@ -6,6 +6,31 @@ use std::{collections::HashMap, ffi::OsStr, fs, path::Path};
 
 use super::types::AnyError;
 
+#[derive(Debug, Clone)]
+pub enum ConfigPath {
+    File { path: String },
+    Git { url: String, file_path: String },
+}
+
+impl<'a> ConfigPath {
+    pub fn from_str(value: &'a str) -> Result<Self, AnyError> {
+        if value.starts_with("git@") || value.starts_with("ssh://") {
+            let chunks = value.split("//").collect::<Vec<_>>();
+            match chunks.as_slice() {
+                &[url, file_path] => Ok(Self::Git {
+                    url: url.to_string(),
+                    file_path: file_path.to_string(),
+                }),
+                _ => Err(format!("Invalid repo URL {}", value).into()),
+            }
+        } else {
+            Ok(Self::File {
+                path: value.to_string(),
+            })
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub enum FileFormat {
     Toml,

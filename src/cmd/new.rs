@@ -6,7 +6,7 @@ use crate::{
     git::{CloneEnv, RootRepoCloneResult},
     labels::{self, Labels},
     model::{
-        config::{FinalCfg, RoozCfg},
+        config::{ConfigPath, FinalCfg, RoozCfg},
         types::{AnyError, EnterSpec, WorkSpec},
     },
 };
@@ -96,7 +96,7 @@ impl<'a> WorkspaceApi<'a> {
     pub async fn new(
         &self,
         cli_params: &WorkParams,
-        cli_config: Option<RoozCfg>,
+        cli_config_path: Option<String>,
         persistence: Option<WorkspacePersistence>,
     ) -> Result<EnterSpec, AnyError> {
         let ephemeral = persistence.is_none();
@@ -142,12 +142,27 @@ impl<'a> WorkspaceApi<'a> {
             working_dir: work_dir.to_string(),
         };
 
-        match &RoozCfg::git_ssh_url(cli_params, &cli_config) {
+        let cli_cfg = if let Some(path) = &cli_config_path {
+            let parsed_path = ConfigPath::from_str(&path)?;
+            log::debug!("Loading cli config from: {}", path);
+            match parsed_path {
+                ConfigPath::File { path } => Some(RoozCfg::from_file(&path)?),
+                ConfigPath::Git { url, file_path } => {
+                    self.git
+                        .clone_config_repo(clone_env.clone(), &url, &file_path)
+                        .await?
+                }
+            }
+        } else {
+            None
+        };
+
+        match &RoozCfg::git_ssh_url(cli_params, &cli_cfg) {
             None => {
                 let mut cfg_builder = RoozCfg::default().from_cli_env(cli_params.clone());
                 self.new_core(
                     &mut cfg_builder,
-                    cli_config,
+                    cli_cfg,
                     cli_params,
                     &work_spec,
                     &clone_env,
@@ -175,7 +190,7 @@ impl<'a> WorkspaceApi<'a> {
                     }
                     self.new_core(
                         &mut cfg_builder,
-                        cli_config,
+                        cli_cfg,
                         cli_params,
                         &work_spec,
                         &clone_env,
