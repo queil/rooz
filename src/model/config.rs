@@ -71,6 +71,8 @@ pub struct RoozSidecar {
     pub mount_work: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub work_dir: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
