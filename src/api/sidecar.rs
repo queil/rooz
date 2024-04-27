@@ -83,7 +83,7 @@ impl<'a> WorkspaceApi<'a> {
                 .container
                 .create(RunSpec {
                     container_name: &container_name,
-                    uid: constants::ROOT_UID,
+                    uid: &s.user.as_deref().unwrap_or(&constants::ROOT_UID),
                     image: &s.image,
                     force_recreate: force,
                     workspace_key: &workspace_key,
