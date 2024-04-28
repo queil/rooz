@@ -23,7 +23,6 @@ impl<'a> WorkspaceApi<'a> {
         workspace_key: &str,
         force: bool,
         work_dir: &str,
-        labels: &Labels,
     ) -> Result<EnterSpec, AnyError> {
         if let Some(c) = &cli_config {
             cfg_builder.from_config(c);
@@ -58,7 +57,9 @@ impl<'a> WorkspaceApi<'a> {
                 &work_dir,
             )
             .await?;
-        let work_labels = labels
+
+        let labels = work_spec
+            .labels
             .clone()
             .with_container(Some(constants::DEFAULT_CONTAINER_NAME))
             .with_runtime_config(cfg.clone());
@@ -74,7 +75,7 @@ impl<'a> WorkspaceApi<'a> {
                 .map(|r| r.dir)
                 .unwrap_or(constants::WORK_DIR.to_string()),
             network: network.as_deref(),
-            labels: (&work_labels).into(),
+            labels,
             privileged: cfg.privileged,
             ..*work_spec
         };
@@ -128,7 +129,7 @@ impl<'a> WorkspaceApi<'a> {
             container_working_dir: &work_dir,
             container_name: &workspace_key,
             workspace_key: &workspace_key,
-            labels: (&labels).into(),
+            labels,
             ephemeral,
             force_recreate: force,
             ..Default::default()
@@ -169,7 +170,6 @@ impl<'a> WorkspaceApi<'a> {
                     &workspace_key,
                     force,
                     work_dir,
-                    &labels,
                 )
                 .await
             }
@@ -197,7 +197,6 @@ impl<'a> WorkspaceApi<'a> {
                         &workspace_key,
                         force,
                         work_dir,
-                        &labels,
                     )
                     .await
                 }
