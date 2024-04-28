@@ -5,7 +5,7 @@ use crate::model::config::FinalCfg;
 pub const WORKSPACE_KEY: &'static str = "dev.rooz.workspace";
 pub const CONTAINER: &'static str = "dev.rooz.workspace.container";
 pub const ROLE: &'static str = "dev.rooz.role";
-pub const CONFIG: &'static str = "dev.rooz.config";
+pub const RUNTIME_CONFIG: &'static str = "dev.rooz.config.runtime";
 const ROOZ: &'static str = "dev.rooz";
 const LABEL_KEY: &'static str = "label";
 const TRUE: &'static str = "true";
@@ -59,7 +59,7 @@ pub struct Labels {
     rooz: KeyValue,
     workspace: Option<KeyValue>,
     container: Option<KeyValue>,
-    config: Option<KeyValue>,
+    runtime_config: Option<KeyValue>,
     role: Option<KeyValue>,
 }
 
@@ -69,7 +69,7 @@ impl Labels {
             rooz: KeyValue::new(ROOZ, TRUE),
             workspace: workspace_key.map(|v| KeyValue::new(WORKSPACE_KEY, v)),
             container: None,
-            config: None,
+            runtime_config: None,
             role: role.map(|v| KeyValue::new(ROLE, v)),
         }
     }
@@ -96,8 +96,20 @@ impl Labels {
 
     pub fn with_runtime_config(self, config: FinalCfg) -> Self {
         Labels {
-            config: Some(KeyValue::new(CONFIG, &config.to_string().unwrap())),
+            runtime_config: Some(KeyValue::new(RUNTIME_CONFIG, &config.to_string().unwrap())),
             ..self
+        }
+    }
+}
+
+impl Default for Labels {
+    fn default() -> Self {
+        Self {
+            rooz: KeyValue::new(ROOZ, TRUE),
+            workspace: None,
+            container: None,
+            runtime_config: None,
+            role: None,
         }
     }
 }
@@ -110,6 +122,12 @@ impl<'a> From<&'a Labels> for HashMap<&'a str, &'a str> {
             h.insert(l.key.as_ref(), l.value.as_ref());
         }
         return h;
+    }
+}
+
+impl<'a> From<Labels> for HashMap<&'a str, &'a str> {
+    fn from(value: Labels) -> Self {
+        return value.into();
     }
 }
 
@@ -137,7 +155,7 @@ impl<'a> From<&'a Labels> for Vec<&'a KeyValue> {
         if let Some(container) = &value.container {
             labels.push(container);
         }
-        if let Some(config) = &value.config {
+        if let Some(config) = &value.runtime_config {
             labels.push(config);
         }
         labels

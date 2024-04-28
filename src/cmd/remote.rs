@@ -92,7 +92,7 @@ pub async fn remote(ssh_url: &str, local_docker_host: &str) -> Result<(), AnyErr
     loop {
         let containers = docker
             .list_containers(Some(ListContainersOptions {
-                filters: (&labels::Labels::new(None, None)).into(),
+                filters: (&labels::Labels::default()).into(),
                 ..Default::default()
             }))
             .await?;

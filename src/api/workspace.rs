@@ -171,7 +171,7 @@ impl<'a> WorkspaceApi<'a> {
     }
 
     pub async fn remove_all(&self, force: bool) -> Result<(), AnyError> {
-        let labels = Labels::new(None, None);
+        let labels = Labels::default();
         self.remove_core(&labels, force).await?;
         Ok(())
     }
@@ -193,7 +193,7 @@ impl<'a> WorkspaceApi<'a> {
     }
 
     pub async fn stop_all(&self) -> Result<(), AnyError> {
-        let labels = Labels::new(None, None);
+        let labels = Labels::default();
         for c in self.api.container.get_all(&labels).await? {
             self.api.container.stop(&c.id.unwrap()).await?;
         }
@@ -204,7 +204,7 @@ impl<'a> WorkspaceApi<'a> {
         let labels = Labels::new(Some(workspace_key), Some(WORK_ROLE));
         for c in self.api.container.get_all(&labels).await? {
             if let Some(labels) = c.labels {
-                println!("{}", labels[labels::CONFIG]);
+                println!("{}", labels[labels::RUNTIME_CONFIG]);
             }
         }
         Ok(())
@@ -236,8 +236,8 @@ impl<'a> WorkspaceApi<'a> {
         let mut shell_value = vec![constants::DEFAULT_SHELL.to_string()];
 
         if let Some(labels) = &summary.labels {
-            if labels.contains_key(labels::CONFIG) {
-                shell_value = FinalCfg::from_string(labels[labels::CONFIG].clone())?.shell;
+            if labels.contains_key(labels::RUNTIME_CONFIG) {
+                shell_value = FinalCfg::from_string(labels[labels::RUNTIME_CONFIG].clone())?.shell;
             }
         }
 
