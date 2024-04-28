@@ -212,6 +212,19 @@ impl<'a> WorkspaceApi<'a> {
         Ok(())
     }
 
+    pub async fn edit(&self, workspace_key: &str) -> Result<(), AnyError> {
+        let labels = Labels::new(Some(workspace_key), Some(WORK_ROLE));
+        for c in self.api.container.get_all(&labels).await? {
+            if let Some(labels) = c.labels {
+                //TODO: implement editing
+
+                println!("{}", labels[labels::CONFIG_SOURCE]);
+                println!("{}", labels[labels::CONFIG_BODY]);
+            }
+        }
+        Ok(())
+    }
+
     pub async fn enter(
         &self,
         workspace_key: &str,

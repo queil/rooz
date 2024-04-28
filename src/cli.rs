@@ -174,6 +174,13 @@ pub struct DescribeParams {
 }
 
 #[derive(Parser, Debug)]
+#[command(about = "Edits a workspace created from a config file")]
+pub struct EditParams {
+    #[arg()]
+    pub name: String,
+}
+
+#[derive(Parser, Debug)]
 #[command(about = "Encrypts a variable in the vars section of the provided config file")]
 pub struct EncryptParams {
     #[arg(long, short, help = "Target config file", alias = "config")]
@@ -185,6 +192,7 @@ pub struct EncryptParams {
 #[derive(Subcommand, Debug)]
 pub enum Commands {
     New(NewParams),
+    Edit(EditParams),
     Enter(EnterParams),
     Tmp(TmpParams),
     List(ListParams),
