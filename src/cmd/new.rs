@@ -52,7 +52,6 @@ impl<'a> WorkspaceApi<'a> {
         let network = self
             .ensure_sidecars(
                 &cfg.sidecars,
-                labels,
                 workspace_key,
                 force,
                 cli_params.pull_image,
