@@ -74,6 +74,16 @@ impl Labels {
         }
     }
 
+    pub fn with_role(self, role: Option<&str>) -> Labels {
+        match role {
+            Some(c) => Labels {
+                role: Some(KeyValue::new(ROLE, c)),
+                ..self
+            },
+            None => self,
+        }
+    }
+
     pub fn with_container(self, container: Option<&str>) -> Labels {
         match container {
             Some(c) => Labels {
