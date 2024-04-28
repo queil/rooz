@@ -239,7 +239,7 @@ impl<'a> ContainerApi<'a> {
                     tty: Some(true),
                     open_stdin: Some(true),
                     host_config: Some(host_config),
-                    labels: Some(spec.labels.into()),
+                    labels: Some((&spec.labels).into()),
                     env: Some(env),
                     ..Default::default()
                 };
