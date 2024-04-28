@@ -54,7 +54,7 @@ impl<'a> WorkspaceApi<'a> {
             let labels = labels
                 .clone()
                 .with_container(Some(&name))
-                .with_role(Some(labels::ROLE_SIDECAR));
+                .with_role(labels::ROLE_SIDECAR);
             let mut ports = HashMap::<String, Option<String>>::new();
             RoozCfg::parse_ports(&mut ports, s.ports.clone());
 
