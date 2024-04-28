@@ -84,7 +84,7 @@ impl Labels {
         }
     }
 
-    pub fn with_config(self, config: FinalCfg) -> Self {
+    pub fn with_runtime_config(self, config: FinalCfg) -> Self {
         Labels {
             config: Some(KeyValue::new(CONFIG, &config.to_string().unwrap())),
             ..self
