@@ -88,7 +88,7 @@ pub struct RoozCfg {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub caches: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub shell: Option<String>,
+    pub shell: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub user: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -109,7 +109,7 @@ impl Default for RoozCfg {
             extra_repos: Some(Vec::new()),
             image: Some(constants::DEFAULT_IMAGE.into()),
             caches: Some(Vec::new()),
-            shell: Some(constants::DEFAULT_SHELL.into()),
+            shell: Some(vec![constants::DEFAULT_SHELL.into()]),
             user: Some(constants::DEFAULT_USER.into()),
             ports: Some(Vec::new()),
             privileged: None,
@@ -168,7 +168,7 @@ impl RoozCfg {
 
     pub fn from_cli(&mut self, cli: &WorkParams, shell: Option<String>) -> () {
         *self = RoozCfg {
-            shell: shell.or(self.shell.clone()),
+            shell: shell.map(|v| vec![v]).or(self.shell.clone()),
             image: cli.image.clone().or(self.image.clone()),
             user: cli.user.clone().or(self.user.clone()),
             git_ssh_url: cli.git_ssh_url.clone().or(self.git_ssh_url.clone()),
@@ -196,7 +196,7 @@ impl RoozCfg {
 
     pub fn from_cli_env(self, cli: WorkParams) -> Self {
         RoozCfg {
-            shell: cli.env_shell.or(self.shell.clone()),
+            shell: cli.env_shell.map(|v| vec![v]).or(self.shell.clone()),
             image: cli.env_image.or(self.image.clone()),
             user: cli.env_user.or(self.user.clone()),
             caches: Self::extend_if_any(self.caches.clone(), cli.env_caches),
@@ -259,7 +259,7 @@ pub struct FinalCfg {
     pub extra_repos: Vec<String>,
     pub image: String,
     pub caches: Vec<String>,
-    pub shell: String,
+    pub shell: Vec<String>,
     pub user: String,
     pub ports: HashMap<String, Option<String>>,
     pub privileged: bool,
@@ -274,7 +274,7 @@ impl Default for FinalCfg {
             extra_repos: Vec::new(),
             image: constants::DEFAULT_IMAGE.into(),
             caches: Vec::new(),
-            shell: constants::DEFAULT_SHELL.into(),
+            shell: vec![constants::DEFAULT_SHELL.into()],
             user: constants::DEFAULT_USER.into(),
             ports: HashMap::new(),
             privileged: false,
