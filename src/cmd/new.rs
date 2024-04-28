@@ -62,7 +62,7 @@ impl<'a> WorkspaceApi<'a> {
         let work_labels = labels
             .clone()
             .with_container(Some(constants::DEFAULT_CONTAINER_NAME))
-            .with_config(cfg.clone());
+            .with_runtime_config(cfg.clone());
 
         let work_spec = WorkSpec {
             image: &cfg.image,
