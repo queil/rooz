@@ -26,7 +26,7 @@ impl<'a> Api<'a> {
     ) -> Result<(), AnyError> {
         let workspace_key = id::random_suffix("init");
         let entrypoint = container::inject(entrypoint, "entrypoint.sh");
-        let labels = Labels::new(None, None);
+        let labels = Labels::default();
         let run_spec = RunSpec {
             reason: "init",
             image,
@@ -47,7 +47,7 @@ impl<'a> Api<'a> {
             // init containers must not be auto-removed as it may happen
             // before rooz manages to read their stdout
             auto_remove: false,
-            labels: (&labels).into(),
+            labels,
             ..Default::default()
         };
 

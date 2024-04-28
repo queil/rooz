@@ -89,7 +89,7 @@ impl<'a> WorkspaceApi<'a> {
                     image: &s.image,
                     force_recreate: force,
                     workspace_key: &workspace_key,
-                    labels: (&labels).into(),
+                    labels,
                     env: s.env.clone().map(|x| {
                         x.iter()
                             .map(|(k, v)| (k.clone(), v.clone()))
