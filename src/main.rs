@@ -135,7 +135,7 @@ async fn main() -> Result<(), AnyError> {
                 .enter(
                     &name,
                     work_dir.as_deref(),
-                    shell.as_deref(),
+                    shell.as_deref().map(|v| vec![v.as_ref()]),
                     container.as_deref(),
                     vec![],
                     constants::DEFAULT_UID,

@@ -216,7 +216,7 @@ impl<'a> WorkspaceApi<'a> {
         &self,
         workspace_key: &str,
         working_dir: Option<&str>,
-        shell: Option<&str>,
+        shell: Option<Vec<&str>>,
         container_id: Option<&str>,
         volumes: Vec<RoozVolume>,
         chown_uid: &str,
@@ -235,7 +235,7 @@ impl<'a> WorkspaceApi<'a> {
             _ => panic!("Too many containers found"),
         };
 
-        let mut shell_value = constants::DEFAULT_SHELL.to_string();
+        let mut shell_value = vec![constants::DEFAULT_SHELL.to_string()];
 
         if let Some(labels) = &summary.labels {
             if labels.contains_key(labels::CONFIG) {
@@ -244,7 +244,7 @@ impl<'a> WorkspaceApi<'a> {
         }
 
         if let Some(shell) = shell {
-            shell_value = shell.into();
+            shell_value = shell.iter().map(|v| v.to_string()).collect::<Vec<_>>();
         }
 
         let container_id = summary.id.as_deref().unwrap();
@@ -273,7 +273,7 @@ impl<'a> WorkspaceApi<'a> {
                 } else {
                     None
                 },
-                Some(vec![&shell_value]),
+                Some(shell_value.iter().map(|v| v.as_str()).collect::<Vec<_>>()),
             )
             .await?;
 

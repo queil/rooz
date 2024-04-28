@@ -218,14 +218,14 @@ impl<'a> WorkspaceApi<'a> {
             .or(Some(workspace.working_dir));
 
         let cfg = FinalCfg::from(&RoozCfg {
-            shell: Some(shell.into()),
+            shell: Some(vec![shell.into()]),
             ..config
         });
 
         self.enter(
             &workspace.workspace_key,
             working_dir.as_deref(),
-            Some(&cfg.shell),
+            Some(cfg.shell.iter().map(|v| v.as_str()).collect::<Vec<_>>()),
             None,
             workspace.volumes,
             &workspace.orig_uid,
