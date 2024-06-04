@@ -83,7 +83,8 @@ impl<'a> ContainerApi<'a> {
             }
         }
 
-        match self.client
+        match self
+            .client
             .remove_container(
                 &container_id,
                 Some(RemoveContainerOptions {
@@ -91,17 +92,24 @@ impl<'a> ContainerApi<'a> {
                     ..Default::default()
                 }),
             )
-            .await {
-                Ok(_) =>  {
-                    log::debug!("Removed container: {}{}", &container_id, &force_display);
-                    Ok(())
-                },
-                Err(Error::DockerResponseServerError { status_code:404, .. }) => {
-                    log::debug!("No such container. Skipping: {}{}", &container_id, &force_display);
-                    Ok(())
-                },
-                Err(e) => panic!("{}", e),
-            }    
+            .await
+        {
+            Ok(_) => {
+                log::debug!("Removed container: {}{}", &container_id, &force_display);
+                Ok(())
+            }
+            Err(Error::DockerResponseServerError {
+                status_code: 404, ..
+            }) => {
+                log::debug!(
+                    "No such container. Skipping: {}{}",
+                    &container_id,
+                    &force_display
+                );
+                Ok(())
+            }
+            Err(e) => panic!("{}", e),
+        }
     }
 
     pub async fn kill(&self, container_id: &str) -> Result<(), AnyError> {

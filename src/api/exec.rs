@@ -63,18 +63,19 @@ impl<'a> ExecApi<'a> {
                         }
                     });
 
-                    if interactive {
-                        self.client
-                            .resize_exec(
-                                exec_id,
-                                ResizeExecOptions {
-                                    height: tty_size.1,
-                                    width: tty_size.0,
-                                },
-                            )
-                            .await?;
-                    };
-
+                    if let Some(true) = exec_state.running {
+                        if interactive {
+                            self.client
+                                .resize_exec(
+                                    exec_id,
+                                    ResizeExecOptions {
+                                        height: tty_size.1,
+                                        width: tty_size.0,
+                                    },
+                                )
+                                .await?;
+                        };
+                    }
                     // set stdout in raw mode so we can do tty stuff
                     let stdout = stdout();
                     let mut stdout = stdout.lock().into_raw_mode()?;
@@ -167,6 +168,7 @@ impl<'a> ExecApi<'a> {
         let exec_id = self
             .create_exec(reason, container_id, working_dir, user, cmd)
             .await?;
+
         self.start_tty(&exec_id, interactive).await
     }
 
