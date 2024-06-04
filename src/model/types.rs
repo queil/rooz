@@ -1,5 +1,6 @@
 use crate::{
     git::RootRepoCloneResult,
+    labels::Labels,
     model::{config::RoozCfg, volume::RoozVolume},
 };
 use bollard::service::Mount;
@@ -35,7 +36,7 @@ pub struct WorkSpec<'a> {
     pub container_working_dir: &'a str,
     pub container_name: &'a str,
     pub workspace_key: &'a str,
-    pub labels: HashMap<&'a str, &'a str>,
+    pub labels: Labels,
     pub ephemeral: bool,
     pub caches: Option<Vec<String>>,
     pub privileged: bool,
@@ -54,7 +55,7 @@ impl Default for WorkSpec<'_> {
             container_working_dir: Default::default(),
             container_name: Default::default(),
             workspace_key: Default::default(),
-            labels: Default::default(),
+            labels: Labels::default(),
             ephemeral: false,
             caches: None,
             privileged: false,
@@ -80,7 +81,7 @@ pub struct RunSpec<'a> {
     pub privileged: bool,
     pub force_recreate: bool,
     pub auto_remove: bool,
-    pub labels: HashMap<&'a str, &'a str>,
+    pub labels: Labels,
     pub env: Option<HashMap<String, String>>,
     pub ports: Option<HashMap<String, Option<String>>>,
     pub network: Option<&'a str>,

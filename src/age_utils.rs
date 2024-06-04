@@ -26,7 +26,7 @@ pub fn mount(target: &str) -> Mount {
 impl<'a> WorkspaceApi<'a> {
     pub async fn read_age_identity(&self) -> Result<Identity, AnyError> {
         let workspace_key = id::random_suffix("tmp");
-        let labels = Labels::new(None, None);
+        let labels = Labels::default();
         let work_dir = "/tmp/.age";
         let entrypoint = inject(&format!("cat {}/age.key", work_dir), "entrypoint.sh");
         let run_spec = RunSpec {
@@ -41,7 +41,7 @@ impl<'a> WorkspaceApi<'a> {
             privileged: false,
             force_recreate: false,
             auto_remove: true,
-            labels: (&labels).into(),
+            labels,
             ..Default::default()
         };
 

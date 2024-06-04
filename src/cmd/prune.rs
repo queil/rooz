@@ -58,7 +58,7 @@ impl<'a> Api<'a> {
     }
 
     pub async fn prune_system(&self) -> Result<(), AnyError> {
-        let labels = Labels::new(None, None);
+        let labels = Labels::default();
         self.prune((&labels).into(), true).await
     }
 }
