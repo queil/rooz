@@ -1,15 +1,16 @@
-image = "ghcr.io/queil/image:dotnet-all"
-shell = "bash"
+image = "ghcr.io/queil/image:dotnet-8"
+shell = ["bash"]
 caches = [
   "~/.nuget"
 ]
-[env]
-  MY_TEST = "oh yeah"
 
-ports = [
+ports = [ 
   "22:8022",
   "1313:1313"
 ]
+
+[env]
+MY_TEST = "oh yeah"
 
 [sidecars.nats]
   image = "docker.io/nats:2"
