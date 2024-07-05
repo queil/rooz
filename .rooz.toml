@@ -1,5 +1,5 @@
 image = "ghcr.io/queil/image:rust"
-shell = "bash"
+shell = ["bash"]
 caches = [
   "~/.cargo"
 ]
