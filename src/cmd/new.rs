@@ -157,7 +157,7 @@ impl<'a> WorkspaceApi<'a> {
             None
         };
 
-        match &RoozCfg::git_ssh_url(cli_params, &cli_cfg) {
+        let enter_spec = match &RoozCfg::git_ssh_url(cli_params, &cli_cfg) {
             None => {
                 let mut cfg_builder = RoozCfg::default().from_cli_env(cli_params.clone());
                 self.new_core(
@@ -203,7 +203,11 @@ impl<'a> WorkspaceApi<'a> {
                     .await
                 }
             },
+        };
+        if let Some(true) = cli_params.start {
+            self.start_workspace(&workspace_key).await?;
         }
+        enter_spec
     }
 
     pub async fn tmp(&self, spec: &WorkParams, root: bool, shell: &str) -> Result<(), AnyError> {
