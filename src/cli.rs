@@ -98,7 +98,6 @@ pub struct WorkParams {
     #[arg(short, long)]
     pub privileged: Option<bool>,
     #[arg(
-        short,
         long,
         default_value = "true",
         help = "Starts the workspace immediately"
