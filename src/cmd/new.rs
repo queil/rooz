@@ -77,6 +77,7 @@ impl<'a> WorkspaceApi<'a> {
             network: network.as_deref(),
             labels: (&work_labels).into(),
             privileged: cfg.privileged,
+            entrypoint: cfg.entrypoint,
             ..*work_spec
         };
 

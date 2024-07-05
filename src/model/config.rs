@@ -99,6 +99,8 @@ pub struct RoozCfg {
     pub env: Option<LinkedHashMap<String, String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sidecars: Option<LinkedHashMap<String, RoozSidecar>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub entrypoint: Option<Vec<String>>,
 }
 
 impl Default for RoozCfg {
@@ -115,6 +117,7 @@ impl Default for RoozCfg {
             privileged: None,
             env: Some(LinkedHashMap::new()),
             sidecars: Some(LinkedHashMap::new()),
+            entrypoint: None,
         }
     }
 }
@@ -191,6 +194,7 @@ impl RoozCfg {
             privileged: config.privileged.clone().or(self.privileged.clone()),
             env: Self::extend_if_any(self.env.clone(), config.env.clone()),
             sidecars: Self::extend_if_any(self.sidecars.clone(), config.sidecars.clone()),
+            entrypoint: config.entrypoint.clone().or(self.entrypoint.clone()),
         }
     }
 
@@ -263,6 +267,7 @@ pub struct FinalCfg {
     pub user: String,
     pub ports: HashMap<String, Option<String>>,
     pub privileged: bool,
+    pub entrypoint: Option<Vec<String>>,
     pub env: HashMap<String, String>,
     pub sidecars: HashMap<String, RoozSidecar>,
 }
@@ -280,6 +285,7 @@ impl Default for FinalCfg {
             privileged: false,
             sidecars: HashMap::new(),
             env: HashMap::new(),
+            entrypoint: None,
         }
     }
 }
@@ -338,7 +344,7 @@ impl<'a> From<&'a RoozCfg> for FinalCfg {
                 .collect::<HashMap<_, _>>(),
             ports,
             privileged: value.privileged.unwrap_or(default.privileged),
-            ..default
+            entrypoint: value.entrypoint.clone(),
         }
     }
 }

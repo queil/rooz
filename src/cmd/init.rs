@@ -41,7 +41,7 @@ impl<'a> Api<'a> {
                 target: Some(vol_mount_path.into()),
                 ..Default::default()
             }]),
-            entrypoint: Some(entrypoint.iter().map(String::as_str).collect()),
+            entrypoint: Some(entrypoint),
             privileged: false,
             force_recreate: false,
             // init containers must not be auto-removed as it may happen

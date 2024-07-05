@@ -1,15 +1,11 @@
 use colored::Colorize;
 
 use crate::{
-    api::{container, ExecApi, GitApi},
-    id,
-    labels::Labels,
-    model::{
+    api::{container, ExecApi, GitApi}, constants, id, labels::Labels, model::{
         config::{FileFormat, RoozCfg},
         types::{AnyError, ContainerResult, RunSpec},
         volume::RoozVolume,
-    },
-    ssh,
+    }, ssh
 };
 
 #[derive(Clone, Debug)]
@@ -140,7 +136,7 @@ impl<'a> GitApi<'a> {
             container_name: &id::random_suffix("rooz-git"),
             workspace_key: &spec.workspace_key,
             mounts: Some(vec![vol.to_mount(None), ssh::mount("/tmp/.ssh")]),
-            entrypoint: Some(vec!["cat"]),
+            entrypoint: constants::default_entrypoint(),
             privileged: false,
             force_recreate: false,
             auto_remove: true,

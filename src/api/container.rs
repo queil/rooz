@@ -227,9 +227,14 @@ impl<'a> ContainerApi<'a> {
 
                 let env = KeyValue::to_vec_str(&env_kv);
 
+                let entrypoint = match &spec.entrypoint {
+                    Some(vec) => Some(vec.iter().map(String::as_str).collect()),
+                    None => None,
+                };
+
                 let config = Config {
                     image: Some(spec.image),
-                    entrypoint: spec.entrypoint,
+                    entrypoint,
                     cmd: spec.command,
                     working_dir: spec.work_dir,
                     user: Some(spec.uid),

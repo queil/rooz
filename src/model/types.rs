@@ -43,6 +43,7 @@ pub struct WorkSpec<'a> {
     pub network: Option<&'a str>,
     pub env_vars: Option<HashMap<String, String>>,
     pub ports: Option<HashMap<String, Option<String>>>,
+    pub entrypoint: Option<Vec<String>>,
 }
 
 impl Default for WorkSpec<'_> {
@@ -62,6 +63,7 @@ impl Default for WorkSpec<'_> {
             network: None,
             env_vars: None,
             ports: None,
+            entrypoint: None,
         }
     }
 }
@@ -76,7 +78,7 @@ pub struct RunSpec<'a> {
     pub container_name: &'a str,
     pub workspace_key: &'a str,
     pub mounts: Option<Vec<Mount>>,
-    pub entrypoint: Option<Vec<&'a str>>,
+    pub entrypoint: Option<Vec<String>>,
     pub privileged: bool,
     pub force_recreate: bool,
     pub auto_remove: bool,
