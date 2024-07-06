@@ -118,7 +118,10 @@ impl<'a> ContainerApi<'a> {
             .kill_container(&container_id, None::<KillContainerOptions<String>>)
             .await
         {
-            Ok(_) => Ok(()),
+            Ok(_) => {
+                sleep(Duration::from_millis(10)).await;
+                Ok(())
+            },
             Err(e) => Err(Box::new(e)),
         }
     }
