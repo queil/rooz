@@ -5,6 +5,7 @@ use bollard::{
     container::LogOutput,
     errors::Error,
     exec::{CreateExecOptions, ResizeExecOptions, StartExecResults},
+    secret::ExecInspectResponse,
 };
 use futures::{channel::oneshot, Stream, StreamExt};
 
@@ -40,42 +41,44 @@ impl<'a> ExecApi<'a> {
         } = self.client.start_exec(exec_id, None).await?
         {
             let exec_state = self.client.inspect_exec(&exec_id).await?;
-            if let Some(exit_code) = exec_state.exit_code {
-                if exit_code == 0 {
+
+            match (exec_state.clone(), interactive) {
+                (
+                    ExecInspectResponse {
+                        running: Some(true),
+                        ..
+                    },
+                    true,
+                ) => {
                     let (s, mut r) = oneshot::channel::<bool>();
                     let handle = spawn(async move {
-                        if interactive {
-                            let stdin = termion::async_stdin();
-                            let mut bytes = stdin.bytes();
-                            loop {
-                                match bytes.next() {
-                                    Some(Ok(b)) => {
-                                        input.write(&[b]).await.ok();
+                        let stdin = termion::async_stdin();
+                        let mut bytes = stdin.bytes();
+                        loop {
+                            match bytes.next() {
+                                Some(Ok(b)) => {
+                                    input.write(&[b]).await.ok();
+                                }
+                                _ => {
+                                    if let Some(true) = r.try_recv().unwrap() {
+                                        break;
                                     }
-                                    _ => {
-                                        if let Some(true) = r.try_recv().unwrap() {
-                                            break;
-                                        }
-                                        sleep(Duration::from_millis(10)).await;
-                                    }
+                                    sleep(Duration::from_millis(10)).await;
                                 }
                             }
                         }
                     });
 
-                    if let Some(true) = exec_state.running {
-                        if interactive {
-                            self.client
-                                .resize_exec(
-                                    exec_id,
-                                    ResizeExecOptions {
-                                        height: tty_size.1,
-                                        width: tty_size.0,
-                                    },
-                                )
-                                .await?;
-                        };
-                    }
+                    self.client
+                        .resize_exec(
+                            exec_id,
+                            ResizeExecOptions {
+                                height: tty_size.1,
+                                width: tty_size.0,
+                            },
+                        )
+                        .await?;
+
                     // set stdout in raw mode so we can do tty stuff
                     let stdout = stdout();
                     let mut stdout = stdout.lock().into_raw_mode()?;
@@ -92,11 +95,28 @@ impl<'a> ExecApi<'a> {
                         }
                     }
 
-                    if interactive {
-                        s.send(true).ok();
-                        handle.await?;
-                    }
-                } else {
+                    s.send(true).ok();
+                    handle.await?;
+                },
+                (ExecInspectResponse {running: Some(true),..}, false) => {
+                     // set stdout in raw mode so we can do tty stuff
+                     let stdout = stdout();
+                     let mut stdout = stdout.lock();
+                     // pipe docker exec output into stdout
+                     while let Some(Ok(out)) = output.next().await {
+                         let bytes = out.clone().into_bytes();
+ 
+                         while let Err(_) = stdout.write_all(bytes.as_ref()) {
+                             sleep(Duration::from_millis(10)).await;
+                         }
+ 
+                         while let Err(_) = stdout.flush() {
+                             sleep(Duration::from_millis(10)).await;
+                         }
+                     }
+
+                },
+                (ExecInspectResponse { exit_code: Some(exit_code),.. } , _) => {
                     // set stdout in raw mode so we can do tty stuff
                     let stdout = stdout();
                     let mut stdout = stdout.lock();
@@ -112,8 +132,9 @@ impl<'a> ExecApi<'a> {
                             sleep(Duration::from_millis(10)).await;
                         }
                     }
-                    panic!("Exec terminated with exit code: {}.", exit_code);
-                }
+                    if exit_code != 0 {panic!("Exec terminated with exit code: {}.", exit_code);}
+                },
+                _ => panic!("Unexpected exec state: {:?}", exec_state.clone())
             };
         }
         Ok(())
