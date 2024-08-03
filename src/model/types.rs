@@ -115,11 +115,9 @@ impl Default for RunSpec<'_> {
 }
 
 pub struct WorkspaceResult {
-    pub container_id: String,
     pub volumes: Vec<RoozVolume>,
     pub workspace_key: String,
     pub working_dir: String,
-    pub home_dir: String,
     pub orig_uid: String,
 }
 

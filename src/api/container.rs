@@ -121,7 +121,7 @@ impl<'a> ContainerApi<'a> {
             Ok(_) => {
                 sleep(Duration::from_millis(10)).await;
                 Ok(())
-            },
+            }
             Err(e) => Err(Box::new(e)),
         }
     }

@@ -77,7 +77,9 @@ impl<'a> ExecApi<'a> {
                                 width: tty_size.0,
                             },
                         )
-                        .await.inspect_err(|e|log::debug!("Exec might have already terminated: {}", e)).ok();
+                        .await
+                        .inspect_err(|e| log::debug!("Exec might have already terminated: {}", e))
+                        .ok();
 
                     // set stdout in raw mode so we can do tty stuff
                     let stdout = stdout();
@@ -97,26 +99,14 @@ impl<'a> ExecApi<'a> {
 
                     s.send(true).ok();
                     handle.await?;
-                },
-                (ExecInspectResponse {running: Some(true),..}, false) => {
-                     // set stdout in raw mode so we can do tty stuff
-                     let stdout = stdout();
-                     let mut stdout = stdout.lock();
-                     // pipe docker exec output into stdout
-                     while let Some(Ok(out)) = output.next().await {
-                         let bytes = out.clone().into_bytes();
- 
-                         while let Err(_) = stdout.write_all(bytes.as_ref()) {
-                             sleep(Duration::from_millis(10)).await;
-                         }
- 
-                         while let Err(_) = stdout.flush() {
-                             sleep(Duration::from_millis(10)).await;
-                         }
-                     }
-
-                },
-                (ExecInspectResponse { exit_code: Some(exit_code),.. } , _) => {
+                }
+                (
+                    ExecInspectResponse {
+                        running: Some(true),
+                        ..
+                    },
+                    false,
+                ) => {
                     // set stdout in raw mode so we can do tty stuff
                     let stdout = stdout();
                     let mut stdout = stdout.lock();
@@ -132,9 +122,34 @@ impl<'a> ExecApi<'a> {
                             sleep(Duration::from_millis(10)).await;
                         }
                     }
-                    if exit_code != 0 {panic!("Exec terminated with exit code: {}.", exit_code);}
-                },
-                _ => panic!("Unexpected exec state: {:?}", exec_state.clone())
+                }
+                (
+                    ExecInspectResponse {
+                        exit_code: Some(exit_code),
+                        ..
+                    },
+                    _,
+                ) => {
+                    // set stdout in raw mode so we can do tty stuff
+                    let stdout = stdout();
+                    let mut stdout = stdout.lock();
+                    // pipe docker exec output into stdout
+                    while let Some(Ok(out)) = output.next().await {
+                        let bytes = out.clone().into_bytes();
+
+                        while let Err(_) = stdout.write_all(bytes.as_ref()) {
+                            sleep(Duration::from_millis(10)).await;
+                        }
+
+                        while let Err(_) = stdout.flush() {
+                            sleep(Duration::from_millis(10)).await;
+                        }
+                    }
+                    if exit_code != 0 {
+                        panic!("Exec terminated with exit code: {}.", exit_code);
+                    }
+                }
+                _ => panic!("Unexpected exec state: {:?}", exec_state.clone()),
             };
         }
         Ok(())

@@ -80,15 +80,13 @@ impl<'a> WorkspaceApi<'a> {
         };
 
         match self.api.container.create(run_spec).await? {
-        ContainerResult::Created { id } =>
+        ContainerResult::Created { .. } =>
 
             Ok(
                 WorkspaceResult {
                     workspace_key: (&spec).workspace_key.to_string(),
                     working_dir: (&spec).container_working_dir.to_string(),
-                    home_dir,
                     orig_uid: spec.uid.to_string(),
-                    container_id: id,
                     volumes: volumes.iter().map(|v|v.clone()).collect::<Vec<_>>() }),
 
         ContainerResult::AlreadyExists { .. } => {

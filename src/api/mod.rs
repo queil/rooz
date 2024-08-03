@@ -11,7 +11,6 @@ pub mod workspace;
 
 pub struct ImageApi<'a> {
     pub client: &'a Docker,
-    pub backend: &'a ContainerBackend,
 }
 
 pub struct ExecApi<'a> {
@@ -21,7 +20,6 @@ pub struct ExecApi<'a> {
 
 pub struct VolumeApi<'a> {
     pub client: &'a Docker,
-    pub backend: &'a ContainerBackend,
 }
 
 pub struct ContainerApi<'a> {
@@ -35,7 +33,6 @@ pub struct Api<'a> {
     pub volume: &'a VolumeApi<'a>,
     pub container: &'a ContainerApi<'a>,
     pub client: &'a Docker,
-    pub backend: &'a ContainerBackend,
 }
 
 pub struct GitApi<'a> {
