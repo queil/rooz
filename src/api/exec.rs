@@ -77,7 +77,7 @@ impl<'a> ExecApi<'a> {
                                 width: tty_size.0,
                             },
                         )
-                        .await?;
+                        .await.inspect_err(|e|log::debug!("Exec might have already terminated: {}", e)).ok();
 
                     // set stdout in raw mode so we can do tty stuff
                     let stdout = stdout();
