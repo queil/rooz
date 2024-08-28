@@ -125,12 +125,6 @@ impl<'a> From<&'a Labels> for HashMap<&'a str, &'a str> {
     }
 }
 
-impl<'a> From<Labels> for HashMap<&'a str, &'a str> {
-    fn from(value: Labels) -> Self {
-        return value.into();
-    }
-}
-
 impl<'a> From<&'a Labels> for HashMap<String, Vec<String>> {
     fn from(value: &'a Labels) -> Self {
         let labels: Vec<&KeyValue> = value.into();
