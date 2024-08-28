@@ -1,10 +1,10 @@
+use super::types::AnyError;
 use crate::{cli::WorkParams, constants};
+use colored::Colorize;
 use handlebars::{no_escape, Handlebars};
 use linked_hash_map::LinkedHashMap;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, ffi::OsStr, fs, path::Path};
-
-use super::types::AnyError;
 
 #[derive(Debug, Clone)]
 pub enum ConfigPath {
@@ -41,14 +41,13 @@ impl FileFormat {
     pub fn to_string(&self) -> String {
         match self {
             FileFormat::Toml => "toml".into(),
-            FileFormat::Yaml => "y*ml".into(),
+            FileFormat::Yaml => "yaml".into(),
         }
     }
 
     pub fn from_path(path: &str) -> FileFormat {
         match Path::new(path).extension().and_then(OsStr::to_str) {
             Some("yaml") => FileFormat::Yaml,
-            Some("yml") => FileFormat::Yaml,
             Some("toml") => FileFormat::Toml,
             Some(other) => panic!("Config file format: {} is not supported", other),
             None => panic!("Only toml and yaml config file formats are supported."),
@@ -121,13 +120,13 @@ impl Default for RoozCfg {
 
 impl RoozCfg {
     pub fn from_file(path: &str) -> Result<Self, AnyError> {
-        Self::from_string(fs::read_to_string(path)?, FileFormat::from_path(&path))
+        Self::from_string(&fs::read_to_string(path)?, FileFormat::from_path(&path))
     }
 
-    pub fn from_string(config: String, file_format: FileFormat) -> Result<Self, AnyError> {
+    fn from_string(config: &str, file_format: FileFormat) -> Result<Self, AnyError> {
         Ok(match file_format {
-            FileFormat::Yaml => serde_yaml::from_str(&config)?,
-            FileFormat::Toml => toml::from_str(&config)?,
+            FileFormat::Yaml => Self::deserialize(serde_yaml::Deserializer::from_str(&config))?,
+            FileFormat::Toml => Self::deserialize(toml::de::Deserializer::new(&config))?,
         })
     }
 
@@ -139,8 +138,17 @@ impl RoozCfg {
 
     pub fn to_string(&self, file_format: FileFormat) -> Result<String, AnyError> {
         Ok(match file_format {
-            FileFormat::Yaml => serde_yaml::to_string(&self)?,
-            FileFormat::Toml => toml::to_string(&self)?,
+            FileFormat::Yaml => {
+                let mut ret = Vec::new();
+                let mut ser = serde_yaml::Serializer::new(&mut ret);
+                self.serialize(&mut ser)?;
+                std::str::from_utf8(&ret)?.to_string()
+            }
+            FileFormat::Toml => {
+                let mut ret = String::new();
+                Self::serialize(&self, toml::ser::Serializer::new(&mut ret))?;
+                ret
+            }
         })
     }
 
@@ -237,10 +245,32 @@ impl RoozCfg {
             }
 
             let rendered = reg.render_template(&cfg_string, &built_vars)?;
-            let s = RoozCfg::from_string(rendered, FileFormat::Yaml)?;
+            let s = RoozCfg::from_string(&rendered, FileFormat::Yaml)?;
             *self = s;
         }
         Ok(())
+    }
+
+    pub fn deserialize_config(
+        config: &str,
+        file_format: FileFormat,
+    ) -> Result<Option<RoozCfg>, AnyError> {
+        match RoozCfg::from_string(config, file_format) {
+            Ok(cfg) => Ok(Some(cfg)),
+            Err(e) => {
+                eprintln!(
+                    "{}\n{}",
+                    format!(
+                        "WARNING: Could not read config ({})",
+                        file_format.to_string()
+                    )
+                    .bold()
+                    .yellow(),
+                    e.to_string().yellow()
+                );
+                Ok(None)
+            }
+        }
     }
 }
 
@@ -277,17 +307,17 @@ impl Default for FinalCfg {
 
 impl FinalCfg {
     pub fn from_string(config: String) -> Result<FinalCfg, Box<dyn std::error::Error + 'static>> {
-        match toml::from_str(&config) {
+        let f = Self::deserialize(toml::de::Deserializer::new(&config));
+        match f {
             Ok(val) => Ok(val),
             Err(e) => Err(Box::new(e)),
         }
     }
 
     pub fn to_string(&self) -> Result<String, AnyError> {
-        match toml::to_string(&self) {
-            Ok(val) => Ok(val),
-            Err(e) => Err(Box::new(e)),
-        }
+        let mut ret = String::new();
+        Self::serialize(&self, toml::ser::Serializer::new(&mut ret))?;
+        Ok(ret)
     }
 }
 

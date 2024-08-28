@@ -6,6 +6,8 @@ pub const WORKSPACE_KEY: &'static str = "dev.rooz.workspace";
 pub const CONTAINER: &'static str = "dev.rooz.workspace.container";
 pub const ROLE: &'static str = "dev.rooz.role";
 pub const RUNTIME_CONFIG: &'static str = "dev.rooz.config.runtime";
+pub const CONFIG_SOURCE: &'static str = "dev.rooz.config.source";
+pub const CONFIG_BODY: &'static str = "dev.rooz.config.body";
 const ROOZ: &'static str = "dev.rooz";
 const LABEL_KEY: &'static str = "label";
 const TRUE: &'static str = "true";
@@ -21,7 +23,7 @@ pub struct KeyValue {
 }
 
 impl KeyValue {
-    pub fn new(key: &str, value: &str) -> KeyValue {
+    pub fn new(key: &str, value: &str) -> Self {
         KeyValue {
             key: key.into(),
             value: value.into(),
@@ -37,7 +39,7 @@ impl KeyValue {
         return h;
     }
 
-    pub fn to_vec(value: HashMap<String, String>) -> Vec<KeyValue> {
+    pub fn to_vec(value: HashMap<String, String>) -> Vec<Self> {
         let mut h = Vec::new();
         for (key, value) in value {
             h.push(Self::new(&key, &value));
@@ -45,7 +47,7 @@ impl KeyValue {
         return h;
     }
 
-    pub fn to_vec_str<'a>(key_values: &'a Vec<KeyValue>) -> Vec<&'a str> {
+    pub fn to_vec_str<'a>(key_values: &'a Vec<Self>) -> Vec<&'a str> {
         let mut v = vec![];
         for kv in key_values {
             v.push(kv.formatted.as_ref());
@@ -56,31 +58,44 @@ impl KeyValue {
 
 #[derive(Clone, Debug)]
 pub struct Labels {
-    rooz: KeyValue,
-    workspace: Option<KeyValue>,
-    container: Option<KeyValue>,
-    runtime_config: Option<KeyValue>,
-    role: Option<KeyValue>,
+    pub rooz: KeyValue,
+    pub workspace: Option<KeyValue>,
+    pub container: Option<KeyValue>,
+    pub runtime_config: Option<KeyValue>,
+    pub role: Option<KeyValue>,
+    pub config_source: Option<KeyValue>,
+    pub config_body: Option<KeyValue>,
 }
 
 impl Labels {
     pub fn new(workspace_key: Option<&str>, role: Option<&str>) -> Labels {
         Labels {
-            rooz: KeyValue::new(ROOZ, TRUE),
             workspace: workspace_key.map(|v| KeyValue::new(WORKSPACE_KEY, v)),
-            container: None,
-            runtime_config: None,
             role: role.map(|v| KeyValue::new(ROLE, v)),
+            ..Default::default()
         }
     }
 
-    pub fn with_role(self, role: Option<&str>) -> Labels {
-        match role {
-            Some(c) => Labels {
-                role: Some(KeyValue::new(ROLE, c)),
-                ..self
-            },
-            None => self,
+    pub fn workspace(key: &str) -> Option<KeyValue> {
+        Some(KeyValue::new(WORKSPACE_KEY, key))
+    }
+
+    pub fn role(role: &str) -> Option<KeyValue> {
+        Some(KeyValue::new(ROLE, role))
+    }
+
+    pub fn config_source(path: &str) -> Option<KeyValue> {
+        Some(KeyValue::new(CONFIG_SOURCE, path))
+    }
+
+    pub fn config_body(body: &str) -> Option<KeyValue> {
+        Some(KeyValue::new(CONFIG_BODY, body))
+    }
+
+    pub fn with_role(self, role: &str) -> Labels {
+        Labels {
+            role: Some(KeyValue::new(ROLE, role)),
+            ..self
         }
     }
 
@@ -110,6 +125,8 @@ impl Default for Labels {
             container: None,
             runtime_config: None,
             role: None,
+            config_source: None,
+            config_body: None,
         }
     }
 }
@@ -143,14 +160,20 @@ impl<'a> From<&'a Labels> for Vec<&'a KeyValue> {
         if let Some(role) = &value.role {
             labels.push(role);
         }
-        if let Some(workspace) = &value.workspace {
-            labels.push(workspace);
+        if let Some(value) = &value.workspace {
+            labels.push(value);
         }
-        if let Some(container) = &value.container {
-            labels.push(container);
+        if let Some(value) = &value.container {
+            labels.push(value);
         }
-        if let Some(config) = &value.runtime_config {
-            labels.push(config);
+        if let Some(value) = &value.runtime_config {
+            labels.push(value);
+        }
+        if let Some(value) = &value.config_source {
+            labels.push(value);
+        }
+        if let Some(value) = &value.config_body {
+            labels.push(value);
         }
         labels
     }
