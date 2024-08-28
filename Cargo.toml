@@ -1,29 +1,29 @@
 [package]
 name = "rooz"
-version = "0.88.0"
+version = "0.88.1"
 edition = "2021"
 
 [dependencies]
 age = {version = "0.10.0", features = ["armor"] }
-base64 = "0.21.3"
-bollard = { version = "0.16.1" }
-clap = { version = "4.4.2", features = ["derive", "env"] }
-clap_complete = "4.4.1"
+base64 = "0.22.1"
+bollard = { version = "0.17.1" }
+clap = { version = "4.5.16", features = ["derive", "env"] }
+clap_complete = "4.5.24"
 colored = "2.1.0"
-ctrlc = "3.4.4"
-env_logger = "0.10.0"
-futures = "0.3.26"
-handlebars = "5.1.2"
-lazy_static = "1.4.0"
+ctrlc = "3.4.5"
+env_logger = "0.11.5"
+futures = "0.3.30"
+handlebars = "6.0.0"
+lazy_static = "1.5.0"
 linked-hash-map = { version = "0.5.6", features = ["serde", "serde_impl"] }
-log = "0.4.20"
-openssh = { version = "0.10.3", features = ["native-mux"] }
+log = "0.4.22"
+openssh = { version = "0.11.0", features = ["native-mux"] }
 rand = "0.8.5"
-regex = "1.7.1"
-serde = "1.0.188"
+regex = "1.10.6"
+serde = "1.0.209"
 serde_yaml = "0.9.34"
 shellexpand = "3.1.0"
-termion = "2.0.1"
-tokio = { version = "1.32.0", features = ["rt-multi-thread", "macros"] }
-toml = "0.7.8"
-url = "2.5.0"
+termion = "4.0.2"
+tokio = { version = "1.39.3", features = ["rt-multi-thread", "macros"] }
+toml = "0.8.19"
+url = "2.5.2"
