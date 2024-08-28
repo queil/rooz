@@ -212,6 +212,7 @@ impl<'a> ContainerApi<'a> {
                     oom_score_adj,
                     privileged: Some(spec.privileged),
                     port_bindings,
+                    init: Some(true),
                     ..Default::default()
                 };
 
