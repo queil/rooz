@@ -17,13 +17,12 @@ impl<'a> WorkspaceApi<'a> {
     pub async fn ensure_sidecars(
         &self,
         sidecars: &HashMap<String, RoozSidecar>,
-        labels: &Labels,
         workspace_key: &str,
         force: bool,
         pull_image: bool,
         work_dir: &str,
     ) -> Result<Option<String>, AnyError> {
-        let labels_sidecar = Labels::new(Some(workspace_key), Some(labels::ROLE_SIDECAR));
+        let labels = &Labels::new(Some(workspace_key), None);
 
         let network = if !sidecars.is_empty() {
             let network_options = CreateNetworkOptions::<&str> {
@@ -52,7 +51,10 @@ impl<'a> WorkspaceApi<'a> {
             log::debug!("Process sidecar: {}", name);
             self.api.image.ensure(&s.image, pull_image).await?;
             let container_name = format!("{}-{}", workspace_key, name);
-            let labels = labels_sidecar.clone().with_container(Some(&name));
+            let labels = labels
+                .clone()
+                .with_container(Some(&name))
+                .with_role(Some(labels::ROLE_SIDECAR));
             let mut ports = HashMap::<String, Option<String>>::new();
             RoozCfg::parse_ports(&mut ports, s.ports.clone());
 
@@ -87,7 +89,7 @@ impl<'a> WorkspaceApi<'a> {
                     image: &s.image,
                     force_recreate: force,
                     workspace_key: &workspace_key,
-                    labels: (&labels).into(),
+                    labels,
                     env: s.env.clone().map(|x| {
                         x.iter()
                             .map(|(k, v)| (k.clone(), v.clone()))

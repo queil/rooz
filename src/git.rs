@@ -144,7 +144,7 @@ impl<'a> GitApi<'a> {
             privileged: false,
             force_recreate: false,
             auto_remove: true,
-            labels: (&labels).into(),
+            labels,
             ..Default::default()
         };
 
