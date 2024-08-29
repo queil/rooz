@@ -105,6 +105,24 @@ pub struct WorkParams {
     pub start: Option<bool>,
 }
 
+impl Default for WorkParams {
+    fn default() -> Self {
+        Self {
+            git_ssh_url: Default::default(),
+            env_image: Default::default(),
+            image: Default::default(),
+            pull_image: Default::default(),
+            env_user: Default::default(),
+            env_shell: Default::default(),
+            user: Default::default(),
+            env_caches: Default::default(),
+            caches: Default::default(),
+            privileged: Default::default(),
+            start: Default::default(),
+        }
+    }
+}
+
 #[derive(Parser, Debug)]
 #[command(about = "Creates a new workspace (container + volumes)")]
 pub struct NewParams {
@@ -172,9 +190,25 @@ pub struct StopParams {
     pub all: bool,
 }
 
+#[derive(Parser, Debug, Clone, clap::ValueEnum)]
+pub enum ConfigPart {
+    OriginPath,
+    OriginBody,
+    Runtime,
+}
+
 #[derive(Parser, Debug)]
-#[command(about = "Describes a workspace", alias = "desc")]
-pub struct DescribeParams {
+#[command(about = "Shows a workspace's configuration", alias = "config")]
+pub struct ShowConfigParams {
+    #[arg()]
+    pub name: String,
+    #[arg(long, short, value_enum)]
+    pub part: ConfigPart,
+}
+
+#[derive(Parser, Debug)]
+#[command(about = "Edits a workspace created from a config file")]
+pub struct EditParams {
     #[arg()]
     pub name: String,
 }
@@ -191,11 +225,12 @@ pub struct EncryptParams {
 #[derive(Subcommand, Debug)]
 pub enum Commands {
     New(NewParams),
+    Edit(EditParams),
     Enter(EnterParams),
     Tmp(TmpParams),
     List(ListParams),
     Remove(RemoveParams),
-    Describe(DescribeParams),
+    ShowConfig(ShowConfigParams),
     Stop(StopParams),
     Remote(RemoteParams),
     Encrypt(EncryptParams),

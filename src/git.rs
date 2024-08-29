@@ -1,11 +1,9 @@
-use colored::Colorize;
-
 use crate::{
     api::{container, ExecApi, GitApi},
     id,
     labels::Labels,
     model::{
-        config::{FileFormat, RoozCfg},
+        config::FileFormat,
         types::{AnyError, ContainerResult, RunSpec},
         volume::RoozVolume,
     },
@@ -28,7 +26,7 @@ pub struct CloneEnv {
 
 #[derive(Clone, Debug)]
 pub struct RootRepoCloneResult {
-    pub config: Option<RoozCfg>,
+    pub config: Option<(String, FileFormat)>,
     pub dir: String,
 }
 
@@ -49,13 +47,13 @@ fn get_clone_dir(root_dir: &str, git_ssh_url: &str) -> String {
 }
 
 impl<'a> ExecApi<'a> {
-    pub async fn read_rooz_config(
+    async fn read_config_body(
         &self,
         container_id: &str,
         clone_dir: &str,
         file_format: FileFormat,
         exact_path: Option<&str>,
-    ) -> Result<Option<RoozCfg>, AnyError> {
+    ) -> Result<Option<String>, AnyError> {
         let file_path = match exact_path {
             Some(p) => format!("{}/{}", clone_dir, p.to_string()),
             None => format!("{}/.rooz.{}", clone_dir, file_format.to_string()),
@@ -79,24 +77,12 @@ impl<'a> ExecApi<'a> {
             .await?;
 
         if config.is_empty() {
-            Ok(None)
-        } else {
-            match RoozCfg::from_string(config, file_format) {
-                Ok(cfg) => Ok(Some(cfg)),
-                Err(e) => {
-                    eprintln!(
-                        "{}\n{}",
-                        format!(
-                            "WARNING: Could not read repo config ({})",
-                            file_format.to_string()
-                        )
-                        .bold()
-                        .yellow(),
-                        e.to_string().yellow()
-                    );
-                    Ok(None)
-                }
+            match exact_path {
+                Some(p) => Err(format!("Config file '{}' not found or empty", p).into()),
+                None => Ok(None),
             }
+        } else {
+            Ok(Some(config))
         }
     }
 }
@@ -177,21 +163,21 @@ impl<'a> GitApi<'a> {
         &self,
         container_id: &str,
         clone_dir: &str,
-    ) -> Result<Option<RoozCfg>, AnyError> {
+    ) -> Result<Option<(String, FileFormat)>, AnyError> {
         let exec = self.api.exec;
 
         let rooz_cfg = if let Some(cfg) = exec
-            .read_rooz_config(&container_id, &clone_dir, FileFormat::Toml, None)
+            .read_config_body(&container_id, &clone_dir, FileFormat::Toml, None)
             .await?
         {
             log::debug!("Config file found (TOML)");
-            Some(cfg)
+            Some((cfg, FileFormat::Toml))
         } else if let Some(cfg) = exec
-            .read_rooz_config(&container_id, &clone_dir, FileFormat::Yaml, None)
+            .read_config_body(&container_id, &clone_dir, FileFormat::Yaml, None)
             .await?
         {
             log::debug!("Config file found (YAML)");
-            Some(cfg)
+            Some((cfg, FileFormat::Yaml))
         } else {
             log::debug!("No valid config file found");
             None
@@ -208,10 +194,14 @@ impl<'a> GitApi<'a> {
             .clone_from_spec(&spec, &CloneUrls::Root { url: url.into() })
             .await?;
         let clone_dir = get_clone_dir(&spec.working_dir, &url);
-        let rooz_cfg = self.try_read_config(&container_id, &clone_dir).await?;
+        let config = self.try_read_config(&container_id, &clone_dir).await?;
         self.api.container.kill(&container_id).await?;
+
         Ok(RootRepoCloneResult {
-            config: rooz_cfg,
+            config: match config {
+                Some(c) => Some(c),
+                None => None,
+            },
             dir: clone_dir,
         })
     }
@@ -233,7 +223,7 @@ impl<'a> GitApi<'a> {
         spec: CloneEnv,
         url: &str,
         path: &str,
-    ) -> Result<Option<RoozCfg>, AnyError> {
+    ) -> Result<Option<String>, AnyError> {
         let container_id = self
             .clone_from_spec(
                 &spec,
@@ -247,7 +237,7 @@ impl<'a> GitApi<'a> {
         let rooz_cfg = self
             .api
             .exec
-            .read_rooz_config(&container_id, &clone_dir, file_format, Some(path))
+            .read_config_body(&container_id, &clone_dir, file_format, Some(path))
             .await?;
         self.api.container.kill(&container_id).await?;
         Ok(rooz_cfg)

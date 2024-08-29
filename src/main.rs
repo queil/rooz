@@ -17,9 +17,11 @@ use crate::{
     backend::ContainerBackend,
     cli::{
         Cli,
-        Commands::{Describe, Encrypt, Enter, List, New, Remote, Remove, Stop, System, Tmp},
-        CompletionParams, DescribeParams, EncryptParams, ListParams, NewParams, RemoveParams,
-        StopParams, TmpParams,
+        Commands::{
+            Edit, Encrypt, Enter, List, New, Remote, Remove, ShowConfig, Stop, System, Tmp,
+        },
+        CompletionParams, EditParams, EncryptParams, ListParams, NewParams, RemoveParams,
+        ShowConfigParams, StopParams, TmpParams,
     },
     cmd::remote,
     model::{config::RoozCfg, types::AnyError},
@@ -29,6 +31,7 @@ use bollard::Docker;
 use clap::{CommandFactory, Parser};
 use clap_complete::generate;
 use cli::EnterParams;
+use model::config::{ConfigPath, ConfigSource};
 
 #[tokio::main]
 async fn main() -> Result<(), AnyError> {
@@ -104,8 +107,15 @@ async fn main() -> Result<(), AnyError> {
                 }),
             ..
         } => {
+            let config_source = match config_path {
+                Some(path) => Some(ConfigSource::Path {
+                    value: ConfigPath::from_str(&path)?,
+                }),
+                None => None,
+            };
+
             workspace
-                .new(&work, config_path, Some(persistence.clone()))
+                .new(&work, config_source, Some(persistence.clone()))
                 .await?;
             println!(
                 "\nThe workspace is ready. Run 'rooz enter {}' to enter.",
@@ -177,10 +187,17 @@ async fn main() -> Result<(), AnyError> {
         }
 
         Cli {
-            command: Describe(DescribeParams { name, .. }),
+            command: ShowConfig(ShowConfigParams { name, part, .. }),
             ..
         } => {
-            workspace.show_config(&name).await?;
+            workspace.show_config(&name, part).await?;
+        }
+
+        Cli {
+            command: Edit(EditParams { name, .. }),
+            ..
+        } => {
+            workspace.edit(&name).await?;
         }
 
         Cli {
@@ -213,12 +230,8 @@ async fn main() -> Result<(), AnyError> {
             if let Some(vars) = cfg.vars {
                 if vars.contains_key(&name) {
                     let identity = workspace.read_age_identity().await?;
-                    let pub_key = identity.to_public();
-                    let encrypted = age_utils::encrypt(vars[&name].to_string(), pub_key)?;
-                    let mut new_vars = vars.clone();
-                    new_vars.insert(name, encrypted);
                     RoozCfg {
-                        vars: Some(new_vars),
+                        vars: Some(workspace.encrypt(identity, &name, vars)?),
                         ..cfg
                     }
                     .to_file(&config_file_path)?

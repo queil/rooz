@@ -1,18 +1,20 @@
-use std::path::Path;
-
+use age::x25519::Identity;
 use bollard::{
     network::ListNetworksOptions,
     service::{ContainerSummary, Volume},
     volume::ListVolumesOptions,
 };
+use linked_hash_map::LinkedHashMap;
+use std::path::Path;
 
 use crate::{
-    age_utils,
+    age_utils::{self, Variable},
     api::WorkspaceApi,
+    cli::{ConfigPart, WorkParams, WorkspacePersistence},
     constants,
     labels::{self, Labels, ROLE},
     model::{
-        config::FinalCfg,
+        config::{ConfigSource, FileFormat, FinalCfg, RoozCfg},
         types::{AnyError, ContainerResult, RunSpec, WorkSpec, WorkspaceResult},
         volume::{RoozVolume, CACHE_ROLE, WORK_ROLE},
     },
@@ -200,11 +202,143 @@ impl<'a> WorkspaceApi<'a> {
         Ok(())
     }
 
-    pub async fn show_config(&self, workspace_key: &str) -> Result<(), AnyError> {
+    pub async fn show_config(&self, workspace_key: &str, part: ConfigPart) -> Result<(), AnyError> {
         let labels = Labels::new(Some(workspace_key), Some(WORK_ROLE));
         for c in self.api.container.get_all(&labels).await? {
             if let Some(labels) = c.labels {
-                println!("{}", labels[labels::RUNTIME_CONFIG]);
+                println!(
+                    "{}",
+                    labels[match part {
+                        ConfigPart::OriginPath => labels::CONFIG_ORIGIN,
+                        ConfigPart::OriginBody => labels::CONFIG_BODY,
+                        ConfigPart::Runtime => labels::RUNTIME_CONFIG,
+                    }]
+                );
+            }
+        }
+        Ok(())
+    }
+
+    pub fn encrypt(
+        &self,
+        identity: Identity,
+        name: &str,
+        vars: LinkedHashMap<String, String>,
+    ) -> Result<LinkedHashMap<String, String>, AnyError> {
+        let encrypted = self.encrypt_value(identity, vars[name].to_string())?;
+        let mut new_vars = vars.clone();
+        new_vars.insert(name.to_string(), encrypted);
+        Ok(new_vars)
+    }
+
+    pub fn encrypt_value(
+        &self,
+        identity: Identity,
+        clear_text: String,
+    ) -> Result<String, AnyError> {
+        age_utils::encrypt(clear_text, identity.to_public())
+    }
+
+    pub async fn decrypt(
+        &self,
+        vars: Option<LinkedHashMap<String, String>>,
+    ) -> Result<LinkedHashMap<String, age_utils::Variable>, AnyError> {
+        log::debug!("Checking if vars need decryption");
+        if let Some(vars) = age_utils::needs_decryption(vars.clone()) {
+            log::debug!("Decrypting vars");
+            let identity = self.read_age_identity().await?;
+            age_utils::decrypt(&identity, vars)
+        } else {
+            log::debug!("No encrypted vars found");
+            let mut ret = LinkedHashMap::<String, Variable>::new();
+            match vars {
+                Some(vars) => {
+                    for (k, v) in vars {
+                        ret.insert(k, Variable::ClearText { value: v });
+                    }
+                    Ok(ret)
+                }
+                None => Ok(ret),
+            }
+        }
+    }
+
+    pub fn variables_to_string(
+        &self,
+        vars: &LinkedHashMap<String, Variable>,
+    ) -> LinkedHashMap<String, String> {
+        let mut ret = LinkedHashMap::<String, String>::new();
+        for (k, v) in vars {
+            ret.insert(k.clone(), v.to_string());
+        }
+        ret
+    }
+
+    pub async fn edit(&self, workspace_key: &str) -> Result<(), AnyError> {
+        let labels = Labels::new(Some(workspace_key), Some(WORK_ROLE));
+        for c in self.api.container.get_all(&labels).await? {
+            if let Some(labels) = c.labels {
+                let config_source = &labels[labels::CONFIG_ORIGIN];
+                let format = FileFormat::from_path(config_source);
+                let config =
+                    RoozCfg::deserialize_config(&labels[labels::CONFIG_BODY], format)?.unwrap();
+                let decrypted = self.decrypt(config.clone().vars).await?;
+                let decrypted_config = RoozCfg {
+                    vars: if decrypted.len() > 0 {
+                        Some(self.variables_to_string(&decrypted))
+                    } else {
+                        None
+                    },
+                    ..config
+                };
+
+                let decrypted_string = decrypted_config.to_string(format)?;
+                let edited_string = edit::edit(decrypted_string.clone())?;
+
+                if edited_string != decrypted_string {
+                    let edited_config = RoozCfg::from_string(&edited_string, format)?;
+                    let identity = self.read_age_identity().await?;
+
+                    let mut encrypted_vars = LinkedHashMap::<String, String>::new();
+                    for (k, v) in &decrypted {
+                        let edited_value = &edited_config.clone().vars.unwrap()[k];
+                        match v {
+                            Variable::ClearText { .. } => {
+                                encrypted_vars.insert(k.to_string(), edited_value.to_string())
+                            }
+                            Variable::Secret { .. } => encrypted_vars.insert(
+                                k.to_string(),
+                                self.encrypt_value(identity.clone(), edited_value.to_string())?,
+                            ),
+                        };
+                    }
+
+                    let encrypted_config = RoozCfg {
+                        vars: if encrypted_vars.len() > 0 {
+                            Some(encrypted_vars)
+                        } else {
+                            None
+                        },
+                        ..edited_config
+                    };
+
+                    self.new(
+                        &WorkParams {
+                            ..Default::default()
+                        },
+                        Some(ConfigSource::Body {
+                            value: encrypted_config,
+                            origin: config_source.to_string(),
+                            format,
+                        }),
+                        Some(WorkspacePersistence {
+                            name: labels[labels::WORKSPACE_KEY].to_string(),
+                            replace: false,
+                            apply: true,
+                        }),
+                    )
+                    .await?;
+                }
             }
         }
         Ok(())

@@ -1,12 +1,13 @@
+use std::fs;
+
 use crate::{
-    age_utils,
     api::WorkspaceApi,
     cli::{WorkParams, WorkspacePersistence},
     constants,
     git::{CloneEnv, RootRepoCloneResult},
     labels::{self, Labels},
     model::{
-        config::{ConfigPath, FinalCfg, RoozCfg},
+        config::{ConfigPath, ConfigSource, FileFormat, FinalCfg, RoozCfg},
         types::{AnyError, EnterSpec, WorkSpec},
     },
 };
@@ -29,15 +30,8 @@ impl<'a> WorkspaceApi<'a> {
         }
         cfg_builder.from_cli(cli_params, None);
 
-        log::debug!("Checking if vars need decryption");
-        if let Some(vars) = age_utils::needs_decryption(cfg_builder.clone().vars) {
-            log::debug!("Decrypting vars");
-            let identity = self.read_age_identity().await?;
-            let decrypted_kv = age_utils::decrypt(&identity, vars)?;
-            cfg_builder.vars = Some(decrypted_kv);
-        } else {
-            log::debug!("No encrypted vars found");
-        }
+        cfg_builder.vars =
+            Some(self.variables_to_string(&self.decrypt(cfg_builder.clone().vars).await?));
 
         cfg_builder.expand_vars()?;
 
@@ -96,7 +90,7 @@ impl<'a> WorkspaceApi<'a> {
     pub async fn new(
         &self,
         cli_params: &WorkParams,
-        cli_config_path: Option<String>,
+        cli_config_path: Option<ConfigSource>,
         persistence: Option<WorkspacePersistence>,
     ) -> Result<EnterSpec, AnyError> {
         let ephemeral = persistence.is_none();
@@ -106,8 +100,6 @@ impl<'a> WorkspaceApi<'a> {
             Some(p) => (p.name.to_string(), p.replace, p.apply),
             None => (crate::id::random_suffix("tmp"), false, false),
         };
-
-        let labels = Labels::new(Some(&workspace_key), Some(labels::ROLE_WORK));
 
         if apply {
             self.remove_containers_only(&workspace_key, true).await?;
@@ -124,17 +116,6 @@ impl<'a> WorkspaceApi<'a> {
 
         let work_dir = constants::WORK_DIR;
 
-        let work_spec = WorkSpec {
-            uid: &orig_uid,
-            container_working_dir: &work_dir,
-            container_name: &workspace_key,
-            workspace_key: &workspace_key,
-            labels,
-            ephemeral,
-            force_recreate: force,
-            ..Default::default()
-        };
-
         let clone_env = CloneEnv {
             image: constants::DEFAULT_IMAGE.into(),
             uid: orig_uid.to_string(),
@@ -142,19 +123,76 @@ impl<'a> WorkspaceApi<'a> {
             working_dir: work_dir.to_string(),
         };
 
-        let cli_cfg = if let Some(path) = &cli_config_path {
-            let parsed_path = ConfigPath::from_str(&path)?;
-            log::debug!("Loading cli config from: {}", path);
-            match parsed_path {
-                ConfigPath::File { path } => Some(RoozCfg::from_file(&path)?),
-                ConfigPath::Git { url, file_path } => {
-                    self.git
-                        .clone_config_repo(clone_env.clone(), &url, &file_path)
-                        .await?
+        let mut labels = Labels {
+            workspace: Labels::workspace(&workspace_key),
+            role: Labels::role(labels::ROLE_WORK),
+            ..Default::default()
+        };
+
+        let cli_cfg = if let Some(source) = &cli_config_path {
+            match source {
+                ConfigSource::Body {
+                    value,
+                    origin,
+                    format,
+                } => {
+                    labels = Labels {
+                        config_source: Labels::config_origin(&origin),
+                        config_body: Labels::config_body(&value.to_string(format.clone())?),
+                        ..labels
+                    };
+                    Some(value.clone())
                 }
+                ConfigSource::Path { value: path } => match path {
+                    ConfigPath::File { path } => {
+                        let body = fs::read_to_string(&path)?;
+                        labels = Labels {
+                            config_source: Labels::config_origin(&path),
+                            config_body: Labels::config_body(&body),
+                            ..labels
+                        };
+                        RoozCfg::deserialize_config(&body, FileFormat::from_path(&path))?
+                    }
+                    ConfigPath::Git { url, file_path } => {
+                        let body = self
+                            .git
+                            .clone_config_repo(clone_env.clone(), &url, &file_path)
+                            .await?;
+
+                        labels = Labels {
+                            config_source: Labels::config_origin(&path.to_string()),
+                            ..labels
+                        };
+
+                        if let Some(b) = &body {
+                            labels = Labels {
+                                config_body: Labels::config_body(&b),
+                                ..labels
+                            }
+                        };
+
+                        match body {
+                            Some(body) => {
+                                let fmt = FileFormat::from_path(&file_path);
+                                RoozCfg::deserialize_config(&body, fmt)?
+                            }
+                            None => None,
+                        }
+                    }
+                },
             }
         } else {
             None
+        };
+
+        let work_spec = WorkSpec {
+            uid: &orig_uid,
+            container_working_dir: &work_dir,
+            container_name: &workspace_key,
+            workspace_key: &workspace_key,
+            ephemeral,
+            force_recreate: force,
+            ..Default::default()
         };
 
         let enter_spec = match &RoozCfg::git_ssh_url(cli_params, &cli_cfg) {
@@ -164,7 +202,10 @@ impl<'a> WorkspaceApi<'a> {
                     &mut cfg_builder,
                     cli_cfg,
                     cli_params,
-                    &work_spec,
+                    &WorkSpec {
+                        labels,
+                        ..work_spec
+                    },
                     &clone_env,
                     None,
                     &workspace_key,
@@ -177,21 +218,35 @@ impl<'a> WorkspaceApi<'a> {
             Some(url) => match self.git.clone_root_repo(&url, &clone_env).await? {
                 root_repo_result => {
                     let mut cfg_builder = RoozCfg::default().from_cli_env(cli_params.clone());
-
                     match &root_repo_result.config {
-                        Some(c) => {
-                            log::debug!("Config file applied.");
-                            cfg_builder.from_config(c);
-                        }
+                        Some((body, format)) => match RoozCfg::deserialize_config(body, *format)? {
+                            Some(c) => {
+                                cfg_builder.from_config(&c);
+                                log::debug!("Config file applied.");
+                                let source = format!("{}//.rooz.{}", url, format.to_string());
+                                labels = Labels {
+                                    config_source: Labels::config_origin(&source),
+                                    config_body: Labels::config_body(&body),
+                                    ..labels
+                                };
+                            }
+                            None => {
+                                log::debug!("No valid config file found in the repository.");
+                            }
+                        },
                         None => {
                             log::debug!("No valid config file found in the repository.");
                         }
                     }
+
                     self.new_core(
                         &mut cfg_builder,
                         cli_cfg,
                         cli_params,
-                        &work_spec,
+                        &WorkSpec {
+                            labels,
+                            ..work_spec
+                        },
                         &clone_env,
                         Some(root_repo_result),
                         &workspace_key,
