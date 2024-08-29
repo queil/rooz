@@ -190,11 +190,20 @@ pub struct StopParams {
     pub all: bool,
 }
 
+#[derive(Parser, Debug, Clone, clap::ValueEnum)]
+pub enum ConfigPart {
+    OriginPath,
+    OriginBody,
+    Runtime
+}
+
 #[derive(Parser, Debug)]
-#[command(about = "Describes a workspace", alias = "desc")]
-pub struct DescribeParams {
+#[command(about = "Shows a workspace's configuration", alias = "config")]
+pub struct ShowConfigParams {
     #[arg()]
     pub name: String,
+    #[arg(long, short, value_enum)]
+    pub part: ConfigPart
 }
 
 #[derive(Parser, Debug)]
@@ -221,7 +230,7 @@ pub enum Commands {
     Tmp(TmpParams),
     List(ListParams),
     Remove(RemoveParams),
-    Describe(DescribeParams),
+    ShowConfig(ShowConfigParams),
     Stop(StopParams),
     Remote(RemoteParams),
     Encrypt(EncryptParams),

@@ -17,8 +17,8 @@ use crate::{
     backend::ContainerBackend,
     cli::{
         Cli,
-        Commands::{Describe, Edit, Encrypt, Enter, List, New, Remote, Remove, Stop, System, Tmp},
-        CompletionParams, DescribeParams, EditParams, EncryptParams, ListParams, NewParams,
+        Commands::{ShowConfig, Edit, Encrypt, Enter, List, New, Remote, Remove, Stop, System, Tmp},
+        CompletionParams, ShowConfigParams, EditParams, EncryptParams, ListParams, NewParams,
         RemoveParams, StopParams, TmpParams,
     },
     cmd::remote,
@@ -185,10 +185,10 @@ async fn main() -> Result<(), AnyError> {
         }
 
         Cli {
-            command: Describe(DescribeParams { name, .. }),
+            command: ShowConfig(ShowConfigParams { name, part, .. }),
             ..
         } => {
-            workspace.show_config(&name).await?;
+            workspace.show_config(&name, part).await?;
         }
 
         Cli {

@@ -10,7 +10,7 @@ use std::path::Path;
 use crate::{
     age_utils::{self, Variable},
     api::WorkspaceApi,
-    cli::{WorkParams, WorkspacePersistence},
+    cli::{ConfigPart, WorkParams, WorkspacePersistence},
     constants,
     labels::{self, Labels, ROLE},
     model::{
@@ -202,11 +202,15 @@ impl<'a> WorkspaceApi<'a> {
         Ok(())
     }
 
-    pub async fn show_config(&self, workspace_key: &str) -> Result<(), AnyError> {
+    pub async fn show_config(&self, workspace_key: &str, part: ConfigPart) -> Result<(), AnyError> {
         let labels = Labels::new(Some(workspace_key), Some(WORK_ROLE));
         for c in self.api.container.get_all(&labels).await? {
             if let Some(labels) = c.labels {
-                println!("{}", labels[labels::RUNTIME_CONFIG]);
+                println!("{}", labels[match part {
+                    ConfigPart::OriginPath => labels::CONFIG_ORIGIN,
+                    ConfigPart::OriginBody => labels::CONFIG_BODY,
+                    ConfigPart::Runtime => labels::RUNTIME_CONFIG,
+                }]);
             }
         }
         Ok(())
