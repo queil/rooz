@@ -16,7 +16,10 @@ use crate::{
     api::{Api, ContainerApi, ExecApi, GitApi, ImageApi, VolumeApi, WorkspaceApi},
     backend::ContainerBackend,
     cli::{
-        Cli, Commands::{Describe, Edit, Encrypt, Enter, List, New, Remote, Remove, Stop, System, Tmp}, CompletionParams, DescribeParams, EditParams, EncryptParams, ListParams, NewParams, RemoveParams, StopParams, TmpParams
+        Cli,
+        Commands::{Describe, Edit, Encrypt, Enter, List, New, Remote, Remove, Stop, System, Tmp},
+        CompletionParams, DescribeParams, EditParams, EncryptParams, ListParams, NewParams,
+        RemoveParams, StopParams, TmpParams,
     },
     cmd::remote,
     model::{config::RoozCfg, types::AnyError},
@@ -184,7 +187,7 @@ async fn main() -> Result<(), AnyError> {
             command: Edit(EditParams { name, .. }),
             ..
         } => {
-           workspace.edit(&name).await?;
+            workspace.edit(&name).await?;
         }
 
         Cli {

@@ -5,6 +5,7 @@ use bollard::{
     service::{ContainerSummary, Volume},
     volume::ListVolumesOptions,
 };
+use linked_hash_map::LinkedHashMap;
 
 use crate::{
     age_utils,
@@ -12,7 +13,7 @@ use crate::{
     constants,
     labels::{self, Labels, ROLE},
     model::{
-        config::FinalCfg,
+        config::{FileFormat, FinalCfg, RoozCfg},
         types::{AnyError, ContainerResult, RunSpec, WorkSpec, WorkspaceResult},
         volume::{RoozVolume, CACHE_ROLE, WORK_ROLE},
     },
@@ -210,14 +211,40 @@ impl<'a> WorkspaceApi<'a> {
         Ok(())
     }
 
+    pub async fn decrypt(
+        &self,
+        vars: Option<LinkedHashMap<String, String>>,
+    ) -> Result<LinkedHashMap<String, String>, AnyError> {
+        log::debug!("Checking if vars need decryption");
+        if let Some(vars) = age_utils::needs_decryption(vars.clone()) {
+            log::debug!("Decrypting vars");
+            let identity = self.read_age_identity().await?;
+            age_utils::decrypt(&identity, vars)
+        } else {
+            log::debug!("No encrypted vars found");
+            Ok(vars.unwrap_or_default())
+        }
+    }
+
     pub async fn edit(&self, workspace_key: &str) -> Result<(), AnyError> {
         let labels = Labels::new(Some(workspace_key), Some(WORK_ROLE));
         for c in self.api.container.get_all(&labels).await? {
             if let Some(labels) = c.labels {
-                //TODO: implement editing
+                let config_source = &labels[labels::CONFIG_SOURCE];
+                let format = FileFormat::from_path(config_source);
+                let config =
+                    RoozCfg::deserialize_config(&labels[labels::CONFIG_BODY], format)?.unwrap();
+                let decrypted_config = RoozCfg {
+                    vars: Some(self.decrypt(config.clone().vars).await?),
+                    ..config
+                };
+                let edited_config = edit::edit(decrypted_config.to_string(format)?)?;
 
-                println!("{}", labels[labels::CONFIG_SOURCE]);
-                println!("{}", labels[labels::CONFIG_BODY]);
+                println!("edited: {}", edited_config);
+
+                // encrypt
+                // save to label
+                // apply
             }
         }
         Ok(())

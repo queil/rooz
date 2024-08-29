@@ -1,7 +1,6 @@
 use std::fs;
 
 use crate::{
-    age_utils,
     api::WorkspaceApi,
     cli::{WorkParams, WorkspacePersistence},
     constants,
@@ -31,15 +30,7 @@ impl<'a> WorkspaceApi<'a> {
         }
         cfg_builder.from_cli(cli_params, None);
 
-        log::debug!("Checking if vars need decryption");
-        if let Some(vars) = age_utils::needs_decryption(cfg_builder.clone().vars) {
-            log::debug!("Decrypting vars");
-            let identity = self.read_age_identity().await?;
-            let decrypted_kv = age_utils::decrypt(&identity, vars)?;
-            cfg_builder.vars = Some(decrypted_kv);
-        } else {
-            log::debug!("No encrypted vars found");
-        }
+        cfg_builder.vars = Some(self.decrypt(cfg_builder.clone().vars).await?);
 
         cfg_builder.expand_vars()?;
 
