@@ -100,7 +100,7 @@ rooz tmp --image alpine --shell sh
 Most of the settings can be configured via:
 
 * environment variables
-* a config file in the cloned repository (if any)  (`.rooz.toml`, `rooz.yaml`)
+* a config file in the cloned repository (if any)  (`.rooz.toml`, `.rooz.yaml`)
 * a config file specified via `--config` (on `rooz new`) (`toml/yaml`)
   :information_source: it can be a local file path or a remote git file like: `git@github.com/my/configs//path/in/repo/config.rooz.yaml`
 * cmd-line parameters
@@ -209,7 +209,7 @@ env:
 Now, encrypt the value:
 
 ```sh
-rooz encrypt --config ./examples/encrypt/example-secrets.rooz.yaml --env API_KEY
+rooz encrypt --config ./examples/encrypt/example-secrets.rooz.yaml apiKey
 ```
 
 View the file. If the result looks like the below (things may have got re-ordered
@@ -243,7 +243,7 @@ rooz enter secrets-test
 
 *It's similar to docker-compose but super simple and limited to bare minimum.*
 
-* `rooz` has a limited support for sidecars (containers running along). It is only available via `.rooz.toml`:
+* `rooz` has a limited support for sidecars (containers running along). It is only available via `.rooz.toml` / `.rooz.yaml`:
 
   ```toml
   [sidecars.sql]
