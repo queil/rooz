@@ -220,12 +220,8 @@ async fn main() -> Result<(), AnyError> {
             if let Some(vars) = cfg.vars {
                 if vars.contains_key(&name) {
                     let identity = workspace.read_age_identity().await?;
-                    let pub_key = identity.to_public();
-                    let encrypted = age_utils::encrypt(vars[&name].to_string(), pub_key)?;
-                    let mut new_vars = vars.clone();
-                    new_vars.insert(name, encrypted);
                     RoozCfg {
-                        vars: Some(new_vars),
+                        vars: Some(workspace.encrypt(identity, &name, vars)?),
                         ..cfg
                     }
                     .to_file(&config_file_path)?

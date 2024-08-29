@@ -1,14 +1,14 @@
-use std::path::Path;
-
+use age::x25519::Identity;
 use bollard::{
     network::ListNetworksOptions,
     service::{ContainerSummary, Volume},
     volume::ListVolumesOptions,
 };
 use linked_hash_map::LinkedHashMap;
+use std::path::Path;
 
 use crate::{
-    age_utils,
+    age_utils::{self, Variable},
     api::WorkspaceApi,
     constants,
     labels::{self, Labels, ROLE},
@@ -211,10 +211,30 @@ impl<'a> WorkspaceApi<'a> {
         Ok(())
     }
 
+    pub fn encrypt(
+        &self,
+        identity: Identity,
+        name: &str,
+        vars: LinkedHashMap<String, String>,
+    ) -> Result<LinkedHashMap<String, String>, AnyError> {
+        let encrypted = self.encrypt_value(identity, vars[name].to_string())?;
+        let mut new_vars = vars.clone();
+        new_vars.insert(name.to_string(), encrypted);
+        Ok(new_vars)
+    }
+
+    pub fn encrypt_value(
+        &self,
+        identity: Identity,
+        clear_text: String,
+    ) -> Result<String, AnyError> {
+        age_utils::encrypt(clear_text, identity.to_public())
+    }
+
     pub async fn decrypt(
         &self,
         vars: Option<LinkedHashMap<String, String>>,
-    ) -> Result<LinkedHashMap<String, String>, AnyError> {
+    ) -> Result<LinkedHashMap<String, age_utils::Variable>, AnyError> {
         log::debug!("Checking if vars need decryption");
         if let Some(vars) = age_utils::needs_decryption(vars.clone()) {
             log::debug!("Decrypting vars");
@@ -222,8 +242,28 @@ impl<'a> WorkspaceApi<'a> {
             age_utils::decrypt(&identity, vars)
         } else {
             log::debug!("No encrypted vars found");
-            Ok(vars.unwrap_or_default())
+            let mut ret = LinkedHashMap::<String, Variable>::new();
+            match vars {
+                Some(vars) => {
+                    for (k, v) in vars {
+                        ret.insert(k, Variable::ClearText { value: v });
+                    }
+                    Ok(ret)
+                }
+                None => Ok(ret),
+            }
         }
+    }
+
+    pub fn variables_to_string(
+        &self,
+        vars: &LinkedHashMap<String, Variable>,
+    ) -> LinkedHashMap<String, String> {
+        let mut ret = LinkedHashMap::<String, String>::new();
+        for (k, v) in vars {
+            ret.insert(k.clone(), v.to_string());
+        }
+        ret
     }
 
     pub async fn edit(&self, workspace_key: &str) -> Result<(), AnyError> {
@@ -234,15 +274,36 @@ impl<'a> WorkspaceApi<'a> {
                 let format = FileFormat::from_path(config_source);
                 let config =
                     RoozCfg::deserialize_config(&labels[labels::CONFIG_BODY], format)?.unwrap();
+                let decrypted = self.decrypt(config.clone().vars).await?;
                 let decrypted_config = RoozCfg {
-                    vars: Some(self.decrypt(config.clone().vars).await?),
+                    vars: Some(self.variables_to_string(&decrypted)),
                     ..config
                 };
-                let edited_config = edit::edit(decrypted_config.to_string(format)?)?;
+                let edited_string = edit::edit(decrypted_config.to_string(format)?)?;
 
-                println!("edited: {}", edited_config);
+                let edited_config = RoozCfg::from_string(&edited_string, format)?;
 
-                // encrypt
+                let identity = self.read_age_identity().await?;
+
+                let mut encrypted_vars = LinkedHashMap::<String, String>::new();
+                for (k, v) in &decrypted {
+                    let edited_value = &edited_config.clone().vars.unwrap()[k];
+                    match v {
+                        Variable::ClearText { .. } => {
+                            encrypted_vars.insert(k.to_string(), edited_value.to_string())
+                        }
+                        Variable::Secret { .. } => encrypted_vars.insert(
+                            k.to_string(),
+                            self.encrypt_value(identity.clone(), edited_value.to_string())?,
+                        ),
+                    };
+                }
+                let encrypted_config = RoozCfg {
+                    vars: Some(encrypted_vars),
+                    ..edited_config
+                };
+
+                println!("{}", encrypted_config.to_string(format)?)
                 // save to label
                 // apply
             }

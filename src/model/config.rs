@@ -123,7 +123,7 @@ impl RoozCfg {
         Self::from_string(&fs::read_to_string(path)?, FileFormat::from_path(&path))
     }
 
-    fn from_string(config: &str, file_format: FileFormat) -> Result<Self, AnyError> {
+    pub fn from_string(config: &str, file_format: FileFormat) -> Result<Self, AnyError> {
         Ok(match file_format {
             FileFormat::Yaml => serde_yaml::from_str(&config)?,
             FileFormat::Toml => toml::from_str(&config)?,

@@ -23,6 +23,20 @@ pub fn mount(target: &str) -> Mount {
     }
 }
 
+pub enum Variable {
+    Secret { value: String },
+    ClearText { value: String },
+}
+
+impl Variable {
+    pub fn to_string(&self) -> String {
+        match &self {
+            Variable::Secret { value } => value.to_string(),
+            Variable::ClearText { value } => value.to_string(),
+        }
+    }
+}
+
 impl<'a> WorkspaceApi<'a> {
     pub async fn read_age_identity(&self) -> Result<Identity, AnyError> {
         let workspace_key = id::random_suffix("tmp");
@@ -104,8 +118,8 @@ pub fn encrypt(plaintext: String, recipient: Recipient) -> Result<String, AnyErr
 pub fn decrypt(
     identity: &dyn age::Identity,
     env_vars: LinkedHashMap<String, String>,
-) -> Result<LinkedHashMap<String, String>, AnyError> {
-    let mut ret = LinkedHashMap::<String, String>::new();
+) -> Result<LinkedHashMap<String, Variable>, AnyError> {
+    let mut ret = LinkedHashMap::<String, Variable>::new();
     for (k, v) in env_vars.iter() {
         if v.starts_with(SECRET_HEADER) {
             let formatted = v.replace("|", "\n");
@@ -126,10 +140,17 @@ pub fn decrypt(
 
             ret.insert(
                 k.to_string(),
-                std::str::from_utf8(&decrypted[..])?.to_string(),
+                Variable::Secret {
+                    value: std::str::from_utf8(&decrypted[..])?.to_string(),
+                },
             );
         } else {
-            ret.insert(k.to_string(), v.to_string());
+            ret.insert(
+                k.to_string(),
+                Variable::ClearText {
+                    value: v.to_string(),
+                },
+            );
         }
     }
     Ok(ret)
