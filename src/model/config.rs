@@ -125,8 +125,8 @@ impl RoozCfg {
 
     fn from_string(config: &str, file_format: FileFormat) -> Result<Self, AnyError> {
         Ok(match file_format {
-            FileFormat::Yaml => Self::deserialize(serde_yaml::Deserializer::from_str(&config))?,
-            FileFormat::Toml => Self::deserialize(toml::de::Deserializer::new(&config))?,
+            FileFormat::Yaml => serde_yaml::from_str(&config)?,
+            FileFormat::Toml => toml::from_str(&config)?,
         })
     }
 
@@ -138,17 +138,8 @@ impl RoozCfg {
 
     pub fn to_string(&self, file_format: FileFormat) -> Result<String, AnyError> {
         Ok(match file_format {
-            FileFormat::Yaml => {
-                let mut ret = Vec::new();
-                let mut ser = serde_yaml::Serializer::new(&mut ret);
-                self.serialize(&mut ser)?;
-                std::str::from_utf8(&ret)?.to_string()
-            }
-            FileFormat::Toml => {
-                let mut ret = String::new();
-                Self::serialize(&self, toml::ser::Serializer::new(&mut ret))?;
-                ret
-            }
+            FileFormat::Yaml => serde_yaml::to_string(&self)?,
+            FileFormat::Toml => toml::to_string(&self)?,
         })
     }
 
