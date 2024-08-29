@@ -105,6 +105,24 @@ pub struct WorkParams {
     pub start: Option<bool>,
 }
 
+impl Default for WorkParams {
+    fn default() -> Self {
+        Self {
+            git_ssh_url: Default::default(),
+            env_image: Default::default(),
+            image: Default::default(),
+            pull_image: Default::default(),
+            env_user: Default::default(),
+            env_shell: Default::default(),
+            user: Default::default(),
+            env_caches: Default::default(),
+            caches: Default::default(),
+            privileged: Default::default(),
+            start: Default::default(),
+        }
+    }
+}
+
 #[derive(Parser, Debug)]
 #[command(about = "Creates a new workspace (container + volumes)")]
 pub struct NewParams {

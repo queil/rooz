@@ -7,6 +7,18 @@ use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, ffi::OsStr, fs, path::Path};
 
 #[derive(Debug, Clone)]
+pub enum ConfigSource {
+    Body {
+        value: RoozCfg,
+        origin: String,
+        format: FileFormat,
+    },
+    Path {
+        value: ConfigPath,
+    },
+}
+
+#[derive(Debug, Clone)]
 pub enum ConfigPath {
     File { path: String },
     Git { url: String, file_path: String },
@@ -27,6 +39,13 @@ impl<'a> ConfigPath {
             Ok(Self::File {
                 path: value.to_string(),
             })
+        }
+    }
+
+    pub fn to_string(&self) -> String {
+        match self {
+            ConfigPath::File { path } => path.to_string(),
+            ConfigPath::Git { url, file_path } => format!("{}//{}", url, file_path),
         }
     }
 }

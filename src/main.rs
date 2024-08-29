@@ -29,6 +29,7 @@ use bollard::Docker;
 use clap::{CommandFactory, Parser};
 use clap_complete::generate;
 use cli::EnterParams;
+use model::config::{ConfigPath, ConfigSource};
 
 #[tokio::main]
 async fn main() -> Result<(), AnyError> {
@@ -104,8 +105,15 @@ async fn main() -> Result<(), AnyError> {
                 }),
             ..
         } => {
+            let config_source = match config_path {
+                Some(path) => Some(ConfigSource::Path {
+                    value: ConfigPath::from_str(&path)?,
+                }),
+                None => None,
+            };
+
             workspace
-                .new(&work, config_path, Some(persistence.clone()))
+                .new(&work, config_source, Some(persistence.clone()))
                 .await?;
             println!(
                 "\nThe workspace is ready. Run 'rooz enter {}' to enter.",

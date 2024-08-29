@@ -6,7 +6,7 @@ pub const WORKSPACE_KEY: &'static str = "dev.rooz.workspace";
 pub const CONTAINER: &'static str = "dev.rooz.workspace.container";
 pub const ROLE: &'static str = "dev.rooz.role";
 pub const RUNTIME_CONFIG: &'static str = "dev.rooz.config.runtime";
-pub const CONFIG_SOURCE: &'static str = "dev.rooz.config.source";
+pub const CONFIG_ORIGIN: &'static str = "dev.rooz.config.origin";
 pub const CONFIG_BODY: &'static str = "dev.rooz.config.body";
 const ROOZ: &'static str = "dev.rooz";
 const LABEL_KEY: &'static str = "label";
@@ -84,8 +84,8 @@ impl Labels {
         Some(KeyValue::new(ROLE, role))
     }
 
-    pub fn config_source(path: &str) -> Option<KeyValue> {
-        Some(KeyValue::new(CONFIG_SOURCE, path))
+    pub fn config_origin(path: &str) -> Option<KeyValue> {
+        Some(KeyValue::new(CONFIG_ORIGIN, path))
     }
 
     pub fn config_body(body: &str) -> Option<KeyValue> {

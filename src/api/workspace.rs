@@ -10,10 +10,11 @@ use std::path::Path;
 use crate::{
     age_utils::{self, Variable},
     api::WorkspaceApi,
+    cli::{WorkParams, WorkspacePersistence},
     constants,
     labels::{self, Labels, ROLE},
     model::{
-        config::{FileFormat, FinalCfg, RoozCfg},
+        config::{ConfigSource, FileFormat, FinalCfg, RoozCfg},
         types::{AnyError, ContainerResult, RunSpec, WorkSpec, WorkspaceResult},
         volume::{RoozVolume, CACHE_ROLE, WORK_ROLE},
     },
@@ -270,7 +271,7 @@ impl<'a> WorkspaceApi<'a> {
         let labels = Labels::new(Some(workspace_key), Some(WORK_ROLE));
         for c in self.api.container.get_all(&labels).await? {
             if let Some(labels) = c.labels {
-                let config_source = &labels[labels::CONFIG_SOURCE];
+                let config_source = &labels[labels::CONFIG_ORIGIN];
                 let format = FileFormat::from_path(config_source);
                 let config =
                     RoozCfg::deserialize_config(&labels[labels::CONFIG_BODY], format)?.unwrap();
@@ -303,9 +304,22 @@ impl<'a> WorkspaceApi<'a> {
                     ..edited_config
                 };
 
-                println!("{}", encrypted_config.to_string(format)?)
-                // save to label
-                // apply
+                self.new(
+                    &WorkParams {
+                        ..Default::default()
+                    },
+                    Some(ConfigSource::Body {
+                        value: encrypted_config,
+                        origin: config_source.to_string(),
+                        format,
+                    }),
+                    Some(WorkspacePersistence {
+                        name: labels[labels::WORKSPACE_KEY].to_string(),
+                        replace: false,
+                        apply: true,
+                    }),
+                )
+                .await?;
             }
         }
         Ok(())

@@ -7,7 +7,7 @@ use crate::{
     git::{CloneEnv, RootRepoCloneResult},
     labels::{self, Labels},
     model::{
-        config::{ConfigPath, FileFormat, FinalCfg, RoozCfg},
+        config::{ConfigPath, ConfigSource, FileFormat, FinalCfg, RoozCfg},
         types::{AnyError, EnterSpec, WorkSpec},
     },
 };
@@ -90,7 +90,7 @@ impl<'a> WorkspaceApi<'a> {
     pub async fn new(
         &self,
         cli_params: &WorkParams,
-        cli_config_path: Option<String>,
+        cli_config_path: Option<ConfigSource>,
         persistence: Option<WorkspacePersistence>,
     ) -> Result<EnterSpec, AnyError> {
         let ephemeral = persistence.is_none();
@@ -129,45 +129,57 @@ impl<'a> WorkspaceApi<'a> {
             ..Default::default()
         };
 
-        let cli_cfg = if let Some(path) = &cli_config_path {
-            let parsed_path = ConfigPath::from_str(&path)?;
-            log::debug!("Loading cli config from: {}", path);
-            match parsed_path {
-                ConfigPath::File { path } => {
-                    let body = fs::read_to_string(&path)?;
+        let cli_cfg = if let Some(source) = &cli_config_path {
+            match source {
+                ConfigSource::Body {
+                    value,
+                    origin,
+                    format,
+                } => {
                     labels = Labels {
-                        config_source: Labels::config_source(&path),
-                        config_body: Labels::config_body(&body),
+                        config_source: Labels::config_origin(&origin),
+                        config_body: Labels::config_body(&value.to_string(format.clone())?),
                         ..labels
                     };
-                    RoozCfg::deserialize_config(&body, FileFormat::from_path(&path))?
+                    Some(value.clone())
                 }
-                ConfigPath::Git { url, file_path } => {
-                    let body = self
-                        .git
-                        .clone_config_repo(clone_env.clone(), &url, &file_path)
-                        .await?;
-
-                    labels = Labels {
-                        config_source: Labels::config_source(&path),
-                        ..labels
-                    };
-
-                    if let Some(b) = &body {
+                ConfigSource::Path { value: path } => match path {
+                    ConfigPath::File { path } => {
+                        let body = fs::read_to_string(&path)?;
                         labels = Labels {
-                            config_body: Labels::config_body(&b),
+                            config_source: Labels::config_origin(&path),
+                            config_body: Labels::config_body(&body),
                             ..labels
-                        }
-                    };
-
-                    match body {
-                        Some(body) => {
-                            let fmt = FileFormat::from_path(&file_path);
-                            RoozCfg::deserialize_config(&body, fmt)?
-                        }
-                        None => None,
+                        };
+                        RoozCfg::deserialize_config(&body, FileFormat::from_path(&path))?
                     }
-                }
+                    ConfigPath::Git { url, file_path } => {
+                        let body = self
+                            .git
+                            .clone_config_repo(clone_env.clone(), &url, &file_path)
+                            .await?;
+
+                        labels = Labels {
+                            config_source: Labels::config_origin(&path.to_string()),
+                            ..labels
+                        };
+
+                        if let Some(b) = &body {
+                            labels = Labels {
+                                config_body: Labels::config_body(&b),
+                                ..labels
+                            }
+                        };
+
+                        match body {
+                            Some(body) => {
+                                let fmt = FileFormat::from_path(&file_path);
+                                RoozCfg::deserialize_config(&body, fmt)?
+                            }
+                            None => None,
+                        }
+                    }
+                },
             }
         } else {
             None
@@ -213,7 +225,7 @@ impl<'a> WorkspaceApi<'a> {
                                 log::debug!("Config file applied.");
                                 let source = format!("{}//.rooz.{}", url, format.to_string());
                                 labels = Labels {
-                                    config_source: Labels::config_source(&source),
+                                    config_source: Labels::config_origin(&source),
                                     config_body: Labels::config_body(&body),
                                     ..labels
                                 };
