@@ -307,17 +307,17 @@ impl Default for FinalCfg {
 
 impl FinalCfg {
     pub fn from_string(config: String) -> Result<FinalCfg, Box<dyn std::error::Error + 'static>> {
-        let f = Self::deserialize(toml::de::Deserializer::new(&config));
-        match f {
+        match toml::from_str(&config) {
             Ok(val) => Ok(val),
             Err(e) => Err(Box::new(e)),
         }
     }
 
     pub fn to_string(&self) -> Result<String, AnyError> {
-        let mut ret = String::new();
-        Self::serialize(&self, toml::ser::Serializer::new(&mut ret))?;
-        Ok(ret)
+        match toml::to_string(&self) {
+            Ok(val) => Ok(val),
+            Err(e) => Err(Box::new(e)),
+        }
     }
 }
 
