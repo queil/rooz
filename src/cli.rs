@@ -194,7 +194,7 @@ pub struct StopParams {
 pub enum ConfigPart {
     OriginPath,
     OriginBody,
-    Runtime
+    Runtime,
 }
 
 #[derive(Parser, Debug)]
@@ -203,7 +203,7 @@ pub struct ShowConfigParams {
     #[arg()]
     pub name: String,
     #[arg(long, short, value_enum)]
-    pub part: ConfigPart
+    pub part: ConfigPart,
 }
 
 #[derive(Parser, Debug)]

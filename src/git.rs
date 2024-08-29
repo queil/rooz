@@ -77,7 +77,10 @@ impl<'a> ExecApi<'a> {
             .await?;
 
         if config.is_empty() {
-            Ok(None)
+            match exact_path {
+                Some(p) => Err(format!("Config file '{}' not found or empty", p).into()),
+                None => Ok(None),
+            }
         } else {
             Ok(Some(config))
         }

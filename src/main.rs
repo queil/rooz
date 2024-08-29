@@ -17,9 +17,11 @@ use crate::{
     backend::ContainerBackend,
     cli::{
         Cli,
-        Commands::{ShowConfig, Edit, Encrypt, Enter, List, New, Remote, Remove, Stop, System, Tmp},
-        CompletionParams, ShowConfigParams, EditParams, EncryptParams, ListParams, NewParams,
-        RemoveParams, StopParams, TmpParams,
+        Commands::{
+            Edit, Encrypt, Enter, List, New, Remote, Remove, ShowConfig, Stop, System, Tmp,
+        },
+        CompletionParams, EditParams, EncryptParams, ListParams, NewParams, RemoveParams,
+        ShowConfigParams, StopParams, TmpParams,
     },
     cmd::remote,
     model::{config::RoozCfg, types::AnyError},
