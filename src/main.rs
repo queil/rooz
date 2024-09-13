@@ -234,11 +234,11 @@ async fn main() -> Result<(), AnyError> {
                 }),
         } => {
             let cfg = RoozCfg::from_file(&config_file_path)?;
-            if let Some(vars) = cfg.vars {
+            if let Some(vars) = cfg.secrets {
                 if vars.contains_key(&name) {
                     let identity = workspace.read_age_identity().await?;
                     RoozCfg {
-                        vars: Some(workspace.encrypt(identity, &name, vars)?),
+                        secrets: Some(workspace.encrypt(identity, &name, vars)?),
                         ..cfg
                     }
                     .to_file(&config_file_path)?

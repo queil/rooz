@@ -226,12 +226,12 @@ impl<'a> WorkspaceApi<'a> {
         &self,
         identity: Identity,
         name: &str,
-        vars: LinkedHashMap<String, String>,
+        secrets: LinkedHashMap<String, String>,
     ) -> Result<LinkedHashMap<String, String>, AnyError> {
-        let encrypted = self.encrypt_value(identity, vars[name].to_string())?;
-        let mut new_vars = vars.clone();
-        new_vars.insert(name.to_string(), encrypted);
-        Ok(new_vars)
+        let encrypted = self.encrypt_value(identity, secrets[name].to_string())?;
+        let mut new_secrets = secrets.clone();
+        new_secrets.insert(name.to_string(), encrypted);
+        Ok(new_secrets)
     }
 
     pub fn encrypt_value(
@@ -244,29 +244,20 @@ impl<'a> WorkspaceApi<'a> {
 
     pub async fn decrypt(
         &self,
-        vars: Option<LinkedHashMap<String, String>>,
+        secrets: Option<LinkedHashMap<String, String>>,
     ) -> Result<LinkedHashMap<String, age_utils::Variable>, AnyError> {
-        log::debug!("Checking if vars need decryption");
-        if let Some(vars) = age_utils::needs_decryption(vars.clone()) {
-            log::debug!("Decrypting vars");
-            let identity = self.read_age_identity().await?;
-            age_utils::decrypt(&identity, vars)
-        } else {
-            log::debug!("No encrypted vars found");
-            let mut ret = LinkedHashMap::<String, Variable>::new();
-            match vars {
-                Some(vars) => {
-                    for (k, v) in vars {
-                        ret.insert(k, Variable::ClearText { value: v });
-                    }
-                    Ok(ret)
-                }
-                None => Ok(ret),
+        match secrets {
+            Some(secrets) if secrets.len() > 0 => {
+                log::debug!("Decrypting secrets");
+                let identity = self.read_age_identity().await?;
+                age_utils::decrypt(&identity, secrets)
             }
+            Some(_) => Ok(LinkedHashMap::<String, Variable>::new()),
+            None => Ok(LinkedHashMap::<String, Variable>::new()),
         }
     }
 
-    pub fn variables_to_string(
+    pub fn secrets_to_string(
         &self,
         vars: &LinkedHashMap<String, Variable>,
     ) -> LinkedHashMap<String, String> {
@@ -285,10 +276,10 @@ impl<'a> WorkspaceApi<'a> {
                 let format = FileFormat::from_path(config_source);
                 let config =
                     RoozCfg::deserialize_config(&labels[labels::CONFIG_BODY], format)?.unwrap();
-                let decrypted = self.decrypt(config.clone().vars).await?;
+                let decrypted = self.decrypt(config.clone().secrets).await?;
                 let decrypted_config = RoozCfg {
-                    vars: if decrypted.len() > 0 {
-                        Some(self.variables_to_string(&decrypted))
+                    secrets: if decrypted.len() > 0 {
+                        Some(self.secrets_to_string(&decrypted))
                     } else {
                         None
                     },
@@ -303,14 +294,11 @@ impl<'a> WorkspaceApi<'a> {
                     let edited_config = RoozCfg::from_string(&edited_string, format)?;
                     let identity = self.read_age_identity().await?;
 
-                    let mut encrypted_vars = LinkedHashMap::<String, String>::new();
+                    let mut encrypted_secrets = LinkedHashMap::<String, String>::new();
                     for (k, v) in &decrypted {
-                        let edited_value = &edited_config.clone().vars.unwrap()[k];
+                        let edited_value = &edited_config.clone().secrets.unwrap()[k];
                         match v {
-                            Variable::ClearText { .. } => {
-                                encrypted_vars.insert(k.to_string(), edited_value.to_string())
-                            }
-                            Variable::Secret { .. } => encrypted_vars.insert(
+                            Variable::Secret { .. } => encrypted_secrets.insert(
                                 k.to_string(),
                                 self.encrypt_value(identity.clone(), edited_value.to_string())?,
                             ),
@@ -318,8 +306,8 @@ impl<'a> WorkspaceApi<'a> {
                     }
 
                     let encrypted_config = RoozCfg {
-                        vars: if encrypted_vars.len() > 0 {
-                            Some(encrypted_vars)
+                        secrets: if encrypted_secrets.len() > 0 {
+                            Some(encrypted_secrets)
                         } else {
                             None
                         },

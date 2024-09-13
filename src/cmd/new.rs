@@ -30,8 +30,8 @@ impl<'a> WorkspaceApi<'a> {
         }
         cfg_builder.from_cli(cli_params, None);
 
-        cfg_builder.vars =
-            Some(self.variables_to_string(&self.decrypt(cfg_builder.clone().vars).await?));
+        cfg_builder.secrets =
+            Some(self.secrets_to_string(&self.decrypt(cfg_builder.clone().secrets).await?));
 
         cfg_builder.expand_vars()?;
 

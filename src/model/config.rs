@@ -98,6 +98,8 @@ pub struct RoozCfg {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub vars: Option<LinkedHashMap<String, String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub secrets: Option<LinkedHashMap<String, String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub git_ssh_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub extra_repos: Option<Vec<String>>,
@@ -123,6 +125,7 @@ impl Default for RoozCfg {
     fn default() -> Self {
         Self {
             vars: Some(LinkedHashMap::new()),
+            secrets: Some(LinkedHashMap::new()),
             git_ssh_url: None,
             extra_repos: Some(Vec::new()),
             image: Some(constants::DEFAULT_IMAGE.into()),
@@ -189,7 +192,8 @@ impl RoozCfg {
 
     pub fn from_config(&mut self, config: &RoozCfg) -> () {
         *self = RoozCfg {
-            vars: Self::extend_if_any(self.vars.clone(), config.vars.clone()),
+            vars: Self::extend_if_any(self.secrets.clone(), config.secrets.clone()),
+            secrets: Self::extend_if_any(self.secrets.clone(), config.secrets.clone()),
             git_ssh_url: config.git_ssh_url.clone().or(self.git_ssh_url.clone()),
             extra_repos: Self::extend_if_any(self.extra_repos.clone(), config.extra_repos.clone()),
             image: config.image.clone().or(self.image.clone()),
@@ -244,20 +248,30 @@ impl RoozCfg {
     }
 
     pub fn expand_vars(&mut self) -> Result<(), AnyError> {
-        if let Some(vars) = &self.vars {
-            let cfg_string = &self.to_string(FileFormat::Yaml)?;
-            let mut reg = Handlebars::new();
-            reg.register_escape_fn(no_escape);
-            let mut built_vars = LinkedHashMap::<String, String>::new();
-
-            for (k, v) in vars {
-                built_vars.insert(k.to_string(), reg.render_template(&v, &built_vars)?);
+        let vars_and_secrets = match (&self.vars, &self.secrets) {
+            (None, None) => LinkedHashMap::<String, String>::new(),
+            (None, Some(secrets)) => secrets.clone(),
+            (Some(vars), None) => vars.clone(),
+            (Some(vars), Some(secrets)) => {
+                let mut secrets = secrets.clone();
+                secrets.extend(vars.clone());
+                secrets
             }
+        };
 
-            let rendered = reg.render_template(&cfg_string, &built_vars)?;
-            let s = RoozCfg::from_string(&rendered, FileFormat::Yaml)?;
-            *self = s;
+        let cfg_string = &self.to_string(FileFormat::Yaml)?;
+        let mut reg = Handlebars::new();
+        reg.register_escape_fn(no_escape);
+        let mut built_vars = LinkedHashMap::<String, String>::new();
+
+        for (k, v) in vars_and_secrets {
+            built_vars.insert(k.to_string(), reg.render_template(&v, &built_vars)?);
         }
+
+        let rendered = reg.render_template(&cfg_string, &built_vars)?;
+        let s = RoozCfg::from_string(&rendered, FileFormat::Yaml)?;
+        *self = s;
+
         Ok(())
     }
 
