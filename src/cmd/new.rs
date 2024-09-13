@@ -29,10 +29,7 @@ impl<'a> WorkspaceApi<'a> {
             cfg_builder.from_config(c);
         }
         cfg_builder.from_cli(cli_params, None);
-
-        cfg_builder.secrets =
-            Some(self.secrets_to_string(&self.decrypt(cfg_builder.clone().secrets).await?));
-
+        cfg_builder.secrets = Some(self.decrypt(cfg_builder.clone().secrets).await?);
         cfg_builder.expand_vars()?;
 
         let cfg = FinalCfg::from(&*cfg_builder);

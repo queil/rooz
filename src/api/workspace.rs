@@ -11,7 +11,7 @@ use std::{
 };
 
 use crate::{
-    age_utils::{self, Variable},
+    age_utils,
     api::WorkspaceApi,
     cli::{ConfigPart, WorkParams, WorkspacePersistence},
     constants,
@@ -245,27 +245,16 @@ impl<'a> WorkspaceApi<'a> {
     pub async fn decrypt(
         &self,
         secrets: Option<LinkedHashMap<String, String>>,
-    ) -> Result<LinkedHashMap<String, age_utils::Variable>, AnyError> {
+    ) -> Result<LinkedHashMap<String, String>, AnyError> {
         match secrets {
             Some(secrets) if secrets.len() > 0 => {
                 log::debug!("Decrypting secrets");
                 let identity = self.read_age_identity().await?;
                 age_utils::decrypt(&identity, secrets)
             }
-            Some(_) => Ok(LinkedHashMap::<String, Variable>::new()),
-            None => Ok(LinkedHashMap::<String, Variable>::new()),
+            Some(_) => Ok(LinkedHashMap::<String, String>::new()),
+            None => Ok(LinkedHashMap::<String, String>::new()),
         }
-    }
-
-    pub fn secrets_to_string(
-        &self,
-        vars: &LinkedHashMap<String, Variable>,
-    ) -> LinkedHashMap<String, String> {
-        let mut ret = LinkedHashMap::<String, String>::new();
-        for (k, v) in vars {
-            ret.insert(k.clone(), v.to_string());
-        }
-        ret
     }
 
     pub async fn edit(&self, workspace_key: &str, spec: &WorkParams) -> Result<(), AnyError> {
@@ -279,7 +268,7 @@ impl<'a> WorkspaceApi<'a> {
                 let decrypted = self.decrypt(config.clone().secrets).await?;
                 let decrypted_config = RoozCfg {
                     secrets: if decrypted.len() > 0 {
-                        Some(self.secrets_to_string(&decrypted))
+                        Some(decrypted.clone())
                     } else {
                         None
                     },
@@ -295,14 +284,12 @@ impl<'a> WorkspaceApi<'a> {
                     let identity = self.read_age_identity().await?;
 
                     let mut encrypted_secrets = LinkedHashMap::<String, String>::new();
-                    for (k, v) in &decrypted {
+                    for (k, _) in &decrypted {
                         let edited_value = &edited_config.clone().secrets.unwrap()[k];
-                        match v {
-                            Variable::Secret { .. } => encrypted_secrets.insert(
-                                k.to_string(),
-                                self.encrypt_value(identity.clone(), edited_value.to_string())?,
-                            ),
-                        };
+                        encrypted_secrets.insert(
+                            k.to_string(),
+                            self.encrypt_value(identity.clone(), edited_value.to_string())?,
+                        );
                     }
 
                     let encrypted_config = RoozCfg {
