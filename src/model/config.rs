@@ -192,7 +192,7 @@ impl RoozCfg {
 
     pub fn from_config(&mut self, config: &RoozCfg) -> () {
         *self = RoozCfg {
-            vars: Self::extend_if_any(self.secrets.clone(), config.secrets.clone()),
+            vars: Self::extend_if_any(self.vars.clone(), config.vars.clone()),
             secrets: Self::extend_if_any(self.secrets.clone(), config.secrets.clone()),
             git_ssh_url: config.git_ssh_url.clone().or(self.git_ssh_url.clone()),
             extra_repos: Self::extend_if_any(self.extra_repos.clone(), config.extra_repos.clone()),
@@ -253,6 +253,11 @@ impl RoozCfg {
             (None, Some(secrets)) => secrets.clone(),
             (Some(vars), None) => vars.clone(),
             (Some(vars), Some(secrets)) => {
+
+                if let Some(duplicate_key) = vars.keys().find(|k| secrets.contains_key(&k.to_string())) {
+                    panic!("The key: '{}' can be only defined in either vars or secrets." ,&duplicate_key.to_string())
+                }
+
                 let mut secrets = secrets.clone();
                 secrets.extend(vars.clone());
                 secrets

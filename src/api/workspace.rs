@@ -281,17 +281,28 @@ impl<'a> WorkspaceApi<'a> {
                 //TODO: this check should be performed on the fully constructed config (to pick up changes in e.g. ROOZ_ env vars)
                 if edited_string != decrypted_string {
                     let edited_config = RoozCfg::from_string(&edited_string, format)?;
+
+                    match (&edited_config.vars, &edited_config.secrets) {
+
+                        (Some(vars), Some(secrets)) => {
+                            if let Some(duplicate_key) = vars.keys().find(|k| secrets.contains_key(&k.to_string())) {
+                                panic!("The key: '{}' can be only defined in either vars or secrets." ,&duplicate_key.to_string())
+                            }
+                        },
+                        _ => ()
+                    };
+
                     let identity = self.read_age_identity().await?;
 
                     let mut encrypted_secrets = LinkedHashMap::<String, String>::new();
-                    for (k, _) in &decrypted {
-                        let edited_value = &edited_config.clone().secrets.unwrap()[k];
-                        encrypted_secrets.insert(
-                            k.to_string(),
-                            self.encrypt_value(identity.clone(), edited_value.to_string())?,
-                        );
-                    }
-
+                    if let Some(edited_secrets) = &edited_config.clone().secrets {
+                        for (k, v) in edited_secrets {
+                            encrypted_secrets.insert(
+                                k.to_string(),
+                                self.encrypt_value(identity.clone(), v.to_string())?,
+                            );
+                        }
+                    };
                     let encrypted_config = RoozCfg {
                         secrets: if encrypted_secrets.len() > 0 {
                             Some(encrypted_secrets)

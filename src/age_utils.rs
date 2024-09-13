@@ -86,12 +86,13 @@ pub fn encrypt(plaintext: String, recipient: Recipient) -> Result<String, AnyErr
         .replace("\n", "|"))
 }
 
+//TODO: improve experience when there is no matching decryption key
 pub fn decrypt(
     identity: &dyn age::Identity,
-    env_vars: LinkedHashMap<String, String>,
+    secrets: LinkedHashMap<String, String>,
 ) -> Result<LinkedHashMap<String, String>, AnyError> {
     let mut ret = LinkedHashMap::<String, String>::new();
-    for (k, v) in env_vars.iter() {
+    for (k, v) in secrets.iter() {
         let formatted = v.replace("|", "\n");
         let encrypted = formatted.as_bytes();
         let decrypted = {
