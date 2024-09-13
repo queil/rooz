@@ -194,10 +194,10 @@ async fn main() -> Result<(), AnyError> {
         }
 
         Cli {
-            command: Edit(EditParams { name, .. }),
+            command: Edit(EditParams { name, work }),
             ..
         } => {
-            workspace.edit(&name).await?;
+            workspace.edit(&name, &work).await?;
         }
 
         Cli {

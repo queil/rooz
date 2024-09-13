@@ -274,7 +274,7 @@ impl<'a> WorkspaceApi<'a> {
         ret
     }
 
-    pub async fn edit(&self, workspace_key: &str) -> Result<(), AnyError> {
+    pub async fn edit(&self, workspace_key: &str, spec: &WorkParams) -> Result<(), AnyError> {
         let labels = Labels::new(Some(workspace_key), Some(WORK_ROLE));
         for c in self.api.container.get_all(&labels).await? {
             if let Some(labels) = c.labels {
@@ -295,6 +295,7 @@ impl<'a> WorkspaceApi<'a> {
                 let decrypted_string = decrypted_config.to_string(format)?;
                 let edited_string = edit::edit(decrypted_string.clone())?;
 
+                //TODO: this check should be performed on the fully constructed config (to pick up changes in e.g. ROOZ_ env vars)
                 if edited_string != decrypted_string {
                     let edited_config = RoozCfg::from_string(&edited_string, format)?;
                     let identity = self.read_age_identity().await?;
@@ -323,9 +324,7 @@ impl<'a> WorkspaceApi<'a> {
                     };
 
                     self.new(
-                        &WorkParams {
-                            ..Default::default()
-                        },
+                        spec,
                         Some(ConfigSource::Body {
                             value: encrypted_config,
                             origin: config_source.to_string(),

@@ -211,6 +211,8 @@ pub struct ShowConfigParams {
 pub struct EditParams {
     #[arg()]
     pub name: String,
+    #[command(flatten)]
+    pub work: WorkParams,
 }
 
 #[derive(Parser, Debug)]
