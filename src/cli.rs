@@ -217,19 +217,10 @@ pub struct EditParams {
 
 #[derive(Parser, Debug)]
 #[command(
-    about = "Attaches VsCode to a workspace. (requires VsCode installed and 'code' in cli path"
+    about = "Attaches VsCode to a workspace. (requires VsCode installed and 'code' in cli path)"
 )]
 pub struct CodeParams {
     #[arg()]
-    pub name: String,
-}
-
-#[derive(Parser, Debug)]
-#[command(about = "Encrypts a variable in the vars section of the provided config file")]
-pub struct EncryptParams {
-    #[arg(long, short, help = "Target config file", alias = "config")]
-    pub config_file_path: String,
-    #[arg(help = "Target variable name")]
     pub name: String,
 }
 
@@ -244,7 +235,6 @@ pub enum Commands {
     ShowConfig(ShowConfigParams),
     Stop(StopParams),
     Remote(RemoteParams),
-    Encrypt(EncryptParams),
     Code(CodeParams),
     System(System),
 }

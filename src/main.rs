@@ -17,14 +17,12 @@ use crate::{
     backend::ContainerBackend,
     cli::{
         Cli,
-        Commands::{
-            Code, Edit, Encrypt, Enter, List, New, Remote, Remove, ShowConfig, Stop, System, Tmp,
-        },
-        CompletionParams, EditParams, EncryptParams, ListParams, NewParams, RemoveParams,
-        ShowConfigParams, StopParams, TmpParams,
+        Commands::{Code, Edit, Enter, List, New, Remote, Remove, ShowConfig, Stop, System, Tmp},
+        CompletionParams, EditParams, ListParams, NewParams, RemoveParams, ShowConfigParams,
+        StopParams, TmpParams,
     },
     cmd::remote,
-    model::{config::RoozCfg, types::AnyError},
+    model::types::AnyError,
 };
 
 use bollard::Docker;
@@ -224,28 +222,6 @@ async fn main() -> Result<(), AnyError> {
             //TODO: this needs to be handled more elegantly. I.e. Rooz should
             // only connect to Docker API when actually running commands requiring that
             // this command only forwards a local socket to a remote one.
-        }
-
-        Cli {
-            command:
-                Encrypt(EncryptParams {
-                    config_file_path,
-                    name,
-                }),
-        } => {
-            let cfg = RoozCfg::from_file(&config_file_path)?;
-            if let Some(vars) = cfg.secrets {
-                if vars.contains_key(&name) {
-                    let identity = workspace.read_age_identity().await?;
-                    RoozCfg {
-                        secrets: Some(workspace.encrypt(identity, &name, vars)?),
-                        ..cfg
-                    }
-                    .to_file(&config_file_path)?
-                }
-            } else {
-                println!("Var {} not found in {}", &name, &config_file_path)
-            }
         }
 
         Cli {
