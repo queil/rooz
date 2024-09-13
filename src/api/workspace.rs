@@ -5,7 +5,10 @@ use bollard::{
     volume::ListVolumesOptions,
 };
 use linked_hash_map::LinkedHashMap;
-use std::path::Path;
+use std::{
+    path::Path,
+    process::{Command, Stdio},
+};
 
 use crate::{
     age_utils::{self, Variable},
@@ -341,6 +344,26 @@ impl<'a> WorkspaceApi<'a> {
             }
         }
         Ok(())
+    }
+
+    pub async fn attach_vscode(&self, workspace_key: &str) -> Result<(), AnyError> {
+        self.start_workspace(workspace_key).await?;
+
+        let hex = format!(r#"{{"containerName":"{}"}}"#, workspace_key)
+            .as_bytes()
+            .iter()
+            .map(|&b| format!("{:02x}", b))
+            .collect::<Vec<String>>()
+            .join("");
+        let mut command = Command::new("code");
+        command.arg("--folder-uri");
+        command.arg(format!("vscode-remote://attached-container+{}/work", hex));
+        command.stdout(Stdio::null());
+        command.stderr(Stdio::null());
+        match command.spawn() {
+            Ok(_) => Ok(()),
+            Err(e) => Err(Box::new(e)),
+        }
     }
 
     pub async fn enter(

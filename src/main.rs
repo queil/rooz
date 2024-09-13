@@ -18,7 +18,7 @@ use crate::{
     cli::{
         Cli,
         Commands::{
-            Edit, Encrypt, Enter, List, New, Remote, Remove, ShowConfig, Stop, System, Tmp,
+            Code, Edit, Encrypt, Enter, List, New, Remote, Remove, ShowConfig, Stop, System, Tmp,
         },
         CompletionParams, EditParams, EncryptParams, ListParams, NewParams, RemoveParams,
         ShowConfigParams, StopParams, TmpParams,
@@ -30,7 +30,7 @@ use crate::{
 use bollard::Docker;
 use clap::{CommandFactory, Parser};
 use clap_complete::generate;
-use cli::EnterParams;
+use cli::{CodeParams, EnterParams};
 use model::config::{ConfigPath, ConfigSource};
 
 #[tokio::main]
@@ -198,6 +198,13 @@ async fn main() -> Result<(), AnyError> {
             ..
         } => {
             workspace.edit(&name, &work).await?;
+        }
+
+        Cli {
+            command: Code(CodeParams { name }),
+            ..
+        } => {
+            workspace.attach_vscode(&name).await?;
         }
 
         Cli {
