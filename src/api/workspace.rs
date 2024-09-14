@@ -13,7 +13,7 @@ use std::{
 use crate::{
     age_utils,
     api::WorkspaceApi,
-    cli::{ConfigPart, WorkEnvParams, WorkParams, WorkspacePersistence},
+    cli::{ConfigPart, Output, WorkEnvParams, WorkParams, WorkspacePersistence},
     constants,
     labels::{self, Labels, ROLE},
     model::{
@@ -205,18 +205,42 @@ impl<'a> WorkspaceApi<'a> {
         Ok(())
     }
 
-    pub async fn show_config(&self, workspace_key: &str, part: ConfigPart) -> Result<(), AnyError> {
+    pub async fn show_config(
+        &self,
+        workspace_key: &str,
+        part: ConfigPart,
+        output: Output,
+    ) -> Result<(), AnyError> {
         let labels = Labels::new(Some(workspace_key), Some(WORK_ROLE));
+        let new_format = match output {
+            Output::Toml => FileFormat::Toml,
+            Output::Yaml => FileFormat::Yaml,
+        };
         for c in self.api.container.get_all(&labels).await? {
             if let Some(labels) = c.labels {
-                println!(
-                    "{}",
-                    labels[match part {
-                        ConfigPart::OriginPath => labels::CONFIG_ORIGIN,
-                        ConfigPart::OriginBody => labels::CONFIG_BODY,
-                        ConfigPart::Runtime => labels::RUNTIME_CONFIG,
-                    }]
-                );
+                let origin_path = (&labels)[labels::CONFIG_ORIGIN].to_string().to_string();
+
+                let content = match part {
+                    ConfigPart::OriginPath => origin_path,
+                    ConfigPart::OriginBody => {
+                        let original_format = FileFormat::from_path(&origin_path);
+                        let body = (&labels)[labels::CONFIG_BODY].to_string();
+                        let cfg = RoozCfg::from_string(&body, original_format)?;
+                        cfg.to_string(new_format)?
+                    }
+                    ConfigPart::Runtime => {
+                        let runtime_config = (&labels)[labels::RUNTIME_CONFIG].to_string();
+                        match output {
+                            Output::Toml => runtime_config,
+                            Output::Yaml => {
+                                let cfg = FinalCfg::from_string(runtime_config)?;
+                                serde_yaml::to_string(&cfg)?
+                            }
+                        }
+                    }
+                };
+
+                println!("{}", content)
             }
         }
         Ok(())

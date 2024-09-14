@@ -227,6 +227,12 @@ pub enum ConfigPart {
     Runtime,
 }
 
+#[derive(Parser, Debug, Clone, clap::ValueEnum)]
+pub enum Output {
+    Toml,
+    Yaml,
+}
+
 #[derive(Parser, Debug)]
 #[command(about = "Shows a workspace's configuration", alias = "config")]
 pub struct ShowConfigParams {
@@ -234,6 +240,8 @@ pub struct ShowConfigParams {
     pub name: String,
     #[arg(long, short, value_enum)]
     pub part: ConfigPart,
+    #[arg(long, short)]
+    pub output: Output,
 }
 
 #[derive(Parser, Debug)]

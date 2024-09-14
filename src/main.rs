@@ -185,10 +185,10 @@ async fn main() -> Result<(), AnyError> {
         }
 
         Cli {
-            command: ShowConfig(ShowConfigParams { name, part, .. }),
+            command: ShowConfig(ShowConfigParams { name, part, output }),
             ..
         } => {
-            workspace.show_config(&name, part).await?;
+            workspace.show_config(&name, part, output).await?;
         }
 
         Cli {
