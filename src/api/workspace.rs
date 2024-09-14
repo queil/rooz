@@ -287,7 +287,7 @@ impl<'a> WorkspaceApi<'a> {
     fn edit_error(&self, message: &str) -> () {
         eprintln!("{}", "Error: Invalid configuration".bold().red());
         eprintln!("{}", message.red());
-        println!("Press any key to continue editing...");
+        eprintln!("Press any key to continue editing...");
         io::stdin().read_line(&mut String::new()).unwrap();
     }
 
