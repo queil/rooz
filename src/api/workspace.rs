@@ -6,6 +6,7 @@ use bollard::{
 };
 use linked_hash_map::LinkedHashMap;
 use std::{
+    io,
     path::Path,
     process::{Command, Stdio},
 };
@@ -13,7 +14,7 @@ use std::{
 use crate::{
     age_utils,
     api::WorkspaceApi,
-    cli::{ConfigPart, Output, WorkEnvParams, WorkParams, WorkspacePersistence},
+    cli::{ConfigFormat, ConfigPart, WorkEnvParams, WorkParams, WorkspacePersistence},
     constants,
     labels::{self, Labels, ROLE},
     model::{
@@ -23,6 +24,8 @@ use crate::{
     },
     ssh,
 };
+
+use colored::Colorize;
 
 impl<'a> WorkspaceApi<'a> {
     pub async fn create(&self, spec: &WorkSpec<'a>) -> Result<WorkspaceResult, AnyError> {
@@ -209,12 +212,12 @@ impl<'a> WorkspaceApi<'a> {
         &self,
         workspace_key: &str,
         part: ConfigPart,
-        output: Output,
+        output: ConfigFormat,
     ) -> Result<(), AnyError> {
         let labels = Labels::new(Some(workspace_key), Some(WORK_ROLE));
         let new_format = match output {
-            Output::Toml => FileFormat::Toml,
-            Output::Yaml => FileFormat::Yaml,
+            ConfigFormat::Toml => FileFormat::Toml,
+            ConfigFormat::Yaml => FileFormat::Yaml,
         };
         for c in self.api.container.get_all(&labels).await? {
             if let Some(labels) = c.labels {
@@ -231,8 +234,8 @@ impl<'a> WorkspaceApi<'a> {
                     ConfigPart::Runtime => {
                         let runtime_config = (&labels)[labels::RUNTIME_CONFIG].to_string();
                         match output {
-                            Output::Toml => runtime_config,
-                            Output::Yaml => {
+                            ConfigFormat::Toml => runtime_config,
+                            ConfigFormat::Yaml => {
                                 let cfg = FinalCfg::from_string(runtime_config)?;
                                 serde_yaml::to_string(&cfg)?
                             }
@@ -281,7 +284,81 @@ impl<'a> WorkspaceApi<'a> {
         }
     }
 
-    pub async fn edit(&self, workspace_key: &str, spec: &WorkEnvParams) -> Result<(), AnyError> {
+    fn edit_error(&self, message: &str) -> () {
+        eprintln!("{}", "Error: Invalid configuration".bold().red());
+        eprintln!("{}", message.red());
+        println!("Press any key to continue editing...");
+        io::stdin().read_line(&mut String::new()).unwrap();
+    }
+
+    async fn edit_config(
+        &self,
+        body: String,
+        format: FileFormat,
+    ) -> Result<(RoozCfg, String), AnyError> {
+        let mut edited_body = body;
+        let mut edited_config;
+        loop {
+            edited_body = match edit::edit(edited_body.clone()) {
+                Ok(b) => b,
+                Err(err) => {
+                    self.edit_error(&err.to_string());
+                    continue;
+                }
+            };
+            edited_config = match RoozCfg::from_string(&edited_body, format) {
+                Ok(c) => c,
+                Err(err) => {
+                    self.edit_error(&err.to_string());
+                    continue;
+                }
+            };
+
+            match (&edited_config.vars, &edited_config.secrets) {
+                (Some(vars), Some(secrets)) => {
+                    if let Some(duplicate_key) =
+                        vars.keys().find(|k| secrets.contains_key(&k.to_string()))
+                    {
+                        self.edit_error(&format!(
+                            "The key: '{}' can be only defined in either vars or secrets.",
+                            &duplicate_key.to_string()
+                        ));
+                        continue;
+                    }
+                }
+                _ => (),
+            };
+            break;
+        }
+        let identity = self.read_age_identity().await?;
+
+        let mut encrypted_secrets = LinkedHashMap::<String, String>::new();
+        if let Some(edited_secrets) = &edited_config.clone().secrets {
+            for (k, v) in edited_secrets {
+                encrypted_secrets.insert(
+                    k.to_string(),
+                    self.encrypt_value(identity.clone(), v.to_string())?,
+                );
+            }
+        };
+        Ok((
+            RoozCfg {
+                secrets: if encrypted_secrets.len() > 0 {
+                    Some(encrypted_secrets)
+                } else {
+                    None
+                },
+                ..edited_config
+            },
+            edited_body,
+        ))
+    }
+
+    pub async fn edit_existing(
+        &self,
+        workspace_key: &str,
+        spec: &WorkEnvParams,
+    ) -> Result<(), AnyError> {
         let labels = Labels::new(Some(workspace_key), Some(WORK_ROLE));
         for c in self.api.container.get_all(&labels).await? {
             if let Some(labels) = c.labels {
@@ -300,46 +377,12 @@ impl<'a> WorkspaceApi<'a> {
                 };
 
                 let decrypted_string = decrypted_config.to_string(format)?;
-                let edited_string = edit::edit(decrypted_string.clone())?;
+
+                let (encrypted_config, edited_string) =
+                    self.edit_config(decrypted_string.clone(), format).await?;
 
                 //TODO: this check should be performed on the fully constructed config (to pick up changes in e.g. ROOZ_ env vars)
                 if edited_string != decrypted_string {
-                    let edited_config = RoozCfg::from_string(&edited_string, format)?;
-
-                    match (&edited_config.vars, &edited_config.secrets) {
-                        (Some(vars), Some(secrets)) => {
-                            if let Some(duplicate_key) =
-                                vars.keys().find(|k| secrets.contains_key(&k.to_string()))
-                            {
-                                panic!(
-                                    "The key: '{}' can be only defined in either vars or secrets.",
-                                    &duplicate_key.to_string()
-                                )
-                            }
-                        }
-                        _ => (),
-                    };
-
-                    let identity = self.read_age_identity().await?;
-
-                    let mut encrypted_secrets = LinkedHashMap::<String, String>::new();
-                    if let Some(edited_secrets) = &edited_config.clone().secrets {
-                        for (k, v) in edited_secrets {
-                            encrypted_secrets.insert(
-                                k.to_string(),
-                                self.encrypt_value(identity.clone(), v.to_string())?,
-                            );
-                        }
-                    };
-                    let encrypted_config = RoozCfg {
-                        secrets: if encrypted_secrets.len() > 0 {
-                            Some(encrypted_secrets)
-                        } else {
-                            None
-                        },
-                        ..edited_config
-                    };
-
                     self.new(
                         &WorkParams {
                             env: spec.clone(),
@@ -360,6 +403,14 @@ impl<'a> WorkspaceApi<'a> {
                 }
             }
         }
+        Ok(())
+    }
+
+    pub async fn new_config(&self, format: FileFormat) -> Result<(), AnyError> {
+        let (encrypted_config, _) = self
+            .edit_config("# should paste some example here".to_string(), format)
+            .await?;
+        println!("{}", encrypted_config.to_string(format)?);
         Ok(())
     }
 

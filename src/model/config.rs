@@ -75,6 +75,7 @@ impl FileFormat {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct RoozSidecar {
     pub image: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -94,6 +95,7 @@ pub struct RoozSidecar {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct RoozCfg {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub vars: Option<LinkedHashMap<String, String>>,

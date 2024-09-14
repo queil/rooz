@@ -30,11 +30,24 @@ pub enum SystemCommands {
     Completion(CompletionParams),
 }
 
+#[derive(Subcommand, Debug)]
+pub enum ConfigCommands {
+    New(NewConfigParams),
+    Show(ShowConfigParams),
+}
+
 #[derive(Parser, Debug)]
 #[command(about = "System subcommands")]
 pub struct System {
     #[command(subcommand)]
     pub command: SystemCommands,
+}
+
+#[derive(Parser, Debug)]
+#[command(about = "Config subcommands")]
+pub struct Config {
+    #[command(subcommand)]
+    pub command: ConfigCommands,
 }
 
 #[derive(Parser, Debug)]
@@ -228,20 +241,27 @@ pub enum ConfigPart {
 }
 
 #[derive(Parser, Debug, Clone, clap::ValueEnum)]
-pub enum Output {
+pub enum ConfigFormat {
     Toml,
     Yaml,
 }
 
 #[derive(Parser, Debug)]
-#[command(about = "Shows a workspace's configuration", alias = "config")]
+#[command(about = "Shows a workspace's configuration")]
 pub struct ShowConfigParams {
     #[arg()]
     pub name: String,
     #[arg(long, short, value_enum)]
     pub part: ConfigPart,
     #[arg(long, short)]
-    pub output: Output,
+    pub output: ConfigFormat,
+}
+
+#[derive(Parser, Debug)]
+#[command(about = "Creates a new workspace's configuration")]
+pub struct NewConfigParams {
+    #[arg(long, short)]
+    pub format: ConfigFormat,
 }
 
 #[derive(Parser, Debug)]
@@ -270,7 +290,7 @@ pub enum Commands {
     Tmp(TmpParams),
     List(ListParams),
     Remove(RemoveParams),
-    ShowConfig(ShowConfigParams),
+    Config(Config),
     Stop(StopParams),
     Remote(RemoteParams),
     Code(CodeParams),

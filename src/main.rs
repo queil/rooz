@@ -17,7 +17,7 @@ use crate::{
     backend::ContainerBackend,
     cli::{
         Cli,
-        Commands::{Code, Edit, Enter, List, New, Remote, Remove, ShowConfig, Stop, System, Tmp},
+        Commands::{Code, Config, Edit, Enter, List, New, Remote, Remove, Stop, System, Tmp},
         CompletionParams, EditParams, ListParams, NewParams, RemoveParams, ShowConfigParams,
         StopParams, TmpParams,
     },
@@ -28,7 +28,7 @@ use crate::{
 use bollard::Docker;
 use clap::{CommandFactory, Parser};
 use clap_complete::generate;
-use cli::{CodeParams, EnterParams};
+use cli::{CodeParams, EnterParams, NewConfigParams};
 use model::config::{ConfigPath, ConfigSource};
 
 #[tokio::main]
@@ -185,17 +185,10 @@ async fn main() -> Result<(), AnyError> {
         }
 
         Cli {
-            command: ShowConfig(ShowConfigParams { name, part, output }),
-            ..
-        } => {
-            workspace.show_config(&name, part, output).await?;
-        }
-
-        Cli {
             command: Edit(EditParams { name, env }),
             ..
         } => {
-            workspace.edit(&name, &env).await?;
+            workspace.edit_existing(&name, &env).await?;
         }
 
         Cli {
@@ -210,6 +203,31 @@ async fn main() -> Result<(), AnyError> {
             ..
         } => {
             workspace.tmp(&work, root, &shell).await?;
+        }
+
+        Cli {
+            command:
+                Config(cli::Config {
+                    command: cli::ConfigCommands::New(NewConfigParams { format }),
+                }),
+            ..
+        } => {
+            workspace
+                .new_config(match format {
+                    cli::ConfigFormat::Toml => model::config::FileFormat::Toml,
+                    cli::ConfigFormat::Yaml => model::config::FileFormat::Yaml,
+                })
+                .await?;
+        }
+
+        Cli {
+            command:
+                Config(cli::Config {
+                    command: cli::ConfigCommands::Show(ShowConfigParams { name, part, output }),
+                }),
+            ..
+        } => {
+            workspace.show_config(&name, part, output).await?;
         }
 
         Cli {
