@@ -71,23 +71,54 @@ pub struct WorkspacePersistence {
 }
 
 #[derive(Clone, Parser, Debug)]
+pub struct WorkEnvParams {
+    #[arg(
+        long = "env_image",
+        name = "env_image",
+        hide = true,
+        env = "ROOZ_IMAGE"
+    )]
+    pub image: Option<String>,
+    #[arg(long = "env_user", name = "env_user", hide = true, env = "ROOZ_USER")]
+    pub user: Option<String>,
+    #[arg(
+        long = "env_shell",
+        name = "env_shell",
+        hide = true,
+        env = "ROOZ_SHELL"
+    )]
+    pub shell: Option<String>,
+    #[arg(
+        long = "env_caches",
+        name = "env_caches",
+        hide = true,
+        env = "ROOZ_CACHES",
+        use_value_delimiter = true
+    )]
+    pub caches: Option<Vec<String>>,
+}
+
+impl Default for WorkEnvParams {
+    fn default() -> Self {
+        Self {
+            image: Default::default(),
+            user: Default::default(),
+            shell: Default::default(),
+            caches: Default::default(),
+        }
+    }
+}
+
+#[derive(Clone, Parser, Debug)]
 pub struct WorkParams {
     #[arg(short, long, alias = "git")]
     pub git_ssh_url: Option<String>,
-    #[arg(long, hide = true, env = "ROOZ_IMAGE")]
-    pub env_image: Option<String>,
     #[arg(short, long)]
     pub image: Option<String>,
     #[arg(long)]
     pub pull_image: bool,
-    #[arg(long, hide = true, env = "ROOZ_USER")]
-    pub env_user: Option<String>,
-    #[arg(long, hide = true, env = "ROOZ_SHELL")]
-    pub env_shell: Option<String>,
     #[arg(short, long)]
     pub user: Option<String>,
-    #[arg(long, hide = true, env = "ROOZ_CACHES", use_value_delimiter = true)]
-    pub env_caches: Option<Vec<String>>,
     #[arg(
         short,
         long,
@@ -103,22 +134,21 @@ pub struct WorkParams {
         help = "Starts the workspace immediately"
     )]
     pub start: Option<bool>,
+    #[command(flatten)]
+    pub env: WorkEnvParams,
 }
 
 impl Default for WorkParams {
     fn default() -> Self {
         Self {
             git_ssh_url: Default::default(),
-            env_image: Default::default(),
             image: Default::default(),
             pull_image: Default::default(),
-            env_user: Default::default(),
-            env_shell: Default::default(),
             user: Default::default(),
-            env_caches: Default::default(),
             caches: Default::default(),
             privileged: Default::default(),
             start: Default::default(),
+            env: Default::default(),
         }
     }
 }
@@ -212,7 +242,7 @@ pub struct EditParams {
     #[arg()]
     pub name: String,
     #[command(flatten)]
-    pub work: WorkParams,
+    pub env: WorkEnvParams,
 }
 
 #[derive(Parser, Debug)]

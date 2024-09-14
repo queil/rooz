@@ -13,7 +13,7 @@ use std::{
 use crate::{
     age_utils,
     api::WorkspaceApi,
-    cli::{ConfigPart, WorkParams, WorkspacePersistence},
+    cli::{ConfigPart, WorkEnvParams, WorkParams, WorkspacePersistence},
     constants,
     labels::{self, Labels, ROLE},
     model::{
@@ -257,7 +257,7 @@ impl<'a> WorkspaceApi<'a> {
         }
     }
 
-    pub async fn edit(&self, workspace_key: &str, spec: &WorkParams) -> Result<(), AnyError> {
+    pub async fn edit(&self, workspace_key: &str, spec: &WorkEnvParams) -> Result<(), AnyError> {
         let labels = Labels::new(Some(workspace_key), Some(WORK_ROLE));
         for c in self.api.container.get_all(&labels).await? {
             if let Some(labels) = c.labels {
@@ -283,13 +283,17 @@ impl<'a> WorkspaceApi<'a> {
                     let edited_config = RoozCfg::from_string(&edited_string, format)?;
 
                     match (&edited_config.vars, &edited_config.secrets) {
-
                         (Some(vars), Some(secrets)) => {
-                            if let Some(duplicate_key) = vars.keys().find(|k| secrets.contains_key(&k.to_string())) {
-                                panic!("The key: '{}' can be only defined in either vars or secrets." ,&duplicate_key.to_string())
+                            if let Some(duplicate_key) =
+                                vars.keys().find(|k| secrets.contains_key(&k.to_string()))
+                            {
+                                panic!(
+                                    "The key: '{}' can be only defined in either vars or secrets.",
+                                    &duplicate_key.to_string()
+                                )
                             }
-                        },
-                        _ => ()
+                        }
+                        _ => (),
                     };
 
                     let identity = self.read_age_identity().await?;
@@ -313,7 +317,10 @@ impl<'a> WorkspaceApi<'a> {
                     };
 
                     self.new(
-                        spec,
+                        &WorkParams {
+                            env: spec.clone(),
+                            ..Default::default()
+                        },
                         Some(ConfigSource::Body {
                             value: encrypted_config,
                             origin: config_source.to_string(),

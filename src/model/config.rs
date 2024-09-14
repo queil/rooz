@@ -209,10 +209,10 @@ impl RoozCfg {
 
     pub fn from_cli_env(self, cli: WorkParams) -> Self {
         RoozCfg {
-            shell: cli.env_shell.map(|v| vec![v]).or(self.shell.clone()),
-            image: cli.env_image.or(self.image.clone()),
-            user: cli.env_user.or(self.user.clone()),
-            caches: Self::extend_if_any(self.caches.clone(), cli.env_caches),
+            shell: cli.env.shell.map(|v| vec![v]).or(self.shell.clone()),
+            image: cli.env.image.or(self.image.clone()),
+            user: cli.env.user.or(self.user.clone()),
+            caches: Self::extend_if_any(self.caches.clone(), cli.env.caches),
             git_ssh_url: cli.git_ssh_url.or(self.git_ssh_url.clone()),
             ..self.clone()
         }
@@ -253,9 +253,13 @@ impl RoozCfg {
             (None, Some(secrets)) => secrets.clone(),
             (Some(vars), None) => vars.clone(),
             (Some(vars), Some(secrets)) => {
-
-                if let Some(duplicate_key) = vars.keys().find(|k| secrets.contains_key(&k.to_string())) {
-                    panic!("The key: '{}' can be only defined in either vars or secrets." ,&duplicate_key.to_string())
+                if let Some(duplicate_key) =
+                    vars.keys().find(|k| secrets.contains_key(&k.to_string()))
+                {
+                    panic!(
+                        "The key: '{}' can be only defined in either vars or secrets.",
+                        &duplicate_key.to_string()
+                    )
                 }
 
                 let mut secrets = secrets.clone();
