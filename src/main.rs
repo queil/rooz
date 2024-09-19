@@ -28,7 +28,7 @@ use crate::{
 use bollard::Docker;
 use clap::{CommandFactory, Parser};
 use clap_complete::generate;
-use cli::{CodeParams, EnterParams, NewConfigParams};
+use cli::{CodeParams, EditConfigParams, EnterParams, TemplateConfigParams};
 use model::config::{ConfigPath, ConfigSource};
 
 #[tokio::main]
@@ -208,7 +208,7 @@ async fn main() -> Result<(), AnyError> {
         Cli {
             command:
                 Config(cli::Config {
-                    command: cli::ConfigCommands::New(NewConfigParams { format }),
+                    command: cli::ConfigCommands::Template(TemplateConfigParams { format }),
                 }),
             ..
         } => {
@@ -219,6 +219,14 @@ async fn main() -> Result<(), AnyError> {
                 })
                 .await?;
         }
+
+        Cli {
+            command:
+                Config(cli::Config {
+                    command: cli::ConfigCommands::Edit(EditConfigParams { config_path }),
+                }),
+            ..
+        } => workspace.edit_config_file(&config_path).await?,
 
         Cli {
             command:

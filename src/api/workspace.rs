@@ -5,6 +5,7 @@ use bollard::{
     volume::ListVolumesOptions,
 };
 use linked_hash_map::LinkedHashMap;
+use std::fs::{self};
 use std::{
     io,
     path::Path,
@@ -272,15 +273,15 @@ impl<'a> WorkspaceApi<'a> {
     pub async fn decrypt(
         &self,
         secrets: Option<LinkedHashMap<String, String>>,
-    ) -> Result<LinkedHashMap<String, String>, AnyError> {
+    ) -> Result<Option<LinkedHashMap<String, String>>, AnyError> {
         match secrets {
             Some(secrets) if secrets.len() > 0 => {
                 log::debug!("Decrypting secrets");
                 let identity = self.read_age_identity().await?;
-                age_utils::decrypt(&identity, secrets)
+                Ok(Some(age_utils::decrypt(&identity, secrets)?))
             }
-            Some(_) => Ok(LinkedHashMap::<String, String>::new()),
-            None => Ok(LinkedHashMap::<String, String>::new()),
+            Some(empty) => Ok(Some(empty)),
+            None => Ok(None),
         }
     }
 
@@ -291,7 +292,7 @@ impl<'a> WorkspaceApi<'a> {
         io::stdin().read_line(&mut String::new()).unwrap();
     }
 
-    async fn edit_config(
+    async fn edit_config_core(
         &self,
         body: String,
         format: FileFormat,
@@ -354,6 +355,21 @@ impl<'a> WorkspaceApi<'a> {
         ))
     }
 
+    async fn decrypt_config_file(
+        &self,
+        body: &str,
+        format: FileFormat,
+    ) -> Result<String, AnyError> {
+        let config = RoozCfg::deserialize_config(body, format)?.unwrap();
+        let decrypted = self.decrypt(config.clone().secrets).await?;
+        let decrypted_config = RoozCfg {
+            secrets: decrypted.clone(),
+            ..config
+        };
+
+        decrypted_config.to_string(format)
+    }
+
     pub async fn edit_existing(
         &self,
         workspace_key: &str,
@@ -364,22 +380,12 @@ impl<'a> WorkspaceApi<'a> {
             if let Some(labels) = c.labels {
                 let config_source = &labels[labels::CONFIG_ORIGIN];
                 let format = FileFormat::from_path(config_source);
-                let config =
-                    RoozCfg::deserialize_config(&labels[labels::CONFIG_BODY], format)?.unwrap();
-                let decrypted = self.decrypt(config.clone().secrets).await?;
-                let decrypted_config = RoozCfg {
-                    secrets: if decrypted.len() > 0 {
-                        Some(decrypted.clone())
-                    } else {
-                        None
-                    },
-                    ..config
-                };
-
-                let decrypted_string = decrypted_config.to_string(format)?;
-
-                let (encrypted_config, edited_string) =
-                    self.edit_config(decrypted_string.clone(), format).await?;
+                let decrypted_string = self
+                    .decrypt_config_file(&labels[labels::CONFIG_BODY], format)
+                    .await?;
+                let (encrypted_config, edited_string) = self
+                    .edit_config_core(decrypted_string.clone(), format)
+                    .await?;
 
                 //TODO: this check should be performed on the fully constructed config (to pick up changes in e.g. ROOZ_ env vars)
                 if edited_string != decrypted_string {
@@ -406,11 +412,22 @@ impl<'a> WorkspaceApi<'a> {
         Ok(())
     }
 
-    pub async fn new_config(&self, format: FileFormat) -> Result<(), AnyError> {
-        let (encrypted_config, _) = self
-            .edit_config("# should paste some example here".to_string(), format)
+    pub async fn new_config(&self, _format: FileFormat) -> Result<(), AnyError> {
+        println!("{}", "# not implemented yet");
+        Ok(())
+    }
+
+    pub async fn edit_config_file(&self, config_path: &str) -> Result<(), AnyError> {
+        let format = FileFormat::from_path(config_path);
+        let body = fs::read_to_string(&config_path)?;
+        let decrypted_string = self.decrypt_config_file(&body, format).await?;
+        let (encrypted_config, edited_string) = self
+            .edit_config_core(decrypted_string.clone(), format)
             .await?;
-        println!("{}", encrypted_config.to_string(format)?);
+
+        if edited_string != decrypted_string {
+            fs::write(config_path, encrypted_config.to_string(format)?)?;
+        }
         Ok(())
     }
 

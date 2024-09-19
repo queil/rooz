@@ -143,10 +143,6 @@ impl Default for RoozCfg {
 }
 
 impl RoozCfg {
-    pub fn from_file(path: &str) -> Result<Self, AnyError> {
-        Self::from_string(&fs::read_to_string(path)?, FileFormat::from_path(&path))
-    }
-
     pub fn from_string(config: &str, file_format: FileFormat) -> Result<Self, AnyError> {
         Ok(match file_format {
             FileFormat::Yaml => serde_yaml::from_str(&config)?,

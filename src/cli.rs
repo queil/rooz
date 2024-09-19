@@ -32,7 +32,8 @@ pub enum SystemCommands {
 
 #[derive(Subcommand, Debug)]
 pub enum ConfigCommands {
-    New(NewConfigParams),
+    Template(TemplateConfigParams),
+    Edit(EditConfigParams),
     Show(ShowConfigParams),
 }
 
@@ -258,10 +259,16 @@ pub struct ShowConfigParams {
 }
 
 #[derive(Parser, Debug)]
-#[command(about = "Creates a new workspace's configuration")]
-pub struct NewConfigParams {
+#[command(about = "Outputs a workspace configuration template")]
+pub struct TemplateConfigParams {
     #[arg(long, short)]
     pub format: ConfigFormat,
+}
+
+#[derive(Parser, Debug)]
+#[command(about = "Edits a local configuration file")]
+pub struct EditConfigParams {
+    pub config_path: String,
 }
 
 #[derive(Parser, Debug)]
@@ -275,7 +282,7 @@ pub struct EditParams {
 
 #[derive(Parser, Debug)]
 #[command(
-    about = "Attaches VsCode to a workspace. (requires VsCode installed and 'code' in cli path)"
+    about = "Attaches VsCode to a workspace. (requires VsCode installed and 'code' in $PATH)"
 )]
 pub struct CodeParams {
     #[arg()]
@@ -285,15 +292,15 @@ pub struct CodeParams {
 #[derive(Subcommand, Debug)]
 pub enum Commands {
     New(NewParams),
-    Edit(EditParams),
     Enter(EnterParams),
-    Tmp(TmpParams),
-    List(ListParams),
-    Remove(RemoveParams),
-    Config(Config),
-    Stop(StopParams),
-    Remote(RemoteParams),
     Code(CodeParams),
+    Stop(StopParams),
+    Remove(RemoveParams),
+    Edit(EditParams),
+    List(ListParams),    
+    Config(Config),
+    Tmp(TmpParams),
+    Remote(RemoteParams),
     System(System),
 }
 
