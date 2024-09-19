@@ -297,7 +297,7 @@ pub enum Commands {
     Stop(StopParams),
     Remove(RemoveParams),
     Edit(EditParams),
-    List(ListParams),    
+    List(ListParams),
     Config(Config),
     Tmp(TmpParams),
     Remote(RemoteParams),

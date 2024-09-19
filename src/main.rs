@@ -213,7 +213,7 @@ async fn main() -> Result<(), AnyError> {
             ..
         } => {
             workspace
-                .new_config(match format {
+                .config_template(match format {
                     cli::ConfigFormat::Toml => model::config::FileFormat::Toml,
                     cli::ConfigFormat::Yaml => model::config::FileFormat::Yaml,
                 })

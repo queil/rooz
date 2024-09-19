@@ -412,7 +412,7 @@ impl<'a> WorkspaceApi<'a> {
         Ok(())
     }
 
-    pub async fn new_config(&self, _format: FileFormat) -> Result<(), AnyError> {
+    pub async fn config_template(&self, _format: FileFormat) -> Result<(), AnyError> {
         println!("{}", "# not implemented yet");
         Ok(())
     }
