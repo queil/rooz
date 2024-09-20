@@ -17,20 +17,18 @@ use crate::{
     backend::ContainerBackend,
     cli::{
         Cli,
-        Commands::{
-            Code, Edit, Encrypt, Enter, List, New, Remote, Remove, ShowConfig, Stop, System, Tmp,
-        },
-        CompletionParams, EditParams, EncryptParams, ListParams, NewParams, RemoveParams,
-        ShowConfigParams, StopParams, TmpParams,
+        Commands::{Code, Config, Edit, Enter, List, New, Remote, Remove, Stop, System, Tmp},
+        CompletionParams, EditParams, ListParams, NewParams, RemoveParams, ShowConfigParams,
+        StopParams, TmpParams,
     },
     cmd::remote,
-    model::{config::RoozCfg, types::AnyError},
+    model::types::AnyError,
 };
 
 use bollard::Docker;
 use clap::{CommandFactory, Parser};
 use clap_complete::generate;
-use cli::{CodeParams, EnterParams};
+use cli::{CodeParams, EditConfigParams, EnterParams, TemplateConfigParams};
 use model::config::{ConfigPath, ConfigSource};
 
 #[tokio::main]
@@ -187,17 +185,10 @@ async fn main() -> Result<(), AnyError> {
         }
 
         Cli {
-            command: ShowConfig(ShowConfigParams { name, part, .. }),
+            command: Edit(EditParams { name, env }),
             ..
         } => {
-            workspace.show_config(&name, part).await?;
-        }
-
-        Cli {
-            command: Edit(EditParams { name, work }),
-            ..
-        } => {
-            workspace.edit(&name, &work).await?;
+            workspace.edit_existing(&name, &env).await?;
         }
 
         Cli {
@@ -216,6 +207,39 @@ async fn main() -> Result<(), AnyError> {
 
         Cli {
             command:
+                Config(cli::Config {
+                    command: cli::ConfigCommands::Template(TemplateConfigParams { format }),
+                }),
+            ..
+        } => {
+            workspace
+                .config_template(match format {
+                    cli::ConfigFormat::Toml => model::config::FileFormat::Toml,
+                    cli::ConfigFormat::Yaml => model::config::FileFormat::Yaml,
+                })
+                .await?;
+        }
+
+        Cli {
+            command:
+                Config(cli::Config {
+                    command: cli::ConfigCommands::Edit(EditConfigParams { config_path }),
+                }),
+            ..
+        } => workspace.edit_config_file(&config_path).await?,
+
+        Cli {
+            command:
+                Config(cli::Config {
+                    command: cli::ConfigCommands::Show(ShowConfigParams { name, part, output }),
+                }),
+            ..
+        } => {
+            workspace.show_config(&name, part, output).await?;
+        }
+
+        Cli {
+            command:
                 Remote(cli::RemoteParams {
                     ssh_url: _,
                     local_docker_host: _,
@@ -224,28 +248,6 @@ async fn main() -> Result<(), AnyError> {
             //TODO: this needs to be handled more elegantly. I.e. Rooz should
             // only connect to Docker API when actually running commands requiring that
             // this command only forwards a local socket to a remote one.
-        }
-
-        Cli {
-            command:
-                Encrypt(EncryptParams {
-                    config_file_path,
-                    name,
-                }),
-        } => {
-            let cfg = RoozCfg::from_file(&config_file_path)?;
-            if let Some(vars) = cfg.vars {
-                if vars.contains_key(&name) {
-                    let identity = workspace.read_age_identity().await?;
-                    RoozCfg {
-                        vars: Some(workspace.encrypt(identity, &name, vars)?),
-                        ..cfg
-                    }
-                    .to_file(&config_file_path)?
-                }
-            } else {
-                println!("Var {} not found in {}", &name, &config_file_path)
-            }
         }
 
         Cli {

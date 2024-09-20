@@ -30,11 +30,25 @@ pub enum SystemCommands {
     Completion(CompletionParams),
 }
 
+#[derive(Subcommand, Debug)]
+pub enum ConfigCommands {
+    Template(TemplateConfigParams),
+    Edit(EditConfigParams),
+    Show(ShowConfigParams),
+}
+
 #[derive(Parser, Debug)]
 #[command(about = "System subcommands")]
 pub struct System {
     #[command(subcommand)]
     pub command: SystemCommands,
+}
+
+#[derive(Parser, Debug)]
+#[command(about = "Config subcommands")]
+pub struct Config {
+    #[command(subcommand)]
+    pub command: ConfigCommands,
 }
 
 #[derive(Parser, Debug)]
@@ -71,23 +85,54 @@ pub struct WorkspacePersistence {
 }
 
 #[derive(Clone, Parser, Debug)]
+pub struct WorkEnvParams {
+    #[arg(
+        long = "env_image",
+        name = "env_image",
+        hide = true,
+        env = "ROOZ_IMAGE"
+    )]
+    pub image: Option<String>,
+    #[arg(long = "env_user", name = "env_user", hide = true, env = "ROOZ_USER")]
+    pub user: Option<String>,
+    #[arg(
+        long = "env_shell",
+        name = "env_shell",
+        hide = true,
+        env = "ROOZ_SHELL"
+    )]
+    pub shell: Option<String>,
+    #[arg(
+        long = "env_caches",
+        name = "env_caches",
+        hide = true,
+        env = "ROOZ_CACHES",
+        use_value_delimiter = true
+    )]
+    pub caches: Option<Vec<String>>,
+}
+
+impl Default for WorkEnvParams {
+    fn default() -> Self {
+        Self {
+            image: Default::default(),
+            user: Default::default(),
+            shell: Default::default(),
+            caches: Default::default(),
+        }
+    }
+}
+
+#[derive(Clone, Parser, Debug)]
 pub struct WorkParams {
     #[arg(short, long, alias = "git")]
     pub git_ssh_url: Option<String>,
-    #[arg(long, hide = true, env = "ROOZ_IMAGE")]
-    pub env_image: Option<String>,
     #[arg(short, long)]
     pub image: Option<String>,
     #[arg(long)]
     pub pull_image: bool,
-    #[arg(long, hide = true, env = "ROOZ_USER")]
-    pub env_user: Option<String>,
-    #[arg(long, hide = true, env = "ROOZ_SHELL")]
-    pub env_shell: Option<String>,
     #[arg(short, long)]
     pub user: Option<String>,
-    #[arg(long, hide = true, env = "ROOZ_CACHES", use_value_delimiter = true)]
-    pub env_caches: Option<Vec<String>>,
     #[arg(
         short,
         long,
@@ -103,22 +148,21 @@ pub struct WorkParams {
         help = "Starts the workspace immediately"
     )]
     pub start: Option<bool>,
+    #[command(flatten)]
+    pub env: WorkEnvParams,
 }
 
 impl Default for WorkParams {
     fn default() -> Self {
         Self {
             git_ssh_url: Default::default(),
-            env_image: Default::default(),
             image: Default::default(),
             pull_image: Default::default(),
-            env_user: Default::default(),
-            env_shell: Default::default(),
             user: Default::default(),
-            env_caches: Default::default(),
             caches: Default::default(),
             privileged: Default::default(),
             start: Default::default(),
+            env: Default::default(),
         }
     }
 }
@@ -197,13 +241,34 @@ pub enum ConfigPart {
     Runtime,
 }
 
+#[derive(Parser, Debug, Clone, clap::ValueEnum)]
+pub enum ConfigFormat {
+    Toml,
+    Yaml,
+}
+
 #[derive(Parser, Debug)]
-#[command(about = "Shows a workspace's configuration", alias = "config")]
+#[command(about = "Shows a workspace's configuration")]
 pub struct ShowConfigParams {
     #[arg()]
     pub name: String,
     #[arg(long, short, value_enum)]
     pub part: ConfigPart,
+    #[arg(long, short)]
+    pub output: ConfigFormat,
+}
+
+#[derive(Parser, Debug)]
+#[command(about = "Outputs a workspace configuration template")]
+pub struct TemplateConfigParams {
+    #[arg(long, short)]
+    pub format: ConfigFormat,
+}
+
+#[derive(Parser, Debug)]
+#[command(about = "Edits a local configuration file")]
+pub struct EditConfigParams {
+    pub config_path: String,
 }
 
 #[derive(Parser, Debug)]
@@ -212,40 +277,30 @@ pub struct EditParams {
     #[arg()]
     pub name: String,
     #[command(flatten)]
-    pub work: WorkParams,
+    pub env: WorkEnvParams,
 }
 
 #[derive(Parser, Debug)]
 #[command(
-    about = "Attaches VsCode to a workspace. (requires VsCode installed and 'code' in cli path"
+    about = "Attaches VsCode to a workspace. (requires VsCode installed and 'code' in $PATH)"
 )]
 pub struct CodeParams {
     #[arg()]
     pub name: String,
 }
 
-#[derive(Parser, Debug)]
-#[command(about = "Encrypts a variable in the vars section of the provided config file")]
-pub struct EncryptParams {
-    #[arg(long, short, help = "Target config file", alias = "config")]
-    pub config_file_path: String,
-    #[arg(help = "Target variable name")]
-    pub name: String,
-}
-
 #[derive(Subcommand, Debug)]
 pub enum Commands {
     New(NewParams),
-    Edit(EditParams),
     Enter(EnterParams),
-    Tmp(TmpParams),
-    List(ListParams),
-    Remove(RemoveParams),
-    ShowConfig(ShowConfigParams),
-    Stop(StopParams),
-    Remote(RemoteParams),
-    Encrypt(EncryptParams),
     Code(CodeParams),
+    Stop(StopParams),
+    Remove(RemoveParams),
+    Edit(EditParams),
+    List(ListParams),
+    Config(Config),
+    Tmp(TmpParams),
+    Remote(RemoteParams),
     System(System),
 }
 

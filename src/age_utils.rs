@@ -12,7 +12,6 @@ use std::io::{Read, Write};
 use std::iter;
 
 pub const VOLUME_NAME: &'static str = "rooz-age-key-vol";
-const SECRET_HEADER: &'static str = "-----BEGIN AGE ENCRYPTED FILE-----";
 
 pub fn mount(target: &str) -> Mount {
     Mount {
@@ -20,20 +19,6 @@ pub fn mount(target: &str) -> Mount {
         source: Some(VOLUME_NAME.into()),
         target: Some(target.into()),
         ..Default::default()
-    }
-}
-
-pub enum Variable {
-    Secret { value: String },
-    ClearText { value: String },
-}
-
-impl Variable {
-    pub fn to_string(&self) -> String {
-        match &self {
-            Variable::Secret { value } => value.to_string(),
-            Variable::ClearText { value } => value.to_string(),
-        }
     }
 }
 
@@ -87,20 +72,6 @@ impl<'a> WorkspaceApi<'a> {
     }
 }
 
-pub fn needs_decryption(
-    env_vars: Option<LinkedHashMap<String, String>>,
-) -> Option<LinkedHashMap<String, String>> {
-    if let Some(vars) = env_vars {
-        if vars.iter().any(|(_, v)| v.starts_with(SECRET_HEADER)) {
-            Some(vars)
-        } else {
-            None
-        }
-    } else {
-        None
-    }
-}
-
 pub fn encrypt(plaintext: String, recipient: Recipient) -> Result<String, AnyError> {
     let encryptor = age::Encryptor::with_recipients(vec![Box::new(recipient)]).unwrap();
     let mut encrypted = vec![];
@@ -115,43 +86,32 @@ pub fn encrypt(plaintext: String, recipient: Recipient) -> Result<String, AnyErr
         .replace("\n", "|"))
 }
 
+//TODO: improve experience when there is no matching decryption key
 pub fn decrypt(
     identity: &dyn age::Identity,
-    env_vars: LinkedHashMap<String, String>,
-) -> Result<LinkedHashMap<String, Variable>, AnyError> {
-    let mut ret = LinkedHashMap::<String, Variable>::new();
-    for (k, v) in env_vars.iter() {
-        if v.starts_with(SECRET_HEADER) {
-            let formatted = v.replace("|", "\n");
-            let encrypted = formatted.as_bytes();
-            let decrypted = {
-                let decryptor =
-                    match age::Decryptor::new(age::armor::ArmoredReader::new(encrypted))? {
-                        age::Decryptor::Recipients(d) => d,
-                        _ => unreachable!(),
-                    };
-
-                let mut decrypted = vec![];
-                let mut reader = decryptor.decrypt(iter::once(identity))?;
-                reader.read_to_end(&mut decrypted)?;
-
-                decrypted
+    secrets: LinkedHashMap<String, String>,
+) -> Result<LinkedHashMap<String, String>, AnyError> {
+    let mut ret = LinkedHashMap::<String, String>::new();
+    for (k, v) in secrets.iter() {
+        let formatted = v.replace("|", "\n");
+        let encrypted = formatted.as_bytes();
+        let decrypted = {
+            let decryptor = match age::Decryptor::new(age::armor::ArmoredReader::new(encrypted))? {
+                age::Decryptor::Recipients(d) => d,
+                _ => unreachable!(),
             };
 
-            ret.insert(
-                k.to_string(),
-                Variable::Secret {
-                    value: std::str::from_utf8(&decrypted[..])?.to_string(),
-                },
-            );
-        } else {
-            ret.insert(
-                k.to_string(),
-                Variable::ClearText {
-                    value: v.to_string(),
-                },
-            );
-        }
+            let mut decrypted = vec![];
+            let mut reader = decryptor.decrypt(iter::once(identity))?;
+            reader.read_to_end(&mut decrypted)?;
+
+            decrypted
+        };
+
+        ret.insert(
+            k.to_string(),
+            std::str::from_utf8(&decrypted[..])?.to_string(),
+        );
     }
     Ok(ret)
 }
