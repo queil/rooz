@@ -162,17 +162,20 @@ ports = [
 
 Rooz supports basic variable replacement/templating:
 * [handlebars](https://handlebarsjs.com/guide/) syntax is used
-* variables are declared in `vars`
-* encrypted variables are decrypted before expanding
-* handlebars can be used everywhere in the file as long as it is a valid TOML/YAML
-* var replacement works within variables themselves too. However, only if the var usage is 
+* variables are declared via `vars`
+* secrets are declared via `secrets`
+* secrets are decrypted before expanding
+* handlebars can be used everywhere in the file as long as it results in a valid syntax of a given format
+* vars/secrets replacement works within `vars` themselves too. However, only if the var usage is 
 below the var definition (in the document order).
+* the secret section does not support var/secrets replacement
 
 ```yaml
+secrets:
+  sqlPassword: '----BEGIN AGE ENCRYPTED FILE-----|YWdlLWVuY3J ... truncated'
 
 vars:
   sqlUser: admin
-  sqlPassword: '----BEGIN AGE ENCRYPTED FILE-----|YWdlLWVuY3J ... truncated'
   sqlConnectionString: "uid={{ sqlUser }};pwd={{ sqlPassword }}"
 
 env:
@@ -194,10 +197,14 @@ sensitive data (like API keys) in config files.
 
 ### Example
 
-Create `example-secrets.rooz.yaml` (don't commit it to git!):
+Make sure your rooz has been initiated with `rooz system init`
+
+Run `touch example.yaml` and `rooz config edit example.yaml`. Your default editor should open.
+
+Paste the following config, save & quit.
 
 ```yaml
-vars:
+secrets:
   apiKey: 1744420283158995
 
 env:
@@ -206,17 +213,10 @@ env:
 
 ```
 
-Now, encrypt the value:
-
-```sh
-rooz encrypt --config ./examples/encrypt/example-secrets.rooz.yaml apiKey
-```
-
-View the file. If the result looks like the below (things may have got re-ordered
-a bit):
+Now `cat example.yaml` and you should see something like the below:
 
 ```yaml
-vars:
+secrets:
   apiKey: '----BEGIN AGE ENCRYPTED FILE-----|YWdlLWVuY3J ... truncated'
 env:
   API_URL: https://api.rooz.dev/v1
@@ -227,7 +227,7 @@ env:
 Now, we can create a new workspace like:
 
 ```sh
-rooz new secrets-test --config ./examples/encrypt/example-secrets.rooz.yaml
+rooz new secrets-test --config ./example.yaml
 ```
 
 And enter the container and the `API_KEY` var is value gets decrypted and injected:
