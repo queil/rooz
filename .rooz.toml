@@ -1,5 +1,6 @@
 image = "ghcr.io/queil/image:rust"
 shell = ["bash"]
+privileged = true
 caches = [
   "~/.cargo"
 ]
