@@ -250,18 +250,6 @@ impl<'a> WorkspaceApi<'a> {
         Ok(())
     }
 
-    pub fn encrypt(
-        &self,
-        identity: Identity,
-        name: &str,
-        secrets: LinkedHashMap<String, String>,
-    ) -> Result<LinkedHashMap<String, String>, AnyError> {
-        let encrypted = self.encrypt_value(identity, secrets[name].to_string())?;
-        let mut new_secrets = secrets.clone();
-        new_secrets.insert(name.to_string(), encrypted);
-        Ok(new_secrets)
-    }
-
     pub fn encrypt_value(
         &self,
         identity: Identity,
