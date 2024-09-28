@@ -17,7 +17,9 @@ use crate::{
     backend::ContainerBackend,
     cli::{
         Cli,
-        Commands::{Code, Config, Edit, Enter, List, New, Remote, Remove, Stop, System, Tmp},
+        Commands::{
+            Code, Config, Edit, Enter, List, New, Remote, Remove, Start, Stop, System, Tmp,
+        },
         CompletionParams, EditParams, ListParams, NewParams, RemoveParams, ShowConfigParams,
         StopParams, TmpParams,
     },
@@ -28,7 +30,7 @@ use crate::{
 use bollard::Docker;
 use clap::{CommandFactory, Parser};
 use clap_complete::generate;
-use cli::{CodeParams, EditConfigParams, EnterParams, TemplateConfigParams};
+use cli::{CodeParams, EditConfigParams, EnterParams, StartParams, TemplateConfigParams};
 use model::config::{ConfigPath, ConfigSource};
 
 #[tokio::main]
@@ -175,6 +177,13 @@ async fn main() -> Result<(), AnyError> {
             ..
         } => {
             workspace.stop(&name).await?;
+        }
+
+        Cli {
+            command: Start(StartParams { name }),
+            ..
+        } => {
+            workspace.start_workspace(&name).await?;
         }
 
         Cli {

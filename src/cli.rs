@@ -211,6 +211,12 @@ pub struct EnterParams {
 }
 
 #[derive(Parser, Debug)]
+#[command(about = "Starts a workspace")]
+pub struct StartParams {
+    pub name: String,
+}
+
+#[derive(Parser, Debug)]
 #[command(about = "Lists workspaces", alias = "ls")]
 pub struct ListParams {}
 
@@ -294,6 +300,7 @@ pub enum Commands {
     New(NewParams),
     Enter(EnterParams),
     Code(CodeParams),
+    Start(StartParams),
     Stop(StopParams),
     Remove(RemoveParams),
     Edit(EditParams),
