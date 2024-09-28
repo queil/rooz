@@ -450,7 +450,6 @@ impl<'a> WorkspaceApi<'a> {
         root: bool,
         ephemeral: bool,
     ) -> Result<(), AnyError> {
-
         let enter_labels = Labels::new(Some(workspace_key), None)
             .with_container(container_id.or(Some(constants::DEFAULT_CONTAINER_NAME)));
         let summaries = self.api.container.get_all(&enter_labels).await?;
