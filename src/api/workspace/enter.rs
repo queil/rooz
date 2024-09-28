@@ -41,19 +41,19 @@ impl<'a> WorkspaceApi<'a> {
     ) -> Result<(), AnyError> {
         let enter_labels = Labels::new(Some(workspace_key), None)
             .with_container(container_id.or(Some(constants::DEFAULT_CONTAINER_NAME)));
-        let summaries = self.api.container.get_all(&enter_labels).await?;
 
-        let summary = match &summaries.as_slice() {
-            &[container] => Ok(container),
-            &[] => Err(format!("Workspace not found: {}", &workspace_key)),
-            _ => panic!("Too many containers found"),
-        }?;
+        let container = self
+            .api
+            .container
+            .get_single(&enter_labels)
+            .await?
+            .ok_or(format!("Workspace not found: {}", &workspace_key))?;
 
         println!("{}", termion::clear::All);
 
         let mut shell_value = vec![constants::DEFAULT_SHELL.to_string()];
 
-        if let Some(labels) = &summary.labels {
+        if let Some(labels) = &container.labels {
             if labels.contains_key(labels::RUNTIME_CONFIG) {
                 shell_value = FinalCfg::from_string(labels[labels::RUNTIME_CONFIG].clone())?.shell;
             }
@@ -63,7 +63,7 @@ impl<'a> WorkspaceApi<'a> {
             shell_value = shell.iter().map(|v| v.to_string()).collect::<Vec<_>>();
         }
 
-        let container_id = summary.id.as_deref().unwrap();
+        let container_id = container.id.as_deref().unwrap();
 
         self.start_workspace(workspace_key).await?;
 

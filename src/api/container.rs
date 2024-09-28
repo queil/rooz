@@ -52,6 +52,14 @@ impl<'a> ContainerApi<'a> {
         Ok(self.client.list_containers(Some(list_options)).await?)
     }
 
+    pub async fn get_single(&self, labels: &Labels) -> Result<Option<ContainerSummary>, AnyError> {
+        match self.get_all(&labels).await?.as_slice() {
+            [] => Ok(None),
+            [container] => Ok(Some(container.clone())),
+            _ => panic!("Too many containers found"),
+        }
+    }
+
     pub async fn remove(&self, container_id: &str, force: bool) -> Result<(), AnyError> {
         let force_display = if force { " (force)" } else { "" };
 

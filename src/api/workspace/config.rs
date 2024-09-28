@@ -29,32 +29,38 @@ impl<'a> WorkspaceApi<'a> {
             ConfigFormat::Toml => FileFormat::Toml,
             ConfigFormat::Yaml => FileFormat::Yaml,
         };
-        for c in self.api.container.get_all(&labels).await? {
-            if let Some(labels) = c.labels {
-                let origin_path = (&labels)[labels::CONFIG_ORIGIN].to_string().to_string();
 
-                let content = match part {
-                    ConfigPart::OriginPath => origin_path,
-                    ConfigPart::OriginBody => {
-                        let original_format = FileFormat::from_path(&origin_path);
-                        let body = (&labels)[labels::CONFIG_BODY].to_string();
-                        let cfg = RoozCfg::from_string(&body, original_format)?;
-                        cfg.to_string(new_format)?
-                    }
-                    ConfigPart::Runtime => {
-                        let runtime_config = (&labels)[labels::RUNTIME_CONFIG].to_string();
-                        match output {
-                            ConfigFormat::Toml => runtime_config,
-                            ConfigFormat::Yaml => {
-                                let cfg = FinalCfg::from_string(runtime_config)?;
-                                serde_yaml::to_string(&cfg)?
-                            }
+        let container = self
+            .api
+            .container
+            .get_single(&labels)
+            .await?
+            .ok_or(format!("Workspace not found: {}", &workspace_key))?;
+
+        if let Some(labels) = container.labels {
+            let origin_path = (&labels)[labels::CONFIG_ORIGIN].to_string().to_string();
+
+            let content = match part {
+                ConfigPart::OriginPath => origin_path,
+                ConfigPart::OriginBody => {
+                    let original_format = FileFormat::from_path(&origin_path);
+                    let body = (&labels)[labels::CONFIG_BODY].to_string();
+                    let cfg = RoozCfg::from_string(&body, original_format)?;
+                    cfg.to_string(new_format)?
+                }
+                ConfigPart::Runtime => {
+                    let runtime_config = (&labels)[labels::RUNTIME_CONFIG].to_string();
+                    match output {
+                        ConfigFormat::Toml => runtime_config,
+                        ConfigFormat::Yaml => {
+                            let cfg = FinalCfg::from_string(runtime_config)?;
+                            serde_yaml::to_string(&cfg)?
                         }
                     }
-                };
+                }
+            };
 
-                println!("{}", content)
-            }
+            println!("{}", content)
         }
         Ok(())
     }
@@ -173,14 +179,15 @@ impl<'a> WorkspaceApi<'a> {
         spec: &WorkEnvParams,
     ) -> Result<(), AnyError> {
         let labels = Labels::new(Some(workspace_key), Some(WORK_ROLE));
-        let containers = self.api.container.get_all(&labels).await?;
-        let work_container = match containers.as_slice() {
-            [] => Err(format!("Workspace not found: {}", &workspace_key)),
-            [container] => Ok(container),
-            _ => panic!("Too many containers found"),
-        }?;
 
-        if let Some(labels) = &work_container.labels {
+        let container = self
+            .api
+            .container
+            .get_single(&labels)
+            .await?
+            .ok_or(format!("Workspace not found: {}", &workspace_key))?;
+
+        if let Some(labels) = &container.labels {
             let config_source = &labels[labels::CONFIG_ORIGIN];
             let format = FileFormat::from_path(config_source);
             let decrypted_string = self
