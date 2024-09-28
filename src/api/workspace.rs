@@ -450,17 +450,18 @@ impl<'a> WorkspaceApi<'a> {
         root: bool,
         ephemeral: bool,
     ) -> Result<(), AnyError> {
-        println!("{}", termion::clear::All);
 
         let enter_labels = Labels::new(Some(workspace_key), None)
             .with_container(container_id.or(Some(constants::DEFAULT_CONTAINER_NAME)));
         let summaries = self.api.container.get_all(&enter_labels).await?;
 
         let summary = match &summaries.as_slice() {
-            &[container] => container,
-            &[] => panic!("Container not found"),
+            &[container] => Ok(container),
+            &[] => Err(format!("Workspace not found: {}", &workspace_key)),
             _ => panic!("Too many containers found"),
-        };
+        }?;
+
+        println!("{}", termion::clear::All);
 
         let mut shell_value = vec![constants::DEFAULT_SHELL.to_string()];
 
