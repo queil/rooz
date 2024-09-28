@@ -364,37 +364,42 @@ impl<'a> WorkspaceApi<'a> {
         spec: &WorkEnvParams,
     ) -> Result<(), AnyError> {
         let labels = Labels::new(Some(workspace_key), Some(WORK_ROLE));
-        for c in self.api.container.get_all(&labels).await? {
-            if let Some(labels) = c.labels {
-                let config_source = &labels[labels::CONFIG_ORIGIN];
-                let format = FileFormat::from_path(config_source);
-                let decrypted_string = self
-                    .decrypt_config_file(&labels[labels::CONFIG_BODY], format)
-                    .await?;
-                let (encrypted_config, edited_string) = self
-                    .edit_config_core(decrypted_string.clone(), format)
-                    .await?;
+        let containers = self.api.container.get_all(&labels).await?;
+        let work_container = match containers.as_slice() {
+            [] => Err(format!("Workspace not found: {}", &workspace_key)),
+            [container] => Ok(container),
+            _ => panic!("Too many containers found"),
+        }?;
 
-                //TODO: this check should be performed on the fully constructed config (to pick up changes in e.g. ROOZ_ env vars)
-                if edited_string != decrypted_string {
-                    self.new(
-                        &WorkParams {
-                            env: spec.clone(),
-                            ..Default::default()
-                        },
-                        Some(ConfigSource::Body {
-                            value: encrypted_config,
-                            origin: config_source.to_string(),
-                            format,
-                        }),
-                        Some(WorkspacePersistence {
-                            name: labels[labels::WORKSPACE_KEY].to_string(),
-                            replace: false,
-                            apply: true,
-                        }),
-                    )
-                    .await?;
-                }
+        if let Some(labels) = &work_container.labels {
+            let config_source = &labels[labels::CONFIG_ORIGIN];
+            let format = FileFormat::from_path(config_source);
+            let decrypted_string = self
+                .decrypt_config_file(&labels[labels::CONFIG_BODY], format)
+                .await?;
+            let (encrypted_config, edited_string) = self
+                .edit_config_core(decrypted_string.clone(), format)
+                .await?;
+
+            //TODO: this check should be performed on the fully constructed config (to pick up changes in e.g. ROOZ_ env vars)
+            if edited_string != decrypted_string {
+                self.new(
+                    &WorkParams {
+                        env: spec.clone(),
+                        ..Default::default()
+                    },
+                    Some(ConfigSource::Body {
+                        value: encrypted_config,
+                        origin: config_source.to_string(),
+                        format,
+                    }),
+                    Some(WorkspacePersistence {
+                        name: labels[labels::WORKSPACE_KEY].to_string(),
+                        replace: false,
+                        apply: true,
+                    }),
+                )
+                .await?;
             }
         }
         Ok(())
@@ -450,17 +455,17 @@ impl<'a> WorkspaceApi<'a> {
         root: bool,
         ephemeral: bool,
     ) -> Result<(), AnyError> {
-        println!("{}", termion::clear::All);
-
         let enter_labels = Labels::new(Some(workspace_key), None)
             .with_container(container_id.or(Some(constants::DEFAULT_CONTAINER_NAME)));
         let summaries = self.api.container.get_all(&enter_labels).await?;
 
         let summary = match &summaries.as_slice() {
-            &[container] => container,
-            &[] => panic!("Container not found"),
+            &[container] => Ok(container),
+            &[] => Err(format!("Workspace not found: {}", &workspace_key)),
             _ => panic!("Too many containers found"),
-        };
+        }?;
+
+        println!("{}", termion::clear::All);
 
         let mut shell_value = vec![constants::DEFAULT_SHELL.to_string()];
 

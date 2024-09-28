@@ -108,6 +108,15 @@ impl<'a> ContainerApi<'a> {
                 );
                 Ok(())
             }
+            Err(Error::DockerResponseServerError {
+                status_code,
+                message,
+            }) => Err(format!(
+                "{} (Error code: {})",
+                message.replace("\"", ""),
+                status_code
+            )
+            .into()),
             Err(e) => panic!("{}", e),
         }
     }
