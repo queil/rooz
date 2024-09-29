@@ -3,12 +3,16 @@ use std::fs;
 use crate::{
     api::WorkspaceApi,
     cli::{WorkParams, WorkspacePersistence},
+    config::{
+        config::{ConfigPath, ConfigSource, FileFormat, RoozCfg},
+        runtime::RuntimeConfig,
+    },
     constants,
-    git::{CloneEnv, RootRepoCloneResult},
-    labels::{self, Labels},
-    model::{
-        config::{ConfigPath, ConfigSource, FileFormat, FinalCfg, RoozCfg},
-        types::{AnyError, EnterSpec, WorkSpec},
+    model::types::{AnyError, EnterSpec, WorkSpec},
+    util::{
+        git::{CloneEnv, RootRepoCloneResult},
+        id,
+        labels::{self, Labels},
     },
 };
 
@@ -29,10 +33,10 @@ impl<'a> WorkspaceApi<'a> {
             cfg_builder.from_config(c);
         }
         cfg_builder.from_cli(cli_params, None);
-        cfg_builder.secrets = self.decrypt(cfg_builder.clone().secrets).await?;
+        cfg_builder.decrypt(self.read_age_identity().await?).await?;
         cfg_builder.expand_vars()?;
 
-        let cfg = FinalCfg::from(&*cfg_builder);
+        let cfg = RuntimeConfig::from(&*cfg_builder);
 
         self.api
             .image
@@ -95,7 +99,7 @@ impl<'a> WorkspaceApi<'a> {
 
         let (workspace_key, force, apply) = match persistence {
             Some(p) => (p.name.to_string(), p.replace, p.apply),
-            None => (crate::id::random_suffix("tmp"), false, false),
+            None => (id::random_suffix("tmp"), false, false),
         };
 
         if apply {
@@ -271,7 +275,7 @@ impl<'a> WorkspaceApi<'a> {
             .map(|v| (&v).dir.to_string())
             .or(Some(workspace.working_dir));
 
-        let cfg = FinalCfg::from(&RoozCfg {
+        let cfg = RuntimeConfig::from(&RoozCfg {
             shell: Some(vec![shell.into()]),
             ..config
         });

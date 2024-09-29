@@ -1,10 +1,10 @@
 use crate::{
     api::VolumeApi,
-    labels::Labels,
     model::{
         types::{AnyError, VolumeResult},
         volume::{RoozVolume, RoozVolumeRole},
     },
+    util::labels::Labels,
 };
 use bollard::{errors::Error::DockerResponseServerError, volume::RemoveVolumeOptions};
 use bollard::{service::Mount, volume::CreateVolumeOptions};

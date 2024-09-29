@@ -1,6 +1,6 @@
 use std::{collections::HashMap, vec};
 
-use crate::model::config::FinalCfg;
+use crate::config::runtime::RuntimeConfig;
 
 pub const WORKSPACE_KEY: &'static str = "dev.rooz.workspace";
 pub const CONTAINER: &'static str = "dev.rooz.workspace.container";
@@ -109,7 +109,7 @@ impl Labels {
         }
     }
 
-    pub fn with_runtime_config(self, config: FinalCfg) -> Self {
+    pub fn with_runtime_config(self, config: RuntimeConfig) -> Self {
         Labels {
             runtime_config: Some(KeyValue::new(RUNTIME_CONFIG, &config.to_string().unwrap())),
             ..self

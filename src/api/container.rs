@@ -22,9 +22,9 @@ use tokio::time::sleep;
 
 use crate::{
     api::ContainerApi,
-    backend::ContainerBackend,
-    labels::{KeyValue, Labels},
     model::types::{AnyError, ContainerResult, RunSpec},
+    util::backend::ContainerBackend,
+    util::labels::{KeyValue, Labels},
 };
 
 pub fn inject(script: &str, name: &str) -> Vec<String> {
@@ -50,6 +50,14 @@ impl<'a> ContainerApi<'a> {
         };
 
         Ok(self.client.list_containers(Some(list_options)).await?)
+    }
+
+    pub async fn get_single(&self, labels: &Labels) -> Result<Option<ContainerSummary>, AnyError> {
+        match self.get_all(&labels).await?.as_slice() {
+            [] => Ok(None),
+            [container] => Ok(Some(container.clone())),
+            _ => panic!("Too many containers found"),
+        }
     }
 
     pub async fn remove(&self, container_id: &str, force: bool) -> Result<(), AnyError> {
