@@ -9,7 +9,7 @@ use crate::{
         types::{AnyError, RunSpec, VolumeResult},
         volume::RoozVolumeRole,
     },
-    ssh,
+    ssh, util,
 };
 use age::secrecy::ExposeSecret;
 use bollard::models::MountTypeEnum::VOLUME;
@@ -85,7 +85,7 @@ impl<'a> Api<'a> {
                 self.execute_init(
                     "rooz-init-ssh",
                     &init_ssh,
-                    crate::ssh::VOLUME_NAME,
+                    ssh::VOLUME_NAME,
                     "/tmp/.ssh",
                     &image_id,
                 )
@@ -99,7 +99,7 @@ impl<'a> Api<'a> {
         match self
             .volume
             .ensure_volume(
-                crate::age_utils::VOLUME_NAME.into(),
+                util::crypt::VOLUME_NAME.into(),
                 &RoozVolumeRole::AgeKey,
                 Some("age-key".into()),
                 spec.force,
@@ -135,7 +135,7 @@ impl<'a> Api<'a> {
                 self.execute_init(
                     "rooz-init-age",
                     entrypoint,
-                    crate::age_utils::VOLUME_NAME,
+                    util::crypt::VOLUME_NAME,
                     "/tmp/.age",
                     &image_id,
                 )

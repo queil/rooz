@@ -5,7 +5,7 @@ use bollard::{
 };
 
 use crate::{
-    age_utils,
+    util::crypt,
     api::WorkspaceApi,
     labels::{Labels, ROLE},
     model::{types::AnyError, volume::CACHE_ROLE},
@@ -39,7 +39,7 @@ impl<'a> WorkspaceApi<'a> {
             for v in volumes {
                 match v {
                     Volume { ref name, .. }
-                        if name == ssh::VOLUME_NAME || name == age_utils::VOLUME_NAME =>
+                        if name == ssh::VOLUME_NAME || name == crypt::VOLUME_NAME =>
                     {
                         continue;
                     }

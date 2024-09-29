@@ -1,5 +1,5 @@
 use super::config::RoozCfg;
-use crate::{age_utils, model::types::AnyError};
+use crate::{util::crypt, model::types::AnyError};
 use age::x25519::Identity;
 use linked_hash_map::LinkedHashMap;
 
@@ -10,7 +10,7 @@ impl<'a> RoozCfg {
                 log::debug!("Decrypting secrets");
                 let mut ret = LinkedHashMap::<String, String>::new();
                 for (k, v) in secrets.iter() {
-                    ret.insert(k.to_string(), age_utils::decrypt(&identity, v)?);
+                    ret.insert(k.to_string(), crypt::decrypt(&identity, v)?);
                 }
                 Some(ret)
             }
@@ -26,7 +26,7 @@ impl<'a> RoozCfg {
             for (k, v) in edited_secrets {
                 encrypted_secrets.insert(
                     k.to_string(),
-                    age_utils::encrypt(v.to_string(), identity.to_public())?,
+                    crypt::encrypt(v.to_string(), identity.to_public())?,
                 );
             }
         };
