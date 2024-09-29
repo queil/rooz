@@ -86,6 +86,10 @@ pub fn encrypt(plaintext: String, recipient: Recipient) -> Result<String, AnyErr
         .replace("\n", "|"))
 }
 
+pub fn encrypt_value(identity: Identity, clear_text: String) -> Result<String, AnyError> {
+    encrypt(clear_text, identity.to_public())
+}
+
 //TODO: improve experience when there is no matching decryption key
 pub fn decrypt(
     identity: &dyn age::Identity,

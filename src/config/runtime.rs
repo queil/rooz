@@ -1,6 +1,6 @@
-use crate::AnyError;
 use super::config::{RoozCfg, RoozSidecar};
 use crate::constants;
+use crate::AnyError;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -36,7 +36,9 @@ impl Default for RuntimeConfig {
 }
 
 impl RuntimeConfig {
-    pub fn from_string(config: String) -> Result<RuntimeConfig, Box<dyn std::error::Error + 'static>> {
+    pub fn from_string(
+        config: String,
+    ) -> Result<RuntimeConfig, Box<dyn std::error::Error + 'static>> {
         match toml::from_str(&config) {
             Ok(val) => Ok(val),
             Err(e) => Err(Box::new(e)),

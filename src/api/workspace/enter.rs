@@ -2,10 +2,10 @@ use std::process::{Command, Stdio};
 
 use crate::{
     api::WorkspaceApi,
+    config::runtime::RuntimeConfig,
     constants,
     labels::{self, Labels},
     model::{types::AnyError, volume::RoozVolume},
-    config::runtime::RuntimeConfig
 };
 
 impl<'a> WorkspaceApi<'a> {
@@ -56,7 +56,8 @@ impl<'a> WorkspaceApi<'a> {
 
         if let Some(labels) = &container.labels {
             if labels.contains_key(labels::RUNTIME_CONFIG) {
-                shell_value = RuntimeConfig::from_string(labels[labels::RUNTIME_CONFIG].clone())?.shell;
+                shell_value =
+                    RuntimeConfig::from_string(labels[labels::RUNTIME_CONFIG].clone())?.shell;
             }
         }
 

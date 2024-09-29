@@ -4,13 +4,13 @@ use bollard::network::CreateNetworkOptions;
 
 use crate::{
     api::WorkspaceApi,
+    config::config::{RoozCfg, RoozSidecar},
     constants,
     labels::{self, Labels},
     model::{
         types::{AnyError, RunSpec},
         volume::RoozVolume,
     },
-    config::config::{RoozCfg, RoozSidecar},
 };
 
 impl<'a> WorkspaceApi<'a> {

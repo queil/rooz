@@ -3,14 +3,13 @@ use std::fs;
 use crate::{
     api::WorkspaceApi,
     cli::{WorkParams, WorkspacePersistence},
+    config::config::{ConfigPath, ConfigSource, FileFormat, RoozCfg},
+    config::runtime::RuntimeConfig,
     constants,
     git::{CloneEnv, RootRepoCloneResult},
     labels::{self, Labels},
     model::types::{AnyError, EnterSpec, WorkSpec},
-    config::config::{ConfigPath, ConfigSource, FileFormat, RoozCfg},
-    config::runtime::RuntimeConfig,
 };
-
 
 impl<'a> WorkspaceApi<'a> {
     async fn new_core(
@@ -29,7 +28,7 @@ impl<'a> WorkspaceApi<'a> {
             cfg_builder.from_config(c);
         }
         cfg_builder.from_cli(cli_params, None);
-        cfg_builder.secrets = self.decrypt(cfg_builder.clone().secrets).await?;
+        cfg_builder.decrypt(self.read_age_identity().await?).await?;
         cfg_builder.expand_vars()?;
 
         let cfg = RuntimeConfig::from(&*cfg_builder);
