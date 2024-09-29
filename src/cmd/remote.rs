@@ -17,7 +17,7 @@ use std::{
     time::Duration,
 };
 
-use crate::{labels, model::types::AnyError};
+use crate::{model::types::AnyError, util::labels};
 
 pub async fn remote(ssh_url: &str, local_docker_host: &str) -> Result<(), AnyError> {
     let (sender, receiver) = mpsc::channel::<()>();

@@ -1,5 +1,7 @@
 use crate::{
-    config::config::RoozCfg, git::RootRepoCloneResult, labels::Labels, model::volume::RoozVolume,
+    config::config::RoozCfg,
+    model::volume::RoozVolume,
+    util::{git::RootRepoCloneResult, labels::Labels},
 };
 use bollard::service::Mount;
 use std::collections::HashMap;

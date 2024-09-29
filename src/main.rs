@@ -1,21 +1,15 @@
 mod api;
-mod backend;
 mod cli;
 mod cmd;
 mod config;
 mod constants;
-mod git;
-mod id;
-mod labels;
 mod model;
-mod ssh;
 mod util;
 
 use std::io;
 
 use crate::{
     api::{Api, ContainerApi, ExecApi, GitApi, ImageApi, VolumeApi, WorkspaceApi},
-    backend::ContainerBackend,
     cli::{
         Cli,
         Commands::{
@@ -26,6 +20,7 @@ use crate::{
     },
     cmd::remote,
     model::types::AnyError,
+    util::backend::ContainerBackend,
 };
 
 use bollard::Docker;

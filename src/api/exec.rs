@@ -1,5 +1,6 @@
 use crate::{
-    api::container, api::ExecApi, backend::ContainerBackend, constants, model::types::AnyError,
+    api::container, api::ExecApi, constants, model::types::AnyError,
+    util::backend::ContainerBackend,
 };
 use bollard::{
     container::LogOutput,

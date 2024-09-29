@@ -5,11 +5,13 @@ use bollard::{
 };
 
 use crate::{
-    util::crypt,
     api::WorkspaceApi,
-    labels::{Labels, ROLE},
     model::{types::AnyError, volume::CACHE_ROLE},
-    ssh,
+    util::{
+        crypt,
+        labels::{Labels, ROLE},
+        ssh
+    },
 };
 
 impl<'a> WorkspaceApi<'a> {

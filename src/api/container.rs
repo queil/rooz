@@ -22,9 +22,9 @@ use tokio::time::sleep;
 
 use crate::{
     api::ContainerApi,
-    backend::ContainerBackend,
-    labels::{KeyValue, Labels},
     model::types::{AnyError, ContainerResult, RunSpec},
+    util::backend::ContainerBackend,
+    util::labels::{KeyValue, Labels},
 };
 
 pub fn inject(script: &str, name: &str) -> Vec<String> {

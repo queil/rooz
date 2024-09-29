@@ -3,12 +3,17 @@ use std::fs;
 use crate::{
     api::WorkspaceApi,
     cli::{WorkParams, WorkspacePersistence},
-    config::config::{ConfigPath, ConfigSource, FileFormat, RoozCfg},
-    config::runtime::RuntimeConfig,
+    config::{
+        config::{ConfigPath, ConfigSource, FileFormat, RoozCfg},
+        runtime::RuntimeConfig,
+    },
     constants,
-    git::{CloneEnv, RootRepoCloneResult},
-    labels::{self, Labels},
     model::types::{AnyError, EnterSpec, WorkSpec},
+    util::{
+        git::{CloneEnv, RootRepoCloneResult},
+        id,
+        labels::{self, Labels},
+    },
 };
 
 impl<'a> WorkspaceApi<'a> {
@@ -94,7 +99,7 @@ impl<'a> WorkspaceApi<'a> {
 
         let (workspace_key, force, apply) = match persistence {
             Some(p) => (p.name.to_string(), p.replace, p.apply),
-            None => (crate::id::random_suffix("tmp"), false, false),
+            None => (id::random_suffix("tmp"), false, false),
         };
 
         if apply {

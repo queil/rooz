@@ -3,20 +3,19 @@ use std::str::FromStr;
 use crate::{
     api::{container, Api},
     cli::InitParams,
-    constants, id,
-    labels::Labels,
+    constants,
     model::{
         types::{AnyError, RunSpec, VolumeResult},
         volume::RoozVolumeRole,
     },
-    ssh, util,
+    util::{self, id, labels::Labels, ssh},
 };
 use age::secrecy::ExposeSecret;
 use bollard::models::MountTypeEnum::VOLUME;
 use bollard::service::Mount;
 
 impl<'a> Api<'a> {
-    pub async fn execute_init(
+    async fn execute_init(
         &self,
         container_name: &str,
         entrypoint: &str,

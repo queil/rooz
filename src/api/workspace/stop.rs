@@ -1,4 +1,4 @@
-use crate::{api::WorkspaceApi, labels::Labels, model::types::AnyError};
+use crate::{api::WorkspaceApi, model::types::AnyError, util::labels::Labels};
 
 impl<'a> WorkspaceApi<'a> {
     pub async fn stop(&self, workspace_key: &str) -> Result<(), AnyError> {

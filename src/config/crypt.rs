@@ -1,5 +1,5 @@
 use super::config::RoozCfg;
-use crate::{util::crypt, model::types::AnyError};
+use crate::{model::types::AnyError, util::crypt};
 use age::x25519::Identity;
 use linked_hash_map::LinkedHashMap;
 

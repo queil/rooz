@@ -10,7 +10,7 @@ use crate::{
         config::{ConfigSource, FileFormat, RoozCfg},
         runtime::RuntimeConfig,
     },
-    labels::{self, Labels},
+    util::labels::{self, Labels},
     model::{types::AnyError, volume::WORK_ROLE},
 };
 

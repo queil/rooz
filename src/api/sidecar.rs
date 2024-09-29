@@ -6,11 +6,11 @@ use crate::{
     api::WorkspaceApi,
     config::config::{RoozCfg, RoozSidecar},
     constants,
-    labels::{self, Labels},
     model::{
         types::{AnyError, RunSpec},
         volume::RoozVolume,
     },
+    util::labels::{self, Labels},
 };
 
 impl<'a> WorkspaceApi<'a> {

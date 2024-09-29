@@ -7,7 +7,7 @@ use crate::{
         types::{AnyError, ContainerResult, RunSpec, WorkSpec, WorkspaceResult},
         volume::RoozVolume,
     },
-    ssh, util,
+    util::{self, ssh},
 };
 
 impl<'a> WorkspaceApi<'a> {
