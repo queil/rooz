@@ -4,7 +4,8 @@ use crate::{
     api::WorkspaceApi,
     constants,
     labels::{self, Labels},
-    model::{config::FinalCfg, types::AnyError, volume::RoozVolume},
+    model::{types::AnyError, volume::RoozVolume},
+    config::runtime::RuntimeConfig
 };
 
 impl<'a> WorkspaceApi<'a> {
@@ -55,7 +56,7 @@ impl<'a> WorkspaceApi<'a> {
 
         if let Some(labels) = &container.labels {
             if labels.contains_key(labels::RUNTIME_CONFIG) {
-                shell_value = FinalCfg::from_string(labels[labels::RUNTIME_CONFIG].clone())?.shell;
+                shell_value = RuntimeConfig::from_string(labels[labels::RUNTIME_CONFIG].clone())?.shell;
             }
         }
 

@@ -7,10 +7,10 @@ use crate::{
     constants,
     labels::{self, Labels},
     model::{
-        config::{RoozCfg, RoozSidecar},
         types::{AnyError, RunSpec},
         volume::RoozVolume,
     },
+    config::config::{RoozCfg, RoozSidecar},
 };
 
 impl<'a> WorkspaceApi<'a> {

@@ -9,10 +9,11 @@ use crate::{
     cli::{ConfigFormat, ConfigPart, WorkEnvParams, WorkParams, WorkspacePersistence},
     labels::{self, Labels},
     model::{
-        config::{ConfigSource, FileFormat, FinalCfg, RoozCfg},
         types::AnyError,
         volume::WORK_ROLE,
     },
+    config::config::{ConfigSource, FileFormat, RoozCfg},
+    config::runtime::RuntimeConfig,
 };
 
 use colored::Colorize;
@@ -53,7 +54,7 @@ impl<'a> WorkspaceApi<'a> {
                     match output {
                         ConfigFormat::Toml => runtime_config,
                         ConfigFormat::Yaml => {
-                            let cfg = FinalCfg::from_string(runtime_config)?;
+                            let cfg = RuntimeConfig::from_string(runtime_config)?;
                             serde_yaml::to_string(&cfg)?
                         }
                     }

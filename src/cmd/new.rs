@@ -6,11 +6,11 @@ use crate::{
     constants,
     git::{CloneEnv, RootRepoCloneResult},
     labels::{self, Labels},
-    model::{
-        config::{ConfigPath, ConfigSource, FileFormat, FinalCfg, RoozCfg},
-        types::{AnyError, EnterSpec, WorkSpec},
-    },
+    model::types::{AnyError, EnterSpec, WorkSpec},
+    config::config::{ConfigPath, ConfigSource, FileFormat, RoozCfg},
+    config::runtime::RuntimeConfig,
 };
+
 
 impl<'a> WorkspaceApi<'a> {
     async fn new_core(
@@ -32,7 +32,7 @@ impl<'a> WorkspaceApi<'a> {
         cfg_builder.secrets = self.decrypt(cfg_builder.clone().secrets).await?;
         cfg_builder.expand_vars()?;
 
-        let cfg = FinalCfg::from(&*cfg_builder);
+        let cfg = RuntimeConfig::from(&*cfg_builder);
 
         self.api
             .image
@@ -271,7 +271,7 @@ impl<'a> WorkspaceApi<'a> {
             .map(|v| (&v).dir.to_string())
             .or(Some(workspace.working_dir));
 
-        let cfg = FinalCfg::from(&RoozCfg {
+        let cfg = RuntimeConfig::from(&RoozCfg {
             shell: Some(vec![shell.into()]),
             ..config
         });

@@ -3,6 +3,7 @@ mod api;
 mod backend;
 mod cli;
 mod cmd;
+mod config;
 mod constants;
 mod git;
 mod id;
@@ -31,7 +32,7 @@ use bollard::Docker;
 use clap::{CommandFactory, Parser};
 use clap_complete::generate;
 use cli::{CodeParams, EditConfigParams, EnterParams, StartParams, TemplateConfigParams};
-use model::config::{ConfigPath, ConfigSource};
+use config::config::{ConfigPath, ConfigSource, FileFormat};
 
 #[tokio::main]
 async fn main() -> Result<(), AnyError> {
@@ -223,8 +224,8 @@ async fn main() -> Result<(), AnyError> {
         } => {
             workspace
                 .config_template(match format {
-                    cli::ConfigFormat::Toml => model::config::FileFormat::Toml,
-                    cli::ConfigFormat::Yaml => model::config::FileFormat::Yaml,
+                    cli::ConfigFormat::Toml => FileFormat::Toml,
+                    cli::ConfigFormat::Yaml => FileFormat::Yaml,
                 })
                 .await?;
         }

@@ -3,10 +3,10 @@ use crate::{
     id,
     labels::Labels,
     model::{
-        config::FileFormat,
         types::{AnyError, ContainerResult, RunSpec},
         volume::RoozVolume,
     },
+    config::config::FileFormat,
     ssh,
 };
 
