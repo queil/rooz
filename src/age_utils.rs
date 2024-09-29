@@ -7,7 +7,6 @@ use age::x25519::{Identity, Recipient};
 use age::IdentityFileEntry::Native;
 use bollard::models::MountTypeEnum::VOLUME;
 use bollard::service::Mount;
-use linked_hash_map::LinkedHashMap;
 use std::io::{Read, Write};
 use std::iter;
 
@@ -86,36 +85,20 @@ pub fn encrypt(plaintext: String, recipient: Recipient) -> Result<String, AnyErr
         .replace("\n", "|"))
 }
 
-pub fn encrypt_value(identity: Identity, clear_text: String) -> Result<String, AnyError> {
-    encrypt(clear_text, identity.to_public())
-}
-
 //TODO: improve experience when there is no matching decryption key
-pub fn decrypt(
-    identity: &dyn age::Identity,
-    secrets: LinkedHashMap<String, String>,
-) -> Result<LinkedHashMap<String, String>, AnyError> {
-    let mut ret = LinkedHashMap::<String, String>::new();
-    for (k, v) in secrets.iter() {
-        let formatted = v.replace("|", "\n");
-        let encrypted = formatted.as_bytes();
-        let decrypted = {
-            let decryptor = match age::Decryptor::new(age::armor::ArmoredReader::new(encrypted))? {
-                age::Decryptor::Recipients(d) => d,
-                _ => unreachable!(),
-            };
-
-            let mut decrypted = vec![];
-            let mut reader = decryptor.decrypt(iter::once(identity))?;
-            reader.read_to_end(&mut decrypted)?;
-
-            decrypted
+pub fn decrypt(identity: &dyn age::Identity, secret: &str) -> Result<String, AnyError> {
+    let formatted = secret.replace("|", "\n");
+    let encrypted = formatted.as_bytes();
+    let decrypted = {
+        let decryptor = match age::Decryptor::new(age::armor::ArmoredReader::new(encrypted))? {
+            age::Decryptor::Recipients(d) => d,
+            _ => unreachable!(),
         };
 
-        ret.insert(
-            k.to_string(),
-            std::str::from_utf8(&decrypted[..])?.to_string(),
-        );
-    }
-    Ok(ret)
+        let mut decrypted = vec![];
+        let mut reader = decryptor.decrypt(iter::once(identity))?;
+        reader.read_to_end(&mut decrypted)?;
+        decrypted
+    };
+    Ok(std::str::from_utf8(&decrypted[..])?.to_string())
 }

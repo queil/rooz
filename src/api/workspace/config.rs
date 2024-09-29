@@ -1,13 +1,15 @@
-use linked_hash_map::LinkedHashMap;
-use std::fs::{self};
-use std::io;
+use std::{
+    fs::{self},
+    io,
+};
 
 use crate::{
-    age_utils,
     api::WorkspaceApi,
     cli::{ConfigFormat, ConfigPart, WorkEnvParams, WorkParams, WorkspacePersistence},
-    config::config::{ConfigSource, FileFormat, RoozCfg},
-    config::runtime::RuntimeConfig,
+    config::{
+        config::{ConfigSource, FileFormat, RoozCfg},
+        runtime::RuntimeConfig,
+    },
     labels::{self, Labels},
     model::{types::AnyError, volume::WORK_ROLE},
 };
@@ -110,26 +112,8 @@ impl<'a> WorkspaceApi<'a> {
         }
         let identity = self.read_age_identity().await?;
 
-        let mut encrypted_secrets = LinkedHashMap::<String, String>::new();
-        if let Some(edited_secrets) = &edited_config.clone().secrets {
-            for (k, v) in edited_secrets {
-                encrypted_secrets.insert(
-                    k.to_string(),
-                    age_utils::encrypt_value(identity.clone(), v.to_string())?,
-                );
-            }
-        };
-        Ok((
-            RoozCfg {
-                secrets: if encrypted_secrets.len() > 0 {
-                    Some(encrypted_secrets)
-                } else {
-                    None
-                },
-                ..edited_config
-            },
-            edited_body,
-        ))
+        edited_config.encrypt(identity).await?;
+        Ok((edited_config, edited_body))
     }
 
     pub async fn edit_existing(
