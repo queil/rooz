@@ -4,8 +4,8 @@ use crate::{
     api::WorkspaceApi,
     config::runtime::RuntimeConfig,
     constants,
-    util::labels::{self, Labels},
     model::{types::AnyError, volume::RoozVolume},
+    util::labels::{self, Labels},
 };
 
 impl<'a> WorkspaceApi<'a> {

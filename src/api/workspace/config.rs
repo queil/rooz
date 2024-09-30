@@ -10,8 +10,8 @@ use crate::{
         config::{ConfigSource, FileFormat, RoozCfg},
         runtime::RuntimeConfig,
     },
-    util::labels::{self, Labels},
     model::{types::AnyError, volume::WORK_ROLE},
+    util::labels::{self, Labels},
 };
 
 use colored::Colorize;

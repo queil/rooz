@@ -10,7 +10,7 @@ use crate::{
     util::{
         crypt,
         labels::{Labels, ROLE},
-        ssh
+        ssh,
     },
 };
 
