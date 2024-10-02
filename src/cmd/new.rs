@@ -102,6 +102,19 @@ impl<'a> WorkspaceApi<'a> {
             None => (id::random_suffix("tmp"), false, false),
         };
 
+        let mut labels = Labels {
+            workspace: Labels::workspace(&workspace_key),
+            role: Labels::role(labels::ROLE_WORK),
+            ..Default::default()
+        };
+
+        if !apply && !force {
+            match self.api.container.get_single(&labels).await? {
+                Some(_) => Err(format!("Container already exists. Did you mean: rooz enter {}? Otherwise, use --apply to reconfigure containers or --replace to recreate the whole workspace.", workspace_key.clone())),
+                None => Ok(()),
+            }?;
+        }
+
         if apply {
             self.remove_containers_only(&workspace_key, true).await?;
         }
@@ -122,12 +135,6 @@ impl<'a> WorkspaceApi<'a> {
             uid: orig_uid.to_string(),
             workspace_key: workspace_key.to_string(),
             working_dir: work_dir.to_string(),
-        };
-
-        let mut labels = Labels {
-            workspace: Labels::workspace(&workspace_key),
-            role: Labels::role(labels::ROLE_WORK),
-            ..Default::default()
         };
 
         let cli_cfg = if let Some(source) = &cli_config_path {
