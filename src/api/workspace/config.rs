@@ -21,13 +21,9 @@ impl<'a> WorkspaceApi<'a> {
         &self,
         workspace_key: &str,
         part: ConfigPart,
-        output: ConfigFormat,
+        output: Option<ConfigFormat>,
     ) -> Result<(), AnyError> {
         let labels = Labels::new(Some(workspace_key), Some(WORK_ROLE));
-        let new_format = match output {
-            ConfigFormat::Toml => FileFormat::Toml,
-            ConfigFormat::Yaml => FileFormat::Yaml,
-        };
 
         let container = self
             .api
@@ -37,29 +33,44 @@ impl<'a> WorkspaceApi<'a> {
             .ok_or(format!("Workspace not found: {}", &workspace_key))?;
 
         if let Some(labels) = container.labels {
-            let origin_path = (&labels)[labels::CONFIG_ORIGIN].to_string().to_string();
+            let content: Option<String> = match part {
+                ConfigPart::Origin => labels.get(labels::CONFIG_ORIGIN).cloned(),
+                ConfigPart::Body => {
+                    let new_format = output.map(|c| match c {
+                        ConfigFormat::Toml => FileFormat::Toml,
+                        ConfigFormat::Yaml => FileFormat::Yaml,
+                    });
 
-            let content = match part {
-                ConfigPart::OriginPath => origin_path,
-                ConfigPart::OriginBody => {
-                    let original_format = FileFormat::from_path(&origin_path);
-                    let body = (&labels)[labels::CONFIG_BODY].to_string();
-                    let cfg = RoozCfg::from_string(&body, original_format)?;
-                    cfg.to_string(new_format)?
+                    let maybe_body = labels.get(labels::CONFIG_BODY);
+                    if let Some(body) = maybe_body {
+                        if let Some(format) = new_format {
+                            let origin_path = labels.get(labels::CONFIG_ORIGIN).unwrap();
+                            let original_format = FileFormat::from_path(&origin_path);
+                            let cfg = RoozCfg::from_string(&body, original_format)?;
+                            Some(cfg.to_string(format)?.to_string())
+                        } else {
+                            Some(body.to_string())
+                        }
+                    } else {
+                        None
+                    }
                 }
                 ConfigPart::Runtime => {
-                    let runtime_config = (&labels)[labels::RUNTIME_CONFIG].to_string();
-                    match output {
-                        ConfigFormat::Toml => runtime_config,
-                        ConfigFormat::Yaml => {
-                            let cfg = RuntimeConfig::from_string(runtime_config)?;
-                            serde_yaml::to_string(&cfg)?
+                    if let Some(runtime_config) = labels.get(labels::RUNTIME_CONFIG) {
+                        match output {
+                            Some(ConfigFormat::Yaml) => {
+                                let cfg = RuntimeConfig::from_string(runtime_config.to_string())?;
+                                Some(serde_yaml::to_string(&cfg)?)
+                            }
+                            _ => Some(runtime_config.to_string()),
                         }
+                    } else {
+                        None
                     }
                 }
             };
 
-            println!("{}", content)
+            println!("{}", content.unwrap_or("N/A".to_string()))
         }
         Ok(())
     }

@@ -242,8 +242,8 @@ pub struct StopParams {
 
 #[derive(Parser, Debug, Clone, clap::ValueEnum)]
 pub enum ConfigPart {
-    OriginPath,
-    OriginBody,
+    Origin,
+    Body,
     Runtime,
 }
 
@@ -258,10 +258,10 @@ pub enum ConfigFormat {
 pub struct ShowConfigParams {
     #[arg()]
     pub name: String,
-    #[arg(long, short, value_enum)]
+    #[arg(long, short, value_enum, default_value = "body")]
     pub part: ConfigPart,
     #[arg(long, short)]
-    pub output: ConfigFormat,
+    pub output: Option<ConfigFormat>,
 }
 
 #[derive(Parser, Debug)]
