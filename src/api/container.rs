@@ -52,6 +52,16 @@ impl<'a> ContainerApi<'a> {
         Ok(self.client.list_containers(Some(list_options)).await?)
     }
 
+    pub async fn get_running(&self, labels: &Labels) -> Result<Vec<ContainerSummary>, AnyError> {
+        let list_options = ListContainersOptions {
+            filters: labels.into(),
+            all: false,
+            ..Default::default()
+        };
+
+        Ok(self.client.list_containers(Some(list_options)).await?)
+    }
+
     pub async fn get_single(&self, labels: &Labels) -> Result<Option<ContainerSummary>, AnyError> {
         match self.get_all(&labels).await?.as_slice() {
             [] => Ok(None),

@@ -154,8 +154,10 @@ impl<'a> WorkspaceApi<'a> {
                 ConfigSource::Path { value: path } => match path {
                     ConfigPath::File { path } => {
                         let body = fs::read_to_string(&path)?;
+                        let absolute_path =
+                            std::path::absolute(path)?.to_string_lossy().into_owned();
                         labels = Labels {
-                            config_source: Labels::config_origin(&path),
+                            config_source: Labels::config_origin(&absolute_path),
                             config_body: Labels::config_body(&body),
                             ..labels
                         };
