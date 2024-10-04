@@ -14,6 +14,7 @@ use crate::{
     util::labels::{self, Labels},
 };
 
+use age::x25519::Identity;
 use colored::Colorize;
 
 impl<'a> WorkspaceApi<'a> {
@@ -86,6 +87,7 @@ impl<'a> WorkspaceApi<'a> {
         &self,
         body: String,
         format: FileFormat,
+        identity: &Identity,
     ) -> Result<(RoozCfg, String), AnyError> {
         let mut edited_body = body;
         let mut edited_config;
@@ -121,16 +123,15 @@ impl<'a> WorkspaceApi<'a> {
             };
             break;
         }
-        let identity = self.read_age_identity().await?;
-
         edited_config.encrypt(identity).await?;
         Ok((edited_config, edited_body))
     }
 
-    pub async fn edit_existing(
+    pub async fn update(
         &self,
         workspace_key: &str,
         spec: &WorkEnvParams,
+        interactive: bool,
     ) -> Result<(), AnyError> {
         let labels = Labels::new(Some(workspace_key), Some(WORK_ROLE));
 
@@ -141,37 +142,46 @@ impl<'a> WorkspaceApi<'a> {
             .await?
             .ok_or(format!("Workspace not found: {}", &workspace_key))?;
 
+        let identity = self.read_age_identity().await?;
+
         if let Some(labels) = &container.labels {
+            if interactive {}
+
             let config_source = &labels[labels::CONFIG_ORIGIN];
             let format = FileFormat::from_path(config_source);
-            let mut config =
-                RoozCfg::deserialize_config(&labels[labels::CONFIG_BODY], format)?.unwrap();
-            config.decrypt(self.read_age_identity().await?).await?;
-            let decrypted_string = config.to_string(format)?;
-            let (encrypted_config, edited_string) = self
-                .edit_config_core(decrypted_string.clone(), format)
-                .await?;
+            let original_body = &labels[labels::CONFIG_BODY];
+            let mut original_config = RoozCfg::deserialize_config(original_body, format)?.unwrap();
 
-            //TODO: this check should be performed on the fully constructed config (to pick up changes in e.g. ROOZ_ env vars)
-            if edited_string != decrypted_string {
-                self.new(
-                    &WorkParams {
-                        env: spec.clone(),
-                        ..Default::default()
-                    },
-                    Some(ConfigSource::Body {
-                        value: encrypted_config,
-                        origin: config_source.to_string(),
-                        format,
-                    }),
-                    Some(WorkspacePersistence {
-                        name: labels[labels::WORKSPACE_KEY].to_string(),
-                        replace: false,
-                        apply: true,
-                    }),
-                )
-                .await?;
-            }
+            let config_to_apply = if interactive {
+                original_config.decrypt(&identity).await?;
+
+                let decrypted_string = original_config.to_string(format)?;
+                let (encrypted_config, _) = self
+                    .edit_config_core(decrypted_string.clone(), format, &identity)
+                    .await?;
+                encrypted_config
+            } else {
+                original_config
+            };
+
+            self.new(
+                &WorkParams {
+                    env: spec.clone(),
+                    ..Default::default()
+                },
+                Some(ConfigSource::Body {
+                    value: config_to_apply,
+                    origin: config_source.to_string(),
+                    format,
+                }),
+                Some(WorkspacePersistence {
+                    name: labels[labels::WORKSPACE_KEY].to_string(),
+                    replace: false,
+                    apply: true,
+                }),
+                &identity,
+            )
+            .await?;
         }
         Ok(())
     }
@@ -185,10 +195,11 @@ impl<'a> WorkspaceApi<'a> {
         let format = FileFormat::from_path(config_path);
         let body = fs::read_to_string(&config_path)?;
         let mut config = RoozCfg::deserialize_config(&body, format)?.unwrap();
-        config.decrypt(self.read_age_identity().await?).await?;
+        let identity = self.read_age_identity().await?;
+        config.decrypt(&identity).await?;
         let decrypted_string = config.to_string(format)?;
         let (encrypted_config, edited_string) = self
-            .edit_config_core(decrypted_string.clone(), format)
+            .edit_config_core(decrypted_string.clone(), format, &identity)
             .await?;
 
         if edited_string != decrypted_string {

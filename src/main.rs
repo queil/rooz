@@ -13,7 +13,7 @@ use crate::{
     cli::{
         Cli,
         Commands::{
-            Code, Config, Edit, Enter, List, New, Remote, Remove, Start, Stop, System, Tmp,
+            Code, Config, Edit, Enter, List, New, Remote, Remove, Start, Stop, System, Tmp, Update,
         },
         CompletionParams, EditParams, ListParams, NewParams, RemoveParams, ShowConfigParams,
         StopParams, TmpParams,
@@ -26,7 +26,9 @@ use crate::{
 use bollard::Docker;
 use clap::{CommandFactory, Parser};
 use clap_complete::generate;
-use cli::{CodeParams, EditConfigParams, EnterParams, StartParams, TemplateConfigParams};
+use cli::{
+    CodeParams, EditConfigParams, EnterParams, StartParams, TemplateConfigParams, UpdateParams,
+};
 use config::config::{ConfigPath, ConfigSource, FileFormat};
 
 #[tokio::main]
@@ -110,8 +112,9 @@ async fn main() -> Result<(), AnyError> {
                 None => None,
             };
 
+            let identity = workspace.read_age_identity().await?;
             workspace
-                .new(&work, config_source, Some(persistence.clone()))
+                .new(&work, config_source, Some(persistence.clone()), &identity)
                 .await?;
             println!(
                 "\nThe workspace is ready. Run 'rooz enter {}' to enter.",
@@ -193,7 +196,19 @@ async fn main() -> Result<(), AnyError> {
             command: Edit(EditParams { name, env }),
             ..
         } => {
-            workspace.edit_existing(&name, &env).await?;
+            workspace.update(&name, &env, true).await?;
+        }
+
+        Cli {
+            command:
+                Update(UpdateParams {
+                    name,
+                    env,
+                    interactive,
+                }),
+            ..
+        } => {
+            workspace.update(&name, &env, interactive).await?;
         }
 
         Cli {

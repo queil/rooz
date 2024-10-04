@@ -287,6 +287,17 @@ pub struct EditParams {
 }
 
 #[derive(Parser, Debug)]
+#[command(about = "Updates a workspace created from a config file")]
+pub struct UpdateParams {
+    #[arg()]
+    pub name: String,
+    #[command(flatten)]
+    pub env: WorkEnvParams,
+    #[arg(long, short)]
+    pub interactive: bool,
+}
+
+#[derive(Parser, Debug)]
 #[command(
     about = "Attaches VsCode to a workspace. (requires VsCode installed and 'code' in $PATH)"
 )]
@@ -304,6 +315,7 @@ pub enum Commands {
     Stop(StopParams),
     Remove(RemoveParams),
     Edit(EditParams),
+    Update(UpdateParams),
     List(ListParams),
     Config(Config),
     Tmp(TmpParams),

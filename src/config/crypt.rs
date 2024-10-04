@@ -4,13 +4,13 @@ use age::x25519::Identity;
 use linked_hash_map::LinkedHashMap;
 
 impl<'a> RoozCfg {
-    pub async fn decrypt(&mut self, identity: Identity) -> Result<(), AnyError> {
+    pub async fn decrypt(&mut self, identity: &Identity) -> Result<(), AnyError> {
         self.secrets = match self.secrets.clone() {
             Some(secrets) if secrets.len() > 0 => {
                 log::debug!("Decrypting secrets");
                 let mut ret = LinkedHashMap::<String, String>::new();
                 for (k, v) in secrets.iter() {
-                    ret.insert(k.to_string(), crypt::decrypt(&identity, v)?);
+                    ret.insert(k.to_string(), crypt::decrypt(identity, v)?);
                 }
                 Some(ret)
             }
@@ -20,7 +20,7 @@ impl<'a> RoozCfg {
         Ok(())
     }
 
-    pub async fn encrypt(&mut self, identity: Identity) -> Result<(), AnyError> {
+    pub async fn encrypt(&mut self, identity: &Identity) -> Result<(), AnyError> {
         let mut encrypted_secrets = LinkedHashMap::<String, String>::new();
         if let Some(edited_secrets) = self.clone().secrets {
             for (k, v) in edited_secrets {
