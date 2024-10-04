@@ -168,7 +168,7 @@ impl<'a> WorkspaceApi<'a> {
         let ephemeral = persistence.is_none();
         let orig_uid = constants::DEFAULT_UID.to_string();
 
-        let (workspace_key, force, apply) = match persistence {
+        let (workspace_key, replace, apply) = match persistence {
             Some(p) => (p.name.to_string(), p.replace, p.apply),
             None => (id::random_suffix("tmp"), false, false),
         };
@@ -179,7 +179,7 @@ impl<'a> WorkspaceApi<'a> {
             ..Default::default()
         };
 
-        if !apply && !force {
+        if !apply && !replace {
             match self.api.container.get_single(&labels).await? {
                 Some(_) => Err(format!("Container already exists. Did you mean: rooz enter {}? Otherwise, use --apply to reconfigure containers or --replace to recreate the whole workspace.", workspace_key.clone())),
                 None => Ok(()),
@@ -190,7 +190,7 @@ impl<'a> WorkspaceApi<'a> {
             self.remove_containers_only(&workspace_key, true).await?;
         }
 
-        if force {
+        if replace {
             self.remove(&workspace_key, true).await?;
         }
 
@@ -218,7 +218,7 @@ impl<'a> WorkspaceApi<'a> {
             container_name: &workspace_key,
             workspace_key: &workspace_key,
             ephemeral,
-            force_recreate: force,
+            force_recreate: replace,
             ..Default::default()
         };
 
@@ -236,7 +236,7 @@ impl<'a> WorkspaceApi<'a> {
                     &clone_env,
                     None,
                     &workspace_key,
-                    force,
+                    replace,
                     work_dir,
                     identity,
                 )
@@ -278,7 +278,7 @@ impl<'a> WorkspaceApi<'a> {
                         &clone_env,
                         Some(root_repo_result),
                         &workspace_key,
-                        force,
+                        replace,
                         work_dir,
                         identity,
                     )

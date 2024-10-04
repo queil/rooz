@@ -13,9 +13,9 @@ use crate::{
     cli::{
         Cli,
         Commands::{
-            Code, Config, Edit, Enter, List, New, Remote, Remove, Start, Stop, System, Tmp, Update,
+            Code, Config, Enter, List, New, Remote, Remove, Start, Stop, System, Tmp, Update,
         },
-        CompletionParams, EditParams, ListParams, NewParams, RemoveParams, ShowConfigParams,
+        CompletionParams, ListParams, NewParams, RemoveParams, ShowConfigParams,
         StopParams, TmpParams,
     },
     cmd::remote,
@@ -23,6 +23,7 @@ use crate::{
     util::backend::ContainerBackend,
 };
 
+use api::workspace::config::UpdateMode;
 use bollard::Docker;
 use clap::{CommandFactory, Parser};
 use clap_complete::generate;
@@ -193,22 +194,17 @@ async fn main() -> Result<(), AnyError> {
         }
 
         Cli {
-            command: Edit(EditParams { name, env }),
-            ..
-        } => {
-            workspace.update(&name, &env, true).await?;
-        }
-
-        Cli {
             command:
                 Update(UpdateParams {
                     name,
                     env,
-                    interactive,
+                    edit,
+                    purge,
+                    no_pull,
                 }),
             ..
         } => {
-            workspace.update(&name, &env, interactive).await?;
+            workspace.update(&name, &env, edit, match purge { true => UpdateMode::Purge, _ => UpdateMode::Apply }, no_pull).await?;
         }
 
         Cli {

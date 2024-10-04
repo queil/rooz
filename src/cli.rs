@@ -278,23 +278,21 @@ pub struct EditConfigParams {
 }
 
 #[derive(Parser, Debug)]
-#[command(about = "Edits a workspace created from a config file")]
-pub struct EditParams {
-    #[arg()]
-    pub name: String,
-    #[command(flatten)]
-    pub env: WorkEnvParams,
-}
-
-#[derive(Parser, Debug)]
 #[command(about = "Updates a workspace created from a config file")]
 pub struct UpdateParams {
     #[arg()]
     pub name: String,
     #[command(flatten)]
     pub env: WorkEnvParams,
-    #[arg(long, short)]
-    pub interactive: bool,
+    #[arg(long, short, help = "If set allows to edit the existing config and apply the edited version")]
+    pub edit: bool,
+    #[arg(long, conflicts_with="edit", help = "If set it removes the workspace volumes. WARNING: potential data loss ahead")]
+    pub purge: bool,
+    #[arg(
+        long,
+        help = "If set it skips pulling new images"
+    )]
+    pub no_pull: bool,
 }
 
 #[derive(Parser, Debug)]
@@ -314,7 +312,6 @@ pub enum Commands {
     Start(StartParams),
     Stop(StopParams),
     Remove(RemoveParams),
-    Edit(EditParams),
     Update(UpdateParams),
     List(ListParams),
     Config(Config),

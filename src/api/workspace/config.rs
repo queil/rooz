@@ -17,6 +17,11 @@ use crate::{
 use age::x25519::Identity;
 use colored::Colorize;
 
+pub enum UpdateMode {
+    Apply,
+    Purge,
+}
+
 impl<'a> WorkspaceApi<'a> {
     pub async fn show_config(
         &self,
@@ -132,6 +137,8 @@ impl<'a> WorkspaceApi<'a> {
         workspace_key: &str,
         spec: &WorkEnvParams,
         interactive: bool,
+        mode: UpdateMode,
+        no_pull: bool,
     ) -> Result<(), AnyError> {
         let labels = Labels::new(Some(workspace_key), Some(WORK_ROLE));
 
@@ -164,9 +171,26 @@ impl<'a> WorkspaceApi<'a> {
                 original_config
             };
 
+            let persistence = WorkspacePersistence {
+                name: labels[labels::WORKSPACE_KEY].to_string(),
+                replace: match mode {
+                    UpdateMode::Purge => true,
+                    _ => false,
+                },
+                apply: match mode {
+                    UpdateMode::Apply => true,
+                    _ => false,
+                },
+            };
+
             self.new(
                 &WorkParams {
                     env: spec.clone(),
+                    pull_image: if no_pull {
+                        false
+                    } else {
+                        true
+                    },
                     ..Default::default()
                 },
                 Some(ConfigSource::Body {
@@ -174,11 +198,7 @@ impl<'a> WorkspaceApi<'a> {
                     origin: config_source.to_string(),
                     format,
                 }),
-                Some(WorkspacePersistence {
-                    name: labels[labels::WORKSPACE_KEY].to_string(),
-                    replace: false,
-                    apply: true,
-                }),
+                Some(persistence),
                 &identity,
             )
             .await?;
