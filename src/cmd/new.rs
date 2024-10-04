@@ -91,6 +91,73 @@ impl<'a> WorkspaceApi<'a> {
         })
     }
 
+    async fn get_cli_config(
+        &self,
+        cli_config_path: Option<ConfigSource>,
+        clone_env: &CloneEnv,
+        labels: &mut Labels,
+    ) -> Result<Option<RoozCfg>, AnyError> {
+        let val = if let Some(source) = &cli_config_path {
+            match source {
+                ConfigSource::Body {
+                    value,
+                    origin,
+                    format,
+                } => {
+                    *labels = Labels {
+                        config_source: Labels::config_origin(&origin),
+                        config_body: Labels::config_body(&value.to_string(format.clone())?),
+                        ..labels.clone()
+                    };
+                    Some(value.clone())
+                }
+                ConfigSource::Path { value: path } => match path {
+                    ConfigPath::File { path } => {
+                        let body = fs::read_to_string(&path)?;
+                        let absolute_path =
+                            std::path::absolute(path)?.to_string_lossy().into_owned();
+                        *labels = Labels {
+                            config_source: Labels::config_origin(&absolute_path),
+                            config_body: Labels::config_body(&body),
+                            ..labels.clone()
+                        };
+                        RoozCfg::deserialize_config(&body, FileFormat::from_path(&path))?
+                    }
+                    ConfigPath::Git { url, file_path } => {
+                        let body = self
+                            .git
+                            .clone_config_repo(clone_env.clone(), &url, &file_path)
+                            .await?;
+
+                        *labels = Labels {
+                            config_source: Labels::config_origin(&path.to_string()),
+                            ..labels.clone()
+                        };
+
+                        if let Some(b) = &body {
+                            *labels = Labels {
+                                config_body: Labels::config_body(&b),
+                                ..labels.clone()
+                            }
+                        };
+
+                        match body {
+                            Some(body) => {
+                                let fmt = FileFormat::from_path(&file_path);
+                                RoozCfg::deserialize_config(&body, fmt)?
+                            }
+                            None => None,
+                        }
+                    }
+                },
+            }
+        } else {
+            None
+        };
+
+        Ok(val)
+    }
+
     pub async fn new(
         &self,
         cli_params: &WorkParams,
@@ -141,63 +208,9 @@ impl<'a> WorkspaceApi<'a> {
             working_dir: work_dir.to_string(),
         };
 
-        let cli_cfg = if let Some(source) = &cli_config_path {
-            match source {
-                ConfigSource::Body {
-                    value,
-                    origin,
-                    format,
-                } => {
-                    labels = Labels {
-                        config_source: Labels::config_origin(&origin),
-                        config_body: Labels::config_body(&value.to_string(format.clone())?),
-                        ..labels
-                    };
-                    Some(value.clone())
-                }
-                ConfigSource::Path { value: path } => match path {
-                    ConfigPath::File { path } => {
-                        let body = fs::read_to_string(&path)?;
-                        let absolute_path =
-                            std::path::absolute(path)?.to_string_lossy().into_owned();
-                        labels = Labels {
-                            config_source: Labels::config_origin(&absolute_path),
-                            config_body: Labels::config_body(&body),
-                            ..labels
-                        };
-                        RoozCfg::deserialize_config(&body, FileFormat::from_path(&path))?
-                    }
-                    ConfigPath::Git { url, file_path } => {
-                        let body = self
-                            .git
-                            .clone_config_repo(clone_env.clone(), &url, &file_path)
-                            .await?;
-
-                        labels = Labels {
-                            config_source: Labels::config_origin(&path.to_string()),
-                            ..labels
-                        };
-
-                        if let Some(b) = &body {
-                            labels = Labels {
-                                config_body: Labels::config_body(&b),
-                                ..labels
-                            }
-                        };
-
-                        match body {
-                            Some(body) => {
-                                let fmt = FileFormat::from_path(&file_path);
-                                RoozCfg::deserialize_config(&body, fmt)?
-                            }
-                            None => None,
-                        }
-                    }
-                },
-            }
-        } else {
-            None
-        };
+        let cli_cfg = self
+            .get_cli_config(cli_config_path, &clone_env, &mut labels)
+            .await?;
 
         let work_spec = WorkSpec {
             uid: &orig_uid,
