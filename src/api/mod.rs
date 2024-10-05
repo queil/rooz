@@ -2,7 +2,9 @@ use bollard::Docker;
 
 use crate::util::backend::ContainerBackend;
 
+pub mod config;
 pub mod container;
+pub mod crypt;
 pub mod exec;
 pub mod image;
 pub mod sidecar;
@@ -27,6 +29,10 @@ pub struct ContainerApi<'a> {
     pub backend: &'a ContainerBackend,
 }
 
+pub struct CryptApi<'a> {
+    pub api: &'a Api<'a>,
+}
+
 pub struct Api<'a> {
     pub exec: &'a ExecApi<'a>,
     pub image: &'a ImageApi<'a>,
@@ -39,7 +45,14 @@ pub struct GitApi<'a> {
     pub api: &'a Api<'a>,
 }
 
+pub struct ConfigApi<'a> {
+    pub api: &'a Api<'a>,
+    pub crypt: &'a CryptApi<'a>,
+}
+
 pub struct WorkspaceApi<'a> {
     pub api: &'a Api<'a>,
     pub git: &'a GitApi<'a>,
+    pub config: &'a ConfigApi<'a>,
+    pub crypt: &'a CryptApi<'a>,
 }

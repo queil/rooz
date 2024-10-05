@@ -34,7 +34,7 @@ impl<'a> WorkspaceApi<'a> {
             UpdateMode::Purge => self.remove(&workspace_key, true).await?,
         };
 
-        let identity = self.read_age_identity().await?;
+        let identity = self.crypt.read_age_identity().await?;
 
         if let Some(labels) = &container.labels {
             if interactive {}
@@ -45,11 +45,11 @@ impl<'a> WorkspaceApi<'a> {
             let mut original_config = RoozCfg::deserialize_config(original_body, format)?.unwrap();
 
             let config_to_apply = if interactive {
-                original_config.decrypt(&identity).await?;
+                self.config.decrypt(& mut original_config, &identity).await?;
 
                 let decrypted_string = original_config.to_string(format)?;
-                let (encrypted_config, _) = self
-                    .edit_config_core(decrypted_string.clone(), format, &identity)
+                let (encrypted_config, _) = self.config
+                    .edit_string(decrypted_string.clone(), format, &identity)
                     .await?;
                 encrypted_config
             } else {

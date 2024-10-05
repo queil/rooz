@@ -7,7 +7,7 @@ use crate::{
         types::{AnyError, ContainerResult, RunSpec, WorkSpec, WorkspaceResult},
         volume::RoozVolume,
     },
-    util::{self, ssh},
+    util::ssh,
 };
 
 impl<'a> WorkspaceApi<'a> {
@@ -45,7 +45,7 @@ impl<'a> WorkspaceApi<'a> {
             Path::new(&home_dir).join(".ssh").to_string_lossy().as_ref(),
         ));
 
-        mounts.push(util::crypt::mount(
+        mounts.push(self.crypt.mount(
             Path::new(&home_dir).join(".age").to_string_lossy().as_ref(),
         ));
 

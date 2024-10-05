@@ -1,6 +1,5 @@
-use super::labels::Labels;
 use crate::api::container::inject;
-use crate::api::WorkspaceApi;
+use crate::api::CryptApi;
 use crate::model::types::{AnyError, ContainerResult, RunSpec};
 use crate::{constants, util::id};
 use age::x25519::{Identity, Recipient};
@@ -12,19 +11,18 @@ use std::iter;
 
 pub const VOLUME_NAME: &'static str = "rooz-age-key-vol";
 
-pub fn mount(target: &str) -> Mount {
-    Mount {
-        typ: Some(VOLUME),
-        source: Some(VOLUME_NAME.into()),
-        target: Some(target.into()),
-        ..Default::default()
-    }
-}
+impl<'a> CryptApi<'a> {
 
-impl<'a> WorkspaceApi<'a> {
+    pub fn mount(&self, target: &str) -> Mount {
+        Mount {
+            typ: Some(VOLUME),
+            source: Some(VOLUME_NAME.into()),
+            target: Some(target.into()),
+            ..Default::default()
+        }
+    }
+
     pub async fn read_age_identity(&self) -> Result<Identity, AnyError> {
-        let workspace_key = id::random_suffix("tmp");
-        let labels = Labels::default();
         let work_dir = "/tmp/.age";
         let entrypoint = inject(&format!("cat {}/age.key", work_dir), "entrypoint.sh");
         let run_spec = RunSpec {
@@ -33,13 +31,12 @@ impl<'a> WorkspaceApi<'a> {
             uid: constants::ROOT_UID,
             work_dir: None,
             container_name: &id::random_suffix("read-age"),
-            workspace_key: &workspace_key,
-            mounts: Some(vec![mount(work_dir)]),
+            workspace_key: &id::random_suffix("tmp"),
+            mounts: Some(vec![self.mount(work_dir)]),
             entrypoint: Some(vec!["cat"]),
             privileged: false,
             force_recreate: false,
             auto_remove: true,
-            labels,
             ..Default::default()
         };
 
@@ -69,36 +66,36 @@ impl<'a> WorkspaceApi<'a> {
             _ => panic!("Could not read age identity"),
         }
     }
-}
 
-pub fn encrypt(plaintext: String, recipient: Recipient) -> Result<String, AnyError> {
-    let encryptor = age::Encryptor::with_recipients(vec![Box::new(recipient)]).unwrap();
-    let mut encrypted = vec![];
-    let mut writer = encryptor.wrap_output(age::armor::ArmoredWriter::wrap_output(
-        &mut encrypted,
-        age::armor::Format::AsciiArmor,
-    )?)?;
-    writer.write_all(plaintext.as_bytes())?;
-    writer.finish().and_then(|armor| armor.finish())?;
-    Ok(std::str::from_utf8(&encrypted)?
-        .to_string()
-        .replace("\n", "|"))
-}
-
-//TODO: improve experience when there is no matching decryption key
-pub fn decrypt(identity: &dyn age::Identity, secret: &str) -> Result<String, AnyError> {
-    let formatted = secret.replace("|", "\n");
-    let encrypted = formatted.as_bytes();
-    let decrypted = {
-        let decryptor = match age::Decryptor::new(age::armor::ArmoredReader::new(encrypted))? {
-            age::Decryptor::Recipients(d) => d,
-            _ => unreachable!(),
+    pub fn encrypt(&self, plaintext: String, recipient: Recipient) -> Result<String, AnyError> {
+        let encryptor = age::Encryptor::with_recipients(vec![Box::new(recipient)]).unwrap();
+        let mut encrypted = vec![];
+        let mut writer = encryptor.wrap_output(age::armor::ArmoredWriter::wrap_output(
+            &mut encrypted,
+            age::armor::Format::AsciiArmor,
+        )?)?;
+        writer.write_all(plaintext.as_bytes())?;
+        writer.finish().and_then(|armor| armor.finish())?;
+        Ok(std::str::from_utf8(&encrypted)?
+            .to_string()
+            .replace("\n", "|"))
+    }
+    
+    //TODO: improve experience when there is no matching decryption key
+    pub fn decrypt(&self, identity: &dyn age::Identity, secret: &str) -> Result<String, AnyError> {
+        let formatted = secret.replace("|", "\n");
+        let encrypted = formatted.as_bytes();
+        let decrypted = {
+            let decryptor = match age::Decryptor::new(age::armor::ArmoredReader::new(encrypted))? {
+                age::Decryptor::Recipients(d) => d,
+                _ => unreachable!(),
+            };
+    
+            let mut decrypted = vec![];
+            let mut reader = decryptor.decrypt(iter::once(identity))?;
+            reader.read_to_end(&mut decrypted)?;
+            decrypted
         };
-
-        let mut decrypted = vec![];
-        let mut reader = decryptor.decrypt(iter::once(identity))?;
-        reader.read_to_end(&mut decrypted)?;
-        decrypted
-    };
-    Ok(std::str::from_utf8(&decrypted[..])?.to_string())
+        Ok(std::str::from_utf8(&decrypted[..])?.to_string())
+    }
 }

@@ -23,6 +23,7 @@ use crate::{
     util::backend::ContainerBackend,
 };
 
+use api::{ConfigApi, CryptApi};
 use bollard::Docker;
 use clap::{CommandFactory, Parser};
 use clap_complete::generate;
@@ -82,6 +83,7 @@ async fn main() -> Result<(), AnyError> {
         client: &docker,
         backend: &backend,
     };
+
     let rooz = Api {
         exec: &exec_api,
         image: &image_api,
@@ -90,11 +92,20 @@ async fn main() -> Result<(), AnyError> {
         client: &docker,
     };
 
+    let crypt_api = CryptApi { api: &rooz };
+
     let git_api = GitApi { api: &rooz };
+
+    let config_api = ConfigApi {
+        api: &rooz,
+        crypt: &crypt_api,
+    };
 
     let workspace = WorkspaceApi {
         api: &rooz,
         git: &git_api,
+        config: &config_api,
+        crypt: &crypt_api,
     };
 
     match args {
@@ -125,7 +136,7 @@ async fn main() -> Result<(), AnyError> {
                     None => Ok(()),
                 }?;
 
-            let identity = workspace.read_age_identity().await?;
+            let identity = crypt_api.read_age_identity().await?;
 
             workspace
                 .new(&name, &work, config_source, false, &identity)
@@ -253,7 +264,8 @@ async fn main() -> Result<(), AnyError> {
             ..
         } => {
             workspace
-                .config_template(match format {
+                .config
+                .template(match format {
                     cli::ConfigFormat::Toml => FileFormat::Toml,
                     cli::ConfigFormat::Yaml => FileFormat::Yaml,
                 })
@@ -266,7 +278,7 @@ async fn main() -> Result<(), AnyError> {
                     command: cli::ConfigCommands::Edit(EditConfigParams { config_path }),
                 }),
             ..
-        } => workspace.edit_config_file(&config_path).await?,
+        } => workspace.config.edit(&config_path).await?,
 
         Cli {
             command:
@@ -275,7 +287,7 @@ async fn main() -> Result<(), AnyError> {
                 }),
             ..
         } => {
-            workspace.show(&name, part, output).await?;
+            workspace.config.show(&name, part, output).await?;
         }
 
         Cli {

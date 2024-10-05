@@ -36,7 +36,7 @@ impl<'a> WorkspaceApi<'a> {
             cfg_builder.from_config(c);
         }
         cfg_builder.from_cli(cli_params, None);
-        cfg_builder.decrypt(identity).await?;
+        self.config.decrypt(cfg_builder, identity).await?;
         cfg_builder.expand_vars()?;
 
         let cfg = RuntimeConfig::from(&*cfg_builder);
@@ -273,7 +273,7 @@ impl<'a> WorkspaceApi<'a> {
     }
 
     pub async fn tmp(&self, spec: &WorkParams, root: bool, shell: &str) -> Result<(), AnyError> {
-        let identity = self.read_age_identity().await?;
+        let identity = self.crypt.read_age_identity().await?;
         let EnterSpec {
             workspace,
             git_spec,

@@ -1,16 +1,16 @@
 use super::config::RoozCfg;
-use crate::{model::types::AnyError, util::crypt};
+use crate::{api::ConfigApi, model::types::AnyError};
 use age::x25519::Identity;
 use linked_hash_map::LinkedHashMap;
 
-impl<'a> RoozCfg {
-    pub async fn decrypt(&mut self, identity: &Identity) -> Result<(), AnyError> {
-        self.secrets = match self.secrets.clone() {
+impl<'a> ConfigApi<'a> {
+    pub async fn decrypt(&self, config: &mut RoozCfg, identity: &Identity) -> Result<(), AnyError> {
+        config.secrets = match config.secrets.clone() {
             Some(secrets) if secrets.len() > 0 => {
                 log::debug!("Decrypting secrets");
                 let mut ret = LinkedHashMap::<String, String>::new();
                 for (k, v) in secrets.iter() {
-                    ret.insert(k.to_string(), crypt::decrypt(identity, v)?);
+                    ret.insert(k.to_string(), self.crypt.decrypt(identity, v)?);
                 }
                 Some(ret)
             }
@@ -20,17 +20,17 @@ impl<'a> RoozCfg {
         Ok(())
     }
 
-    pub async fn encrypt(&mut self, identity: &Identity) -> Result<(), AnyError> {
+    pub async fn encrypt(&self, config: & mut RoozCfg, identity: &Identity) -> Result<(), AnyError> {
         let mut encrypted_secrets = LinkedHashMap::<String, String>::new();
-        if let Some(edited_secrets) = self.clone().secrets {
+        if let Some(edited_secrets) = config.clone().secrets {
             for (k, v) in edited_secrets {
                 encrypted_secrets.insert(
                     k.to_string(),
-                    crypt::encrypt(v.to_string(), identity.to_public())?,
+                    self.crypt.encrypt(v.to_string(), identity.to_public())?,
                 );
             }
         };
-        self.secrets = if encrypted_secrets.len() > 0 {
+        config.secrets = if encrypted_secrets.len() > 0 {
             Some(encrypted_secrets)
         } else {
             None
