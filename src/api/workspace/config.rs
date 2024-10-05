@@ -5,7 +5,7 @@ use std::{
 
 use crate::{
     api::WorkspaceApi,
-    cli::{ConfigFormat, ConfigPart, WorkEnvParams, WorkParams, WorkspacePersistence},
+    cli::{ConfigFormat, ConfigPart, WorkEnvParams, WorkParams},
     config::{
         config::{ConfigSource, FileFormat, RoozCfg},
         runtime::RuntimeConfig,
@@ -149,6 +149,11 @@ impl<'a> WorkspaceApi<'a> {
             .await?
             .ok_or(format!("Workspace not found: {}", &workspace_key))?;
 
+        match mode {
+            UpdateMode::Apply => self.remove_containers_only(&workspace_key, true).await?,
+            UpdateMode::Purge => self.remove(&workspace_key, true).await?,
+        };
+
         let identity = self.read_age_identity().await?;
 
         if let Some(labels) = &container.labels {
@@ -171,26 +176,11 @@ impl<'a> WorkspaceApi<'a> {
                 original_config
             };
 
-            let persistence = WorkspacePersistence {
-                name: labels[labels::WORKSPACE_KEY].to_string(),
-                replace: match mode {
-                    UpdateMode::Purge => true,
-                    _ => false,
-                },
-                apply: match mode {
-                    UpdateMode::Apply => true,
-                    _ => false,
-                },
-            };
-
             self.new(
+                &labels[labels::WORKSPACE_KEY],
                 &WorkParams {
                     env: spec.clone(),
-                    pull_image: if no_pull {
-                        false
-                    } else {
-                        true
-                    },
+                    pull_image: if no_pull { false } else { true },
                     ..Default::default()
                 },
                 Some(ConfigSource::Body {
@@ -198,7 +188,7 @@ impl<'a> WorkspaceApi<'a> {
                     origin: config_source.to_string(),
                     format,
                 }),
-                Some(persistence),
+                false,
                 &identity,
             )
             .await?;

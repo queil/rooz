@@ -15,8 +15,8 @@ use crate::{
         Commands::{
             Code, Config, Enter, List, New, Remote, Remove, Start, Stop, System, Tmp, Update,
         },
-        CompletionParams, ListParams, NewParams, RemoveParams, ShowConfigParams,
-        StopParams, TmpParams,
+        CompletionParams, ListParams, NewParams, RemoveParams, ShowConfigParams, StopParams,
+        TmpParams,
     },
     cmd::remote,
     model::types::AnyError,
@@ -31,6 +31,7 @@ use cli::{
     CodeParams, EditConfigParams, EnterParams, StartParams, TemplateConfigParams, UpdateParams,
 };
 use config::config::{ConfigPath, ConfigSource, FileFormat};
+use util::labels::{self, Labels};
 
 #[tokio::main]
 async fn main() -> Result<(), AnyError> {
@@ -101,7 +102,7 @@ async fn main() -> Result<(), AnyError> {
             command:
                 New(NewParams {
                     work,
-                    persistence,
+                    name,
                     config_path,
                 }),
             ..
@@ -113,13 +114,25 @@ async fn main() -> Result<(), AnyError> {
                 None => None,
             };
 
+            let labels = Labels {
+                workspace: Labels::workspace(&name),
+                role: Labels::role(labels::ROLE_WORK),
+                ..Default::default()
+            };
+
+            match workspace.api.container.get_single(&labels).await? {
+                    Some(_) => Err(format!("Workspace already exists. Did you mean: rooz enter {}? Otherwise, use rooz update to modify the workspace.", name.clone())),
+                    None => Ok(()),
+                }?;
+
             let identity = workspace.read_age_identity().await?;
+
             workspace
-                .new(&work, config_source, Some(persistence.clone()), &identity)
+                .new(&name, &work, config_source, false, &identity)
                 .await?;
             println!(
                 "\nThe workspace is ready. Run 'rooz enter {}' to enter.",
-                persistence.name
+                name
             );
         }
 
@@ -204,7 +217,18 @@ async fn main() -> Result<(), AnyError> {
                 }),
             ..
         } => {
-            workspace.update(&name, &env, edit, match purge { true => UpdateMode::Purge, _ => UpdateMode::Apply }, no_pull).await?;
+            workspace
+                .update(
+                    &name,
+                    &env,
+                    edit,
+                    match purge {
+                        true => UpdateMode::Purge,
+                        _ => UpdateMode::Apply,
+                    },
+                    no_pull,
+                )
+                .await?;
         }
 
         Cli {

@@ -4,7 +4,7 @@ use age::x25519::Identity;
 
 use crate::{
     api::WorkspaceApi,
-    cli::{WorkParams, WorkspacePersistence},
+    cli::WorkParams,
     config::{
         config::{ConfigPath, ConfigSource, FileFormat, RoozCfg},
         runtime::RuntimeConfig,
@@ -160,39 +160,19 @@ impl<'a> WorkspaceApi<'a> {
 
     pub async fn new(
         &self,
+        workspace_key: &str,
         cli_params: &WorkParams,
         cli_config_path: Option<ConfigSource>,
-        persistence: Option<WorkspacePersistence>,
+        ephemeral: bool,
         identity: &Identity,
     ) -> Result<EnterSpec, AnyError> {
-        let ephemeral = persistence.is_none();
         let orig_uid = constants::DEFAULT_UID.to_string();
-
-        let (workspace_key, replace, apply) = match persistence {
-            Some(p) => (p.name.to_string(), p.replace, p.apply),
-            None => (id::random_suffix("tmp"), false, false),
-        };
 
         let mut labels = Labels {
             workspace: Labels::workspace(&workspace_key),
             role: Labels::role(labels::ROLE_WORK),
             ..Default::default()
         };
-
-        if !apply && !replace {
-            match self.api.container.get_single(&labels).await? {
-                Some(_) => Err(format!("Container already exists. Did you mean: rooz enter {}? Otherwise, use --apply to reconfigure containers or --replace to recreate the whole workspace.", workspace_key.clone())),
-                None => Ok(()),
-            }?;
-        }
-
-        if apply {
-            self.remove_containers_only(&workspace_key, true).await?;
-        }
-
-        if replace {
-            self.remove(&workspace_key, true).await?;
-        }
 
         self.api
             .image
@@ -218,7 +198,7 @@ impl<'a> WorkspaceApi<'a> {
             container_name: &workspace_key,
             workspace_key: &workspace_key,
             ephemeral,
-            force_recreate: replace,
+            force_recreate: false,
             ..Default::default()
         };
 
@@ -236,7 +216,7 @@ impl<'a> WorkspaceApi<'a> {
                     &clone_env,
                     None,
                     &workspace_key,
-                    replace,
+                    false,
                     work_dir,
                     identity,
                 )
@@ -278,7 +258,7 @@ impl<'a> WorkspaceApi<'a> {
                         &clone_env,
                         Some(root_repo_result),
                         &workspace_key,
-                        replace,
+                        false,
                         work_dir,
                         identity,
                     )
@@ -298,7 +278,9 @@ impl<'a> WorkspaceApi<'a> {
             workspace,
             git_spec,
             config,
-        } = self.new(spec, None, None, &identity).await?;
+        } = self
+            .new(&id::random_suffix("tmp"), spec, None, true, &identity)
+            .await?;
 
         let working_dir = git_spec
             .map(|v| (&v).dir.to_string())
