@@ -267,7 +267,7 @@ impl<'a> WorkspaceApi<'a> {
             },
         };
         if let Some(true) = cli_params.start {
-            self.start_workspace(&workspace_key).await?;
+            self.start(&workspace_key).await?;
         }
         enter_spec
     }

@@ -23,13 +23,13 @@ use crate::{
     util::backend::ContainerBackend,
 };
 
-use api::workspace::config::UpdateMode;
 use bollard::Docker;
 use clap::{CommandFactory, Parser};
 use clap_complete::generate;
 use cli::{
     CodeParams, EditConfigParams, EnterParams, StartParams, TemplateConfigParams, UpdateParams,
 };
+use cmd::update::UpdateMode;
 use config::config::{ConfigPath, ConfigSource, FileFormat};
 use util::labels::{self, Labels};
 
@@ -164,7 +164,7 @@ async fn main() -> Result<(), AnyError> {
         Cli {
             command: List(ListParams {}),
             ..
-        } => cmd::list::list(&docker).await?,
+        } => rooz.list().await?,
 
         Cli {
             command:
@@ -196,7 +196,7 @@ async fn main() -> Result<(), AnyError> {
             command: Start(StartParams { name }),
             ..
         } => {
-            workspace.start_workspace(&name).await?;
+            workspace.start(&name).await?;
         }
 
         Cli {
@@ -275,7 +275,7 @@ async fn main() -> Result<(), AnyError> {
                 }),
             ..
         } => {
-            workspace.show_config(&name, part, output).await?;
+            workspace.show(&name, part, output).await?;
         }
 
         Cli {
