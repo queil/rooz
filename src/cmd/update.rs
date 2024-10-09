@@ -1,9 +1,13 @@
 use crate::{
     api::WorkspaceApi,
     cli::{WorkEnvParams, WorkParams},
-    config::config::{ConfigSource, FileFormat, RoozCfg},
+    config::config::{ConfigPath, ConfigSource, FileFormat, RoozCfg},
+    constants,
     model::{types::AnyError, volume::WORK_ROLE},
-    util::labels::{self, Labels},
+    util::{
+        git::CloneEnv,
+        labels::{self, Labels},
+    },
 };
 
 pub enum UpdateMode {
@@ -37,17 +41,40 @@ impl<'a> WorkspaceApi<'a> {
         let identity = self.crypt.read_age_identity().await?;
 
         if let Some(labels) = &container.labels {
-
             let config_source = &labels[labels::CONFIG_ORIGIN];
             let format = FileFormat::from_path(config_source);
-            let original_body = &labels[labels::CONFIG_BODY];
-            let mut original_config = RoozCfg::deserialize_config(original_body, format)?.unwrap();
+            let mut original_body = labels[labels::CONFIG_BODY].clone();
+
+            match ConfigPath::from_str(&config_source)? {
+                ConfigPath::File { .. } => (),
+                ConfigPath::Git { url, file_path } => {
+                    let clone_env = CloneEnv {
+                        image: constants::DEFAULT_IMAGE.into(),
+                        uid: constants::DEFAULT_UID.to_string(),
+                        workspace_key: workspace_key.to_string(),
+                        working_dir: constants::WORK_DIR.to_string(),
+                        use_volume: false,
+                    };
+
+                    match self
+                        .git
+                        .clone_config_repo(clone_env, &url, &file_path)
+                        .await?
+                    {
+                        Some(cfg) => original_body = cfg.to_string(),
+                        None => (),
+                    };
+                }
+            };
+
+            let mut original_config = RoozCfg::deserialize_config(&original_body, format)?.unwrap();
 
             let config_to_apply = if interactive {
-                self.config.decrypt(& mut original_config, &identity).await?;
+                self.config.decrypt(&mut original_config, &identity).await?;
 
                 let decrypted_string = original_config.to_string(format)?;
-                let (encrypted_config, _) = self.config
+                let (encrypted_config, _) = self
+                    .config
                     .edit_string(decrypted_string.clone(), format, &identity)
                     .await?;
                 encrypted_config

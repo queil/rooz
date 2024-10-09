@@ -186,6 +186,7 @@ impl<'a> WorkspaceApi<'a> {
             uid: orig_uid.to_string(),
             workspace_key: workspace_key.to_string(),
             working_dir: work_dir.to_string(),
+            use_volume: true,
         };
 
         let cli_cfg = self

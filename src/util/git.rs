@@ -21,6 +21,7 @@ pub struct CloneEnv {
     pub uid: String,
     pub workspace_key: String,
     pub working_dir: String,
+    pub use_volume: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -107,15 +108,18 @@ impl<'a> GitApi<'a> {
         }
 
         let clone_cmd = container::inject(&clone_script, "clone.sh");
-
         let labels = Labels::new(Some(&spec.workspace_key), Some("git"));
+        let mut mounts = vec![ssh::mount("/tmp/.ssh")];
 
-        let vol = RoozVolume::work(&spec.workspace_key, &spec.working_dir);
+        if spec.use_volume {
+            let vol = RoozVolume::work(&spec.workspace_key, &spec.working_dir);
 
-        self.api
-            .volume
-            .ensure_mounts(&vec![vol.clone().into()], None)
-            .await?;
+            self.api
+                .volume
+                .ensure_mounts(&vec![vol.clone().into()], None)
+                .await?;
+            mounts.push(vol.to_mount(None));
+        };
 
         let run_spec = RunSpec {
             reason: "git-clone",
@@ -124,7 +128,7 @@ impl<'a> GitApi<'a> {
             work_dir: Some(&spec.working_dir),
             container_name: &id::random_suffix("rooz-git"),
             workspace_key: &spec.workspace_key,
-            mounts: Some(vec![vol.to_mount(None), ssh::mount("/tmp/.ssh")]),
+            mounts: Some(mounts),
             entrypoint: Some(vec!["cat"]),
             privileged: false,
             force_recreate: false,
