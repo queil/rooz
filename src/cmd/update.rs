@@ -37,7 +37,6 @@ impl<'a> WorkspaceApi<'a> {
         let identity = self.crypt.read_age_identity().await?;
 
         if let Some(labels) = &container.labels {
-            if interactive {}
 
             let config_source = &labels[labels::CONFIG_ORIGIN];
             let format = FileFormat::from_path(config_source);
