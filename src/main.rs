@@ -222,7 +222,7 @@ async fn main() -> Result<(), AnyError> {
                 Update(UpdateParams {
                     name,
                     env,
-                    edit,
+                    tweak,
                     purge,
                     no_pull,
                 }),
@@ -232,7 +232,7 @@ async fn main() -> Result<(), AnyError> {
                 .update(
                     &name,
                     &env,
-                    edit,
+                    tweak,
                     match purge {
                         true => UpdateMode::Purge,
                         _ => UpdateMode::Apply,

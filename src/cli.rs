@@ -267,12 +267,12 @@ pub struct UpdateParams {
     #[arg(
         long,
         short,
-        help = "If set allows to edit the existing config and apply the edited version"
+        help = "If set allows to tweak the existing config and apply the edited version."
     )]
-    pub edit: bool,
+    pub tweak: bool,
     #[arg(
         long,
-        conflicts_with = "edit",
+        conflicts_with = "tweak",
         help = "If set it removes the workspace volumes. WARNING: potential data loss ahead"
     )]
     pub purge: bool,

@@ -45,27 +45,29 @@ impl<'a> WorkspaceApi<'a> {
             let format = FileFormat::from_path(config_source);
             let mut original_body = labels[labels::CONFIG_BODY].clone();
 
-            match ConfigPath::from_str(&config_source)? {
-                ConfigPath::File { .. } => (),
-                ConfigPath::Git { url, file_path } => {
-                    let clone_env = CloneEnv {
-                        image: constants::DEFAULT_IMAGE.into(),
-                        uid: constants::DEFAULT_UID.to_string(),
-                        workspace_key: workspace_key.to_string(),
-                        working_dir: constants::WORK_DIR.to_string(),
-                        use_volume: false,
-                    };
+            if !interactive {
+                match ConfigPath::from_str(&config_source)? {
+                    ConfigPath::File { .. } => (),
+                    ConfigPath::Git { url, file_path } => {
+                        let clone_env = CloneEnv {
+                            image: constants::DEFAULT_IMAGE.into(),
+                            uid: constants::DEFAULT_UID.to_string(),
+                            workspace_key: workspace_key.to_string(),
+                            working_dir: constants::WORK_DIR.to_string(),
+                            use_volume: false,
+                        };
 
-                    match self
-                        .git
-                        .clone_config_repo(clone_env, &url, &file_path)
-                        .await?
-                    {
-                        Some(cfg) => original_body = cfg.to_string(),
-                        None => (),
-                    };
-                }
-            };
+                        match self
+                            .git
+                            .clone_config_repo(clone_env, &url, &file_path)
+                            .await?
+                        {
+                            Some(cfg) => original_body = cfg.to_string(),
+                            None => (),
+                        };
+                    }
+                };
+            }
 
             let mut original_config = RoozCfg::deserialize_config(&original_body, format)?.unwrap();
 
@@ -86,7 +88,7 @@ impl<'a> WorkspaceApi<'a> {
                 &labels[labels::WORKSPACE_KEY],
                 &WorkParams {
                     env: spec.clone(),
-                    pull_image: if no_pull { false } else { true },
+                    pull_image: if no_pull || interactive { false } else { true },
                     ..Default::default()
                 },
                 Some(ConfigSource::Body {
