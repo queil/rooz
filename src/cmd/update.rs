@@ -2,7 +2,6 @@ use crate::{
     api::WorkspaceApi,
     cli::{WorkEnvParams, WorkParams},
     config::config::{ConfigPath, ConfigSource, FileFormat, RoozCfg},
-    constants,
     model::{types::AnyError, volume::WORK_ROLE},
     util::{
         git::CloneEnv,
@@ -50,11 +49,10 @@ impl<'a> WorkspaceApi<'a> {
                     ConfigPath::File { .. } => (),
                     ConfigPath::Git { url, file_path } => {
                         let clone_env = CloneEnv {
-                            image: constants::DEFAULT_IMAGE.into(),
-                            uid: constants::DEFAULT_UID.to_string(),
                             workspace_key: workspace_key.to_string(),
-                            working_dir: constants::WORK_DIR.to_string(),
                             use_volume: false,
+                            depth_override: Some(1),
+                            ..Default::default()
                         };
 
                         match self

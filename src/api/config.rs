@@ -11,7 +11,6 @@ use colored::Colorize;
 use super::ConfigApi;
 
 impl<'a> ConfigApi<'a> {
-
     fn edit_error(&self, message: &str) -> () {
         eprintln!("{}", "Error: Invalid configuration".bold().red());
         eprintln!("{}", message.red());
@@ -59,7 +58,7 @@ impl<'a> ConfigApi<'a> {
             };
             break;
         }
-        self.encrypt(& mut edited_config, identity).await?;
+        self.encrypt(&mut edited_config, identity).await?;
         Ok((edited_config, edited_body))
     }
 }

@@ -12,7 +12,6 @@ use std::iter;
 pub const VOLUME_NAME: &'static str = "rooz-age-key-vol";
 
 impl<'a> CryptApi<'a> {
-
     pub fn mount(&self, target: &str) -> Mount {
         Mount {
             typ: Some(VOLUME),
@@ -80,7 +79,7 @@ impl<'a> CryptApi<'a> {
             .to_string()
             .replace("\n", "|"))
     }
-    
+
     //TODO: improve experience when there is no matching decryption key
     pub fn decrypt(&self, identity: &dyn age::Identity, secret: &str) -> Result<String, AnyError> {
         let formatted = secret.replace("|", "\n");
@@ -90,7 +89,7 @@ impl<'a> CryptApi<'a> {
                 age::Decryptor::Recipients(d) => d,
                 _ => unreachable!(),
             };
-    
+
             let mut decrypted = vec![];
             let mut reader = decryptor.decrypt(iter::once(identity))?;
             reader.read_to_end(&mut decrypted)?;

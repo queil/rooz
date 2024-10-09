@@ -96,13 +96,14 @@ pub async fn remote(ssh_url: &str, local_docker_host: &str) -> Result<(), AnyErr
                 filters: (&labels::Labels::default()).into(),
                 ..Default::default()
             }))
-            .await {
-                Ok(data) => data,
-                Err(e) => {
-                    log::debug!("{}", e);
-                    vec![]
-                },
-            };
+            .await
+        {
+            Ok(data) => data,
+            Err(e) => {
+                log::debug!("{}", e);
+                vec![]
+            }
+        };
 
         for (name, ports) in containers.iter().map(|c| {
             let names = c

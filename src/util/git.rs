@@ -1,6 +1,7 @@
 use crate::{
     api::{container, ExecApi, GitApi},
     config::config::FileFormat,
+    constants,
     model::{
         types::{AnyError, ContainerResult, RunSpec},
         volume::RoozVolume,
@@ -22,6 +23,20 @@ pub struct CloneEnv {
     pub workspace_key: String,
     pub working_dir: String,
     pub use_volume: bool,
+    pub depth_override: Option<i64>,
+}
+
+impl Default for CloneEnv {
+    fn default() -> Self {
+        Self {
+            image: constants::DEFAULT_IMAGE.to_string(),
+            uid: constants::DEFAULT_UID.to_string(),
+            workspace_key: Default::default(),
+            working_dir: constants::WORK_DIR.to_string(),
+            use_volume: true,
+            depth_override: None,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -96,12 +111,19 @@ impl<'a> GitApi<'a> {
                 urls.iter().map(|x| x.to_string()).collect::<Vec<String>>()
             }
         };
+
+        let depth = if let Some(depth) = spec.depth_override {
+            format!("--depth={}", depth)
+        } else {
+            "".to_string()
+        };
+
         for url in all_urls {
             let clone_dir = get_clone_dir(&spec.working_dir, &url);
             clone_script.push_str(
                 format!(
-                    "ls '{}/.git' > /dev/null 2>&1 || git clone --filter=blob:none {}\n",
-                    &clone_dir, &url
+                    "ls '{}/.git' > /dev/null 2>&1 || git clone --filter=blob:none {} {}\n",
+                    &clone_dir, &depth, &url
                 )
                 .as_str(),
             )
@@ -229,7 +251,11 @@ impl<'a> GitApi<'a> {
     ) -> Result<Option<String>, AnyError> {
         let container_id = self
             .clone_from_spec(
-                &spec,
+                &CloneEnv {
+                    use_volume: false,
+                    depth_override: Some(1),
+                    ..spec.clone()
+                },
                 &CloneUrls::Extra {
                     urls: vec![url.into()],
                 },

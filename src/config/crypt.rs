@@ -20,7 +20,7 @@ impl<'a> ConfigApi<'a> {
         Ok(())
     }
 
-    pub async fn encrypt(&self, config: & mut RoozCfg, identity: &Identity) -> Result<(), AnyError> {
+    pub async fn encrypt(&self, config: &mut RoozCfg, identity: &Identity) -> Result<(), AnyError> {
         let mut encrypted_secrets = LinkedHashMap::<String, String>::new();
         if let Some(edited_secrets) = config.clone().secrets {
             for (k, v) in edited_secrets {

@@ -182,11 +182,10 @@ impl<'a> WorkspaceApi<'a> {
         let work_dir = constants::WORK_DIR;
 
         let clone_env = CloneEnv {
-            image: constants::DEFAULT_IMAGE.into(),
             uid: orig_uid.to_string(),
             workspace_key: workspace_key.to_string(),
             working_dir: work_dir.to_string(),
-            use_volume: true,
+            ..Default::default()
         };
 
         let cli_cfg = self

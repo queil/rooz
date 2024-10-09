@@ -9,7 +9,6 @@ use crate::{
     util::labels::{self, Labels},
 };
 
-
 impl<'a> ConfigApi<'a> {
     pub async fn show(
         &self,

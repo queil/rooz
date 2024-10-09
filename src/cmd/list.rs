@@ -1,5 +1,7 @@
 use crate::{
-    api::Api, model::types::AnyError, util::labels::{self, Labels, CONFIG_ORIGIN}
+    api::Api,
+    model::types::AnyError,
+    util::labels::{self, Labels, CONFIG_ORIGIN},
 };
 
 use bollard::{container::ListContainersOptions, service::ContainerSummary};
