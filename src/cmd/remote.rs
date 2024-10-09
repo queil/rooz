@@ -87,15 +87,22 @@ pub async fn remote(ssh_url: &str, local_docker_host: &str) -> Result<(), AnyErr
         local_socket_path.display()
     );
 
-    let docker = Docker::connect_with_local_defaults()?;
+    let docker = Docker::connect_with_local_defaults()?.with_timeout(Duration::from_secs(10));
     let mut tunnels = HashSet::<u16>::new();
+
     loop {
-        let containers = docker
+        let containers = match docker
             .list_containers(Some(ListContainersOptions {
                 filters: (&labels::Labels::default()).into(),
                 ..Default::default()
             }))
-            .await?;
+            .await {
+                Ok(data) => data,
+                Err(e) => {
+                    log::debug!("{}", e);
+                    vec![]
+                },
+            };
 
         for (name, ports) in containers.iter().map(|c| {
             let names = c

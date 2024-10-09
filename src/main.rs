@@ -13,21 +13,26 @@ use crate::{
     cli::{
         Cli,
         Commands::{
-            Code, Config, Edit, Enter, List, New, Remote, Remove, Start, Stop, System, Tmp,
+            Code, Config, Enter, List, New, Remote, Remove, Start, Stop, System, Tmp, Update,
         },
-        CompletionParams, EditParams, ListParams, NewParams, RemoveParams, ShowConfigParams,
-        StopParams, TmpParams,
+        CompletionParams, ListParams, NewParams, RemoveParams, ShowConfigParams, StopParams,
+        TmpParams,
     },
     cmd::remote,
     model::types::AnyError,
     util::backend::ContainerBackend,
 };
 
+use api::{ConfigApi, CryptApi};
 use bollard::Docker;
 use clap::{CommandFactory, Parser};
 use clap_complete::generate;
-use cli::{CodeParams, EditConfigParams, EnterParams, StartParams, TemplateConfigParams};
+use cli::{
+    CodeParams, EditConfigParams, EnterParams, StartParams, TemplateConfigParams, UpdateParams,
+};
+use cmd::update::UpdateMode;
 use config::config::{ConfigPath, ConfigSource, FileFormat};
+use util::labels::{self, Labels};
 
 #[tokio::main]
 async fn main() -> Result<(), AnyError> {
@@ -78,6 +83,7 @@ async fn main() -> Result<(), AnyError> {
         client: &docker,
         backend: &backend,
     };
+
     let rooz = Api {
         exec: &exec_api,
         image: &image_api,
@@ -86,11 +92,20 @@ async fn main() -> Result<(), AnyError> {
         client: &docker,
     };
 
+    let crypt_api = CryptApi { api: &rooz };
+
     let git_api = GitApi { api: &rooz };
+
+    let config_api = ConfigApi {
+        api: &rooz,
+        crypt: &crypt_api,
+    };
 
     let workspace = WorkspaceApi {
         api: &rooz,
         git: &git_api,
+        config: &config_api,
+        crypt: &crypt_api,
     };
 
     match args {
@@ -98,7 +113,7 @@ async fn main() -> Result<(), AnyError> {
             command:
                 New(NewParams {
                     work,
-                    persistence,
+                    name,
                     config_path,
                 }),
             ..
@@ -110,12 +125,25 @@ async fn main() -> Result<(), AnyError> {
                 None => None,
             };
 
+            let labels = Labels {
+                workspace: Labels::workspace(&name),
+                role: Labels::role(labels::ROLE_WORK),
+                ..Default::default()
+            };
+
+            match workspace.api.container.get_single(&labels).await? {
+                    Some(_) => Err(format!("Workspace already exists. Did you mean: rooz enter {}? Otherwise, use rooz update to modify the workspace.", name.clone())),
+                    None => Ok(()),
+                }?;
+
+            let identity = crypt_api.read_age_identity().await?;
+
             workspace
-                .new(&work, config_source, Some(persistence.clone()))
+                .new(&name, &work, config_source, false, &identity)
                 .await?;
             println!(
                 "\nThe workspace is ready. Run 'rooz enter {}' to enter.",
-                persistence.name
+                name
             );
         }
 
@@ -147,7 +175,7 @@ async fn main() -> Result<(), AnyError> {
         Cli {
             command: List(ListParams {}),
             ..
-        } => cmd::list::list(&docker).await?,
+        } => rooz.list().await?,
 
         Cli {
             command:
@@ -179,7 +207,7 @@ async fn main() -> Result<(), AnyError> {
             command: Start(StartParams { name }),
             ..
         } => {
-            workspace.start_workspace(&name).await?;
+            workspace.start(&name).await?;
         }
 
         Cli {
@@ -190,10 +218,28 @@ async fn main() -> Result<(), AnyError> {
         }
 
         Cli {
-            command: Edit(EditParams { name, env }),
+            command:
+                Update(UpdateParams {
+                    name,
+                    env,
+                    tweak,
+                    purge,
+                    no_pull,
+                }),
             ..
         } => {
-            workspace.edit_existing(&name, &env).await?;
+            workspace
+                .update(
+                    &name,
+                    &env,
+                    tweak,
+                    match purge {
+                        true => UpdateMode::Purge,
+                        _ => UpdateMode::Apply,
+                    },
+                    no_pull,
+                )
+                .await?;
         }
 
         Cli {
@@ -218,7 +264,8 @@ async fn main() -> Result<(), AnyError> {
             ..
         } => {
             workspace
-                .config_template(match format {
+                .config
+                .template(match format {
                     cli::ConfigFormat::Toml => FileFormat::Toml,
                     cli::ConfigFormat::Yaml => FileFormat::Yaml,
                 })
@@ -231,7 +278,7 @@ async fn main() -> Result<(), AnyError> {
                     command: cli::ConfigCommands::Edit(EditConfigParams { config_path }),
                 }),
             ..
-        } => workspace.edit_config_file(&config_path).await?,
+        } => workspace.config.edit(&config_path).await?,
 
         Cli {
             command:
@@ -240,7 +287,7 @@ async fn main() -> Result<(), AnyError> {
                 }),
             ..
         } => {
-            workspace.show_config(&name, part, output).await?;
+            workspace.config.show(&name, part, output).await?;
         }
 
         Cli {

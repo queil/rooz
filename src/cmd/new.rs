@@ -1,8 +1,10 @@
 use std::fs;
 
+use age::x25519::Identity;
+
 use crate::{
     api::WorkspaceApi,
-    cli::{WorkParams, WorkspacePersistence},
+    cli::WorkParams,
     config::{
         config::{ConfigPath, ConfigSource, FileFormat, RoozCfg},
         runtime::RuntimeConfig,
@@ -28,12 +30,13 @@ impl<'a> WorkspaceApi<'a> {
         workspace_key: &str,
         force: bool,
         work_dir: &str,
+        identity: &Identity,
     ) -> Result<EnterSpec, AnyError> {
         if let Some(c) = &cli_config {
             cfg_builder.from_config(c);
         }
         cfg_builder.from_cli(cli_params, None);
-        cfg_builder.decrypt(self.read_age_identity().await?).await?;
+        self.config.decrypt(cfg_builder, identity).await?;
         cfg_builder.expand_vars()?;
 
         let cfg = RuntimeConfig::from(&*cfg_builder);
@@ -88,66 +91,23 @@ impl<'a> WorkspaceApi<'a> {
         })
     }
 
-    pub async fn new(
+    async fn get_cli_config(
         &self,
-        cli_params: &WorkParams,
         cli_config_path: Option<ConfigSource>,
-        persistence: Option<WorkspacePersistence>,
-    ) -> Result<EnterSpec, AnyError> {
-        let ephemeral = persistence.is_none();
-        let orig_uid = constants::DEFAULT_UID.to_string();
-
-        let (workspace_key, force, apply) = match persistence {
-            Some(p) => (p.name.to_string(), p.replace, p.apply),
-            None => (id::random_suffix("tmp"), false, false),
-        };
-
-        let mut labels = Labels {
-            workspace: Labels::workspace(&workspace_key),
-            role: Labels::role(labels::ROLE_WORK),
-            ..Default::default()
-        };
-
-        if !apply && !force {
-            match self.api.container.get_single(&labels).await? {
-                Some(_) => Err(format!("Container already exists. Did you mean: rooz enter {}? Otherwise, use --apply to reconfigure containers or --replace to recreate the whole workspace.", workspace_key.clone())),
-                None => Ok(()),
-            }?;
-        }
-
-        if apply {
-            self.remove_containers_only(&workspace_key, true).await?;
-        }
-
-        if force {
-            self.remove(&workspace_key, true).await?;
-        }
-
-        self.api
-            .image
-            .ensure(constants::DEFAULT_IMAGE, cli_params.pull_image)
-            .await?;
-
-        let work_dir = constants::WORK_DIR;
-
-        let clone_env = CloneEnv {
-            image: constants::DEFAULT_IMAGE.into(),
-            uid: orig_uid.to_string(),
-            workspace_key: workspace_key.to_string(),
-            working_dir: work_dir.to_string(),
-        };
-
-        let cli_cfg = if let Some(source) = &cli_config_path {
+        clone_env: &CloneEnv,
+        labels: &mut Labels,
+    ) -> Result<Option<RoozCfg>, AnyError> {
+        let val = if let Some(source) = &cli_config_path {
             match source {
                 ConfigSource::Body {
                     value,
                     origin,
                     format,
                 } => {
-                    labels = Labels {
+                    *labels = Labels {
                         config_source: Labels::config_origin(&origin),
                         config_body: Labels::config_body(&value.to_string(format.clone())?),
-                        ..labels
+                        ..labels.clone()
                     };
                     Some(value.clone())
                 }
@@ -156,10 +116,10 @@ impl<'a> WorkspaceApi<'a> {
                         let body = fs::read_to_string(&path)?;
                         let absolute_path =
                             std::path::absolute(path)?.to_string_lossy().into_owned();
-                        labels = Labels {
+                        *labels = Labels {
                             config_source: Labels::config_origin(&absolute_path),
                             config_body: Labels::config_body(&body),
-                            ..labels
+                            ..labels.clone()
                         };
                         RoozCfg::deserialize_config(&body, FileFormat::from_path(&path))?
                     }
@@ -169,15 +129,15 @@ impl<'a> WorkspaceApi<'a> {
                             .clone_config_repo(clone_env.clone(), &url, &file_path)
                             .await?;
 
-                        labels = Labels {
+                        *labels = Labels {
                             config_source: Labels::config_origin(&path.to_string()),
-                            ..labels
+                            ..labels.clone()
                         };
 
                         if let Some(b) = &body {
-                            labels = Labels {
+                            *labels = Labels {
                                 config_body: Labels::config_body(&b),
-                                ..labels
+                                ..labels.clone()
                             }
                         };
 
@@ -195,13 +155,51 @@ impl<'a> WorkspaceApi<'a> {
             None
         };
 
+        Ok(val)
+    }
+
+    pub async fn new(
+        &self,
+        workspace_key: &str,
+        cli_params: &WorkParams,
+        cli_config_path: Option<ConfigSource>,
+        ephemeral: bool,
+        identity: &Identity,
+    ) -> Result<EnterSpec, AnyError> {
+        let orig_uid = constants::DEFAULT_UID.to_string();
+
+        let mut labels = Labels {
+            workspace: Labels::workspace(&workspace_key),
+            role: Labels::role(labels::ROLE_WORK),
+            ..Default::default()
+        };
+
+        self.api
+            .image
+            .ensure(constants::DEFAULT_IMAGE, cli_params.pull_image)
+            .await?;
+
+        let work_dir = constants::WORK_DIR;
+
+        let clone_env = CloneEnv {
+            image: constants::DEFAULT_IMAGE.into(),
+            uid: orig_uid.to_string(),
+            workspace_key: workspace_key.to_string(),
+            working_dir: work_dir.to_string(),
+            use_volume: true,
+        };
+
+        let cli_cfg = self
+            .get_cli_config(cli_config_path, &clone_env, &mut labels)
+            .await?;
+
         let work_spec = WorkSpec {
             uid: &orig_uid,
             container_working_dir: &work_dir,
             container_name: &workspace_key,
             workspace_key: &workspace_key,
             ephemeral,
-            force_recreate: force,
+            force_recreate: false,
             ..Default::default()
         };
 
@@ -219,8 +217,9 @@ impl<'a> WorkspaceApi<'a> {
                     &clone_env,
                     None,
                     &workspace_key,
-                    force,
+                    false,
                     work_dir,
+                    identity,
                 )
                 .await
             }
@@ -260,25 +259,29 @@ impl<'a> WorkspaceApi<'a> {
                         &clone_env,
                         Some(root_repo_result),
                         &workspace_key,
-                        force,
+                        false,
                         work_dir,
+                        identity,
                     )
                     .await
                 }
             },
         };
         if let Some(true) = cli_params.start {
-            self.start_workspace(&workspace_key).await?;
+            self.start(&workspace_key).await?;
         }
         enter_spec
     }
 
     pub async fn tmp(&self, spec: &WorkParams, root: bool, shell: &str) -> Result<(), AnyError> {
+        let identity = self.crypt.read_age_identity().await?;
         let EnterSpec {
             workspace,
             git_spec,
             config,
-        } = self.new(spec, None, None).await?;
+        } = self
+            .new(&id::random_suffix("tmp"), spec, None, true, &identity)
+            .await?;
 
         let working_dir = git_spec
             .map(|v| (&v).dir.to_string())

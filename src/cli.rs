@@ -66,25 +66,6 @@ pub struct RemoteParams {
 }
 
 #[derive(Clone, Parser, Debug)]
-pub struct WorkspacePersistence {
-    pub name: String,
-    #[arg(
-        short,
-        long,
-        help = "Replace an existing workspace with a new empty one. WARNING: potential data loss ahead"
-    )]
-    pub replace: bool,
-    #[arg(
-        short,
-        long,
-        conflicts_with = "replace",
-        requires = "config_path",
-        help = "Recreates workspace containers with the given configuration"
-    )]
-    pub apply: bool,
-}
-
-#[derive(Clone, Parser, Debug)]
 pub struct WorkEnvParams {
     #[arg(
         long = "env_image",
@@ -170,8 +151,7 @@ impl Default for WorkParams {
 #[derive(Parser, Debug)]
 #[command(about = "Creates a new workspace (container + volumes)")]
 pub struct NewParams {
-    #[command(flatten)]
-    pub persistence: WorkspacePersistence,
+    pub name: String,
     #[command(flatten)]
     pub work: WorkParams,
     #[arg(
@@ -278,12 +258,26 @@ pub struct EditConfigParams {
 }
 
 #[derive(Parser, Debug)]
-#[command(about = "Edits a workspace created from a config file")]
-pub struct EditParams {
+#[command(about = "Updates a workspace created from a config file")]
+pub struct UpdateParams {
     #[arg()]
     pub name: String,
     #[command(flatten)]
     pub env: WorkEnvParams,
+    #[arg(
+        long,
+        short,
+        help = "If set allows to tweak the existing config and apply the edited version."
+    )]
+    pub tweak: bool,
+    #[arg(
+        long,
+        conflicts_with = "tweak",
+        help = "If set it removes the workspace volumes. WARNING: potential data loss ahead"
+    )]
+    pub purge: bool,
+    #[arg(long, help = "If set it skips pulling new images")]
+    pub no_pull: bool,
 }
 
 #[derive(Parser, Debug)]
@@ -303,7 +297,7 @@ pub enum Commands {
     Start(StartParams),
     Stop(StopParams),
     Remove(RemoveParams),
-    Edit(EditParams),
+    Update(UpdateParams),
     List(ListParams),
     Config(Config),
     Tmp(TmpParams),

@@ -10,7 +10,7 @@ use crate::{
 
 impl<'a> WorkspaceApi<'a> {
     pub async fn attach_vscode(&self, workspace_key: &str) -> Result<(), AnyError> {
-        self.start_workspace(workspace_key).await?;
+        self.start(workspace_key).await?;
 
         let hex = format!(r#"{{"containerName":"{}"}}"#, workspace_key)
             .as_bytes()
@@ -67,7 +67,7 @@ impl<'a> WorkspaceApi<'a> {
 
         let container_id = container.id.as_deref().unwrap();
 
-        self.start_workspace(workspace_key).await?;
+        self.start(workspace_key).await?;
 
         if !root {
             self.api.exec.ensure_user(container_id).await?;

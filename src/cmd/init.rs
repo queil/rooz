@@ -1,14 +1,14 @@
 use std::str::FromStr;
 
 use crate::{
-    api::{container, Api},
+    api::{self, container, Api},
     cli::InitParams,
     constants,
     model::{
         types::{AnyError, RunSpec, VolumeResult},
         volume::RoozVolumeRole,
     },
-    util::{self, id, labels::Labels, ssh},
+    util::{id, labels::Labels, ssh},
 };
 use age::secrecy::ExposeSecret;
 use bollard::models::MountTypeEnum::VOLUME;
@@ -98,7 +98,7 @@ impl<'a> Api<'a> {
         match self
             .volume
             .ensure_volume(
-                util::crypt::VOLUME_NAME.into(),
+                api::crypt::VOLUME_NAME.into(),
                 &RoozVolumeRole::AgeKey,
                 Some("age-key".into()),
                 spec.force,
@@ -134,7 +134,7 @@ impl<'a> Api<'a> {
                 self.execute_init(
                     "rooz-init-age",
                     entrypoint,
-                    util::crypt::VOLUME_NAME,
+                    api::crypt::VOLUME_NAME,
                     "/tmp/.age",
                     &image_id,
                 )
