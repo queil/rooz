@@ -3,7 +3,8 @@ use bollard::{
     models::{Port, PortTypeEnum},
     Docker,
 };
-use openssh::{ForwardType, KnownHosts, SessionBuilder};
+
+use openssh::{ForwardType, KnownHosts, Session, SessionBuilder};
 use regex::Regex;
 use std::{
     collections::HashSet,
@@ -19,35 +20,16 @@ use std::{
 
 use crate::{model::types::AnyError, util::labels};
 
-pub async fn remote(ssh_url: &str, local_docker_host: &str) -> Result<(), AnyError> {
-    let (sender, receiver) = mpsc::channel::<()>();
-
-    let tx_mutex = Mutex::<Option<Sender<()>>>::new(Some(sender));
-
-    ctrlc::set_handler(move || {
-        if let Some(tx) = tx_mutex.lock().unwrap().take() {
-            tx.send(()).unwrap();
-        }
-    })?;
-
-    let re = Regex::new(r"^unix://").unwrap();
-    let expanded_socket = shellexpand::tilde(&re.replace(&local_docker_host, "")).into_owned();
-    let local_socket_path = Path::new(&expanded_socket);
-
-    if let Some(path) = local_socket_path.parent() {
-        fs::create_dir_all(path)?;
-    }
-
+async fn connect(
+    builder: &SessionBuilder,
+    ssh_url: &str,
+    local_socket_path: &Path,
+) -> Result<Session, AnyError> {
     if local_socket_path.exists() {
         fs::remove_file(local_socket_path)?;
     }
 
-    let session = SessionBuilder::default()
-        .known_hosts_check(KnownHosts::Accept)
-        .connect_timeout(Duration::from_secs(5))
-        .server_alive_interval(Duration::from_secs(60))
-        .connect_mux(&ssh_url)
-        .await?;
+    let session = builder.connect_mux(&ssh_url).await?;
 
     println!("SSH: connected to {}", &ssh_url);
 
@@ -86,11 +68,56 @@ pub async fn remote(ssh_url: &str, local_docker_host: &str) -> Result<(), AnyErr
         "Run 'export DOCKER_HOST=unix://{}' to make the socket useful for local tools",
         local_socket_path.display()
     );
+    Ok(session)
+}
 
+pub async fn remote(ssh_url: &str, local_docker_host: &str) -> Result<(), AnyError> {
+    let (sender, receiver) = mpsc::channel::<()>();
+
+    let tx_mutex = Mutex::<Option<Sender<()>>>::new(Some(sender));
+
+    ctrlc::set_handler(move || {
+        if let Some(tx) = tx_mutex.lock().unwrap().take() {
+            tx.send(()).unwrap();
+        }
+    })?;
+
+    let re = Regex::new(r"^unix://").unwrap();
+    let expanded_socket = shellexpand::tilde(&re.replace(&local_docker_host, "")).into_owned();
+    let local_socket_path = Path::new(&expanded_socket);
+
+    if let Some(path) = local_socket_path.parent() {
+        fs::create_dir_all(path)?;
+    }
+
+    let mut builder = SessionBuilder::default();
+    builder
+        .known_hosts_check(KnownHosts::Strict)
+        .connect_timeout(Duration::from_secs(5))
+        .server_alive_interval(Duration::from_secs(5));
+
+    let mut session = connect(&builder, ssh_url, local_socket_path).await?;
     let docker = Docker::connect_with_local_defaults()?.with_timeout(Duration::from_secs(10));
     let mut tunnels = HashSet::<u16>::new();
 
     loop {
+        match session.check().await {
+            Ok(_) => (),
+            Err(_) => {
+                eprintln!("SSH connection lost. Reconnecting...");
+                match connect(&builder, ssh_url, local_socket_path).await {
+                    Ok(s) => session = s,
+                    Err(error) => {
+                        eprintln!("ERROR: {}", error);
+                        if let Some(()) = receiver.recv_timeout(Duration::from_secs(3)).ok() {
+                            break;
+                        }
+                        continue;
+                    }
+                }
+            }
+        }
+
         let containers = match docker
             .list_containers(Some(ListContainersOptions {
                 filters: (&labels::Labels::default()).into(),
@@ -133,7 +160,6 @@ pub async fn remote(ssh_url: &str, local_docker_host: &str) -> Result<(), AnyErr
 
                 let listen_socket = format!("127.0.0.1:{}", private_port);
                 let connect_socket = format!("127.0.0.1:{}", public_port);
-                session.check().await?;
 
                 if !tunnels.contains(&public_port) {
                     if is_available(&private_port) {
@@ -163,6 +189,7 @@ pub async fn remote(ssh_url: &str, local_docker_host: &str) -> Result<(), AnyErr
             break;
         }
     }
+    //TODO: store and close port forwards here
     session.close().await?;
     std::process::exit(0);
 }
