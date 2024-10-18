@@ -4,8 +4,7 @@
 
 <h1 align="center">rooz</h1>
 
-Rooz is a CLI tool that enables you to work in containers. It is intended for developers and DevOps engineers. Because of that, it comes with a built-in support for git repositories, SSH keys generation, support for git-safe secrets, shared caches, sidecar containers, declarative configuration, and a robust CLI. Rooz is similar to [toolbox](https://docs.fedoraproject.org/en-US/fedora-silverblue/toolbox/)
-and [distrobox](https://github.com/89luca89/distrobox) but unlike them it aims to share as little as possible with the host - it actually can also orchestrate your workspaces on remote Docker/Podman hosts.
+Rooz is a CLI tool that enables you to work in containers. It is intended for developers and DevOps engineers. Because of that, it comes with a built-in support for git repositories, SSH keys generation, support for git-safe secrets, shared caches, sidecar containers, declarative configuration, and a robust CLI. Rooz is designed to share as little as possible with the host so it can also orchestrate your workspaces on remote Docker/Podman hosts.
 
 ## Quick start
 
