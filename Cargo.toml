@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 age = {version = "0.10.0", features = ["armor"] }
 base64 = "0.22.1"
-bollard = { version = "0.17.1" }
+bollard = { version = "0.18.1" }
 clap = { version = "4.5.16", features = ["derive", "env"] }
 clap_complete = "4.5.24"
 colored = "2.1.0"
