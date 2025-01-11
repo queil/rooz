@@ -26,7 +26,7 @@ impl<'a> ConfigApi<'a> {
             for (k, v) in edited_secrets {
                 encrypted_secrets.insert(
                     k.to_string(),
-                    self.crypt.encrypt(v.to_string(), identity.to_public())?,
+                    self.crypt.encrypt(v.to_string(), &identity.to_public())?,
                 );
             }
         };
