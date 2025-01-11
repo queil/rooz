@@ -2,12 +2,10 @@ use crate::api::container::inject;
 use crate::api::CryptApi;
 use crate::model::types::{AnyError, ContainerResult, RunSpec};
 use crate::{constants, util::id};
-use age::x25519::{Identity, Recipient};
-use age::IdentityFileEntry::Native;
+use age::x25519::Identity;
 use bollard::models::MountTypeEnum::VOLUME;
 use bollard::service::Mount;
-use std::io::{Read, Write};
-use std::iter;
+use std::str::FromStr;
 
 pub const VOLUME_NAME: &'static str = "rooz-age-key-vol";
 
@@ -57,44 +55,27 @@ impl<'a> CryptApi<'a> {
                     .await?;
                 self.api.container.kill(&container_id).await?;
 
-                let identity_file = age::IdentityFile::from_buffer(data.as_bytes())?;
-                match identity_file.into_identities().first().unwrap() {
-                    Native(id2) => Ok(id2.clone()),
-                }
+                Ok(age::x25519::Identity::from_str(&data)?)
             }
             _ => panic!("Could not read age identity"),
         }
     }
 
-    pub fn encrypt(&self, plaintext: String, recipient: Recipient) -> Result<String, AnyError> {
-        let encryptor = age::Encryptor::with_recipients(vec![Box::new(recipient)]).unwrap();
-        let mut encrypted = vec![];
-        let mut writer = encryptor.wrap_output(age::armor::ArmoredWriter::wrap_output(
-            &mut encrypted,
-            age::armor::Format::AsciiArmor,
-        )?)?;
-        writer.write_all(plaintext.as_bytes())?;
-        writer.finish().and_then(|armor| armor.finish())?;
-        Ok(std::str::from_utf8(&encrypted)?
-            .to_string()
-            .replace("\n", "|"))
+    pub fn encrypt(
+        &self,
+        plaintext: String,
+        recipient: &impl age::Recipient,
+    ) -> Result<String, AnyError> {
+        Ok(
+            age::encrypt_and_armor(recipient, plaintext.into_bytes().as_slice())?
+                .replace("\n", "|"),
+        )
     }
 
     //TODO: improve experience when there is no matching decryption key
-    pub fn decrypt(&self, identity: &dyn age::Identity, secret: &str) -> Result<String, AnyError> {
+    pub fn decrypt(&self, identity: &Identity, secret: &str) -> Result<String, AnyError> {
         let formatted = secret.replace("|", "\n");
-        let encrypted = formatted.as_bytes();
-        let decrypted = {
-            let decryptor = match age::Decryptor::new(age::armor::ArmoredReader::new(encrypted))? {
-                age::Decryptor::Recipients(d) => d,
-                _ => unreachable!(),
-            };
-
-            let mut decrypted = vec![];
-            let mut reader = decryptor.decrypt(iter::once(identity))?;
-            reader.read_to_end(&mut decrypted)?;
-            decrypted
-        };
-        Ok(std::str::from_utf8(&decrypted[..])?.to_string())
+        let ciphertext = formatted.as_bytes();
+        Ok(std::str::from_utf8(age::decrypt(identity, ciphertext)?.as_slice())?.to_string())
     }
 }

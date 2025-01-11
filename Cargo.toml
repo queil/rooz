@@ -1,15 +1,15 @@
 [package]
 name = "rooz"
-version = "0.102.0"
+version = "0.103.0"
 edition = "2021"
 
 [dependencies]
-age = {version = "0.10.0", features = ["armor"] }
+age = {version = "0.11.1", features = ["armor"] }
 base64 = "0.22.1"
-bollard = { version = "0.17.1" }
+bollard = { version = "0.18.1" }
 clap = { version = "4.5.16", features = ["derive", "env"] }
 clap_complete = "4.5.24"
-colored = "2.1.0"
+colored = "3.0.0"
 ctrlc = "3.4.5"
 edit = "0.1.5"
 env_logger = "0.11.5"
@@ -24,7 +24,7 @@ regex = "1.10.6"
 serde = "1.0.209"
 serde_yaml = "0.9.34"
 shellexpand = "3.1.0"
-tabled = "0.16.0"
+tabled = "0.17.0"
 termion = "4.0.2"
 tokio = { version = "1.39.3", features = ["rt-multi-thread", "macros"] }
 toml = "0.8.19"
