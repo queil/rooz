@@ -100,6 +100,9 @@ impl<'a> ExecApi<'a> {
 
                     s.send(true).ok();
                     handle.await?;
+                    // try ping to see if the connection was lost
+                    // if this fails the calling code loops retrying to connect to the session
+                    self.client.ping().await?;
                 }
                 (
                     ExecInspectResponse {

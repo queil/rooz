@@ -1,4 +1,8 @@
-use std::process::{Command, Stdio};
+use std::{
+    process::{Command, Stdio},
+    thread::sleep,
+    time::Duration,
+};
 
 use crate::{
     api::WorkspaceApi,
@@ -50,8 +54,6 @@ impl<'a> WorkspaceApi<'a> {
             .await?
             .ok_or(format!("Workspace not found: {}", &workspace_key))?;
 
-        println!("{}", termion::clear::All);
-
         let mut shell_value = vec![constants::DEFAULT_SHELL.to_string()];
 
         if let Some(labels) = &container.labels {
@@ -67,34 +69,53 @@ impl<'a> WorkspaceApi<'a> {
 
         let container_id = container.id.as_deref().unwrap();
 
-        self.start(workspace_key).await?;
 
-        if !root {
-            self.api.exec.ensure_user(container_id).await?;
-            for v in &volumes {
-                self.api
-                    .exec
-                    .chown(&container_id, chown_uid, &v.path)
-                    .await?;
+        // the loop here is needed for auto-reconnecting the session
+        loop {
+            println!("{}", termion::clear::All);
+            match self.start(workspace_key).await {
+                Ok(_) => (),
+                Err(e) => {
+                    eprintln!("{}", e);
+                    sleep(Duration::from_millis(2_000));
+                    continue;
+                }
+            };
+
+            if !root {
+                self.api.exec.ensure_user(container_id).await?;
+                for v in &volumes {
+                    self.api
+                        .exec
+                        .chown(&container_id, chown_uid, &v.path)
+                        .await?;
+                }
             }
+
+            match self
+                .api
+                .exec
+                .tty(
+                    "work",
+                    &container_id,
+                    true,
+                    working_dir,
+                    if root {
+                        Some(constants::ROOT_USER)
+                    } else {
+                        None
+                    },
+                    Some(shell_value.iter().map(|v| v.as_str()).collect::<Vec<_>>()),
+                )
+                .await
+            {
+                Ok(_) => break,
+                Err(e) => {
+                    eprintln!("{}", e);
+                    sleep(Duration::from_millis(2_000));
+                }
+            };
         }
-
-        self.api
-            .exec
-            .tty(
-                "work",
-                &container_id,
-                true,
-                working_dir,
-                if root {
-                    Some(constants::ROOT_USER)
-                } else {
-                    None
-                },
-                Some(shell_value.iter().map(|v| v.as_str()).collect::<Vec<_>>()),
-            )
-            .await?;
-
         if ephemeral {
             self.api.container.kill(&container_id).await?;
             for vol in volumes.iter().filter(|v| v.is_exclusive()) {
