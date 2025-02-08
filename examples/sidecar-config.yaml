@@ -1,0 +1,130 @@
+secrets:
+  sqlPwd: '-----BEGIN AGE ENCRYPTED FILE-----|YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSBFRXNpZ2lucE5WNnNWTllM|TmNhMGpPWS9rSmVoNVFjVTNrZDJCUHFPaFFRCkVwL3VmZ2Z1RXBuOEtobmVyTW93|d0xjTzhtd1VtbWR1bE1wLzRqZnpjbXMKLT4gM3BAJWJKbS1ncmVhc2Uga09DCm9z|ZWRnRm9qUGFCa0xjODFCRjVnRTJOUXV6ZW1vd3Y5Y2hhZlpycHBWQQotLS0gM1Fy|dEtocUJSQWhEdnc4SnI5OW5BUE55OFVPdzhvWWJ0Y1hzRHFaMUFqbwobXxftWwA7|N4qqKac4hWDTO3Y1Lt/jczL5UoqM//tpmJwJW9ASja6T0xyTglM=|-----END AGE ENCRYPTED FILE-----|'
+sidecars:
+  emulator:
+    image: mcr.microsoft.com/azure-messaging/servicebus-emulator:latest
+    env:
+      SQL_SERVER: sqledge
+      MSSQL_SA_PASSWORD: '{{ sqlPwd }}'
+      ACCEPT_EULA: Y
+    command: 
+    mounts:
+    - /my_test/data/
+    - mount: /work/ConfigFiles/Config.json
+      content: |
+        {
+          "UserConfig": {
+          "Namespaces": [
+            {
+              "Name": "sbemulatorns",
+              "Queues": [
+                {
+                  "Name": "queue.1",
+                  "Properties": {
+                    "DeadLetteringOnMessageExpiration": false,
+                    "DefaultMessageTimeToLive": "PT1H",
+                    "DuplicateDetectionHistoryTimeWindow": "PT20S",
+                    "ForwardDeadLetteredMessagesTo": "",
+                    "ForwardTo": "",
+                    "LockDuration": "PT1M",
+                    "MaxDeliveryCount": 10,
+                    "RequiresDuplicateDetection": false,
+                    "RequiresSession": false
+                  }
+                }
+              ],
+
+              "Topics": [
+                {
+                  "Name": "topic.1",
+                  "Properties": {
+                    "DefaultMessageTimeToLive": "PT1H",
+                    "DuplicateDetectionHistoryTimeWindow": "PT20S",
+                    "RequiresDuplicateDetection": false
+                  },
+                  "Subscriptions": [
+                    {
+                      "Name": "subscription.1",
+                      "Properties": {
+                        "DeadLetteringOnMessageExpiration": false,
+                        "DefaultMessageTimeToLive": "PT1H",
+                        "LockDuration": "PT1M",
+                        "MaxDeliveryCount": 10,
+                        "ForwardDeadLetteredMessagesTo": "",
+                        "ForwardTo": "",
+                        "RequiresSession": false
+                      },
+                      "Rules": [
+                        {
+                          "Name": "app-prop-filter-1",
+                          "Properties": {
+                            "FilterType": "Correlation",
+                            "CorrelationFilter": {
+                              "ContentType": "application/text",
+                              "CorrelationId": "id1",
+                              "Label": "subject1",
+                              "MessageId": "msgid1",
+                              "ReplyTo": "someQueue",
+                              "ReplyToSessionId": "sessionId",
+                              "SessionId": "session1",
+                              "To": "xyz"
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "Name": "subscription.2",
+                      "Properties": {
+                        "DeadLetteringOnMessageExpiration": false,
+                        "DefaultMessageTimeToLive": "PT1H",
+                        "LockDuration": "PT1M",
+                        "MaxDeliveryCount": 10,
+                        "ForwardDeadLetteredMessagesTo": "",
+                        "ForwardTo": "",
+                        "RequiresSession": false
+                      },
+                      "Rules": [
+                        {
+                          "Name": "user-prop-filter-1",
+                          "Properties": {
+                            "FilterType": "Correlation",
+                            "CorrelationFilter": {
+                              "Properties": {
+                                "prop3": "value3"
+                              }
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "Name": "subscription.3",
+                      "Properties": {
+                        "DeadLetteringOnMessageExpiration": false,
+                        "DefaultMessageTimeToLive": "PT1H",
+                        "LockDuration": "PT1M",
+                        "MaxDeliveryCount": 10,
+                        "ForwardDeadLetteredMessagesTo": "",
+                        "ForwardTo": "",
+                        "RequiresSession": false
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ],
+          "Logging": {
+            "Type": "File"
+          }
+          }
+        }
+
+    ports:
+    - 5672:5672
+  sqledge:
+    image: mcr.microsoft.com/azure-sql-edge:latest
+    env:
+      ACCEPT_EULA: ${ACCEPT_EULA}
+      MSSQL_SA_PASSWORD: '{{ sqlPwd }}'

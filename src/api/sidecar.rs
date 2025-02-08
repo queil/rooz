@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, path::Path};
 
 use bollard::network::CreateNetworkOptions;
 
@@ -60,10 +60,21 @@ impl<'a> WorkspaceApi<'a> {
 
             let mut mounts = Vec::<RoozVolume>::new();
 
-            let auto_mounts = s.mounts.as_ref().map(|paths| {
-                paths
+            let auto_mounts = s.mounts.as_ref().map(|mounts| {
+                mounts
                     .iter()
-                    .map(|path| RoozVolume::sidecar_data(workspace_key, path))
+                    .map(|mount| match mount {
+                        crate::config::config::SidecarMount::Empty(mount) => {
+                            RoozVolume::sidecar_data(workspace_key, mount, None)
+                        }
+                        crate::config::config::SidecarMount::Content { mount, content } => {
+                            RoozVolume::sidecar_data(
+                                workspace_key,
+                                mount,
+                                Some(content.to_string()),
+                            )
+                        }
+                    })
                     .collect::<Vec<_>>()
             });
 
@@ -81,11 +92,13 @@ impl<'a> WorkspaceApi<'a> {
                 mounts.extend_from_slice(&v.as_slice());
             }
 
-            self.api
+            let uid = &s.user.as_deref().unwrap_or(&constants::ROOT_UID);
+            let containter_id = self
+                .api
                 .container
                 .create(RunSpec {
                     container_name: &container_name,
-                    uid: &s.user.as_deref().unwrap_or(&constants::ROOT_UID),
+                    uid: &uid,
                     image: &s.image,
                     force_recreate: force,
                     workspace_key: &workspace_key,
@@ -107,6 +120,35 @@ impl<'a> WorkspaceApi<'a> {
                     ..Default::default()
                 })
                 .await?;
+
+            match containter_id {
+                crate::model::types::ContainerResult::Created { id } => {
+                    for m in &mounts {
+                        match m {
+                            RoozVolume {
+                                file: Some(data), ..
+                            } => {
+                                self.api.container.start(&id).await?;
+                                self.api
+                                    .exec
+                                    .output(
+                                        "Init config volumes",
+                                        &id,
+                                        Some(&uid),
+                                        Some(vec![
+                                            "sh",
+                                            "-c",
+                                            &format!("echo '{}' > {}", data.data, data.file_path),
+                                        ]),
+                                    )
+                                    .await?;
+                            }
+                            _ => (),
+                        }
+                    }
+                }
+                _ => (),
+            };
         }
 
         Ok(network.map(|n| n.to_string()))

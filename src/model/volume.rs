@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use crate::util::id::to_safe_id;
 use bollard::models::{Mount, MountTypeEnum};
 
@@ -38,10 +40,17 @@ impl RoozVolumeRole {
 }
 
 #[derive(Debug, Clone)]
+pub struct RoozVolumeFile {
+    pub file_path: String,
+    pub data: String,
+}
+
+#[derive(Debug, Clone)]
 pub struct RoozVolume {
     pub path: String,
     pub role: RoozVolumeRole,
     pub sharing: RoozVolumeSharing,
+    pub file: Option<RoozVolumeFile>,
 }
 
 impl RoozVolume {
@@ -118,6 +127,7 @@ impl RoozVolume {
             path: path.into(),
             sharing: RoozVolumeSharing::Exclusive { key: key.into() },
             role: RoozVolumeRole::Work,
+            file: None,
         }
     }
 
@@ -126,6 +136,7 @@ impl RoozVolume {
             path: path.into(),
             sharing: RoozVolumeSharing::Exclusive { key: key.into() },
             role: RoozVolumeRole::Home,
+            file: None,
         }
     }
 
@@ -134,15 +145,38 @@ impl RoozVolume {
             path: path.into(),
             sharing: RoozVolumeSharing::Shared,
             role: RoozVolumeRole::Cache,
+            file: None,
         }
     }
 
-    pub fn sidecar_data(workspace_key: &str, path: &str) -> RoozVolume {
-        RoozVolume {
-            path: path.into(),
-            role: RoozVolumeRole::Data,
-            sharing: RoozVolumeSharing::Exclusive {
-                key: workspace_key.into(),
+    pub fn sidecar_data(workspace_key: &str, path: &str, data: Option<String>) -> RoozVolume {
+        match data {
+            Some(data) => {
+                RoozVolume {
+                    path: match Path::new(path).parent() {
+                        Some(parent) => parent
+                            .to_str()
+                            .map(|s| s.to_string())
+                            .unwrap_or_else(|| panic!("Invalid UTF-8 path")),
+                        None => panic!("No parent directory"),
+                    },
+                    role: RoozVolumeRole::Data,
+                    sharing: RoozVolumeSharing::Exclusive {
+                        key: workspace_key.into(),
+                    },
+                    file: Some(RoozVolumeFile {
+                        file_path: path.to_string(),
+                        data,
+                    }),
+                }
+            }
+            None => RoozVolume {
+                path: path.into(),
+                role: RoozVolumeRole::Data,
+                sharing: RoozVolumeSharing::Exclusive {
+                    key: workspace_key.into(),
+                },
+                file: None,
             },
         }
     }
