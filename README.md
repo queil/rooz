@@ -263,8 +263,20 @@ rooz enter secrets-test
 Supported keywords:
 * `image` - set containers image
 * `env` - set environment variables
-* `command` - override container command
-* `mounts` - mount automatically-named rw volumes at the specified paths (so they can survive container restarts/deletes).
+* `command` - override container entrypoint (`ENTRYPOINT` in Dockerfile)
+* `arg` - override container entrypoint arguments (`CMD` in Dockerfile)
+* `mounts` - mount automatically-named rw volumes at the specified paths (so they can survive container restarts/deletes). It supports:
+
+```yaml
+  mounts:
+  # simple empty rw volumes
+  - /my_test/data/
+  # config files with a specified content
+  - mount: /work/ConfigFiles/Config.json
+    content: |
+      {"some": "config"}
+```
+
 * `ports` - port bindings in the `"8080:8080"` format
 * `work_dir` - set working directory
 * `mount_work` (`bool`) - if true then the work volume is mounted at `/work`
