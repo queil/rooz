@@ -78,10 +78,13 @@ async fn main() -> Result<(), AnyError> {
         backend: &backend,
     };
     let image_api = ImageApi { client: &docker };
-    let volume_api = VolumeApi { client: &docker };
     let container_api = ContainerApi {
         client: &docker,
         backend: &backend,
+    };
+    let volume_api = VolumeApi {
+        client: &docker,
+        container: &container_api,
     };
 
     let rooz = Api {

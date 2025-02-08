@@ -21,7 +21,7 @@ impl<'a> CryptApi<'a> {
 
     pub async fn read_age_identity(&self) -> Result<Identity, AnyError> {
         let work_dir = "/tmp/.age";
-        let entrypoint = inject(&format!("cat {}/age.key", work_dir), "entrypoint.sh");
+
         let run_spec = RunSpec {
             reason: "read-age-key",
             image: constants::DEFAULT_IMAGE,
@@ -30,7 +30,7 @@ impl<'a> CryptApi<'a> {
             container_name: &id::random_suffix("read-age"),
             workspace_key: &id::random_suffix("tmp"),
             mounts: Some(vec![self.mount(work_dir)]),
-            entrypoint: Some(vec!["cat"]),
+            entrypoint: constants::default_entrypoint(),
             privileged: false,
             force_recreate: false,
             auto_remove: true,
@@ -43,6 +43,7 @@ impl<'a> CryptApi<'a> {
 
         match container_result {
             ContainerResult::Created { .. } => {
+                let command = inject(&format!("cat {}/age.key", work_dir), "entrypoint.sh");
                 let data = self
                     .api
                     .exec
@@ -50,7 +51,7 @@ impl<'a> CryptApi<'a> {
                         "read age key",
                         container_id,
                         None,
-                        Some(entrypoint.iter().map(String::as_str).collect()),
+                        Some(command.iter().map(String::as_str).collect()),
                     )
                     .await?;
                 self.api.container.kill(&container_id).await?;

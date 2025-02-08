@@ -69,7 +69,6 @@ impl<'a> WorkspaceApi<'a> {
 
         let container_id = container.id.as_deref().unwrap();
 
-
         // the loop here is needed for auto-reconnecting the session
         loop {
             println!("{}", termion::clear::All);

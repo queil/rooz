@@ -60,7 +60,7 @@ impl<'a> WorkspaceApi<'a> {
             container_name: &spec.container_name,
             workspace_key: &spec.workspace_key,
             mounts: Some(mounts),
-            entrypoint: Some(vec!["cat"]),
+            entrypoint: spec.entrypoint.clone(),
             privileged: spec.privileged,
             force_recreate: spec.force_recreate,
             auto_remove: spec.ephemeral,

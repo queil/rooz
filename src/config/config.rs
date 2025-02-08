@@ -76,6 +76,14 @@ impl FileFormat {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
+#[serde(untagged)]
+pub enum SidecarMount {
+    Empty(String),
+    Content { mount: String, content: String },
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct RoozSidecar {
     pub image: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -83,7 +91,9 @@ pub struct RoozSidecar {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub command: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub mounts: Option<Vec<String>>,
+    pub args: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mounts: Option<Vec<SidecarMount>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ports: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]

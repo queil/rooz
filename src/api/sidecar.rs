@@ -60,10 +60,21 @@ impl<'a> WorkspaceApi<'a> {
 
             let mut mounts = Vec::<RoozVolume>::new();
 
-            let auto_mounts = s.mounts.as_ref().map(|paths| {
-                paths
+            let auto_mounts = s.mounts.as_ref().map(|mounts| {
+                mounts
                     .iter()
-                    .map(|path| RoozVolume::sidecar_data(workspace_key, path))
+                    .map(|mount| match mount {
+                        crate::config::config::SidecarMount::Empty(mount) => {
+                            RoozVolume::sidecar_data(workspace_key, mount, None)
+                        }
+                        crate::config::config::SidecarMount::Content { mount, content } => {
+                            RoozVolume::sidecar_data(
+                                workspace_key,
+                                mount,
+                                Some(content.to_string()),
+                            )
+                        }
+                    })
                     .collect::<Vec<_>>()
             });
 
@@ -81,11 +92,12 @@ impl<'a> WorkspaceApi<'a> {
                 mounts.extend_from_slice(&v.as_slice());
             }
 
+            let uid = s.user.as_deref().unwrap_or(&constants::ROOT_UID);
             self.api
                 .container
                 .create(RunSpec {
                     container_name: &container_name,
-                    uid: &s.user.as_deref().unwrap_or(&constants::ROOT_UID),
+                    uid: &uid,
                     image: &s.image,
                     force_recreate: force,
                     workspace_key: &workspace_key,
@@ -98,6 +110,10 @@ impl<'a> WorkspaceApi<'a> {
                     network,
                     network_aliases: Some(vec![name.into()]),
                     command: s
+                        .args
+                        .as_ref()
+                        .map(|x| x.iter().map(|z| z.as_ref()).collect()),
+                    entrypoint: s
                         .command
                         .as_ref()
                         .map(|x| x.iter().map(|z| z.as_ref()).collect()),
@@ -107,6 +123,8 @@ impl<'a> WorkspaceApi<'a> {
                     ..Default::default()
                 })
                 .await?;
+
+            self.api.volume.ensure_files(mounts, uid).await?;
         }
 
         Ok(network.map(|n| n.to_string()))

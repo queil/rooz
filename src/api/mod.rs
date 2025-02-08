@@ -20,13 +20,14 @@ pub struct ExecApi<'a> {
     pub backend: &'a ContainerBackend,
 }
 
-pub struct VolumeApi<'a> {
-    pub client: &'a Docker,
-}
-
 pub struct ContainerApi<'a> {
     pub client: &'a Docker,
     pub backend: &'a ContainerBackend,
+}
+
+pub struct VolumeApi<'a> {
+    pub client: &'a Docker,
+    pub container: &'a ContainerApi<'a>,
 }
 
 pub struct CryptApi<'a> {
