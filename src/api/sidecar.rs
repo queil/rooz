@@ -92,9 +92,8 @@ impl<'a> WorkspaceApi<'a> {
                 mounts.extend_from_slice(&v.as_slice());
             }
 
-            let uid = &s.user.as_deref().unwrap_or(&constants::ROOT_UID);
-            let containter_id = self
-                .api
+            let uid = s.user.as_deref().unwrap_or(&constants::ROOT_UID);
+            self.api
                 .container
                 .create(RunSpec {
                     container_name: &container_name,
@@ -111,6 +110,10 @@ impl<'a> WorkspaceApi<'a> {
                     network,
                     network_aliases: Some(vec![name.into()]),
                     command: s
+                        .args
+                        .as_ref()
+                        .map(|x| x.iter().map(|z| z.as_ref()).collect()),
+                    entrypoint: s
                         .command
                         .as_ref()
                         .map(|x| x.iter().map(|z| z.as_ref()).collect()),
@@ -121,34 +124,7 @@ impl<'a> WorkspaceApi<'a> {
                 })
                 .await?;
 
-            match containter_id {
-                crate::model::types::ContainerResult::Created { id } => {
-                    for m in &mounts {
-                        match m {
-                            RoozVolume {
-                                file: Some(data), ..
-                            } => {
-                                self.api.container.start(&id).await?;
-                                self.api
-                                    .exec
-                                    .output(
-                                        "Init config volumes",
-                                        &id,
-                                        Some(&uid),
-                                        Some(vec![
-                                            "sh",
-                                            "-c",
-                                            &format!("echo '{}' > {}", data.data, data.file_path),
-                                        ]),
-                                    )
-                                    .await?;
-                            }
-                            _ => (),
-                        }
-                    }
-                }
-                _ => (),
-            };
+            self.api.volume.ensure_files(mounts, uid).await?;
         }
 
         Ok(network.map(|n| n.to_string()))

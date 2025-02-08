@@ -151,25 +151,23 @@ impl RoozVolume {
 
     pub fn sidecar_data(workspace_key: &str, path: &str, data: Option<String>) -> RoozVolume {
         match data {
-            Some(data) => {
-                RoozVolume {
-                    path: match Path::new(path).parent() {
-                        Some(parent) => parent
-                            .to_str()
-                            .map(|s| s.to_string())
-                            .unwrap_or_else(|| panic!("Invalid UTF-8 path")),
-                        None => panic!("No parent directory"),
-                    },
-                    role: RoozVolumeRole::Data,
-                    sharing: RoozVolumeSharing::Exclusive {
-                        key: workspace_key.into(),
-                    },
-                    file: Some(RoozVolumeFile {
-                        file_path: path.to_string(),
-                        data,
-                    }),
-                }
-            }
+            Some(data) => RoozVolume {
+                path: match Path::new(path).parent() {
+                    Some(parent) => parent
+                        .to_str()
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| panic!("Invalid UTF-8 path")),
+                    None => panic!("No parent directory"),
+                },
+                role: RoozVolumeRole::Data,
+                sharing: RoozVolumeSharing::Exclusive {
+                    key: workspace_key.into(),
+                },
+                file: Some(RoozVolumeFile {
+                    file_path: path.to_string(),
+                    data,
+                }),
+            },
             None => RoozVolume {
                 path: path.into(),
                 role: RoozVolumeRole::Data,

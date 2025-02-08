@@ -44,6 +44,7 @@ pub struct WorkSpec<'a> {
     pub network: Option<&'a str>,
     pub env_vars: Option<HashMap<String, String>>,
     pub ports: Option<HashMap<String, Option<String>>>,
+    pub entrypoint: Option<Vec<&'a str>>,
 }
 
 impl Default for WorkSpec<'_> {
@@ -63,6 +64,7 @@ impl Default for WorkSpec<'_> {
             network: None,
             env_vars: None,
             ports: None,
+            entrypoint: None,
         }
     }
 }

@@ -151,7 +151,7 @@ impl<'a> GitApi<'a> {
             container_name: &id::random_suffix("rooz-git"),
             workspace_key: &spec.workspace_key,
             mounts: Some(mounts),
-            entrypoint: Some(vec!["cat"]),
+            entrypoint: constants::default_entrypoint(),
             privileged: false,
             force_recreate: false,
             auto_remove: true,

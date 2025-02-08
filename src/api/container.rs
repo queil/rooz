@@ -236,6 +236,7 @@ impl<'a> ContainerApi<'a> {
                 let host_config = HostConfig {
                     auto_remove: Some(spec.auto_remove),
                     mounts: spec.mounts,
+                    restart_policy: None,
                     oom_score_adj,
                     privileged: Some(spec.privileged),
                     port_bindings,

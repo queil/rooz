@@ -1,13 +1,16 @@
 use crate::{
     api::VolumeApi,
+    constants,
     model::{
-        types::{AnyError, VolumeResult},
+        types::{AnyError, RunSpec, VolumeResult},
         volume::{RoozVolume, RoozVolumeRole},
     },
     util::labels::Labels,
 };
 use bollard::{errors::Error::DockerResponseServerError, volume::RemoveVolumeOptions};
 use bollard::{service::Mount, volume::CreateVolumeOptions};
+
+use super::container;
 
 impl<'a> VolumeApi<'a> {
     async fn create_volume(
@@ -88,5 +91,43 @@ impl<'a> VolumeApi<'a> {
             mounts.push(mount);
         }
         Ok(mounts.clone())
+    }
+
+    pub async fn ensure_files(&self, mounts: Vec<RoozVolume>, uid: &str) -> Result<(), AnyError> {
+        for m in &mounts {
+            match m {
+                RoozVolume {
+                    file: Some(data), ..
+                } => {
+                    match self
+                        .container
+                        .create(RunSpec {
+                            image: &constants::DEFAULT_IMAGE,
+                            uid,
+                            auto_remove: true,
+                            mounts: Some(self.ensure_mounts(&mounts, None).await?),
+                            entrypoint: Some(
+                                container::inject(
+                                    &format!("echo '{}' > {}", data.data, data.file_path),
+                                    "entrypoint.sh",
+                                )
+                                .iter()
+                                .map(String::as_str)
+                                .collect(),
+                            ),
+                            ..RunSpec::default()
+                        })
+                        .await?
+                    {
+                        crate::model::types::ContainerResult::Created { id } => {
+                            self.container.start(&id).await?
+                        }
+                        crate::model::types::ContainerResult::AlreadyExists { .. } => (),
+                    }
+                }
+                _ => (),
+            }
+        }
+        Ok(())
     }
 }
