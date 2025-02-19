@@ -1,6 +1,5 @@
 use lazy_static::lazy_static;
-use rand::distributions::Alphanumeric;
-use rand::{thread_rng, Rng};
+use rand::{distr::Alphanumeric, rng, Rng};
 use regex::Regex;
 
 lazy_static! {
@@ -8,7 +7,7 @@ lazy_static! {
 }
 
 pub fn random_suffix(prefix: &str) -> String {
-    let suffix: String = thread_rng()
+    let suffix: String = rng()
         .sample_iter(&Alphanumeric)
         .take(7)
         .map(char::from)
