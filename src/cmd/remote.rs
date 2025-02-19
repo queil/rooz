@@ -7,15 +7,21 @@ use bollard::{
 use openssh::{ForwardType, KnownHosts, Session, SessionBuilder};
 use regex::Regex;
 use std::{
-    collections::HashSet,
+    collections::HashMap,
     fs,
     net::{Ipv4Addr, TcpListener},
     path::Path,
+    process::Command,
     sync::{
         mpsc::{self, Sender},
         Mutex,
     },
     time::Duration,
+};
+
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::TcpStream,
 };
 
 use crate::{model::types::AnyError, util::labels};
@@ -71,7 +77,86 @@ async fn connect(
     Ok(session)
 }
 
+async fn test_http_tunnel(host: &str, port: u16) -> Result<bool, Box<dyn std::error::Error>> {
+    log::debug!("Testing tunnel: {}:{}", host, port);
+
+    let mut stream = match TcpStream::connect((host, port)).await {
+        Ok(s) => s,
+        Err(e) => {
+            log::debug!("Could not connect: {}", e);
+            return Ok(false);
+        }
+    };
+
+    let request = "HEAD / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
+    stream.write_all(request.as_bytes()).await?;
+
+    let mut response = Vec::new();
+    stream.read_to_end(&mut response).await?;
+
+    let response_str = String::from_utf8_lossy(&response);
+    log::debug!("Testing tunnel response: {}", response_str);
+    Ok(response_str.starts_with("HTTP/1.1") || response_str.starts_with("HTTP/2.0"))
+}
+
+async fn open_tunnel(session: &Session, local_port: u16, remote_port: u16) -> Result<(), AnyError> {
+    Ok(session
+        .request_port_forward(
+            ForwardType::Local,
+            (Ipv4Addr::new(127, 0, 0, 1), local_port),
+            (Ipv4Addr::new(127, 0, 0, 1), remote_port),
+        )
+        .await?)
+}
+
+async fn close_tunnel(
+    session: &Session,
+    local_port: u16,
+    remote_port: u16,
+) -> Result<(), AnyError> {
+    Ok(session
+        .close_port_forward(
+            ForwardType::Local,
+            (Ipv4Addr::new(127, 0, 0, 1), local_port),
+            (Ipv4Addr::new(127, 0, 0, 1), remote_port),
+        )
+        .await
+        .unwrap_or_else(|e| log::debug!("Failed closing tunnel: {}", e)))
+}
+
+async fn get_pid_using_port(local_port: &str) -> Result<Option<u32>, AnyError> {
+    let output = Command::new("lsof")
+        .args(["-ti", &format!("tcp:{}", local_port)])
+        .output()?;
+
+    if !output.stdout.is_empty() {
+        let pid = String::from_utf8_lossy(&output.stdout).to_string();
+        Ok(pid.trim().parse::<u32>().ok())
+    } else {
+        Ok(None)
+    }
+}
+
+async fn get_multiplexer_pid(session: &Session) -> Option<u32> {
+    let ctl_path = session.control_socket();
+
+    let mut system = sysinfo::System::new();
+    system.refresh_all();
+
+    for (pid, process) in system.processes() {
+        if process.cmd().contains(&ctl_path.as_os_str().to_os_string()) {
+            return Some(pid.as_u32());
+        }
+    }
+    None
+}
+
+fn is_available(port: &u16) -> bool {
+    TcpListener::bind(("127.0.0.1", *port)).ok().is_some()
+}
+
 pub async fn remote(ssh_url: &str, local_docker_host: &str) -> Result<(), AnyError> {
+    const LOCALHOST_IP: &str = "127.0.0.1";
     let (sender, receiver) = mpsc::channel::<()>();
 
     let tx_mutex = Mutex::<Option<Sender<()>>>::new(Some(sender));
@@ -97,8 +182,8 @@ pub async fn remote(ssh_url: &str, local_docker_host: &str) -> Result<(), AnyErr
         .server_alive_interval(Duration::from_secs(5));
 
     let mut session = connect(&builder, ssh_url, local_socket_path).await?;
-    let docker = Docker::connect_with_local_defaults()?.with_timeout(Duration::from_secs(10));
-    let mut tunnels = HashSet::<u16>::new();
+
+    let mut open_tunnels = HashMap::<u16, (u16, String)>::new();
 
     loop {
         match session.check().await {
@@ -117,7 +202,14 @@ pub async fn remote(ssh_url: &str, local_docker_host: &str) -> Result<(), AnyErr
                 }
             }
         }
-
+        let multiplexer_pid = get_multiplexer_pid(&session).await;
+        let docker = match Docker::connect_with_local_defaults() {
+            Ok(docker) => docker.with_timeout(Duration::from_secs(10)),
+            Err(e) => {
+                log::debug!("Failed connect to Docker API. Will retry: {}", e);
+                continue;
+            }
+        };
         let containers = match docker
             .list_containers(Some(ListContainersOptions {
                 filters: (&labels::Labels::default()).into(),
@@ -127,7 +219,7 @@ pub async fn remote(ssh_url: &str, local_docker_host: &str) -> Result<(), AnyErr
         {
             Ok(data) => data,
             Err(e) => {
-                log::debug!("{}", e);
+                log::debug!("Failed reading ports from Docker API: {}", e);
                 vec![]
             }
         };
@@ -143,45 +235,65 @@ pub async fn remote(ssh_url: &str, local_docker_host: &str) -> Result<(), AnyErr
         }) {
             for Port {
                 ip,
-                private_port,
+                private_port: local_port,
                 public_port,
                 typ,
             } in ports
             {
-                let public_port = public_port.unwrap_or(private_port);
+                let remote_port = public_port.unwrap_or(local_port);
+                let mut name = name.to_string();
+                if let Some(stripped) = name.strip_prefix("/") {
+                    name = stripped.to_string();
+                }
                 log::debug!(
                     "{} {} {} {} {}",
                     name,
                     ip.unwrap_or_default(),
-                    private_port,
-                    public_port,
+                    local_port,
+                    remote_port,
                     typ.unwrap_or(PortTypeEnum::EMPTY)
                 );
 
-                let listen_socket = format!("127.0.0.1:{}", private_port);
-                let connect_socket = format!("127.0.0.1:{}", public_port);
+                let local_socket = format!("{}:{}", LOCALHOST_IP, local_port);
+                let remote_socket = format!("{}:{}", name, remote_port);
 
-                if !tunnels.contains(&public_port) {
-                    if is_available(&private_port) {
-                        session
-                            .request_port_forward(
-                                ForwardType::Local,
-                                (Ipv4Addr::new(127, 0, 0, 1), private_port),
-                                (Ipv4Addr::new(127, 0, 0, 1), public_port),
-                            )
-                            .await?;
-                        println!(
-                            "Forwarding: {} -> {} ({})",
-                            listen_socket, connect_socket, name
-                        );
-                        tunnels.insert(public_port);
+                if open_tunnels.contains_key(&remote_port)
+                    && !test_http_tunnel(LOCALHOST_IP, local_port).await?
+                {
+                    close_tunnel(&session, local_port, remote_port).await?;
+                    open_tunnels.remove(&remote_port);
+                    println!("Removed dead tunnel: {} -> {}", local_socket, remote_socket);
+                }
+
+                if is_available(&local_port) {
+                    open_tunnel(&session, local_port, remote_port).await?;
+
+                    if test_http_tunnel(LOCALHOST_IP, local_port).await? {
+                        println!("Opened tunnel: {} -> {}", local_socket, remote_socket);
+                        open_tunnels.insert(remote_port, (local_port, name.to_string()));
                     } else {
-                        println!(
-                            "Already bound, so maybe forwarding: {} -> {} ({})",
-                            listen_socket, connect_socket, name
-                        );
-                        tunnels.insert(public_port);
+                        log::debug!("No response. Closing the tunnel");
+                        close_tunnel(&session, local_port, remote_port).await?;
                     }
+                } else {
+                    match (
+                        get_pid_using_port(&local_port.to_string()).await?,
+                        multiplexer_pid,
+                    ) {
+                        (Some(pid), Some(mux_pid)) if pid == mux_pid => (),
+                        (Some(pid), Some(mux_pid)) => {
+                            eprintln!(
+                                "Local port {} is already bound by another process: {}. Mux pid: {}",
+                                local_port, pid, mux_pid
+                            );
+                        }
+                        (_, _) => {
+                            log::debug!(
+                                "Local port {} is already bound by another process: UNKNOWN",
+                                local_port,
+                            );
+                        }
+                    };
                 }
             }
         }
@@ -189,11 +301,13 @@ pub async fn remote(ssh_url: &str, local_docker_host: &str) -> Result<(), AnyErr
             break;
         }
     }
-    //TODO: store and close port forwards here
+    for (remote_port, (local_port, name)) in open_tunnels {
+        let local_socket = format!("{}:{}", LOCALHOST_IP, local_port);
+        let remote_socket = format!("{}:{}", name, remote_port);
+        close_tunnel(&session, local_port, remote_port).await?;
+        println!("Closing: {} -> {}", local_socket, remote_socket);
+    }
+    // TODO: close forwarded socket
     session.close().await?;
     std::process::exit(0);
-}
-
-fn is_available(port: &u16) -> bool {
-    TcpListener::bind(("127.0.0.1", *port)).ok().is_some()
 }
