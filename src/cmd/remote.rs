@@ -1,13 +1,9 @@
-use bollard::{
-    container::ListContainersOptions,
-    models::{Port, PortTypeEnum},
-    Docker,
-};
+use bollard::{container::ListContainersOptions, models::Port, Docker};
 
 use openssh::{ForwardType, KnownHosts, Session, SessionBuilder};
 use regex::Regex;
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fs,
     net::{Ipv4Addr, TcpListener},
     path::Path,
@@ -25,6 +21,15 @@ use tokio::{
 };
 
 use crate::{model::types::AnyError, util::labels};
+
+const LOCALHOST_IP: &str = "127.0.0.1";
+
+#[derive(Debug, Clone)]
+pub struct Tunnel {
+    pub local_port: u16,
+    pub container_name: String,
+    pub is_active: bool,
+}
 
 async fn connect(
     builder: &SessionBuilder,
@@ -95,8 +100,9 @@ async fn test_http_tunnel(host: &str, port: u16) -> Result<bool, Box<dyn std::er
     stream.read_to_end(&mut response).await?;
 
     let response_str = String::from_utf8_lossy(&response);
-    log::debug!("Testing tunnel response: {}", response_str);
-    Ok(response_str.starts_with("HTTP/1.1") || response_str.starts_with("HTTP/2.0"))
+    let is_success = response_str.starts_with("HTTP/1.1") || response_str.starts_with("HTTP/2.0");
+    log::debug!("Tunnel: {}", if is_success { "OK" } else { "Dead" });
+    Ok(is_success)
 }
 
 async fn open_tunnel(session: &Session, local_port: u16, remote_port: u16) -> Result<(), AnyError> {
@@ -109,7 +115,7 @@ async fn open_tunnel(session: &Session, local_port: u16, remote_port: u16) -> Re
         .await?)
 }
 
-async fn close_tunnel(
+async fn close_port_forward(
     session: &Session,
     local_port: u16,
     remote_port: u16,
@@ -122,6 +128,24 @@ async fn close_tunnel(
         )
         .await
         .unwrap_or_else(|e| log::debug!("Failed closing tunnel: {}", e)))
+}
+
+async fn close_tunnel(
+    session: &Session,
+    remote_port: &u16,
+    open_tunnels_map: &mut HashMap<u16, Tunnel>,
+) -> Result<(), AnyError> {
+    let Tunnel {
+        local_port,
+        container_name,
+        ..
+    } = &open_tunnels_map[remote_port];
+    let local_socket = format!("{}:{}", LOCALHOST_IP, local_port);
+    let remote_socket = format!("{}:{}", container_name, remote_port);
+    log::debug!("Closing tunnel: {} -> {}", local_socket, remote_socket);
+    close_port_forward(&session, *local_port, *remote_port).await?;
+    open_tunnels_map.remove(remote_port);
+    Ok(())
 }
 
 async fn get_pid_using_port(local_port: &str) -> Result<Option<u32>, AnyError> {
@@ -137,26 +161,59 @@ async fn get_pid_using_port(local_port: &str) -> Result<Option<u32>, AnyError> {
     }
 }
 
-async fn get_multiplexer_pid(session: &Session) -> Option<u32> {
-    let ctl_path = session.control_socket();
-
-    let mut system = sysinfo::System::new();
-    system.refresh_all();
-
-    for (pid, process) in system.processes() {
-        if process.cmd().contains(&ctl_path.as_os_str().to_os_string()) {
-            return Some(pid.as_u32());
-        }
-    }
-    None
-}
-
 fn is_available(port: &u16) -> bool {
     TcpListener::bind(("127.0.0.1", *port)).ok().is_some()
 }
 
+async fn get_docker_ports(docker: &Docker) -> Result<HashMap<u16, Tunnel>, AnyError> {
+    let containers = match docker
+        .list_containers(Some(ListContainersOptions {
+            filters: (&labels::Labels::default()).into(),
+            ..Default::default()
+        }))
+        .await
+    {
+        Ok(data) => data,
+        Err(e) => {
+            log::debug!("Failed reading ports from Docker API: {}", e);
+            vec![]
+        }
+    };
+
+    Ok(containers
+        .iter()
+        .flat_map(|c| {
+            let names = c
+                .names
+                .as_ref()
+                .map(|n| n.concat())
+                .unwrap_or(c.id.as_ref().unwrap().to_string());
+            let ports = c.clone().ports.unwrap_or(Vec::<_>::new());
+
+            ports
+                .iter()
+                .map(
+                    |Port {
+                         private_port,
+                         public_port,
+                         ..
+                     }| {
+                        (
+                            public_port.unwrap_or(*private_port),
+                            Tunnel {
+                                local_port: *private_port,
+                                container_name: names.to_string(),
+                                is_active: false,
+                            },
+                        )
+                    },
+                )
+                .collect::<Vec<_>>()
+        })
+        .collect::<HashMap<u16, Tunnel>>())
+}
+
 pub async fn remote(ssh_url: &str, local_docker_host: &str) -> Result<(), AnyError> {
-    const LOCALHOST_IP: &str = "127.0.0.1";
     let (sender, receiver) = mpsc::channel::<()>();
 
     let tx_mutex = Mutex::<Option<Sender<()>>>::new(Some(sender));
@@ -183,7 +240,7 @@ pub async fn remote(ssh_url: &str, local_docker_host: &str) -> Result<(), AnyErr
 
     let mut session = connect(&builder, ssh_url, local_socket_path).await?;
 
-    let mut open_tunnels = HashMap::<u16, (u16, String)>::new();
+    let mut open_tunnels_map = HashMap::<u16, Tunnel>::new();
 
     loop {
         match session.check().await {
@@ -202,7 +259,6 @@ pub async fn remote(ssh_url: &str, local_docker_host: &str) -> Result<(), AnyErr
                 }
             }
         }
-        let multiplexer_pid = get_multiplexer_pid(&session).await;
         let docker = match Docker::connect_with_local_defaults() {
             Ok(docker) => docker.with_timeout(Duration::from_secs(10)),
             Err(e) => {
@@ -210,101 +266,121 @@ pub async fn remote(ssh_url: &str, local_docker_host: &str) -> Result<(), AnyErr
                 continue;
             }
         };
-        let containers = match docker
-            .list_containers(Some(ListContainersOptions {
-                filters: (&labels::Labels::default()).into(),
-                ..Default::default()
-            }))
-            .await
-        {
-            Ok(data) => data,
-            Err(e) => {
-                log::debug!("Failed reading ports from Docker API: {}", e);
-                vec![]
+
+        let docker_ports_map = get_docker_ports(&docker).await?;
+
+        let docker_ports: HashSet<_> = docker_ports_map.keys().cloned().collect();
+        let open_tunnels: HashSet<_> = open_tunnels_map.keys().cloned().collect();
+
+        let new_ports = docker_ports.difference(&open_tunnels);
+        let stale_ports = open_tunnels.difference(&docker_ports);
+        let current_ports = docker_ports.intersection(&open_tunnels);
+
+        for remote_port in current_ports {
+            let tunnel = &open_tunnels_map[remote_port];
+            let Tunnel {
+                local_port,
+                container_name,
+                is_active,
+            } = tunnel;
+            let local_socket = format!("{}:{}", LOCALHOST_IP, local_port);
+            let remote_socket = format!("{}:{}", container_name, remote_port);
+            let was_active = is_active;
+            let now_active = test_http_tunnel(LOCALHOST_IP, *local_port).await?;
+
+            match (was_active, now_active) {
+                (true, false) => {
+                    eprintln!(
+                        "Tunnel endpoint is now down: {} -> {}",
+                        local_socket, remote_socket
+                    );
+                    open_tunnels_map.insert(
+                        *remote_port,
+                        Tunnel {
+                            is_active: false,
+                            ..tunnel.clone()
+                        },
+                    );
+                }
+                (false, true) => {
+                    eprintln!(
+                        "Tunnel endpoint is now up: {} -> {}",
+                        local_socket, remote_socket
+                    );
+                    open_tunnels_map.insert(
+                        *remote_port,
+                        Tunnel {
+                            is_active: true,
+                            ..tunnel.clone()
+                        },
+                    );
+                }
+                (_, _) => (),
             }
-        };
+        }
 
-        for (name, ports) in containers.iter().map(|c| {
-            let names = c
-                .names
-                .as_ref()
-                .map(|n| n.concat())
-                .unwrap_or(c.id.as_ref().unwrap().to_string());
-            let ports = c.clone().ports.unwrap_or(Vec::<_>::new());
-            (names.to_string(), ports)
-        }) {
-            for Port {
-                ip,
-                private_port: local_port,
-                public_port,
-                typ,
-            } in ports
-            {
-                let remote_port = public_port.unwrap_or(local_port);
-                let mut name = name.to_string();
-                if let Some(stripped) = name.strip_prefix("/") {
-                    name = stripped.to_string();
-                }
-                log::debug!(
-                    "{} {} {} {} {}",
-                    name,
-                    ip.unwrap_or_default(),
-                    local_port,
-                    remote_port,
-                    typ.unwrap_or(PortTypeEnum::EMPTY)
-                );
+        for remote_port in stale_ports {
+            let Tunnel {
+                local_port,
+                container_name,
+                ..
+            } = &open_tunnels_map[remote_port];
+            let local_socket = format!("{}:{}", LOCALHOST_IP, local_port);
+            let remote_socket = format!("{}:{}", container_name, remote_port);
+            eprintln!("Dead tunnel - closing: {} {}", local_socket, remote_socket);
+            close_tunnel(&session, remote_port, &mut open_tunnels_map).await?;
+        }
 
+        for remote_port in new_ports {
+            let Tunnel {
+                local_port,
+                container_name,
+                ..
+            } = &docker_ports_map[remote_port];
+            if is_available(&local_port) {
                 let local_socket = format!("{}:{}", LOCALHOST_IP, local_port);
-                let remote_socket = format!("{}:{}", name, remote_port);
-
-                if open_tunnels.contains_key(&remote_port)
-                    && !test_http_tunnel(LOCALHOST_IP, local_port).await?
-                {
-                    close_tunnel(&session, local_port, remote_port).await?;
-                    open_tunnels.remove(&remote_port);
-                    println!("Removed dead tunnel: {} -> {}", local_socket, remote_socket);
-                }
-
-                if is_available(&local_port) {
-                    open_tunnel(&session, local_port, remote_port).await?;
-
-                    if test_http_tunnel(LOCALHOST_IP, local_port).await? {
-                        println!("Opened tunnel: {} -> {}", local_socket, remote_socket);
-                        open_tunnels.insert(remote_port, (local_port, name.to_string()));
-                    } else {
-                        log::debug!("No response. Closing the tunnel");
-                        close_tunnel(&session, local_port, remote_port).await?;
-                    }
-                } else {
-                    match (
-                        get_pid_using_port(&local_port.to_string()).await?,
-                        multiplexer_pid,
-                    ) {
-                        (Some(pid), Some(mux_pid)) if pid == mux_pid => (),
-                        (Some(pid), Some(mux_pid)) => {
-                            eprintln!(
-                                "Local port {} is already bound by another process: {}. Mux pid: {}",
-                                local_port, pid, mux_pid
-                            );
-                        }
-                        (_, _) => {
-                            log::debug!(
-                                "Local port {} is already bound by another process: UNKNOWN",
-                                local_port,
-                            );
-                        }
-                    };
-                }
+                let remote_socket = format!("{}:{}", container_name, remote_port);
+                log::debug!("Opening tunnel: {} -> {}", local_socket, remote_socket);
+                open_tunnel(&session, *local_port, *remote_port).await?;
+                let is_active = test_http_tunnel(LOCALHOST_IP, *local_port).await?;
+                open_tunnels_map.insert(
+                    *remote_port,
+                    Tunnel {
+                        local_port: *local_port,
+                        container_name: container_name.to_string(),
+                        is_active,
+                    },
+                );
+                eprintln!(
+                    "Opened tunnel (endpoint: {}): {} -> {}",
+                    if is_active { "UP" } else { "DOWN" },
+                    local_socket,
+                    remote_socket
+                );
+            } else {
+                let binding_pid = get_pid_using_port(&local_port.to_string()).await?;
+                eprintln!(
+                    "Local port {} is already bound by another process: {:?}",
+                    local_port, binding_pid
+                );
             }
         }
         if let Some(()) = receiver.recv_timeout(Duration::from_secs(10)).ok() {
             break;
         }
     }
-    for (remote_port, (local_port, name)) in open_tunnels {
+    for (
+        remote_port,
+        Tunnel {
+            local_port,
+            container_name,
+            ..
+        },
+    ) in open_tunnels_map
+    {
         let local_socket = format!("{}:{}", LOCALHOST_IP, local_port);
-        let remote_socket = format!("{}:{}", name, remote_port);
-        close_tunnel(&session, local_port, remote_port).await?;
+        let remote_socket = format!("{}:{}", container_name, remote_port);
+        close_port_forward(&session, local_port, remote_port).await?;
         println!("Closing: {} -> {}", local_socket, remote_socket);
     }
     // TODO: close forwarded socket
