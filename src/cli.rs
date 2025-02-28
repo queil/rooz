@@ -114,6 +114,8 @@ pub struct WorkParams {
     pub pull_image: bool,
     #[arg(short, long)]
     pub user: Option<String>,
+    #[arg(long)]
+    pub uid: Option<u32>,
     #[arg(
         short,
         long,
@@ -144,6 +146,7 @@ impl Default for WorkParams {
             privileged: Default::default(),
             start: Default::default(),
             env: Default::default(),
+            uid: Default::default(),
         }
     }
 }

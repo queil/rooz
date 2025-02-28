@@ -167,7 +167,10 @@ impl<'a> WorkspaceApi<'a> {
         ephemeral: bool,
         identity: &Identity,
     ) -> Result<EnterSpec, AnyError> {
-        let orig_uid = constants::DEFAULT_UID.to_string();
+        let orig_uid = cli_params
+            .uid
+            .map(|x| x.to_string())
+            .unwrap_or(constants::DEFAULT_UID.to_string());
 
         let mut labels = Labels {
             workspace: Labels::workspace(&workspace_key),
