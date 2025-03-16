@@ -13,7 +13,8 @@ use crate::{
     cli::{
         Cli,
         Commands::{
-            Code, Config, Enter, List, New, Remote, Remove, Start, Stop, System, Tmp, Update,
+            Code, Config, Enter, List, New, Remote, Remove, Restart, Start, Stop, System, Tmp,
+            Update,
         },
         CompletionParams, ListParams, NewParams, RemoveParams, ShowConfigParams, StopParams,
         TmpParams,
@@ -28,7 +29,8 @@ use bollard::Docker;
 use clap::{CommandFactory, Parser};
 use clap_complete::generate;
 use cli::{
-    CodeParams, EditConfigParams, EnterParams, StartParams, TemplateConfigParams, UpdateParams,
+    CodeParams, EditConfigParams, EnterParams, RestartParams, StartParams, TemplateConfigParams,
+    UpdateParams,
 };
 use cmd::update::UpdateMode;
 use config::config::{ConfigPath, ConfigSource, FileFormat};
@@ -204,6 +206,17 @@ async fn main() -> Result<(), AnyError> {
             ..
         } => {
             workspace.stop(&name).await?;
+        }
+
+        Cli {
+            command:
+                Restart(RestartParams {
+                    name,
+                    all_containers,
+                }),
+            ..
+        } => {
+            workspace.restart(&name, all_containers).await?;
         }
 
         Cli {

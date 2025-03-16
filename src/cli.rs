@@ -200,6 +200,14 @@ pub struct StartParams {
 }
 
 #[derive(Parser, Debug)]
+#[command(about = "Restarts a workspace's main container")]
+pub struct RestartParams {
+    pub name: String,
+    #[arg(long, default_value = "false", help = "")]
+    pub all_containers: Option<bool>,
+}
+
+#[derive(Parser, Debug)]
 #[command(about = "Lists workspaces", alias = "ls")]
 pub struct ListParams {}
 
@@ -299,6 +307,7 @@ pub enum Commands {
     Code(CodeParams),
     Start(StartParams),
     Stop(StopParams),
+    Restart(RestartParams),
     Remove(RemoveParams),
     Update(UpdateParams),
     List(ListParams),
