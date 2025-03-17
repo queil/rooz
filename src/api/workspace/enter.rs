@@ -1,7 +1,7 @@
 use std::{
     process::{Command, Stdio},
     thread::sleep,
-    time::{Duration, SystemTime},
+    time::Duration,
 };
 
 use crate::{
