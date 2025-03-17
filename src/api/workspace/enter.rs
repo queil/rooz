@@ -1,7 +1,7 @@
 use std::{
     process::{Command, Stdio},
     thread::sleep,
-    time::Duration,
+    time::{Duration, SystemTime},
 };
 
 use crate::{
@@ -75,7 +75,8 @@ impl<'a> WorkspaceApi<'a> {
             match self.start(workspace_key).await {
                 Ok(_) => (),
                 Err(e) => {
-                    eprintln!("{}", e);
+                    log::debug!("{}", e);
+                    eprintln!("Rooz is reconnecting to {}", workspace_key);
                     sleep(Duration::from_millis(2_000));
                     continue;
                 }
@@ -110,8 +111,7 @@ impl<'a> WorkspaceApi<'a> {
             {
                 Ok(_) => break,
                 Err(e) => {
-                    eprintln!("{}", e);
-                    sleep(Duration::from_millis(2_000));
+                    log::debug!("{}", e);
                 }
             };
         }
