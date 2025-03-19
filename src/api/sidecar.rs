@@ -92,12 +92,14 @@ impl<'a> WorkspaceApi<'a> {
                 mounts.extend_from_slice(&v.as_slice());
             }
 
-            let uid = s.user.as_deref().unwrap_or(&constants::ROOT_UID);
+            let user = s.user.as_deref().unwrap_or(&constants::ROOT_USER);
+            let uid = s.uid.unwrap_or(constants::ROOT_UID_INT);
             self.api
                 .container
                 .create(RunSpec {
                     container_name: &container_name,
-                    uid: &uid,
+                    uid,
+                    user,
                     image: &s.image,
                     force_recreate: force,
                     workspace_key: &workspace_key,

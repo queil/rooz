@@ -167,10 +167,7 @@ impl<'a> WorkspaceApi<'a> {
         ephemeral: bool,
         identity: &Identity,
     ) -> Result<EnterSpec, AnyError> {
-        let orig_uid = cli_params
-            .uid
-            .map(|x| x.to_string())
-            .unwrap_or(constants::DEFAULT_UID.to_string());
+        let orig_uid = cli_params.uid.value;
 
         let mut labels = Labels {
             workspace: Labels::workspace(&workspace_key),
@@ -186,7 +183,7 @@ impl<'a> WorkspaceApi<'a> {
         let work_dir = constants::WORK_DIR;
 
         let clone_env = CloneEnv {
-            uid: orig_uid.to_string(),
+            uid: orig_uid,
             workspace_key: workspace_key.to_string(),
             working_dir: work_dir.to_string(),
             ..Default::default()
@@ -197,7 +194,7 @@ impl<'a> WorkspaceApi<'a> {
             .await?;
 
         let work_spec = WorkSpec {
-            uid: &orig_uid,
+            uid: orig_uid,
             container_working_dir: &work_dir,
             container_name: &workspace_key,
             workspace_key: &workspace_key,
@@ -301,7 +298,7 @@ impl<'a> WorkspaceApi<'a> {
             Some(cfg.shell.iter().map(|v| v.as_str()).collect::<Vec<_>>()),
             None,
             workspace.volumes,
-            &workspace.orig_uid,
+            workspace.orig_uid,
             root,
             true,
         )

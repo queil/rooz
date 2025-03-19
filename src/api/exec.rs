@@ -231,7 +231,7 @@ impl<'a> ExecApi<'a> {
         }
     }
 
-    pub async fn chown(&self, container_id: &str, uid: &str, dir: &str) -> Result<(), AnyError> {
+    pub async fn chown(&self, container_id: &str, uid: u32, dir: &str) -> Result<(), AnyError> {
         if let ContainerBackend::Podman = self.backend {
             log::debug!("Podman won't need chown. Skipping");
             return Ok(());

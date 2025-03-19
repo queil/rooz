@@ -160,6 +160,7 @@ async fn main() -> Result<(), AnyError> {
                     root,
                     work_dir,
                     container,
+                    uid,
                 }),
             ..
         } => {
@@ -170,7 +171,7 @@ async fn main() -> Result<(), AnyError> {
                     shell.as_deref().map(|v| vec![v.as_ref()]),
                     container.as_deref(),
                     vec![],
-                    constants::DEFAULT_UID,
+                    uid.value,
                     root,
                     false,
                 )
@@ -337,7 +338,7 @@ async fn main() -> Result<(), AnyError> {
         } => {
             rooz.init(
                 constants::DEFAULT_IMAGE,
-                constants::DEFAULT_UID,
+                constants::DEFAULT_UID_INT,
                 &init_params,
             )
             .await?

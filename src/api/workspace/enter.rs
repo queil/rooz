@@ -40,7 +40,7 @@ impl<'a> WorkspaceApi<'a> {
         shell: Option<Vec<&str>>,
         container_id: Option<&str>,
         volumes: Vec<RoozVolume>,
-        chown_uid: &str,
+        chown_uid: u32,
         root: bool,
         ephemeral: bool,
     ) -> Result<(), AnyError> {
