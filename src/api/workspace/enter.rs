@@ -40,7 +40,7 @@ impl<'a> WorkspaceApi<'a> {
         shell: Option<Vec<&str>>,
         container_id: Option<&str>,
         volumes: Vec<RoozVolume>,
-        chown_uid: u32,
+        chown_uid: Option<u32>,
         root: bool,
         ephemeral: bool,
     ) -> Result<(), AnyError> {
@@ -87,7 +87,11 @@ impl<'a> WorkspaceApi<'a> {
                 for v in &volumes {
                     self.api
                         .exec
-                        .chown(&container_id, chown_uid, &v.path)
+                        .chown(
+                            &container_id,
+                            chown_uid.unwrap_or(constants::DEFAULT_UID),
+                            &v.path,
+                        )
                         .await?;
                 }
             }

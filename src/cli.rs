@@ -1,16 +1,13 @@
 use clap::{Parser, Subcommand};
 use clap_complete::Shell;
 
-use crate::constants;
-
 #[derive(Parser, Debug, Clone, Default)]
 pub struct Uid {
     #[arg(
         long = "env_default_uid",
         name = "env_default_uid",
         hide = true,
-        env = "ROOZ_DEFAULT_UID",
-        default_value = constants::DEFAULT_UID
+        env = "ROOZ_UID"
     )]
     pub value: u32,
 }
@@ -106,7 +103,7 @@ pub struct WorkEnvParams {
     )]
     pub caches: Option<Vec<String>>,
     #[command(flatten)]
-    pub uid: Uid,
+    pub uid: Option<Uid>,
 }
 
 impl Default for WorkEnvParams {
@@ -132,7 +129,7 @@ pub struct WorkParams {
     #[arg(short, long)]
     pub user: Option<String>,
     #[command(flatten)]
-    pub uid: Uid,
+    pub uid: Option<Uid>,
     #[arg(
         short,
         long,
@@ -209,7 +206,7 @@ pub struct EnterParams {
     #[arg(short, long)]
     pub container: Option<String>,
     #[command(flatten)]
-    pub uid: Uid,
+    pub uid: Option<Uid>,
 }
 
 #[derive(Parser, Debug)]

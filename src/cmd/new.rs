@@ -167,7 +167,11 @@ impl<'a> WorkspaceApi<'a> {
         ephemeral: bool,
         identity: &Identity,
     ) -> Result<EnterSpec, AnyError> {
-        let orig_uid = cli_params.uid.value;
+        let orig_uid = cli_params
+            .uid
+            .as_ref()
+            .map(|x| x.value)
+            .unwrap_or(constants::DEFAULT_UID);
 
         let mut labels = Labels {
             workspace: Labels::workspace(&workspace_key),
@@ -298,7 +302,7 @@ impl<'a> WorkspaceApi<'a> {
             Some(cfg.shell.iter().map(|v| v.as_str()).collect::<Vec<_>>()),
             None,
             workspace.volumes,
-            workspace.orig_uid,
+            Some(workspace.orig_uid),
             root,
             true,
         )

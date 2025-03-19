@@ -30,7 +30,7 @@ impl Default for CloneEnv {
     fn default() -> Self {
         Self {
             image: constants::DEFAULT_IMAGE.to_string(),
-            uid: constants::DEFAULT_UID_INT,
+            uid: constants::DEFAULT_UID,
             workspace_key: Default::default(),
             working_dir: constants::WORK_DIR.to_string(),
             use_volume: true,
