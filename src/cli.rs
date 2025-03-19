@@ -1,6 +1,20 @@
 use clap::{Parser, Subcommand};
 use clap_complete::Shell;
 
+use crate::constants;
+
+#[derive(Parser, Debug, Clone, Default)]
+pub struct Uid {
+    #[arg(
+        long = "env_default_uid",
+        name = "env_default_uid",
+        hide = true,
+        env = "ROOZ_DEFAULT_UID",
+        default_value = constants::DEFAULT_UID
+    )]
+    pub value: u32,
+}
+
 #[derive(Parser, Debug)]
 #[command(about = "Prunes all rooz resources")]
 pub struct PruneParams {}
@@ -91,6 +105,8 @@ pub struct WorkEnvParams {
         use_value_delimiter = true
     )]
     pub caches: Option<Vec<String>>,
+    #[command(flatten)]
+    pub uid: Uid,
 }
 
 impl Default for WorkEnvParams {
@@ -100,6 +116,7 @@ impl Default for WorkEnvParams {
             user: Default::default(),
             shell: Default::default(),
             caches: Default::default(),
+            uid: Default::default(),
         }
     }
 }
@@ -114,8 +131,8 @@ pub struct WorkParams {
     pub pull_image: bool,
     #[arg(short, long)]
     pub user: Option<String>,
-    #[arg(long)]
-    pub uid: Option<u32>,
+    #[command(flatten)]
+    pub uid: Uid,
     #[arg(
         short,
         long,
@@ -191,6 +208,8 @@ pub struct EnterParams {
     pub work_dir: Option<String>,
     #[arg(short, long)]
     pub container: Option<String>,
+    #[command(flatten)]
+    pub uid: Uid,
 }
 
 #[derive(Parser, Debug)]

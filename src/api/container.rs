@@ -246,7 +246,7 @@ impl<'a> ContainerApi<'a> {
 
                 let mut env_kv = vec![
                     KeyValue::new("ROOZ_META_IMAGE", &spec.image),
-                    KeyValue::new("ROOZ_META_UID", &spec.uid),
+                    KeyValue::new("ROOZ_META_UID", &spec.uid.to_string()),
                     KeyValue::new("ROOZ_META_USER", &spec.user),
                     KeyValue::new("ROOZ_META_HOME", &spec.home_dir),
                     KeyValue::new("ROOZ_META_WORKSPACE", &spec.workspace_key),
@@ -264,7 +264,7 @@ impl<'a> ContainerApi<'a> {
                     entrypoint: spec.entrypoint,
                     cmd: spec.command,
                     working_dir: spec.work_dir,
-                    user: Some(spec.uid),
+                    user: Some(spec.user),
                     attach_stdin: Some(true),
                     attach_stdout: Some(true),
                     attach_stderr: Some(true),

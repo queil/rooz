@@ -29,7 +29,7 @@ impl<'a> Api<'a> {
         let run_spec = RunSpec {
             reason: "init",
             image,
-            uid: constants::ROOT_UID,
+            uid: constants::ROOT_UID_INT,
             work_dir: None,
             container_name,
             workspace_key: &workspace_key,
@@ -57,7 +57,7 @@ impl<'a> Api<'a> {
         Ok(())
     }
 
-    pub async fn init(&self, image: &str, uid: &str, spec: &InitParams) -> Result<(), AnyError> {
+    pub async fn init(&self, image: &str, uid: u32, spec: &InitParams) -> Result<(), AnyError> {
         let image_id = self.image.ensure(&image, false).await?;
         match self
             .volume
