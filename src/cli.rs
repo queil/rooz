@@ -1,6 +1,17 @@
 use clap::{Parser, Subcommand};
 use clap_complete::Shell;
 
+#[derive(Parser, Debug, Clone, Default)]
+pub struct Uid {
+    #[arg(
+        long = "env_default_uid",
+        name = "env_default_uid",
+        hide = true,
+        env = "ROOZ_UID"
+    )]
+    pub value: Option<u32>,
+}
+
 #[derive(Parser, Debug)]
 #[command(about = "Prunes all rooz resources")]
 pub struct PruneParams {}
@@ -15,6 +26,8 @@ pub struct InitParams {
         help = "Initializes rooz with the provided age identity rather than generating a new one"
     )]
     pub age_identity: Option<String>,
+    #[command(flatten)]
+    pub uid: Uid,
 }
 
 #[derive(Parser, Debug)]
@@ -91,6 +104,8 @@ pub struct WorkEnvParams {
         use_value_delimiter = true
     )]
     pub caches: Option<Vec<String>>,
+    #[command(flatten)]
+    pub uid: Uid,
 }
 
 impl Default for WorkEnvParams {
@@ -100,6 +115,7 @@ impl Default for WorkEnvParams {
             user: Default::default(),
             shell: Default::default(),
             caches: Default::default(),
+            uid: Default::default(),
         }
     }
 }
@@ -114,8 +130,6 @@ pub struct WorkParams {
     pub pull_image: bool,
     #[arg(short, long)]
     pub user: Option<String>,
-    #[arg(long)]
-    pub uid: Option<u32>,
     #[arg(
         short,
         long,
@@ -146,7 +160,6 @@ impl Default for WorkParams {
             privileged: Default::default(),
             start: Default::default(),
             env: Default::default(),
-            uid: Default::default(),
         }
     }
 }
@@ -191,6 +204,8 @@ pub struct EnterParams {
     pub work_dir: Option<String>,
     #[arg(short, long)]
     pub container: Option<String>,
+    #[command(flatten)]
+    pub uid: Uid,
 }
 
 #[derive(Parser, Debug)]

@@ -53,7 +53,7 @@ impl<'a> WorkspaceApi<'a> {
         let run_spec = RunSpec {
             reason: "work",
             image: &spec.image,
-            uid: &spec.uid,
+            uid: spec.uid,
             user: &spec.user,
             work_dir: Some(&spec.container_working_dir),
             home_dir: &home_dir,
@@ -78,7 +78,7 @@ impl<'a> WorkspaceApi<'a> {
                 WorkspaceResult {
                     workspace_key: (&spec).workspace_key.to_string(),
                     working_dir: (&spec).container_working_dir.to_string(),
-                    orig_uid: spec.uid.to_string(),
+                    orig_uid: spec.uid,
                     volumes: volumes.iter().map(|v|v.clone()).collect::<Vec<_>>() }),
 
         ContainerResult::AlreadyExists { .. } => {

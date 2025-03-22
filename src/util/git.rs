@@ -19,18 +19,18 @@ pub enum CloneUrls {
 #[derive(Clone, Debug)]
 pub struct CloneEnv {
     pub image: String,
-    pub uid: String,
+    pub uid: u32,
     pub workspace_key: String,
     pub working_dir: String,
     pub use_volume: bool,
     pub depth_override: Option<i64>,
 }
 
-impl Default for CloneEnv {
-    fn default() -> Self {
+impl CloneEnv {
+    pub fn create(uid: u32) -> Self {
         Self {
             image: constants::DEFAULT_IMAGE.to_string(),
-            uid: constants::DEFAULT_UID.to_string(),
+            uid,
             workspace_key: Default::default(),
             working_dir: constants::WORK_DIR.to_string(),
             use_volume: true,
@@ -146,7 +146,7 @@ impl<'a> GitApi<'a> {
         let run_spec = RunSpec {
             reason: "git-clone",
             image: &spec.image,
-            uid: &spec.uid,
+            uid: spec.uid,
             work_dir: Some(&spec.working_dir),
             container_name: &id::random_suffix("rooz-git"),
             workspace_key: &spec.workspace_key,
@@ -164,7 +164,7 @@ impl<'a> GitApi<'a> {
             self.api.exec.ensure_user(&id).await?;
             self.api
                 .exec
-                .chown(&id, &spec.uid, &spec.working_dir)
+                .chown(&id, spec.uid, &spec.working_dir)
                 .await?;
 
             self.api

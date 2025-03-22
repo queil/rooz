@@ -25,7 +25,7 @@ impl<'a> CryptApi<'a> {
         let run_spec = RunSpec {
             reason: "read-age-key",
             image: constants::DEFAULT_IMAGE,
-            uid: constants::ROOT_UID,
+            uid: constants::ROOT_UID_INT,
             work_dir: None,
             container_name: &id::random_suffix("read-age"),
             workspace_key: &id::random_suffix("tmp"),

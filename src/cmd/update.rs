@@ -2,6 +2,7 @@ use crate::{
     api::WorkspaceApi,
     cli::{WorkEnvParams, WorkParams},
     config::config::{ConfigPath, ConfigSource, FileFormat, RoozCfg},
+    constants,
     model::{types::AnyError, volume::WORK_ROLE},
     util::{
         git::CloneEnv,
@@ -52,7 +53,7 @@ impl<'a> WorkspaceApi<'a> {
                             workspace_key: workspace_key.to_string(),
                             use_volume: false,
                             depth_override: Some(1),
-                            ..Default::default()
+                            ..CloneEnv::create(spec.uid.value.unwrap_or(constants::DEFAULT_UID))
                         };
 
                         match self
@@ -98,6 +99,8 @@ impl<'a> WorkspaceApi<'a> {
                 &identity,
             )
             .await?;
+
+            //TODO: ensure user + chown volumes (to apply a new ROOZ_UID if changed)
         }
         Ok(())
     }

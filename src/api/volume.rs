@@ -93,7 +93,7 @@ impl<'a> VolumeApi<'a> {
         Ok(mounts.clone())
     }
 
-    pub async fn ensure_files(&self, mounts: Vec<RoozVolume>, uid: &str) -> Result<(), AnyError> {
+    pub async fn ensure_files(&self, mounts: Vec<RoozVolume>, uid: u32) -> Result<(), AnyError> {
         for m in &mounts {
             match m {
                 RoozVolume {

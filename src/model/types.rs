@@ -31,7 +31,7 @@ pub enum VolumeResult {
 #[derive(Clone, Debug)]
 pub struct WorkSpec<'a> {
     pub image: &'a str,
-    pub uid: &'a str,
+    pub uid: u32,
     pub user: &'a str,
     pub container_working_dir: &'a str,
     pub container_name: &'a str,
@@ -72,7 +72,7 @@ impl Default for WorkSpec<'_> {
 pub struct RunSpec<'a> {
     pub reason: &'a str,
     pub image: &'a str,
-    pub uid: &'a str,
+    pub uid: u32,
     pub user: &'a str,
     pub work_dir: Option<&'a str>,
     pub home_dir: &'a str,
@@ -121,7 +121,7 @@ pub struct WorkspaceResult {
     pub volumes: Vec<RoozVolume>,
     pub workspace_key: String,
     pub working_dir: String,
-    pub orig_uid: String,
+    pub orig_uid: u32,
 }
 
 pub struct EnterSpec {

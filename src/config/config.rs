@@ -102,6 +102,8 @@ pub struct RoozSidecar {
     pub work_dir: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub user: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub uid: Option<u32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
