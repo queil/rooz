@@ -8,13 +8,14 @@ use base64::{engine::general_purpose, Engine as _};
 use bollard::{
     container::{
         Config, CreateContainerOptions, InspectContainerOptions, KillContainerOptions,
-        ListContainersOptions, LogOutput::Console, LogsOptions, RemoveContainerOptions,
-        StartContainerOptions, StopContainerOptions,
+        ListContainersOptions,
+        LogOutput::{self, Console},
+        LogsOptions, RemoveContainerOptions, StartContainerOptions, StopContainerOptions,
     },
     errors::Error,
     models::{ContainerState, HostConfig},
     network::ConnectNetworkOptions,
-    secret::ContainerStateStatusEnum,
+    secret::{ContainerStateStatusEnum, Mount},
     service::{ContainerInspectResponse, ContainerSummary, EndpointSettings, PortBinding},
 };
 use futures::StreamExt;
@@ -22,9 +23,13 @@ use tokio::time::sleep;
 
 use crate::{
     api::ContainerApi,
+    constants,
     model::types::{AnyError, ContainerResult, RunSpec},
-    util::backend::ContainerBackend,
-    util::labels::{KeyValue, Labels},
+    util::{
+        backend::ContainerBackend,
+        id,
+        labels::{KeyValue, Labels},
+    },
 };
 
 pub fn inject(script: &str, name: &str) -> Vec<String> {
@@ -246,7 +251,7 @@ impl<'a> ContainerApi<'a> {
 
                 let mut env_kv = vec![
                     KeyValue::new("ROOZ_META_IMAGE", &spec.image),
-                    KeyValue::new("ROOZ_META_UID", &spec.uid),
+                    KeyValue::new("ROOZ_META_UID", &spec.uid.to_string()),
                     KeyValue::new("ROOZ_META_USER", &spec.user),
                     KeyValue::new("ROOZ_META_HOME", &spec.home_dir),
                     KeyValue::new("ROOZ_META_WORKSPACE", &spec.workspace_key),
@@ -264,7 +269,7 @@ impl<'a> ContainerApi<'a> {
                     entrypoint: spec.entrypoint,
                     cmd: spec.command,
                     working_dir: spec.work_dir,
-                    user: Some(spec.uid),
+                    user: Some(spec.user),
                     attach_stdin: Some(true),
                     attach_stdout: Some(true),
                     attach_stderr: Some(true),
@@ -315,6 +320,67 @@ impl<'a> ContainerApi<'a> {
             Ok(_) => Ok(()),
             Err(e) => Err(Box::new(e)),
         }
+    }
+
+    pub async fn _one_shot(
+        &self,
+        name: &str,
+        command: String,
+        mounts: Option<Vec<Mount>>,
+    ) -> Result<(), AnyError> {
+        let entrypoint = inject(&command, "entrypoint.sh");
+        let id = self
+            .create(RunSpec {
+                reason: name,
+                image: constants::DEFAULT_IMAGE,
+                container_name: &id::random_suffix("one-shot"),
+                entrypoint: Some(entrypoint.iter().map(String::as_str).collect()),
+                auto_remove: true,
+                mounts,
+                uid: constants::ROOT_UID_INT,
+                ..Default::default()
+            })
+            .await
+            .map(|r| r.id().to_string())?;
+
+        let log_options = LogsOptions::<String> {
+            follow: true,
+            stdout: true,
+            stderr: true,
+            ..Default::default()
+        };
+
+        let docker = self.client.clone();
+        let s_id = id.clone();
+        let s_name = name.to_string();
+        let log_task = tokio::spawn(async move {
+            let mut logs_stream = docker.logs(&s_id, Some(log_options));
+
+            while let Some(log_result) = logs_stream.next().await {
+                match log_result {
+                    Ok(LogOutput::Console { message }) => {
+                        println!("{} | {:?}", &s_name, String::from_utf8_lossy(&message))
+                    }
+                    Ok(LogOutput::StdErr { message }) => {
+                        println!("{} | {:?}", &s_name, String::from_utf8_lossy(&message))
+                    }
+                    Ok(LogOutput::StdOut { message }) => {
+                        println!("{} | {:?}", &s_name, String::from_utf8_lossy(&message))
+                    }
+                    Ok(LogOutput::StdIn { .. }) => (),
+                    Err(e) => {
+                        eprintln!("Error getting logs: {:?}", e);
+                        break;
+                    }
+                }
+            }
+        });
+
+        self.start(&id).await?;
+
+        let _ = log_task.await;
+
+        Ok(())
     }
 
     pub async fn logs_to_stdout(&self, container_name: &str) -> Result<(), AnyError> {
