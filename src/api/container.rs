@@ -337,7 +337,7 @@ impl<'a> ContainerApi<'a> {
                 entrypoint: Some(entrypoint.iter().map(String::as_str).collect()),
                 auto_remove: true,
                 mounts,
-                uid: constants::ROOT_UID_INT,
+                uid: constants::ROOT_UID,
                 ..Default::default()
             })
             .await
