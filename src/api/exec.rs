@@ -263,19 +263,19 @@ impl<'a> ExecApi<'a> {
 
     pub async fn ensure_user(&self, container_id: &str) -> Result<(), AnyError> {
         let ensure_user_cmd = container::inject(
-            format!(
-                    r#"whoami > /dev/null 2>&1 && [ "$(whoami)" = "$ROOZ_META_USER" ] || \
-                       echo "$ROOZ_META_USER:x:$ROOZ_META_UID:$ROOZ_META_UID:$ROOZ_META_USER:$ROOZ_META_HOME:/bin/sh" >> /etc/passwd"#,
-            )
-            .as_ref(),
-            "make_user.sh",
-        );
+        format!(
+                r#"grep -q "^$ROOZ_META_USER:x:$ROOZ_META_UID" /etc/passwd || \
+                   echo "$ROOZ_META_USER:x:$ROOZ_META_UID:$ROOZ_META_UID:$ROOZ_META_USER:$ROOZ_META_HOME:/bin/sh" >> /etc/passwd"#
+        )
+        .as_ref(),
+        "make_user.sh",
+    );
 
         let ensure_user_output = self
             .output(
                 "ensure-user",
                 container_id,
-                Some(constants::ROOT_UID),
+                Some(constants::ROOT_USER),
                 Some(ensure_user_cmd.iter().map(String::as_str).collect()),
             )
             .await?;

@@ -167,11 +167,7 @@ impl<'a> WorkspaceApi<'a> {
         ephemeral: bool,
         identity: &Identity,
     ) -> Result<EnterSpec, AnyError> {
-        let orig_uid = cli_params
-            .uid
-            .as_ref()
-            .map(|x| x.value)
-            .unwrap_or(constants::DEFAULT_UID);
+        let orig_uid = cli_params.env.uid.value.unwrap_or(constants::DEFAULT_UID);
 
         let mut labels = Labels {
             workspace: Labels::workspace(&workspace_key),
@@ -187,10 +183,9 @@ impl<'a> WorkspaceApi<'a> {
         let work_dir = constants::WORK_DIR;
 
         let clone_env = CloneEnv {
-            uid: orig_uid,
             workspace_key: workspace_key.to_string(),
             working_dir: work_dir.to_string(),
-            ..Default::default()
+            ..CloneEnv::create(orig_uid)
         };
 
         let cli_cfg = self

@@ -57,7 +57,7 @@ impl<'a> Api<'a> {
         Ok(())
     }
 
-    pub async fn init(&self, image: &str, uid: u32, spec: &InitParams) -> Result<(), AnyError> {
+    pub async fn init(&self, image: &str, spec: &InitParams) -> Result<(), AnyError> {
         let image_id = self.image.ensure(&image, false).await?;
         match self
             .volume
@@ -78,7 +78,8 @@ impl<'a> Api<'a> {
                        cat "$KEYFILE.pub"
                        chmod 400 $KEYFILE && chown -R {} /tmp/.ssh
                     "#,
-                    &hostname, &uid,
+                    &hostname,
+                    &spec.uid.value.unwrap_or(constants::DEFAULT_UID),
                 );
 
                 self.execute_init(
@@ -128,7 +129,7 @@ impl<'a> Api<'a> {
                         "#,
                     &key.to_string().expose_secret(),
                     pubkey,
-                    &uid
+                    &spec.uid.value.unwrap_or(constants::DEFAULT_UID)
                 );
 
                 self.execute_init(

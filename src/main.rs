@@ -171,7 +171,7 @@ async fn main() -> Result<(), AnyError> {
                     shell.as_deref().map(|v| vec![v.as_ref()]),
                     container.as_deref(),
                     vec![],
-                    uid.map(|x| x.value),
+                    uid.value,
                     root,
                     false,
                 )
@@ -335,14 +335,7 @@ async fn main() -> Result<(), AnyError> {
                     command: cli::SystemCommands::Init(init_params),
                 }),
             ..
-        } => {
-            rooz.init(
-                constants::DEFAULT_IMAGE,
-                constants::DEFAULT_UID,
-                &init_params,
-            )
-            .await?
-        }
+        } => rooz.init(constants::DEFAULT_IMAGE, &init_params).await?,
 
         Cli {
             command:

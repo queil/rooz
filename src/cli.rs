@@ -9,7 +9,7 @@ pub struct Uid {
         hide = true,
         env = "ROOZ_UID"
     )]
-    pub value: u32,
+    pub value: Option<u32>,
 }
 
 #[derive(Parser, Debug)]
@@ -26,6 +26,8 @@ pub struct InitParams {
         help = "Initializes rooz with the provided age identity rather than generating a new one"
     )]
     pub age_identity: Option<String>,
+    #[command(flatten)]
+    pub uid: Uid,
 }
 
 #[derive(Parser, Debug)]
@@ -103,7 +105,7 @@ pub struct WorkEnvParams {
     )]
     pub caches: Option<Vec<String>>,
     #[command(flatten)]
-    pub uid: Option<Uid>,
+    pub uid: Uid,
 }
 
 impl Default for WorkEnvParams {
@@ -128,8 +130,6 @@ pub struct WorkParams {
     pub pull_image: bool,
     #[arg(short, long)]
     pub user: Option<String>,
-    #[command(flatten)]
-    pub uid: Option<Uid>,
     #[arg(
         short,
         long,
@@ -160,7 +160,6 @@ impl Default for WorkParams {
             privileged: Default::default(),
             start: Default::default(),
             env: Default::default(),
-            uid: Default::default(),
         }
     }
 }
@@ -206,7 +205,7 @@ pub struct EnterParams {
     #[arg(short, long)]
     pub container: Option<String>,
     #[command(flatten)]
-    pub uid: Option<Uid>,
+    pub uid: Uid,
 }
 
 #[derive(Parser, Debug)]
