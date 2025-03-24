@@ -1,15 +1,11 @@
-use std::{
-    collections::HashMap,
-    io::{stdout, Write},
-    time::Duration,
-};
+use std::{collections::HashMap, time::Duration};
 
 use base64::{engine::general_purpose, Engine as _};
 use bollard::{
     container::{
         Config, CreateContainerOptions, InspectContainerOptions, KillContainerOptions,
         ListContainersOptions,
-        LogOutput::{self, Console},
+        LogOutput::{self},
         LogsOptions, RemoveContainerOptions, StartContainerOptions, StopContainerOptions,
     },
     errors::Error,
@@ -322,7 +318,7 @@ impl<'a> ContainerApi<'a> {
         }
     }
 
-    pub async fn _one_shot(
+    pub async fn one_shot(
         &self,
         name: &str,
         command: String,
@@ -380,25 +376,6 @@ impl<'a> ContainerApi<'a> {
 
         let _ = log_task.await;
 
-        Ok(())
-    }
-
-    pub async fn logs_to_stdout(&self, container_name: &str) -> Result<(), AnyError> {
-        let log_options = LogsOptions::<String> {
-            stdout: true,
-            follow: true,
-            ..Default::default()
-        };
-
-        let mut stream = self.client.logs(&container_name, Some(log_options));
-
-        while let Some(l) = stream.next().await {
-            match l {
-                Ok(Console { message: m }) => stdout().write_all(&m)?,
-                Ok(msg) => panic!("{}", msg),
-                Err(e) => panic!("{}", e),
-            };
-        }
         Ok(())
     }
 }

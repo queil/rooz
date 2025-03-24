@@ -1,64 +1,22 @@
 use std::str::FromStr;
 
 use crate::{
-    api::{self, container, Api},
+    api::{self, Api},
     cli::InitParams,
     constants,
     model::{
-        types::{AnyError, RunSpec, VolumeResult},
+        types::{AnyError, VolumeResult},
         volume::RoozVolumeRole,
     },
-    util::{id, labels::Labels, ssh},
+    util::ssh,
 };
 use age::secrecy::ExposeSecret;
 use bollard::models::MountTypeEnum::VOLUME;
 use bollard::service::Mount;
 
 impl<'a> Api<'a> {
-    async fn execute_init(
-        &self,
-        container_name: &str,
-        entrypoint: &str,
-        vol_name: &str,
-        vol_mount_path: &str,
-        image: &str,
-    ) -> Result<(), AnyError> {
-        let workspace_key = id::random_suffix("init");
-        let entrypoint = container::inject(entrypoint, "entrypoint.sh");
-        let labels = Labels::default();
-        let run_spec = RunSpec {
-            reason: "init",
-            image,
-            uid: constants::ROOT_UID_INT,
-            work_dir: None,
-            container_name,
-            workspace_key: &workspace_key,
-            mounts: Some(vec![Mount {
-                typ: Some(VOLUME),
-                read_only: Some(false),
-                source: Some(vol_name.into()),
-                target: Some(vol_mount_path.into()),
-                ..Default::default()
-            }]),
-            entrypoint: Some(entrypoint.iter().map(String::as_str).collect()),
-            privileged: false,
-            force_recreate: false,
-            // init containers must not be auto-removed as it may happen
-            // before rooz manages to read their stdout
-            auto_remove: false,
-            labels,
-            ..Default::default()
-        };
-
-        let result = self.container.create(run_spec).await?;
-        self.container.start(result.id()).await?;
-        self.container.logs_to_stdout(result.id()).await?;
-        self.container.remove(result.id(), true).await?;
-        Ok(())
-    }
-
-    pub async fn init(&self, image: &str, spec: &InitParams) -> Result<(), AnyError> {
-        let image_id = self.image.ensure(&image, false).await?;
+    pub async fn init(&self, spec: &InitParams) -> Result<(), AnyError> {
+        self.image.ensure(constants::DEFAULT_IMAGE, false).await?;
         match self
             .volume
             .ensure_volume(
@@ -82,14 +40,19 @@ impl<'a> Api<'a> {
                     &spec.uid.value.unwrap_or(constants::DEFAULT_UID),
                 );
 
-                self.execute_init(
-                    "rooz-init-ssh",
-                    &init_ssh,
-                    ssh::VOLUME_NAME,
-                    "/tmp/.ssh",
-                    &image_id,
-                )
-                .await?;
+                self.container
+                    .one_shot(
+                        "rooz-init-ssh",
+                        init_ssh.into(),
+                        Some(vec![Mount {
+                            typ: Some(VOLUME),
+                            read_only: Some(false),
+                            source: Some(ssh::VOLUME_NAME.into()),
+                            target: Some("/tmp/.ssh".into()),
+                            ..Default::default()
+                        }]),
+                    )
+                    .await?;
             }
             VolumeResult::AlreadyExists => {
                 println!("Rooz has been already initialized. Use --force to reinitialize.")
@@ -120,7 +83,7 @@ impl<'a> Api<'a> {
                     }
                 };
 
-                let entrypoint = &format!(
+                let entrypoint = format!(
                     r#"mkdir -p /tmp/.age && \
                         echo -n '{}' > /tmp/.age/age.key && \
                         echo -n '{}' > /tmp/.age/age.pub && \
@@ -132,14 +95,19 @@ impl<'a> Api<'a> {
                     &spec.uid.value.unwrap_or(constants::DEFAULT_UID)
                 );
 
-                self.execute_init(
-                    "rooz-init-age",
-                    entrypoint,
-                    api::crypt::VOLUME_NAME,
-                    "/tmp/.age",
-                    &image_id,
-                )
-                .await?;
+                self.container
+                    .one_shot(
+                        "rooz-init-age",
+                        entrypoint,
+                        Some(vec![Mount {
+                            typ: Some(VOLUME),
+                            read_only: Some(false),
+                            source: Some(api::crypt::VOLUME_NAME.into()),
+                            target: Some("/tmp/.age".into()),
+                            ..Default::default()
+                        }]),
+                    )
+                    .await?;
                 println!("{}", pubkey);
             }
             VolumeResult::AlreadyExists => {

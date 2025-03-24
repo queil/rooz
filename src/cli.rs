@@ -3,10 +3,7 @@ use clap_complete::Shell;
 
 #[derive(Parser, Debug, Clone, Default)]
 pub struct Uid {
-    #[arg(
-        long = "uid",
-        name = "uid",
-    )]
+    #[arg(long = "uid", name = "uid")]
     pub value: Option<u32>,
 }
 

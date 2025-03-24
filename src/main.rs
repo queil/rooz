@@ -335,7 +335,7 @@ async fn main() -> Result<(), AnyError> {
                     command: cli::SystemCommands::Init(init_params),
                 }),
             ..
-        } => rooz.init(constants::DEFAULT_IMAGE, &init_params).await?,
+        } => rooz.init(&init_params).await?,
 
         Cli {
             command:
