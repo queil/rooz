@@ -7,6 +7,7 @@ use bollard::{
         ListContainersOptions,
         LogOutput::{self},
         LogsOptions, RemoveContainerOptions, StartContainerOptions, StopContainerOptions,
+        WaitContainerOptions,
     },
     errors::Error,
     models::{ContainerState, HostConfig},
@@ -14,6 +15,7 @@ use bollard::{
     secret::{ContainerStateStatusEnum, Mount},
     service::{ContainerInspectResponse, ContainerSummary, EndpointSettings, PortBinding},
 };
+use colored::Colorize;
 use futures::StreamExt;
 use tokio::time::sleep;
 
@@ -176,6 +178,16 @@ impl<'a> ContainerApi<'a> {
         Ok(())
     }
 
+    pub async fn stop_all(&self) -> Result<(), AnyError> {
+        let labels = Labels::default();
+        for c in self.get_running(&labels).await? {
+            print!("Stopping container: {} ... ", c.names.unwrap().join(", "));
+            self.stop(&c.id.unwrap()).await?;
+            println!("{}", format!("OK").green())
+        }
+        Ok(())
+    }
+
     pub async fn create(&self, spec: RunSpec<'a>) -> Result<ContainerResult, AnyError> {
         log::debug!(
             "[{}]: Creating container - name: {}, uid: {}, user: {}, image: {}, auto-remove: {}",
@@ -331,13 +343,19 @@ impl<'a> ContainerApi<'a> {
                 image: constants::DEFAULT_IMAGE,
                 container_name: &id::random_suffix("one-shot"),
                 entrypoint: Some(entrypoint.iter().map(String::as_str).collect()),
-                auto_remove: true,
+                auto_remove: false,
                 mounts,
                 uid: constants::ROOT_UID_INT,
                 ..Default::default()
             })
             .await
             .map(|r| r.id().to_string())?;
+
+        self.start(&id).await?;
+
+        let mut exit_code_stream = self
+            .client
+            .wait_container(&id, None::<WaitContainerOptions<String>>);
 
         let log_options = LogsOptions::<String> {
             follow: true,
@@ -346,35 +364,46 @@ impl<'a> ContainerApi<'a> {
             ..Default::default()
         };
 
-        let docker = self.client.clone();
-        let s_id = id.clone();
-        let s_name = name.to_string();
-        let log_task = tokio::spawn(async move {
-            let mut logs_stream = docker.logs(&s_id, Some(log_options));
+        let mut logs_stream = self.client.logs(&id, Some(log_options));
 
-            while let Some(log_result) = logs_stream.next().await {
-                match log_result {
-                    Ok(LogOutput::Console { message }) => {
-                        println!("{} | {:?}", &s_name, String::from_utf8_lossy(&message))
-                    }
-                    Ok(LogOutput::StdErr { message }) => {
-                        println!("{} | {:?}", &s_name, String::from_utf8_lossy(&message))
-                    }
-                    Ok(LogOutput::StdOut { message }) => {
-                        println!("{} | {:?}", &s_name, String::from_utf8_lossy(&message))
-                    }
-                    Ok(LogOutput::StdIn { .. }) => (),
-                    Err(e) => {
-                        eprintln!("Error getting logs: {:?}", e);
-                        break;
-                    }
+        while let Some(log_result) = logs_stream.next().await {
+            match log_result {
+                Ok(LogOutput::Console { message }) => {
+                    println!(
+                        "{} | {}",
+                        &name,
+                        String::from_utf8_lossy(&message).trim_end()
+                    )
+                }
+                Ok(LogOutput::StdErr { message }) => {
+                    println!(
+                        "{} | {}",
+                        &name,
+                        String::from_utf8_lossy(&message).trim_end()
+                    )
+                }
+                Ok(LogOutput::StdOut { message }) => {
+                    println!(
+                        "{} | {}",
+                        &name,
+                        String::from_utf8_lossy(&message).trim_end()
+                    )
+                }
+                Ok(LogOutput::StdIn { .. }) => (),
+                Err(e) => {
+                    eprintln!("Error getting logs: {:?}", e);
+                    break;
                 }
             }
-        });
+        }
 
-        self.start(&id).await?;
+        let exit_code = match exit_code_stream.next().await {
+            Some(Ok(response)) => response.status_code,
+            Some(Err(e)) => return Err(e.into()),
+            None => unreachable!("Not sure yet"),
+        };
 
-        let _ = log_task.await;
+        log::debug!("Exit code: {}", exit_code);
 
         Ok(())
     }
