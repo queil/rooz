@@ -4,10 +4,8 @@ use clap_complete::Shell;
 #[derive(Parser, Debug, Clone, Default)]
 pub struct Uid {
     #[arg(
-        long = "env_default_uid",
-        name = "env_default_uid",
-        hide = true,
-        env = "ROOZ_UID"
+        long = "uid",
+        name = "uid",
     )]
     pub value: Option<u32>,
 }
