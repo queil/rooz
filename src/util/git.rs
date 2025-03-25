@@ -129,7 +129,7 @@ impl<'a> GitApi<'a> {
             )
         }
 
-        let clone_cmd = container::inject(&clone_script, "clone.sh");
+        let clone_cmd = container::inject(&clone_script, "clone.sh", false);
         let labels = Labels::new(Some(&spec.workspace_key), Some("git"));
         let mut mounts = vec![ssh::mount("/tmp/.ssh")];
 

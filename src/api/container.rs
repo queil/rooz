@@ -1,13 +1,9 @@
-use std::{collections::HashMap, time::Duration};
-
 use base64::{engine::general_purpose, Engine as _};
 use bollard::{
     container::{
         Config, CreateContainerOptions, InspectContainerOptions, KillContainerOptions,
-        ListContainersOptions,
-        LogOutput::{self},
-        LogsOptions, RemoveContainerOptions, StartContainerOptions, StopContainerOptions,
-        WaitContainerOptions,
+        ListContainersOptions, LogsOptions, RemoveContainerOptions, StartContainerOptions,
+        StopContainerOptions, WaitContainerOptions,
     },
     errors::Error,
     models::{ContainerState, HostConfig},
@@ -16,7 +12,8 @@ use bollard::{
     service::{ContainerInspectResponse, ContainerSummary, EndpointSettings, PortBinding},
 };
 use colored::Colorize;
-use futures::StreamExt;
+use futures::{future, StreamExt};
+use std::{collections::HashMap, time::Duration};
 use tokio::time::sleep;
 
 use crate::{
@@ -30,16 +27,17 @@ use crate::{
     },
 };
 
-pub fn inject(script: &str, name: &str) -> Vec<String> {
+pub fn inject(script: &str, name: &str, post_sleep: bool) -> Vec<String> {
     vec![
         "sh".to_string(),
         "-c".to_string(),
         format!(
-            "echo '{}' | base64 -d > /tmp/{} && chmod +x /tmp/{} && /tmp/{}",
+            "echo '{}' | base64 -d > /tmp/{} && chmod +x /tmp/{} && /tmp/{}{}",
             general_purpose::STANDARD.encode(script.trim()),
             name,
             name,
-            name
+            name,
+            if post_sleep { " && sleep 0.5" } else { "" }
         ),
     ]
 }
@@ -330,21 +328,13 @@ impl<'a> ContainerApi<'a> {
         }
     }
 
-    fn message_string(&self, message: &[u8]) -> String {
-        String::from_utf8_lossy(message).trim_end().to_string()
-    }
-
-    fn log_line(&self, name: &str, message: &[u8]) {
-        println!("{} | {}", name, self.message_string(message))
-    }
-
     pub async fn one_shot_output(
         &self,
         name: &str,
         command: String,
         mounts: Option<Vec<Mount>>,
     ) -> Result<OneShotResult, AnyError> {
-        let entrypoint = inject(&command, "entrypoint.sh");
+        let entrypoint = inject(&command, "entrypoint.sh", true);
         let id = self
             .create(RunSpec {
                 reason: name,
@@ -359,45 +349,48 @@ impl<'a> ContainerApi<'a> {
             .await
             .map(|r| r.id().to_string())?;
 
+        let docker_logs = self.client.clone();
+        let s_id = id.clone();
+
         self.start(&id).await?;
+
+        let log_task = tokio::spawn(async move {
+            let logs_stream = docker_logs.logs(
+                &s_id,
+                Some(LogsOptions::<String> {
+                    follow: true,
+                    stdout: true,
+                    stderr: true,
+                    ..Default::default()
+                }),
+            );
+
+            let data = logs_stream
+                .map(|x| match x {
+                    Ok(r) => String::from_utf8_lossy(r.into_bytes().as_ref())
+                        .to_string()
+                        .trim_end()
+                        .to_string(),
+                    Err(err) => panic!("{}", err),
+                })
+                .collect::<Vec<_>>()
+                .await
+                .join("\n");
+            data
+        });
 
         let mut exit_code_stream = self
             .client
             .wait_container(&id, None::<WaitContainerOptions<String>>);
 
-        let mut logs_stream = self.client.logs(
-            &id,
-            Some(LogsOptions::<String> {
-                follow: true,
-                stdout: true,
-                stderr: true,
-                ..Default::default()
-            }),
-        );
-
-        let mut data = Vec::<String>::new();
-        while let Some(log_result) = logs_stream.next().await {
-            match log_result {
-                Ok(LogOutput::Console { message }) => data.push(self.message_string(&message)),
-                Ok(LogOutput::StdErr { message }) => data.push(self.message_string(&message)),
-                Ok(LogOutput::StdOut { message }) => data.push(self.message_string(&message)),
-                Ok(LogOutput::StdIn { .. }) => (),
-                Err(e) => {
-                    eprintln!("Error getting logs: {:?}", e);
-                    break;
-                }
-            }
-        }
-
-        let exit_code = match exit_code_stream.next().await {
+        let _ = match exit_code_stream.next().await {
             Some(Ok(response)) => response.status_code,
             Some(Err(e)) => return Err(e.into()),
-            None => unreachable!("There should always be an exit code"),
+            None => unreachable!("Container exited without status code"),
         };
-        Ok(OneShotResult {
-            exit_code,
-            data: data.join("\n"),
-        })
+
+        let data = tokio::time::timeout(std::time::Duration::from_secs(2), log_task).await??;
+        Ok(OneShotResult { data })
     }
 
     pub async fn one_shot(
@@ -406,7 +399,7 @@ impl<'a> ContainerApi<'a> {
         command: String,
         mounts: Option<Vec<Mount>>,
     ) -> Result<i64, AnyError> {
-        let entrypoint = inject(&command, "entrypoint.sh");
+        let entrypoint = inject(&command, "entrypoint.sh", true);
         let id = self
             .create(RunSpec {
                 reason: name,
@@ -421,17 +414,15 @@ impl<'a> ContainerApi<'a> {
             .await
             .map(|r| r.id().to_string())?;
 
-            self.start(&id).await?;
+        let docker_logs = self.client.clone();
+        let s_id = id.clone();
+        let s_name = name.to_string();
 
-       
+        self.start(&id).await?;
 
-        let mut exit_code_stream = self
-            .client
-            .wait_container(&id, None::<WaitContainerOptions<String>>);
-
-       
-            let mut logs_stream = self.client.logs(
-                &id,
+        let log_task = tokio::spawn(async move {
+            let logs_stream = docker_logs.logs(
+                &s_id,
                 Some(LogsOptions::<String> {
                     follow: true,
                     stdout: true,
@@ -439,24 +430,35 @@ impl<'a> ContainerApi<'a> {
                     ..Default::default()
                 }),
             );
-        while let Some(log_result) = logs_stream.next().await {
-            match log_result {
-                Ok(LogOutput::Console { message }) => self.log_line(name, &message),
-                Ok(LogOutput::StdErr { message }) => self.log_line(name, &message),
-                Ok(LogOutput::StdOut { message }) => self.log_line(name, &message),
-                Ok(LogOutput::StdIn { .. }) => (),
-                Err(e) => {
-                    eprintln!("Error getting logs: {:?}", e);
-                    break;
-                }
-            }
-        }
+
+            logs_stream
+                .for_each(|x| {
+                    match x {
+                        Ok(r) => println!(
+                            "{} | {}",
+                            s_name,
+                            String::from_utf8_lossy(r.into_bytes().as_ref())
+                                .to_string()
+                                .trim_end()
+                        ),
+                        Err(err) => panic!("{}", err),
+                    };
+                    future::ready(())
+                })
+                .await;
+        });
+
+        let mut exit_code_stream = self
+            .client
+            .wait_container(&id, None::<WaitContainerOptions<String>>);
 
         let exit_code = match exit_code_stream.next().await {
             Some(Ok(response)) => response.status_code,
             Some(Err(e)) => return Err(e.into()),
-            None => unreachable!("There should always be an exit code"),
+            None => unreachable!("Container exited without status code"),
         };
+
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(2), log_task).await;
         Ok(exit_code)
     }
 }

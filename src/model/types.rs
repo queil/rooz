@@ -133,6 +133,5 @@ pub struct EnterSpec {
 }
 
 pub struct OneShotResult {
-    pub exit_code: i64,
     pub data: String,
 }

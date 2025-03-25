@@ -110,6 +110,7 @@ impl<'a> VolumeApi<'a> {
                                 container::inject(
                                     &format!("echo '{}' > {}", data.data, data.file_path),
                                     "entrypoint.sh",
+                                    false,
                                 )
                                 .iter()
                                 .map(String::as_str)

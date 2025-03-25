@@ -268,7 +268,7 @@ impl<'a> ExecApi<'a> {
                    echo "$ROOZ_META_USER:x:$ROOZ_META_UID:$ROOZ_META_UID:$ROOZ_META_USER:$ROOZ_META_HOME:/bin/sh" >> /etc/passwd"#
         )
         .as_ref(),
-        "make_user.sh",
+        "make_user.sh", false,
     );
 
         let ensure_user_output = self
