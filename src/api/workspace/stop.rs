@@ -14,12 +14,6 @@ impl<'a> WorkspaceApi<'a> {
     }
 
     pub async fn stop_all(&self) -> Result<(), AnyError> {
-        let labels = Labels::default();
-        for c in self.api.container.get_running(&labels).await? {
-            print!("Stopping container: {} ... ", c.names.unwrap().join(", "));
-            self.api.container.stop(&c.id.unwrap()).await?;
-            println!("{}", format!("OK").green())
-        }
-        Ok(())
+        self.api.container.stop_all().await
     }
 }

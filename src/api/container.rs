@@ -1,16 +1,9 @@
-use std::{
-    collections::HashMap,
-    io::{stdout, Write},
-    time::Duration,
-};
-
 use base64::{engine::general_purpose, Engine as _};
 use bollard::{
     container::{
         Config, CreateContainerOptions, InspectContainerOptions, KillContainerOptions,
-        ListContainersOptions,
-        LogOutput::{self, Console},
-        LogsOptions, RemoveContainerOptions, StartContainerOptions, StopContainerOptions,
+        ListContainersOptions, LogsOptions, RemoveContainerOptions, StartContainerOptions,
+        StopContainerOptions, WaitContainerOptions,
     },
     errors::Error,
     models::{ContainerState, HostConfig},
@@ -18,13 +11,15 @@ use bollard::{
     secret::{ContainerStateStatusEnum, Mount},
     service::{ContainerInspectResponse, ContainerSummary, EndpointSettings, PortBinding},
 };
-use futures::StreamExt;
+use colored::Colorize;
+use futures::{future, StreamExt};
+use std::{collections::HashMap, time::Duration};
 use tokio::time::sleep;
 
 use crate::{
     api::ContainerApi,
     constants,
-    model::types::{AnyError, ContainerResult, RunSpec},
+    model::types::{AnyError, ContainerResult, OneShotResult, RunSpec},
     util::{
         backend::ContainerBackend,
         id,
@@ -32,16 +27,17 @@ use crate::{
     },
 };
 
-pub fn inject(script: &str, name: &str) -> Vec<String> {
+pub fn inject(script: &str, name: &str, post_sleep: bool) -> Vec<String> {
     vec![
         "sh".to_string(),
         "-c".to_string(),
         format!(
-            "echo '{}' | base64 -d > /tmp/{} && chmod +x /tmp/{} && /tmp/{}",
+            "echo '{}' | base64 -d > /tmp/{} && chmod +x /tmp/{} && /tmp/{}{}",
             general_purpose::STANDARD.encode(script.trim()),
             name,
             name,
-            name
+            name,
+            if post_sleep { " && sleep 0.5" } else { "" }
         ),
     ]
 }
@@ -180,6 +176,16 @@ impl<'a> ContainerApi<'a> {
         Ok(())
     }
 
+    pub async fn stop_all(&self) -> Result<(), AnyError> {
+        let labels = Labels::default();
+        for c in self.get_running(&labels).await? {
+            print!("Stopping container: {} ... ", c.names.unwrap().join(", "));
+            self.stop(&c.id.unwrap()).await?;
+            println!("{}", format!("OK").green())
+        }
+        Ok(())
+    }
+
     pub async fn create(&self, spec: RunSpec<'a>) -> Result<ContainerResult, AnyError> {
         log::debug!(
             "[{}]: Creating container - name: {}, uid: {}, user: {}, image: {}, auto-remove: {}",
@@ -270,11 +276,11 @@ impl<'a> ContainerApi<'a> {
                     cmd: spec.command,
                     working_dir: spec.work_dir,
                     user: Some(spec.user),
-                    attach_stdin: Some(true),
+                    attach_stdin: Some(spec.interactive),
                     attach_stdout: Some(true),
                     attach_stderr: Some(true),
-                    tty: Some(true),
-                    open_stdin: Some(true),
+                    tty: Some(spec.interactive),
+                    open_stdin: Some(spec.interactive),
                     host_config: Some(host_config),
                     labels: Some((&spec.labels).into()),
                     env: Some(env),
@@ -322,13 +328,13 @@ impl<'a> ContainerApi<'a> {
         }
     }
 
-    pub async fn _one_shot(
+    pub async fn one_shot_output(
         &self,
         name: &str,
         command: String,
         mounts: Option<Vec<Mount>>,
-    ) -> Result<(), AnyError> {
-        let entrypoint = inject(&command, "entrypoint.sh");
+    ) -> Result<OneShotResult, AnyError> {
+        let entrypoint = inject(&command, "entrypoint.sh", true);
         let id = self
             .create(RunSpec {
                 reason: name,
@@ -337,68 +343,122 @@ impl<'a> ContainerApi<'a> {
                 entrypoint: Some(entrypoint.iter().map(String::as_str).collect()),
                 auto_remove: true,
                 mounts,
-                uid: constants::ROOT_UID,
+                uid: constants::ROOT_UID_INT,
                 ..Default::default()
             })
             .await
             .map(|r| r.id().to_string())?;
 
-        let log_options = LogsOptions::<String> {
-            follow: true,
-            stdout: true,
-            stderr: true,
-            ..Default::default()
-        };
-
-        let docker = self.client.clone();
+        let docker_logs = self.client.clone();
         let s_id = id.clone();
-        let s_name = name.to_string();
-        let log_task = tokio::spawn(async move {
-            let mut logs_stream = docker.logs(&s_id, Some(log_options));
-
-            while let Some(log_result) = logs_stream.next().await {
-                match log_result {
-                    Ok(LogOutput::Console { message }) => {
-                        println!("{} | {:?}", &s_name, String::from_utf8_lossy(&message))
-                    }
-                    Ok(LogOutput::StdErr { message }) => {
-                        println!("{} | {:?}", &s_name, String::from_utf8_lossy(&message))
-                    }
-                    Ok(LogOutput::StdOut { message }) => {
-                        println!("{} | {:?}", &s_name, String::from_utf8_lossy(&message))
-                    }
-                    Ok(LogOutput::StdIn { .. }) => (),
-                    Err(e) => {
-                        eprintln!("Error getting logs: {:?}", e);
-                        break;
-                    }
-                }
-            }
-        });
 
         self.start(&id).await?;
 
-        let _ = log_task.await;
+        let log_task = tokio::spawn(async move {
+            let logs_stream = docker_logs.logs(
+                &s_id,
+                Some(LogsOptions::<String> {
+                    follow: true,
+                    stdout: true,
+                    stderr: true,
+                    ..Default::default()
+                }),
+            );
 
-        Ok(())
-    }
+            let data = logs_stream
+                .map(|x| match x {
+                    Ok(r) => String::from_utf8_lossy(r.into_bytes().as_ref())
+                        .to_string()
+                        .trim_end()
+                        .to_string(),
+                    Err(err) => panic!("{}", err),
+                })
+                .collect::<Vec<_>>()
+                .await
+                .join("\n");
+            data
+        });
 
-    pub async fn logs_to_stdout(&self, container_name: &str) -> Result<(), AnyError> {
-        let log_options = LogsOptions::<String> {
-            stdout: true,
-            follow: true,
-            ..Default::default()
+        let mut exit_code_stream = self
+            .client
+            .wait_container(&id, None::<WaitContainerOptions<String>>);
+
+        let _ = match exit_code_stream.next().await {
+            Some(Ok(response)) => response.status_code,
+            Some(Err(e)) => return Err(e.into()),
+            None => unreachable!("Container exited without status code"),
         };
 
-        let mut stream = self.client.logs(&container_name, Some(log_options));
+        let data = tokio::time::timeout(std::time::Duration::from_secs(2), log_task).await??;
+        Ok(OneShotResult { data })
+    }
 
-        while let Some(l) = stream.next().await {
-            match l {
-                Ok(Console { message: m }) => stdout().write_all(&m)?,
-                Ok(msg) => panic!("{}", msg),
-                Err(e) => panic!("{}", e),
-            };
-        }
-        Ok(())
+    pub async fn one_shot(
+        &self,
+        name: &str,
+        command: String,
+        mounts: Option<Vec<Mount>>,
+    ) -> Result<i64, AnyError> {
+        let entrypoint = inject(&command, "entrypoint.sh", true);
+        let id = self
+            .create(RunSpec {
+                reason: name,
+                image: constants::DEFAULT_IMAGE,
+                container_name: &id::random_suffix("one-shot"),
+                entrypoint: Some(entrypoint.iter().map(String::as_str).collect()),
+                auto_remove: true,
+                mounts,
+                uid: constants::ROOT_UID_INT,
+                ..Default::default()
+            })
+            .await
+            .map(|r| r.id().to_string())?;
+
+        let docker_logs = self.client.clone();
+        let s_id = id.clone();
+        let s_name = name.to_string();
+
+        self.start(&id).await?;
+
+        let log_task = tokio::spawn(async move {
+            let logs_stream = docker_logs.logs(
+                &s_id,
+                Some(LogsOptions::<String> {
+                    follow: true,
+                    stdout: true,
+                    stderr: true,
+                    ..Default::default()
+                }),
+            );
+
+            logs_stream
+                .for_each(|x| {
+                    match x {
+                        Ok(r) => println!(
+                            "{} | {}",
+                            s_name,
+                            String::from_utf8_lossy(r.into_bytes().as_ref())
+                                .to_string()
+                                .trim_end()
+                        ),
+                        Err(err) => panic!("{}", err),
+                    };
+                    future::ready(())
+                })
+                .await;
+        });
+
+        let mut exit_code_stream = self
+            .client
+            .wait_container(&id, None::<WaitContainerOptions<String>>);
+
+        let exit_code = match exit_code_stream.next().await {
+            Some(Ok(response)) => response.status_code,
+            Some(Err(e)) => return Err(e.into()),
+            None => unreachable!("Container exited without status code"),
+        };
+
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(2), log_task).await;
+        Ok(exit_code)
     }
 }
