@@ -68,6 +68,7 @@ impl<'a> WorkspaceApi<'a> {
             network: spec.network,
             env: spec.env_vars.clone(),
             ports: spec.ports.clone(),
+            interactive: true,
             ..Default::default()
         };
 

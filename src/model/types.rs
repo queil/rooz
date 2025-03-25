@@ -89,6 +89,7 @@ pub struct RunSpec<'a> {
     pub network: Option<&'a str>,
     pub network_aliases: Option<Vec<String>>,
     pub command: Option<Vec<&'a str>>,
+    pub interactive: bool,
 }
 
 impl Default for RunSpec<'_> {
@@ -113,6 +114,7 @@ impl Default for RunSpec<'_> {
             network_aliases: None,
             command: None,
             ports: None,
+            interactive: false,
         }
     }
 }
@@ -128,4 +130,9 @@ pub struct EnterSpec {
     pub workspace: WorkspaceResult,
     pub git_spec: Option<RootRepoCloneResult>,
     pub config: RoozCfg,
+}
+
+pub struct OneShotResult {
+    pub exit_code: i64,
+    pub data: String,
 }

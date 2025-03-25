@@ -55,8 +55,9 @@ impl<'a> Api<'a> {
                mkdir -p /tmp/.ssh
                KEYFILE=/tmp/.ssh/id_ed25519
                ls "$KEYFILE.pub" > /dev/null 2>&1 || ssh-keygen -t ed25519 -N '' -f $KEYFILE -C rooz@{}
-               cat "$KEYFILE.pub" 1>&2
-               chmod 400 $KEYFILE && chown -R {} /tmp/.ssh
+               chmod 400 $KEYFILE && chown -R {} /tmp/.ssh               
+               echo -n "SSH PUBLIC KEY: "
+               cat "$KEYFILE.pub"
             "#,
             &hostname,
             &spec.uid.value.unwrap_or(constants::DEFAULT_UID),
@@ -64,7 +65,8 @@ impl<'a> Api<'a> {
 
         self.container
             .one_shot("rooz-init-ssh", init_ssh.into(), ssh_mount)
-            .await
+            .await?;
+        Ok(())
     }
 
     async fn init_age(&self, spec: &InitParams) -> Result<(), AnyError> {
@@ -114,11 +116,15 @@ impl<'a> Api<'a> {
         };
 
         let entrypoint = format!(
-            r#"mkdir -p /tmp/.age && \
-                echo -n '{}' > /tmp/.age/age.key && \
-                echo -n '{}' > /tmp/.age/age.pub && \
-                chmod 400 /tmp/.age/age.key && \
-                chown -R {} /tmp/.age
+            r#"set -e
+               echo "Initializing AGE key"
+               mkdir -p /tmp/.age
+               echo -n '{}' > /tmp/.age/age.key
+               echo -n '{}' > /tmp/.age/age.pub
+               chmod 400 /tmp/.age/age.key
+               chown -R {} /tmp/.age
+               echo -n "AGE PUBLIC KEY: "
+               cat /tmp/.age/age.pub
                 "#,
             &key.to_string().expose_secret(),
             pubkey,
@@ -128,7 +134,6 @@ impl<'a> Api<'a> {
         self.container
             .one_shot("rooz-init-age", entrypoint, age_mount)
             .await?;
-        println!("{}", pubkey);
         Ok(())
     }
 

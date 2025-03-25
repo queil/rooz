@@ -22,7 +22,7 @@ use tokio::time::sleep;
 use crate::{
     api::ContainerApi,
     constants,
-    model::types::{AnyError, ContainerResult, RunSpec},
+    model::types::{AnyError, ContainerResult, OneShotResult, RunSpec},
     util::{
         backend::ContainerBackend,
         id,
@@ -278,11 +278,11 @@ impl<'a> ContainerApi<'a> {
                     cmd: spec.command,
                     working_dir: spec.work_dir,
                     user: Some(spec.user),
-                    attach_stdin: Some(true),
+                    attach_stdin: Some(spec.interactive),
                     attach_stdout: Some(true),
                     attach_stderr: Some(true),
-                    tty: Some(true),
-                    open_stdin: Some(true),
+                    tty: Some(spec.interactive),
+                    open_stdin: Some(spec.interactive),
                     host_config: Some(host_config),
                     labels: Some((&spec.labels).into()),
                     env: Some(env),
@@ -330,12 +330,20 @@ impl<'a> ContainerApi<'a> {
         }
     }
 
-    pub async fn one_shot(
+    fn message_string(&self, message: &[u8]) -> String {
+        String::from_utf8_lossy(message).trim_end().to_string()
+    }
+
+    fn log_line(&self, name: &str, message: &[u8]) {
+        println!("{} | {}", name, self.message_string(message))
+    }
+
+    pub async fn one_shot_output(
         &self,
         name: &str,
         command: String,
         mounts: Option<Vec<Mount>>,
-    ) -> Result<(), AnyError> {
+    ) -> Result<OneShotResult, AnyError> {
         let entrypoint = inject(&command, "entrypoint.sh");
         let id = self
             .create(RunSpec {
@@ -343,7 +351,7 @@ impl<'a> ContainerApi<'a> {
                 image: constants::DEFAULT_IMAGE,
                 container_name: &id::random_suffix("one-shot"),
                 entrypoint: Some(entrypoint.iter().map(String::as_str).collect()),
-                auto_remove: false,
+                auto_remove: true,
                 mounts,
                 uid: constants::ROOT_UID_INT,
                 ..Default::default()
@@ -357,38 +365,22 @@ impl<'a> ContainerApi<'a> {
             .client
             .wait_container(&id, None::<WaitContainerOptions<String>>);
 
-        let log_options = LogsOptions::<String> {
-            follow: true,
-            stdout: true,
-            stderr: true,
-            ..Default::default()
-        };
+        let mut logs_stream = self.client.logs(
+            &id,
+            Some(LogsOptions::<String> {
+                follow: true,
+                stdout: true,
+                stderr: true,
+                ..Default::default()
+            }),
+        );
 
-        let mut logs_stream = self.client.logs(&id, Some(log_options));
-
+        let mut data = Vec::<String>::new();
         while let Some(log_result) = logs_stream.next().await {
             match log_result {
-                Ok(LogOutput::Console { message }) => {
-                    println!(
-                        "{} | {}",
-                        &name,
-                        String::from_utf8_lossy(&message).trim_end()
-                    )
-                }
-                Ok(LogOutput::StdErr { message }) => {
-                    println!(
-                        "{} | {}",
-                        &name,
-                        String::from_utf8_lossy(&message).trim_end()
-                    )
-                }
-                Ok(LogOutput::StdOut { message }) => {
-                    println!(
-                        "{} | {}",
-                        &name,
-                        String::from_utf8_lossy(&message).trim_end()
-                    )
-                }
+                Ok(LogOutput::Console { message }) => data.push(self.message_string(&message)),
+                Ok(LogOutput::StdErr { message }) => data.push(self.message_string(&message)),
+                Ok(LogOutput::StdOut { message }) => data.push(self.message_string(&message)),
                 Ok(LogOutput::StdIn { .. }) => (),
                 Err(e) => {
                     eprintln!("Error getting logs: {:?}", e);
@@ -400,11 +392,71 @@ impl<'a> ContainerApi<'a> {
         let exit_code = match exit_code_stream.next().await {
             Some(Ok(response)) => response.status_code,
             Some(Err(e)) => return Err(e.into()),
-            None => unreachable!("Not sure yet"),
+            None => unreachable!("There should always be an exit code"),
         };
+        Ok(OneShotResult {
+            exit_code,
+            data: data.join("\n"),
+        })
+    }
 
-        log::debug!("Exit code: {}", exit_code);
+    pub async fn one_shot(
+        &self,
+        name: &str,
+        command: String,
+        mounts: Option<Vec<Mount>>,
+    ) -> Result<i64, AnyError> {
+        let entrypoint = inject(&command, "entrypoint.sh");
+        let id = self
+            .create(RunSpec {
+                reason: name,
+                image: constants::DEFAULT_IMAGE,
+                container_name: &id::random_suffix("one-shot"),
+                entrypoint: Some(entrypoint.iter().map(String::as_str).collect()),
+                auto_remove: true,
+                mounts,
+                uid: constants::ROOT_UID_INT,
+                ..Default::default()
+            })
+            .await
+            .map(|r| r.id().to_string())?;
 
-        Ok(())
+            self.start(&id).await?;
+
+       
+
+        let mut exit_code_stream = self
+            .client
+            .wait_container(&id, None::<WaitContainerOptions<String>>);
+
+       
+            let mut logs_stream = self.client.logs(
+                &id,
+                Some(LogsOptions::<String> {
+                    follow: true,
+                    stdout: true,
+                    stderr: true,
+                    ..Default::default()
+                }),
+            );
+        while let Some(log_result) = logs_stream.next().await {
+            match log_result {
+                Ok(LogOutput::Console { message }) => self.log_line(name, &message),
+                Ok(LogOutput::StdErr { message }) => self.log_line(name, &message),
+                Ok(LogOutput::StdOut { message }) => self.log_line(name, &message),
+                Ok(LogOutput::StdIn { .. }) => (),
+                Err(e) => {
+                    eprintln!("Error getting logs: {:?}", e);
+                    break;
+                }
+            }
+        }
+
+        let exit_code = match exit_code_stream.next().await {
+            Some(Ok(response)) => response.status_code,
+            Some(Err(e)) => return Err(e.into()),
+            None => unreachable!("There should always be an exit code"),
+        };
+        Ok(exit_code)
     }
 }
