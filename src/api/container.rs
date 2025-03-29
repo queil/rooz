@@ -279,12 +279,18 @@ impl<'a> ContainerApi<'a> {
 
                 let env = KeyValue::to_vec_str(&env_kv);
 
+                // IMPORTANT: always run as UID because if spec.user is not defined in container's /etc/passwd
+                // then the container will not start. Mounting /etc/passwd won't work as it happens too late.
+                // When container starts we can add the user to /etc/passwd if it doesn't exist
+                let uid_string = spec.uid.to_string();
+                let user = Some(uid_string.as_str());
+
                 let config = Config {
                     image: Some(spec.image),
                     entrypoint: spec.entrypoint,
                     cmd: spec.command,
                     working_dir: spec.work_dir,
-                    user: Some(spec.user),
+                    user,
                     attach_stdin,
                     attach_stdout: Some(true),
                     attach_stderr: Some(true),
