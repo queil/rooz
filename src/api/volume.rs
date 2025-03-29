@@ -1,16 +1,13 @@
 use crate::{
     api::VolumeApi,
-    constants,
     model::{
-        types::{AnyError, RunSpec, VolumeResult},
+        types::{AnyError, VolumeResult},
         volume::{RoozVolume, RoozVolumeRole},
     },
     util::labels::Labels,
 };
 use bollard::{errors::Error::DockerResponseServerError, volume::RemoveVolumeOptions};
 use bollard::{service::Mount, volume::CreateVolumeOptions};
-
-use super::container;
 
 impl<'a> VolumeApi<'a> {
     async fn create_volume(
@@ -80,14 +77,26 @@ impl<'a> VolumeApi<'a> {
         &self,
         volumes: &Vec<RoozVolume>,
         tilde_replacement: Option<&str>,
+        uid: u32,
     ) -> Result<Vec<Mount>, AnyError> {
         let mut mounts = vec![];
         for v in volumes {
             log::debug!("Process volume: {:?}", &v);
             let mount = v.to_mount(tilde_replacement);
-            self.ensure_volume(&mount.source.clone().unwrap(), &v.role, v.key(), false)
+            let result = self
+                .ensure_volume(&mount.source.clone().unwrap(), &v.role, v.key(), false)
                 .await?;
 
+            if let VolumeResult::Created = result {
+                self.container
+                    .one_shot(
+                        &format!("chown-volume: {}", v.safe_volume_name()),
+                        format!("chown -R {}:{} {} && echo 'OK'", uid, uid, v.path),
+                        Some(vec![mount.clone()]),
+                        None,
+                    )
+                    .await?;
+            }
             mounts.push(mount);
         }
         Ok(mounts.clone())
@@ -99,32 +108,14 @@ impl<'a> VolumeApi<'a> {
                 RoozVolume {
                     file: Some(data), ..
                 } => {
-                    match self
-                        .container
-                        .create(RunSpec {
-                            image: &constants::DEFAULT_IMAGE,
-                            uid,
-                            auto_remove: true,
-                            mounts: Some(self.ensure_mounts(&mounts, None).await?),
-                            entrypoint: Some(
-                                container::inject(
-                                    &format!("echo '{}' > {}", data.data, data.file_path),
-                                    "entrypoint.sh",
-                                    false,
-                                )
-                                .iter()
-                                .map(String::as_str)
-                                .collect(),
-                            ),
-                            ..RunSpec::default()
-                        })
-                        .await?
-                    {
-                        crate::model::types::ContainerResult::Created { id } => {
-                            self.container.start(&id).await?
-                        }
-                        crate::model::types::ContainerResult::AlreadyExists { .. } => (),
-                    }
+                    self.container
+                        .one_shot(
+                            "Populate volume",
+                            format!("echo '{}' > {}", data.data, data.file_path),
+                            Some(self.ensure_mounts(&mounts, None, uid).await?),
+                            Some(uid),
+                        )
+                        .await?;
                 }
                 _ => (),
             }

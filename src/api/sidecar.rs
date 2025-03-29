@@ -7,7 +7,7 @@ use crate::{
     config::config::{RoozCfg, RoozSidecar},
     constants,
     model::{
-        types::{AnyError, RunSpec},
+        types::{AnyError, RunMode, RunSpec},
         volume::RoozVolume,
     },
     util::labels::{self, Labels},
@@ -97,6 +97,8 @@ impl<'a> WorkspaceApi<'a> {
             self.api
                 .container
                 .create(RunSpec {
+                    reason: &format!("sidecar: {}", &container_name),
+                    run_mode: RunMode::Sidecar,
                     container_name: &container_name,
                     uid,
                     user,
@@ -119,7 +121,7 @@ impl<'a> WorkspaceApi<'a> {
                         .command
                         .as_ref()
                         .map(|x| x.iter().map(|z| z.as_ref()).collect()),
-                    mounts: Some(self.api.volume.ensure_mounts(&mounts, None).await?),
+                    mounts: Some(self.api.volume.ensure_mounts(&mounts, None, uid).await?),
                     ports: Some(ports),
                     work_dir: Some(s.work_dir.as_deref().unwrap_or(work_dir)),
                     ..Default::default()

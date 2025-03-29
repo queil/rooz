@@ -3,7 +3,7 @@ use crate::{
     config::config::FileFormat,
     constants,
     model::{
-        types::{AnyError, ContainerResult, RunSpec},
+        types::{AnyError, ContainerResult, RunMode, RunSpec},
         volume::RoozVolume,
     },
 };
@@ -78,7 +78,7 @@ impl<'a> ExecApi<'a> {
             .output(
                 "rooz-cfg",
                 &container_id,
-                None,
+                Some(constants::ROOT_UID_INT),
                 Some(vec![
                     "sh",
                     "-c",
@@ -134,17 +134,18 @@ impl<'a> GitApi<'a> {
         let mut mounts = vec![ssh::mount("/tmp/.ssh")];
 
         if spec.use_volume {
-            let vol = RoozVolume::work(&spec.workspace_key, &spec.working_dir);
+            let work_volume = RoozVolume::work(&spec.workspace_key, &spec.working_dir);
 
             self.api
                 .volume
-                .ensure_mounts(&vec![vol.clone().into()], None)
+                .ensure_mounts(&vec![work_volume.clone().into()], None, spec.uid)
                 .await?;
-            mounts.push(vol.to_mount(None));
+            mounts.push(work_volume.to_mount(None));
         };
 
         let run_spec = RunSpec {
             reason: "git-clone",
+            run_mode: RunMode::Git,
             image: &spec.image,
             uid: spec.uid,
             work_dir: Some(&spec.working_dir),
@@ -152,9 +153,6 @@ impl<'a> GitApi<'a> {
             workspace_key: &spec.workspace_key,
             mounts: Some(mounts),
             entrypoint: constants::default_entrypoint(),
-            privileged: false,
-            force_recreate: false,
-            auto_remove: true,
             labels,
             ..Default::default()
         };
@@ -174,7 +172,7 @@ impl<'a> GitApi<'a> {
                     &id,
                     true,
                     None,
-                    None,
+                    Some(spec.uid),
                     Some(clone_cmd.iter().map(String::as_str).collect()),
                 )
                 .await?;

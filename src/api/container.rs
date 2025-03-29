@@ -19,7 +19,7 @@ use tokio::time::sleep;
 use crate::{
     api::ContainerApi,
     constants,
-    model::types::{AnyError, ContainerResult, OneShotResult, RunSpec},
+    model::types::{AnyError, ContainerResult, OneShotResult, RunMode, RunSpec},
     util::{
         backend::ContainerBackend,
         id,
@@ -188,13 +188,14 @@ impl<'a> ContainerApi<'a> {
 
     pub async fn create(&self, spec: RunSpec<'a>) -> Result<ContainerResult, AnyError> {
         log::debug!(
-            "[{}]: Creating container - name: {}, uid: {}, user: {}, image: {}, auto-remove: {}",
+            "[{}: {:?}]: CREATE CONTAINER - name: {}, uid: {}, user: {}, image: {}, entrypoint: {}",
             &spec.reason,
+            spec.run_mode,
             spec.container_name,
             spec.uid,
             spec.user,
             spec.image,
-            spec.auto_remove,
+            spec.entrypoint.clone().unwrap_or(vec![]).join(" ")
         );
 
         let container_id = match self
@@ -244,8 +245,16 @@ impl<'a> ContainerApi<'a> {
                     bindings
                 });
 
+                let (attach_stdin, tty, open_stdin, auto_remove) = match spec.run_mode {
+                    RunMode::Workspace => (Some(true), Some(true), None, Some(true)),
+                    RunMode::Tmp => (Some(true), Some(true), None, None),
+                    RunMode::Git => (None, None, Some(true), Some(true)),
+                    RunMode::OneShot => (None, None, None, Some(true)),
+                    RunMode::Sidecar => (None, None, None, None),
+                };
+
                 let host_config = HostConfig {
-                    auto_remove: Some(spec.auto_remove),
+                    auto_remove,
                     mounts: spec.mounts,
                     restart_policy: None,
                     oom_score_adj,
@@ -276,11 +285,11 @@ impl<'a> ContainerApi<'a> {
                     cmd: spec.command,
                     working_dir: spec.work_dir,
                     user: Some(spec.user),
-                    attach_stdin: Some(spec.interactive),
+                    attach_stdin,
                     attach_stdout: Some(true),
                     attach_stderr: Some(true),
-                    tty: Some(spec.interactive),
-                    open_stdin: Some(spec.interactive),
+                    tty,
+                    open_stdin,
                     host_config: Some(host_config),
                     labels: Some((&spec.labels).into()),
                     env: Some(env),
@@ -328,31 +337,41 @@ impl<'a> ContainerApi<'a> {
         }
     }
 
+    async fn make_one_shot(
+        &self,
+        name: &str,
+        command: String,
+        mounts: Option<Vec<Mount>>,
+        uid: Option<u32>,
+    ) -> Result<String, AnyError> {
+        let entrypoint_v = inject(&command, "entrypoint.sh", true);
+        let entrypoint = entrypoint_v.iter().map(String::as_str).collect();
+        let id = self
+            .create(RunSpec {
+                reason: name,
+                image: constants::DEFAULT_IMAGE,
+                container_name: &id::random_suffix("one-shot"),
+                entrypoint: Some(entrypoint),
+                mounts,
+                uid: uid.unwrap_or(constants::ROOT_UID_INT),
+                ..Default::default()
+            })
+            .await
+            .map(|r| r.id().to_string())?;
+
+        self.start(&id).await?;
+        Ok(id)
+    }
+
     pub async fn one_shot_output(
         &self,
         name: &str,
         command: String,
         mounts: Option<Vec<Mount>>,
     ) -> Result<OneShotResult, AnyError> {
-        let entrypoint = inject(&command, "entrypoint.sh", true);
-        let id = self
-            .create(RunSpec {
-                reason: name,
-                image: constants::DEFAULT_IMAGE,
-                container_name: &id::random_suffix("one-shot"),
-                entrypoint: Some(entrypoint.iter().map(String::as_str).collect()),
-                auto_remove: true,
-                mounts,
-                uid: constants::ROOT_UID_INT,
-                ..Default::default()
-            })
-            .await
-            .map(|r| r.id().to_string())?;
-
+        let id = self.make_one_shot(name, command, mounts, None).await?;
         let docker_logs = self.client.clone();
         let s_id = id.clone();
-
-        self.start(&id).await?;
 
         let log_task = tokio::spawn(async move {
             let logs_stream = docker_logs.logs(
@@ -398,27 +417,12 @@ impl<'a> ContainerApi<'a> {
         name: &str,
         command: String,
         mounts: Option<Vec<Mount>>,
+        uid: Option<u32>,
     ) -> Result<i64, AnyError> {
-        let entrypoint = inject(&command, "entrypoint.sh", true);
-        let id = self
-            .create(RunSpec {
-                reason: name,
-                image: constants::DEFAULT_IMAGE,
-                container_name: &id::random_suffix("one-shot"),
-                entrypoint: Some(entrypoint.iter().map(String::as_str).collect()),
-                auto_remove: true,
-                mounts,
-                uid: constants::ROOT_UID_INT,
-                ..Default::default()
-            })
-            .await
-            .map(|r| r.id().to_string())?;
-
+        let id = self.make_one_shot(name, command, mounts, uid).await?;
         let docker_logs = self.client.clone();
         let s_id = id.clone();
         let s_name = name.to_string();
-
-        self.start(&id).await?;
 
         let log_task = tokio::spawn(async move {
             let logs_stream = docker_logs.logs(

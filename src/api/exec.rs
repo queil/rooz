@@ -164,7 +164,7 @@ impl<'a> ExecApi<'a> {
         reason: &str,
         container_id: &str,
         working_dir: Option<&str>,
-        user: Option<&str>,
+        uid: Option<u32>,
         cmd: Option<Vec<&str>>,
     ) -> Result<String, AnyError> {
         #[cfg(not(windows))]
@@ -187,7 +187,7 @@ impl<'a> ExecApi<'a> {
                         tty: Some(true),
                         cmd,
                         working_dir,
-                        user,
+                        user: uid.map(|x| x.to_string()).as_deref(),
                         ..Default::default()
                     },
                 )
@@ -202,11 +202,11 @@ impl<'a> ExecApi<'a> {
         container_id: &str,
         interactive: bool,
         working_dir: Option<&str>,
-        user: Option<&str>,
+        uid: Option<u32>,
         cmd: Option<Vec<&str>>,
     ) -> Result<(), AnyError> {
         let exec_id = self
-            .create_exec(reason, container_id, working_dir, user, cmd)
+            .create_exec(reason, container_id, working_dir, uid, cmd)
             .await?;
 
         self.start_tty(&exec_id, interactive).await
@@ -216,11 +216,11 @@ impl<'a> ExecApi<'a> {
         &self,
         reason: &str,
         container_id: &str,
-        user: Option<&str>,
+        uid: Option<u32>,
         cmd: Option<Vec<&str>>,
     ) -> Result<String, AnyError> {
         let exec_id = self
-            .create_exec(reason, container_id, None, user, cmd)
+            .create_exec(reason, container_id, None, uid, cmd)
             .await?;
         if let StartExecResults::Attached { output, .. } =
             self.client.start_exec(&exec_id, None).await?
@@ -244,7 +244,7 @@ impl<'a> ExecApi<'a> {
             .output(
                 "chown",
                 container_id,
-                Some(constants::ROOT_USER),
+                Some(constants::ROOT_UID_INT),
                 Some(vec![
                     "sh",
                     "-c",
@@ -275,7 +275,7 @@ impl<'a> ExecApi<'a> {
             .output(
                 "ensure-user",
                 container_id,
-                Some(constants::ROOT_USER),
+                Some(constants::ROOT_UID_INT),
                 Some(ensure_user_cmd.iter().map(String::as_str).collect()),
             )
             .await?;

@@ -41,6 +41,7 @@ impl<'a> Api<'a> {
                     "purge-ssh-key",
                     (r#"find /tmp/.ssh -type f -exec rm {} \; && echo 'OK'"#).into(),
                     ssh_mount.clone(),
+                    None,
                 )
                 .await?;
         } else if let VolumeResult::AlreadyExists = vol_result {
@@ -64,7 +65,7 @@ impl<'a> Api<'a> {
         );
 
         self.container
-            .one_shot("rooz-init-ssh", init_ssh.into(), ssh_mount)
+            .one_shot("rooz-init-ssh", init_ssh.into(), ssh_mount, None)
             .await?;
         Ok(())
     }
@@ -95,6 +96,7 @@ impl<'a> Api<'a> {
                     "purge-age-key",
                     (r#"find /tmp/.age -type f -exec rm {} \; && echo 'OK'"#).into(),
                     age_mount.clone(),
+                    None,
                 )
                 .await?;
         } else if let VolumeResult::AlreadyExists = vol_result {
@@ -132,7 +134,7 @@ impl<'a> Api<'a> {
         );
 
         self.container
-            .one_shot("rooz-init-age", entrypoint, age_mount)
+            .one_shot("rooz-init-age", entrypoint, age_mount, None)
             .await?;
         Ok(())
     }

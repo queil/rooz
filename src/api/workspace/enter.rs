@@ -105,7 +105,7 @@ impl<'a> WorkspaceApi<'a> {
                     true,
                     working_dir,
                     if root {
-                        Some(constants::ROOT_USER)
+                        Some(constants::ROOT_UID_INT)
                     } else {
                         None
                     },

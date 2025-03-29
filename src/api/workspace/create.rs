@@ -4,7 +4,7 @@ use crate::{
     api::WorkspaceApi,
     constants,
     model::{
-        types::{AnyError, ContainerResult, RunSpec, WorkSpec, WorkspaceResult},
+        types::{AnyError, ContainerResult, RunMode, RunSpec, WorkSpec, WorkspaceResult},
         volume::RoozVolume,
     },
     util::ssh,
@@ -38,7 +38,7 @@ impl<'a> WorkspaceApi<'a> {
         let mut mounts = self
             .api
             .volume
-            .ensure_mounts(&volumes, Some(&home_dir))
+            .ensure_mounts(&volumes, Some(&home_dir), spec.uid)
             .await?;
 
         mounts.push(ssh::mount(
@@ -63,12 +63,15 @@ impl<'a> WorkspaceApi<'a> {
             entrypoint: spec.entrypoint.clone(),
             privileged: spec.privileged,
             force_recreate: spec.force_recreate,
-            auto_remove: spec.ephemeral,
             labels: spec.labels.clone(),
             network: spec.network,
             env: spec.env_vars.clone(),
             ports: spec.ports.clone(),
-            interactive: true,
+            run_mode: if spec.ephemeral {
+                RunMode::Tmp
+            } else {
+                RunMode::Workspace
+            },
             ..Default::default()
         };
 

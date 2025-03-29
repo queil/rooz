@@ -69,6 +69,14 @@ impl Default for WorkSpec<'_> {
     }
 }
 
+#[derive(Debug)]
+pub enum RunMode {
+    Workspace,
+    Tmp,
+    Git,
+    OneShot,
+    Sidecar,
+}
 pub struct RunSpec<'a> {
     pub reason: &'a str,
     pub image: &'a str,
@@ -82,14 +90,13 @@ pub struct RunSpec<'a> {
     pub entrypoint: Option<Vec<&'a str>>,
     pub privileged: bool,
     pub force_recreate: bool,
-    pub auto_remove: bool,
     pub labels: Labels,
     pub env: Option<HashMap<String, String>>,
     pub ports: Option<HashMap<String, Option<String>>>,
     pub network: Option<&'a str>,
     pub network_aliases: Option<Vec<String>>,
     pub command: Option<Vec<&'a str>>,
-    pub interactive: bool,
+    pub run_mode: RunMode,
 }
 
 impl Default for RunSpec<'_> {
@@ -107,14 +114,13 @@ impl Default for RunSpec<'_> {
             entrypoint: None,
             privileged: false,
             force_recreate: false,
-            auto_remove: false,
             labels: Default::default(),
             env: Default::default(),
             network: None,
             network_aliases: None,
             command: None,
             ports: None,
-            interactive: false,
+            run_mode: RunMode::OneShot,
         }
     }
 }
