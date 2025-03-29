@@ -281,7 +281,7 @@ impl<'a> ContainerApi<'a> {
 
                 // IMPORTANT: always run as UID because if spec.user is not defined in container's /etc/passwd
                 // then the container will not start. Mounting /etc/passwd won't work as it happens too late.
-                // When container starts we can add the user to /etc/passwd if it doesn't exist
+                // After container has started we can add the user to /etc/passwd if it doesn't exist
                 let uid_string = spec.uid.to_string();
                 let user = Some(uid_string.as_str());
 
