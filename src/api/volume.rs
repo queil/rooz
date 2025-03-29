@@ -87,18 +87,24 @@ impl<'a> VolumeApi<'a> {
                 .ensure_volume(&mount.source.clone().unwrap(), &v.role, v.key(), false)
                 .await?;
 
-            if let VolumeResult::Created = result {
-                self.container
-                    .one_shot(
-                        &format!("chown-volume: {}", v.safe_volume_name()),
-                        format!("chown -R {}:{} {} && echo 'OK'", uid, uid, v.path),
-                        Some(vec![mount.clone()]),
-                        None,
-                    )
-                    .await?;
-            }
+            if let VolumeResult::Created = result {}
             mounts.push(mount);
         }
+
+        let chown_cmd = &mounts
+            .iter()
+            .map(|m| format!("chown -R {}:{} {}", uid, uid, m.target.as_deref().unwrap()))
+            .collect::<Vec<_>>()
+            .join(" && ");
+
+        self.container
+            .one_shot(
+                "chown-volumes",
+                chown_cmd.to_string(),
+                Some(mounts.clone()),
+                None,
+            )
+            .await?;
         Ok(mounts.clone())
     }
 
