@@ -247,7 +247,7 @@ impl<'a> ContainerApi<'a> {
 
                 let (attach_stdin, tty, open_stdin, auto_remove) = match spec.run_mode {
                     RunMode::Workspace => (Some(true), Some(true), None, Some(true)),
-                    RunMode::Tmp => (Some(true), Some(true), None, None),
+                    RunMode::Tmp => (Some(true), Some(true), None, Some(true)),
                     RunMode::Git => (None, None, Some(true), Some(true)),
                     RunMode::OneShot => (None, None, None, Some(true)),
                     RunMode::Sidecar => (None, None, None, None),
