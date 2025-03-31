@@ -1,48 +1,34 @@
+use clap::Parser;
+use cli::{Cli, CloneParams, Commands::Clone};
 use progress::IndicatifProgress;
 use std::path::Path;
+mod cli;
 mod progress;
 
 fn main() -> anyhow::Result<()> {
-    let url = "ssh://git@github.com/queil/image";
+    let args = Cli::parse();
 
-    let path = Path::new("/Users/queil/gh/joey-test");
+    match args {
+        Cli {
+            command: Clone(CloneParams { repo, dir }),
+        } => {
+            let dir = dir.as_deref().unwrap_or(".");
+            let path = Path::new(dir);
+            let url = gix::url::parse(repo.as_str().into())?;
+            let mut clone = gix::prepare_clone(url, path)?;
+            let mut prep_clone_progress = IndicatifProgress::new();
+            let (mut prepare_checkout, _) = clone
+                .fetch_then_checkout(&mut prep_clone_progress, &gix::interrupt::IS_INTERRUPTED)?;
 
-    let url = gix::url::parse(url.into())?;
+            let mut main_worktree_progress = IndicatifProgress::new();
+            let (repo, _) = prepare_checkout
+                .main_worktree(&mut main_worktree_progress, &gix::interrupt::IS_INTERRUPTED)?;
 
-    let mut prep_clone_progress = IndicatifProgress::new();
-
-    let mut clone = gix::prepare_clone(url, path)?;
-    let (mut prepare_checkout, _) =
-        clone.fetch_then_checkout(&mut prep_clone_progress, &gix::interrupt::IS_INTERRUPTED)?;
-    println!(
-        "Checking out into {:?} ...",
-        prepare_checkout.repo().work_dir().expect("should be there")
-    );
-
-    let mut main_worktree_progress = IndicatifProgress::new();
-
-    let (repo, _) = prepare_checkout
-        .main_worktree(&mut main_worktree_progress, &gix::interrupt::IS_INTERRUPTED)?;
-    println!(
-        "Repo cloned into {:?}",
-        repo.work_dir().expect("directory pre-created")
-    );
-
-    let remote = repo
-        .find_default_remote(gix::remote::Direction::Fetch)
-        .expect("always present after clone")?;
-
-    println!(
-        "Default remote: {} -> {}",
-        remote
-            .name()
-            .expect("default remote is always named")
-            .as_bstr(),
-        remote
-            .url(gix::remote::Direction::Fetch)
-            .expect("should be the remote URL")
-            .to_bstring(),
-    );
+            let _ = repo
+                .find_default_remote(gix::remote::Direction::Fetch)
+                .expect("always present after clone")?;
+        }
+    };
 
     Ok(())
 }
