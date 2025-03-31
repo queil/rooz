@@ -1,0 +1,10 @@
+[package]
+name = "joey"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.97"
+gix = { version = "0.70.0", features = ["blocking-network-client", "worktree-mutation"]}
+indicatif = "0.17.11"
+rand = "0.9.0"
