@@ -1,7 +1,5 @@
-use crate::api::container::inject;
 use crate::api::CryptApi;
-use crate::model::types::{AnyError, ContainerResult, RunSpec};
-use crate::{constants, util::id};
+use crate::model::types::AnyError;
 use age::x25519::Identity;
 use bollard::models::MountTypeEnum::VOLUME;
 use bollard::service::Mount;
@@ -22,44 +20,17 @@ impl<'a> CryptApi<'a> {
     pub async fn read_age_identity(&self) -> Result<Identity, AnyError> {
         let work_dir = "/tmp/.age";
 
-        let run_spec = RunSpec {
-            reason: "read-age-key",
-            image: constants::DEFAULT_IMAGE,
-            uid: constants::ROOT_UID,
-            work_dir: None,
-            container_name: &id::random_suffix("read-age"),
-            workspace_key: &id::random_suffix("tmp"),
-            mounts: Some(vec![self.mount(work_dir)]),
-            entrypoint: constants::default_entrypoint(),
-            privileged: false,
-            force_recreate: false,
-            auto_remove: true,
-            ..Default::default()
-        };
-
-        let container_result = self.api.container.create(run_spec).await?;
-        self.api.container.start(container_result.id()).await?;
-        let container_id = container_result.id();
-
-        match container_result {
-            ContainerResult::Created { .. } => {
-                let command = inject(&format!("cat {}/age.key", work_dir), "entrypoint.sh");
-                let data = self
-                    .api
-                    .exec
-                    .output(
-                        "read age key",
-                        container_id,
-                        None,
-                        Some(command.iter().map(String::as_str).collect()),
-                    )
-                    .await?;
-                self.api.container.kill(&container_id).await?;
-
-                Ok(age::x25519::Identity::from_str(&data)?)
-            }
-            _ => panic!("Could not read age identity"),
-        }
+        let result = self
+            .api
+            .container
+            .one_shot_output(
+                "read-age-key",
+                "cat /tmp/.age/age.key".into(),
+                Some(vec![self.mount(work_dir)]),
+                None,
+            )
+            .await?;
+        Ok(age::x25519::Identity::from_str(&result.data)?)
     }
 
     pub fn encrypt(

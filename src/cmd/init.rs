@@ -5,7 +5,7 @@ use crate::{
     cli::InitParams,
     constants,
     model::{
-        types::{AnyError, RunSpec, VolumeResult},
+        types::{AnyError, RunMode, RunSpec, VolumeResult},
         volume::RoozVolumeRole,
     },
     util::{id, labels::Labels, ssh},
@@ -43,9 +43,7 @@ impl<'a> Api<'a> {
             entrypoint: Some(entrypoint.iter().map(String::as_str).collect()),
             privileged: false,
             force_recreate: false,
-            // init containers must not be auto-removed as it may happen
-            // before rooz manages to read their stdout
-            auto_remove: false,
+            run_mode: RunMode::Init,
             labels,
             ..Default::default()
         };
