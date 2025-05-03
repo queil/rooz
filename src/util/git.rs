@@ -3,7 +3,7 @@ use crate::{
     config::config::FileFormat,
     constants,
     model::{
-        types::{AnyError, ContainerResult, RunSpec},
+        types::{AnyError, ContainerResult, RunMode, RunSpec},
         volume::RoozVolume,
     },
 };
@@ -154,7 +154,7 @@ impl<'a> GitApi<'a> {
             entrypoint: constants::default_entrypoint(),
             privileged: false,
             force_recreate: false,
-            auto_remove: true,
+            run_mode: RunMode::Git,
             labels,
             ..Default::default()
         };

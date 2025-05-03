@@ -4,7 +4,7 @@ use crate::{
     api::WorkspaceApi,
     constants,
     model::{
-        types::{AnyError, ContainerResult, RunSpec, WorkSpec, WorkspaceResult},
+        types::{AnyError, ContainerResult, RunMode, RunSpec, WorkSpec, WorkspaceResult},
         volume::RoozVolume,
     },
     util::ssh,
@@ -63,7 +63,11 @@ impl<'a> WorkspaceApi<'a> {
             entrypoint: spec.entrypoint.clone(),
             privileged: spec.privileged,
             force_recreate: spec.force_recreate,
-            auto_remove: spec.ephemeral,
+            run_mode: if spec.ephemeral {
+                RunMode::Tmp
+            } else {
+                RunMode::Workspace
+            },
             labels: spec.labels.clone(),
             network: spec.network,
             env: spec.env_vars.clone(),

@@ -104,7 +104,6 @@ impl<'a> VolumeApi<'a> {
                         .create(RunSpec {
                             image: &constants::DEFAULT_IMAGE,
                             uid,
-                            auto_remove: true,
                             mounts: Some(self.ensure_mounts(&mounts, None).await?),
                             entrypoint: Some(
                                 container::inject(
