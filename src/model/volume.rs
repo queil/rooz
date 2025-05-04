@@ -149,7 +149,7 @@ impl RoozVolume {
         }
     }
 
-    pub fn sidecar_data(workspace_key: &str, path: &str, data: Option<String>) -> RoozVolume {
+    pub fn config_data(workspace_key: &str, path: &str, data: Option<String>) -> RoozVolume {
         match data {
             Some(data) => RoozVolume {
                 path: match Path::new(path).parent() {

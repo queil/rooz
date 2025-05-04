@@ -65,14 +65,10 @@ impl<'a> WorkspaceApi<'a> {
                     .iter()
                     .map(|mount| match mount {
                         crate::config::config::SidecarMount::Empty(mount) => {
-                            RoozVolume::sidecar_data(workspace_key, mount, None)
+                            RoozVolume::config_data(workspace_key, mount, None)
                         }
                         crate::config::config::SidecarMount::Content { mount, content } => {
-                            RoozVolume::sidecar_data(
-                                workspace_key,
-                                mount,
-                                Some(content.to_string()),
-                            )
+                            RoozVolume::config_data(workspace_key, mount, Some(content.to_string()))
                         }
                     })
                     .collect::<Vec<_>>()

@@ -404,7 +404,13 @@ impl<'a> ContainerApi<'a> {
 
         let _ = match exit_code_stream.next().await {
             Some(Ok(response)) => response.status_code,
-            Some(Err(e)) => return Err(e.into()),
+            Some(Err(e)) => {
+                log::debug!("Container terminated with error");
+                let data =
+                    tokio::time::timeout(std::time::Duration::from_secs(2), log_task).await??;
+                log::debug!("{}", data);
+                return Err(e.into());
+            }
             None => unreachable!("Container exited without status code"),
         };
 
