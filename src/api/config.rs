@@ -1,8 +1,12 @@
 use std::io;
 
 use crate::{
-    config::config::{FileFormat, RoozCfg},
-    model::types::AnyError,
+    config::config::{ConfigType, FileFormat, RoozCfg},
+    constants,
+    model::{
+        types::AnyError,
+        volume::RoozVolume,
+    },
 };
 
 use age::x25519::Identity;
@@ -11,6 +15,21 @@ use colored::Colorize;
 use super::ConfigApi;
 
 impl<'a> ConfigApi<'a> {
+    pub async fn store(
+        &self,
+        workspace_key: &str,
+        config_type: &ConfigType,
+        data: &str,
+    ) -> Result<(), AnyError> {
+        let config_vol =
+            RoozVolume::sidecar_data(workspace_key, config_type.file_path(), Some(data.to_string()));
+        self.api
+            .volume
+            .ensure_files(vec![config_vol], constants::ROOT_UID)
+            .await?;
+        Ok(())
+    }
+
     fn edit_error(&self, message: &str) -> () {
         eprintln!("{}", "Error: Invalid configuration".bold().red());
         eprintln!("{}", message.red());

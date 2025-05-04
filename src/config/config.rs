@@ -8,7 +8,7 @@ use std::{collections::HashMap, ffi::OsStr, fs, path::Path};
 
 #[derive(Debug, Clone)]
 pub enum ConfigSource {
-    Body {
+    Update {
         value: RoozCfg,
         origin: String,
         format: FileFormat,
@@ -46,6 +46,23 @@ impl<'a> ConfigPath {
         match self {
             ConfigPath::File { path } => path.to_string(),
             ConfigPath::Git { url, file_path } => format!("{}//{}", url, file_path),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum ConfigType {
+    Origin,
+    Body,
+    Runtime,
+}
+
+impl ConfigType {
+    pub fn file_path(&self) -> &str {
+        match self {
+            ConfigType::Origin => "/etc/rooz/origin.config",
+            ConfigType::Body => "/etc/rooz/workspace.config",
+            ConfigType::Runtime => "/etc/rooz/runtime.config",
         }
     }
 }

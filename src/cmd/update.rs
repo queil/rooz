@@ -89,7 +89,7 @@ impl<'a> WorkspaceApi<'a> {
                     pull_image: if no_pull || interactive { false } else { true },
                     ..Default::default()
                 },
-                Some(ConfigSource::Body {
+                Some(ConfigSource::Update {
                     value: config_to_apply,
                     origin: config_source.to_string(),
                     format,
