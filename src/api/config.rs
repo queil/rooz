@@ -3,10 +3,7 @@ use std::io;
 use crate::{
     config::config::{ConfigType, FileFormat, RoozCfg},
     constants,
-    model::{
-        types::AnyError,
-        volume::RoozVolume,
-    },
+    model::{types::AnyError, volume::RoozVolume},
 };
 
 use age::x25519::Identity;
@@ -21,13 +18,80 @@ impl<'a> ConfigApi<'a> {
         config_type: &ConfigType,
         data: &str,
     ) -> Result<(), AnyError> {
-        let config_vol =
-            RoozVolume::sidecar_data(workspace_key, config_type.file_path(), Some(data.to_string()));
+        let config_vol = RoozVolume::config_data(
+            workspace_key,
+            config_type.file_path(),
+            Some(data.to_string()),
+        );
         self.api
             .volume
             .ensure_files(vec![config_vol], constants::ROOT_UID)
             .await?;
         Ok(())
+    }
+
+    pub async fn read(
+        &self,
+        workspace_key: &str,
+        config_type: &ConfigType,
+    ) -> Result<String, AnyError> {
+        let config_vol = RoozVolume::config_data(workspace_key, "/etc/rooz", None);
+        let file_path = config_type.file_path();
+        let result = self
+            .api
+            .container
+            .one_shot_output(
+                "read-config",
+                format!(
+                    "ls {} > /dev/null 2>&1 && cat {} || echo ''",
+                    file_path, file_path,
+                ),
+                Some(vec![config_vol.to_mount(None)]),
+                None,
+            )
+            .await?;
+        Ok(result.data)
+    }
+
+    pub async fn read_workspace(
+        &self,
+        workspace_key: &str,
+    ) -> Result<Option<(String, RoozCfg)>, AnyError> {
+        let config_vol = RoozVolume::config_data(workspace_key, "/etc/rooz", None);
+        let result = self
+            .api
+            .container
+            .one_shot_output(
+                "read-config",
+                format!(
+                    "ls {} > /dev/null 2>&1 && cat {} && cat {} || echo ''",
+                    ConfigType::Origin.file_path(),
+                    ConfigType::Origin.file_path(),
+                    ConfigType::Body.file_path()
+                ),
+                Some(vec![config_vol.to_mount(None)]),
+                None,
+            )
+            .await?;
+
+        Ok(if result.data.len() > 0 {
+            match result.data.find('\n') {
+                Some(pos) => {
+                    let origin = result.data[..pos].to_string();
+                    Some((
+                        origin.to_string(),
+                        RoozCfg::deserialize_config(
+                            &result.data[pos + 1..],
+                            FileFormat::from_path(&origin),
+                        )?
+                        .unwrap(),
+                    ))
+                }
+                None => panic!("Config is invalid"),
+            }
+        } else {
+            None
+        })
     }
 
     fn edit_error(&self, message: &str) -> () {

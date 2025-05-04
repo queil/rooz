@@ -1,70 +1,57 @@
 use crate::{
     api::ConfigApi,
     cli::{ConfigFormat, ConfigPart},
-    config::{
-        config::{FileFormat, RoozCfg},
-        runtime::RuntimeConfig,
-    },
-    model::{types::AnyError, volume::WORK_ROLE},
-    util::labels::{self, Labels},
+    config::config::{ConfigType, FileFormat},
+    model::types::AnyError,
 };
 
 impl<'a> ConfigApi<'a> {
+    async fn show_workspace(
+        &self,
+        workspace_key: &str,
+        format: Option<FileFormat>,
+    ) -> Result<String, AnyError> {
+        if let Some((origin, cfg)) = self.read_workspace(workspace_key).await? {
+            if let Some(fmt) = format {
+                Ok(cfg.to_string(fmt)?)
+            } else {
+                Ok(cfg.to_string(FileFormat::from_path(&origin))?)
+            }
+        } else {
+            Ok("".to_string())
+        }
+    }
+
+    async fn show_origin(&self, workspace_key: &str) -> Result<String, AnyError> {
+        self.read(workspace_key, &ConfigType::Origin).await
+    }
+
+    async fn show_runtime(&self, workspace_key: &str) -> Result<String, AnyError> {
+        self.read(workspace_key, &ConfigType::Runtime).await
+    }
+
     pub async fn show(
         &self,
         workspace_key: &str,
         part: ConfigPart,
         output: Option<ConfigFormat>,
     ) -> Result<(), AnyError> {
-        let labels = Labels::new(Some(workspace_key), Some(WORK_ROLE));
-
-        let container = self
-            .api
-            .container
-            .get_single(&labels)
-            .await?
-            .ok_or(format!("Workspace not found: {}", &workspace_key))?;
-
-        if let Some(labels) = container.labels {
-            let content: Option<String> = match part {
-                ConfigPart::Origin => labels.get(labels::CONFIG_ORIGIN).cloned(),
-                ConfigPart::Body => {
-                    let new_format = output.map(|c| match c {
+        let result = match part {
+            ConfigPart::Origin => self.show_origin(workspace_key).await?,
+            ConfigPart::Body => {
+                self.show_workspace(
+                    workspace_key,
+                    output.map(|f| match f {
                         ConfigFormat::Toml => FileFormat::Toml,
                         ConfigFormat::Yaml => FileFormat::Yaml,
-                    });
+                    }),
+                )
+                .await?
+            }
+            ConfigPart::Runtime => self.show_runtime(workspace_key).await?,
+        };
+        println!("{}", result);
 
-                    let maybe_body = labels.get(labels::CONFIG_BODY);
-                    if let Some(body) = maybe_body {
-                        if let Some(format) = new_format {
-                            let origin_path = labels.get(labels::CONFIG_ORIGIN).unwrap();
-                            let original_format = FileFormat::from_path(&origin_path);
-                            let cfg = RoozCfg::from_string(&body, original_format)?;
-                            Some(cfg.to_string(format)?.to_string())
-                        } else {
-                            Some(body.to_string())
-                        }
-                    } else {
-                        None
-                    }
-                }
-                ConfigPart::Runtime => {
-                    if let Some(runtime_config) = labels.get(labels::RUNTIME_CONFIG) {
-                        match output {
-                            Some(ConfigFormat::Yaml) => {
-                                let cfg = RuntimeConfig::from_string(runtime_config.to_string())?;
-                                Some(serde_yaml::to_string(&cfg)?)
-                            }
-                            _ => Some(runtime_config.to_string()),
-                        }
-                    } else {
-                        None
-                    }
-                }
-            };
-
-            println!("{}", content.unwrap_or("N/A".to_string()))
-        }
         Ok(())
     }
 }
