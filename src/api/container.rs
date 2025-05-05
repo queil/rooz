@@ -93,7 +93,7 @@ impl<'a> ContainerApi<'a> {
                         ..
                     }) = state
                     {
-                        self.kill(container_id).await?;
+                        self.kill(container_id, true).await?;
                     }
                 }
                 Err(Error::JsonDataError { message, .. }) => {
@@ -147,15 +147,32 @@ impl<'a> ContainerApi<'a> {
         }
     }
 
-    pub async fn kill(&self, container_id: &str) -> Result<(), AnyError> {
+    pub async fn kill(&self, container_id: &str, wait_for_remove: bool) -> Result<(), AnyError> {
         match self
             .client
             .kill_container(&container_id, None::<KillContainerOptions<String>>)
             .await
         {
             Ok(_) => {
-                sleep(Duration::from_millis(100)).await;
-                Ok(())
+                if wait_for_remove {
+                    loop {
+                        match self
+                            .client
+                            .inspect_container(container_id, None::<InspectContainerOptions>)
+                            .await
+                        {
+                            Ok(_) => sleep(Duration::from_millis(10)).await,
+                            Err(Error::DockerResponseServerError {
+                                status_code: 500,
+                                message,
+                            }) if message.ends_with("no such container") => return Ok(()),
+                            Err(e) => panic!("{}", e),
+                        }
+                    }
+                } else {
+                    sleep(Duration::from_millis(10)).await;
+                    Ok(())
+                }
             }
             Err(e) => Err(Box::new(e)),
         }
@@ -243,7 +260,7 @@ impl<'a> ContainerApi<'a> {
                 });
 
                 let (attach_stdin, tty, open_stdin, auto_remove) = match spec.run_mode {
-                    RunMode::Workspace => (Some(true), Some(true), None, Some(true)),
+                    RunMode::Workspace => (Some(true), Some(true), None, None),
                     RunMode::Tmp => (Some(true), Some(true), None, Some(true)),
                     RunMode::Git => (None, None, Some(true), Some(true)),
                     RunMode::OneShot => (None, None, None, Some(true)),
