@@ -3,10 +3,7 @@ use std::io;
 use crate::{
     config::config::{ConfigType, FileFormat, RoozCfg},
     constants,
-    model::{
-        types::AnyError,
-        volume::RoozVolume,
-    },
+    model::{types::AnyError, volume::RoozVolume},
 };
 
 use age::x25519::Identity;
@@ -21,8 +18,11 @@ impl<'a> ConfigApi<'a> {
         config_type: &ConfigType,
         data: &str,
     ) -> Result<(), AnyError> {
-        let config_vol =
-            RoozVolume::sidecar_data(workspace_key, config_type.file_path(), Some(data.to_string()));
+        let config_vol = RoozVolume::config_data(
+            workspace_key,
+            config_type.file_path(),
+            Some(data.to_string()),
+        );
         self.api
             .volume
             .ensure_files(vec![config_vol], constants::ROOT_UID)
