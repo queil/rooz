@@ -162,10 +162,16 @@ impl<'a> ContainerApi<'a> {
                             .await
                         {
                             Ok(_) => sleep(Duration::from_millis(10)).await,
+                            //Podman backend
                             Err(Error::DockerResponseServerError {
                                 status_code: 500,
                                 message,
                             }) if message.ends_with("no such container") => return Ok(()),
+                            //Docker backend
+                            Err(Error::DockerResponseServerError {
+                                status_code: 404,
+                                ..
+                            }) => return Ok(()),
                             Err(e) => panic!("{}", e),
                         }
                     }
