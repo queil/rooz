@@ -46,6 +46,13 @@ impl<'a> WorkspaceApi<'a> {
             .ensure(&cfg.image, cli_params.pull_image)
             .await?;
 
+        if let Some(home_from_image) = &cfg.home_from_image {
+            self.api
+                .image
+                .ensure(&home_from_image, cli_params.pull_image)
+                .await?;
+        }
+
         let network = self
             .ensure_sidecars(
                 &cfg.sidecars,
@@ -72,6 +79,7 @@ impl<'a> WorkspaceApi<'a> {
 
         let work_spec = WorkSpec {
             image: &cfg.image,
+            home_from_image: cfg.home_from_image.as_deref(),
             user: &cfg.user,
             caches: Some(cfg.caches),
             env_vars: Some(cfg.env),

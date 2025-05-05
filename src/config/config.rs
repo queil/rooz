@@ -135,6 +135,8 @@ pub struct RoozCfg {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub image: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub home_from_image: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub caches: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub shell: Option<Vec<String>>,
@@ -158,6 +160,7 @@ impl Default for RoozCfg {
             git_ssh_url: None,
             extra_repos: Some(Vec::new()),
             image: Some(constants::DEFAULT_IMAGE.into()),
+            home_from_image: None,
             caches: Some(Vec::new()),
             shell: Some(vec![constants::DEFAULT_SHELL.into()]),
             user: Some(constants::DEFAULT_USER.into()),
@@ -207,6 +210,7 @@ impl RoozCfg {
         *self = RoozCfg {
             shell: shell.map(|v| vec![v]).or(self.shell.clone()),
             image: cli.image.clone().or(self.image.clone()),
+            home_from_image: cli.home_from_image.clone().or(self.home_from_image.clone()),
             user: cli.user.clone().or(self.user.clone()),
             git_ssh_url: cli.git_ssh_url.clone().or(self.git_ssh_url.clone()),
             privileged: cli.privileged.or(self.privileged),
@@ -222,6 +226,10 @@ impl RoozCfg {
             git_ssh_url: config.git_ssh_url.clone().or(self.git_ssh_url.clone()),
             extra_repos: Self::extend_if_any(self.extra_repos.clone(), config.extra_repos.clone()),
             image: config.image.clone().or(self.image.clone()),
+            home_from_image: config
+                .home_from_image
+                .clone()
+                .or(self.home_from_image.clone()),
             caches: Self::extend_if_any(self.caches.clone(), config.caches.clone()),
             shell: config.shell.clone().or(self.shell.clone()),
             user: config.user.clone().or(self.user.clone()),

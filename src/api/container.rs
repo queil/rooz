@@ -342,13 +342,14 @@ impl<'a> ContainerApi<'a> {
         command: String,
         mounts: Option<Vec<Mount>>,
         uid: Option<&str>,
+        image: Option<&str>,
     ) -> Result<String, AnyError> {
         let entrypoint_v = inject2(&command, "entrypoint.sh", true);
         let entrypoint = entrypoint_v.iter().map(String::as_str).collect();
         let id = self
             .create(RunSpec {
                 reason: name,
-                image: constants::DEFAULT_IMAGE,
+                image: image.unwrap_or(constants::DEFAULT_IMAGE),
                 container_name: &id::random_suffix("one-shot"),
                 entrypoint: Some(entrypoint),
                 mounts,
@@ -369,7 +370,7 @@ impl<'a> ContainerApi<'a> {
         mounts: Option<Vec<Mount>>,
         uid: Option<&str>,
     ) -> Result<OneShotResult, AnyError> {
-        let id = self.make_one_shot(name, command, mounts, uid).await?;
+        let id = self.make_one_shot(name, command, mounts, uid, None).await?;
         let docker_logs = self.client.clone();
         let s_id = id.clone();
 
@@ -412,14 +413,17 @@ impl<'a> ContainerApi<'a> {
         Ok(OneShotResult { data })
     }
 
-    pub async fn _one_shot(
+    pub async fn one_shot(
         &self,
         name: &str,
         command: String,
         mounts: Option<Vec<Mount>>,
         uid: Option<&str>,
+        image: Option<&str>,
     ) -> Result<i64, AnyError> {
-        let id = self.make_one_shot(name, command, mounts, uid).await?;
+        let id = self
+            .make_one_shot(name, command, mounts, uid, image)
+            .await?;
         let docker_logs = self.client.clone();
         let s_id = id.clone();
         let s_name = name.to_string();
