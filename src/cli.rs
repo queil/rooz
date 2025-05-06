@@ -111,6 +111,8 @@ pub struct WorkParams {
     #[arg(short, long)]
     pub image: Option<String>,
     #[arg(long)]
+    pub home_from_image: Option<String>,
+    #[arg(long)]
     pub pull_image: bool,
     #[arg(short, long)]
     pub user: Option<String>,
@@ -140,6 +142,7 @@ impl Default for WorkParams {
         Self {
             git_ssh_url: Default::default(),
             image: Default::default(),
+            home_from_image: Default::default(),
             pull_image: Default::default(),
             user: Default::default(),
             caches: Default::default(),

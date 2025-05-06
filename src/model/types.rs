@@ -31,6 +31,7 @@ pub enum VolumeResult {
 #[derive(Clone, Debug)]
 pub struct WorkSpec<'a> {
     pub image: &'a str,
+    pub home_from_image: Option<&'a str>,
     pub uid: &'a str,
     pub user: &'a str,
     pub container_working_dir: &'a str,
@@ -51,6 +52,7 @@ impl Default for WorkSpec<'_> {
     fn default() -> Self {
         Self {
             image: Default::default(),
+            home_from_image: None,
             uid: Default::default(),
             user: Default::default(),
             container_working_dir: Default::default(),

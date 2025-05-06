@@ -220,7 +220,7 @@ impl<'a> GitApi<'a> {
             .await?;
         let clone_dir = get_clone_dir(&spec.working_dir, &url);
         let config = self.try_read_config(&container_id, &clone_dir).await?;
-        self.api.container.kill(&container_id).await?;
+        self.api.container.kill(&container_id, false).await?;
 
         Ok(RootRepoCloneResult {
             config: match config {
@@ -239,7 +239,7 @@ impl<'a> GitApi<'a> {
         let container_id = self
             .clone_from_spec(&spec, &CloneUrls::Extra { urls })
             .await?;
-        self.api.container.kill(&container_id).await?;
+        self.api.container.kill(&container_id, false).await?;
         Ok(())
     }
 
@@ -268,7 +268,7 @@ impl<'a> GitApi<'a> {
             .exec
             .read_config_body(&container_id, &clone_dir, file_format, Some(path))
             .await?;
-        self.api.container.kill(&container_id).await?;
+        self.api.container.kill(&container_id, false).await?;
         Ok(rooz_cfg)
     }
 }

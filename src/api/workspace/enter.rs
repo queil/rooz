@@ -116,7 +116,7 @@ impl<'a> WorkspaceApi<'a> {
             };
         }
         if ephemeral {
-            self.api.container.kill(&container_id).await?;
+            self.api.container.kill(&container_id, true).await?;
             for vol in volumes.iter().filter(|v| v.is_exclusive()) {
                 self.api
                     .volume

@@ -13,11 +13,25 @@ use crate::{
 impl<'a> WorkspaceApi<'a> {
     pub async fn create(&self, spec: &WorkSpec<'a>) -> Result<WorkspaceResult, AnyError> {
         let home_dir = format!("/home/{}", &spec.user);
+        let home_vol = RoozVolume::home(spec.container_name.into(), &home_dir);
 
         let mut volumes = vec![
-            RoozVolume::home(spec.container_name.into(), &home_dir),
+            home_vol.clone(),
             RoozVolume::work(spec.container_name, constants::WORK_DIR),
         ];
+
+        if let Some(home_from_image) = spec.home_from_image {
+            self.api
+                .container
+                .one_shot(
+                    "populate-home",
+                    "exit 0".into(),
+                    Some(vec![home_vol.to_mount(None)]),
+                    Some(spec.uid),
+                    Some(home_from_image),
+                )
+                .await?;
+        }
 
         if let Some(caches) = &spec.caches {
             log::debug!("Processing caches");
