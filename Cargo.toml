@@ -1,6 +1,6 @@
 [package]
 name = "rooz"
-version = "0.115.0"
+version = "0.116.0"
 edition = "2021"
 
 [dependencies]
@@ -25,7 +25,7 @@ serde = "1.0.209"
 serde_yaml = "0.9.34"
 shellexpand = "3.1.0"
 sysinfo = "0.35.0"
-tabled = "0.19.0"
+tabled = "0.20.0"
 termion = "4.0.2"
 tokio = { version = "1.39.3", features = ["rt-multi-thread", "macros"] }
 toml = "0.8.19"

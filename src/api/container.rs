@@ -28,7 +28,7 @@ use std::{
     io::{stdout, Write},
     time::Duration,
 };
-use tokio::time::sleep;
+use tokio::time::{sleep, timeout};
 
 pub fn inject2(script: &str, name: &str, post_sleep: bool) -> Vec<String> {
     vec![
@@ -155,26 +155,48 @@ impl<'a> ContainerApi<'a> {
         {
             Ok(_) => {
                 if wait_for_remove {
-                    loop {
-                        match self
-                            .client
-                            .inspect_container(container_id, None::<InspectContainerOptions>)
-                            .await
-                        {
-                            Ok(_) => sleep(Duration::from_millis(10)).await,
-                            //Podman backend
-                            Err(Error::DockerResponseServerError {
-                                status_code: 500,
-                                message,
-                            }) if message.ends_with("no such container") => return Ok(()),
-                            //Docker backend
-                            Err(Error::DockerResponseServerError {
-                                status_code: 404,
-                                ..
-                            }) => return Ok(()),
-                            Err(e) => panic!("{}", e),
+                    timeout(Duration::from_secs(5), async {
+                        loop {
+                            match self
+                                .client
+                                .inspect_container(container_id, None::<InspectContainerOptions>)
+                                .await
+                            {
+                                Ok(ContainerInspectResponse { state, .. }) => {
+                                    if let Some(ContainerState {
+                                        status: Some(ContainerStateStatusEnum::EXITED),
+                                        ..
+                                    }) = state
+                                    {
+                                        return Ok(())
+                                    }
+                                    else {
+                                        sleep(Duration::from_millis(100)).await
+                                    }
+                                }
+                                Err(Error::JsonDataError { message, .. }) => {
+                                    if message.starts_with("unknown variant `stopped`") {
+                                        // hack: https://github.com/containers/podman/issues/17728
+                                        // nothing to kill as the container is already stopped
+                                        ()
+                                    } else {
+                                        panic!("{}", message)
+                                    }
+                                }
+                                //Podman backend
+                                Err(Error::DockerResponseServerError {
+                                    status_code: 500,
+                                    message,
+                                }) if message.ends_with("no such container") => return Ok(()),
+                                //Docker backend
+                                Err(Error::DockerResponseServerError {
+                                    status_code: 404, ..
+                                }) => return Ok(()),
+                                Err(e) => panic!("{}", e),
+                            }
                         }
-                    }
+                    })
+                    .await?
                 } else {
                     sleep(Duration::from_millis(10)).await;
                     Ok(())
