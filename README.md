@@ -264,7 +264,7 @@ Supported keywords:
 * `image` - set containers image
 * `env` - set environment variables
 * `command` - override container entrypoint (`ENTRYPOINT` in Dockerfile)
-* `arg` - override container entrypoint arguments (`CMD` in Dockerfile)
+* `args` - override container entrypoint arguments (`CMD` in Dockerfile)
 * `mounts` - mount automatically-named rw volumes at the specified paths (so they can survive container restarts/deletes). It supports:
 
 ```yaml
