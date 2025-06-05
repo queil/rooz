@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::collections::HashMap;
 
 use crate::util::id::to_safe_id;
 use bollard::models::{Mount, MountTypeEnum};
@@ -50,7 +50,7 @@ pub struct RoozVolume {
     pub path: String,
     pub role: RoozVolumeRole,
     pub sharing: RoozVolumeSharing,
-    pub file: Option<RoozVolumeFile>,
+    pub files: Option<Vec<RoozVolumeFile>>,
 }
 
 impl RoozVolume {
@@ -127,7 +127,7 @@ impl RoozVolume {
             path: path.into(),
             sharing: RoozVolumeSharing::Exclusive { key: key.into() },
             role: RoozVolumeRole::Work,
-            file: None,
+            files: None,
         }
     }
 
@@ -136,7 +136,7 @@ impl RoozVolume {
             path: path.into(),
             sharing: RoozVolumeSharing::Exclusive { key: key.into() },
             role: RoozVolumeRole::Home,
-            file: None,
+            files: None,
         }
     }
 
@@ -145,28 +145,31 @@ impl RoozVolume {
             path: path.into(),
             sharing: RoozVolumeSharing::Shared,
             role: RoozVolumeRole::Cache,
-            file: None,
+            files: None,
         }
     }
 
-    pub fn config_data(workspace_key: &str, path: &str, data: Option<String>) -> RoozVolume {
-        match data {
-            Some(data) => RoozVolume {
-                path: match Path::new(path).parent() {
-                    Some(parent) => parent
-                        .to_str()
-                        .map(|s| s.to_string())
-                        .unwrap_or_else(|| panic!("Invalid UTF-8 path")),
-                    None => panic!("No parent directory"),
-                },
+    pub fn config_data(
+        workspace_key: &str,
+        path: &str,
+        files: Option<HashMap<String, String>>,
+    ) -> RoozVolume {
+        match files {
+            Some(files) => RoozVolume {
+                path: path.to_string(),
                 role: RoozVolumeRole::Data,
                 sharing: RoozVolumeSharing::Exclusive {
                     key: workspace_key.into(),
                 },
-                file: Some(RoozVolumeFile {
-                    file_path: path.to_string(),
-                    data,
-                }),
+                files: Some(
+                    files
+                        .iter()
+                        .map(|(file_name, data)| RoozVolumeFile {
+                            file_path: file_name.to_string(),
+                            data: data.to_string(),
+                        })
+                        .collect::<Vec<_>>(),
+                ),
             },
             None => RoozVolume {
                 path: path.into(),
@@ -174,7 +177,7 @@ impl RoozVolume {
                 sharing: RoozVolumeSharing::Exclusive {
                     key: workspace_key.into(),
                 },
-                file: None,
+                files: None,
             },
         }
     }

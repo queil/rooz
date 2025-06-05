@@ -41,14 +41,14 @@ impl RuntimeConfig {
     pub fn from_string(
         config: String,
     ) -> Result<RuntimeConfig, Box<dyn std::error::Error + 'static>> {
-        match toml::from_str(&config) {
+        match serde_yaml::from_str(&config) {
             Ok(val) => Ok(val),
             Err(e) => Err(Box::new(e)),
         }
     }
 
     pub fn to_string(&self) -> Result<String, AnyError> {
-        match toml::to_string(&self) {
+        match serde_yaml::to_string(&self) {
             Ok(val) => Ok(val),
             Err(e) => Err(Box::new(e)),
         }

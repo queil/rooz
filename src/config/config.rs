@@ -60,9 +60,9 @@ pub enum ConfigType {
 impl ConfigType {
     pub fn file_path(&self) -> &str {
         match self {
-            ConfigType::Origin => "/etc/rooz/origin.config",
-            ConfigType::Body => "/etc/rooz/workspace.config",
-            ConfigType::Runtime => "/etc/rooz/runtime.config",
+            ConfigType::Origin => "origin.config",
+            ConfigType::Body => "workspace.config",
+            ConfigType::Runtime => "runtime.config",
         }
     }
 }
@@ -92,11 +92,13 @@ impl FileFormat {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(deny_unknown_fields)]
 #[serde(untagged)]
 pub enum SidecarMount {
     Empty(String),
-    Content { mount: String, content: String },
+    Files {
+        mount: String,
+        files: HashMap<String, String>,
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

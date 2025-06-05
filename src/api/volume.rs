@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use crate::{
     api::VolumeApi,
     constants,
@@ -97,8 +99,24 @@ impl<'a> VolumeApi<'a> {
         for m in &mounts {
             match m {
                 RoozVolume {
-                    file: Some(data), ..
+                    files: Some(files),
+                    path,
+                    ..
                 } => {
+                    let cmd = files
+                        .iter()
+                        .map(|f| {
+                            format!(
+                                "echo '{}' > {}",
+                                f.data,
+                                Path::new(path)
+                                    .join(&f.file_path)
+                                    .to_string_lossy()
+                                    .to_string()
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .join(" && ".into());
                     match self
                         .container
                         .create(RunSpec {
@@ -106,13 +124,10 @@ impl<'a> VolumeApi<'a> {
                             uid,
                             mounts: Some(self.ensure_mounts(&mounts, None).await?),
                             entrypoint: Some(
-                                container::inject(
-                                    &format!("echo '{}' > {}", data.data, data.file_path),
-                                    "entrypoint.sh",
-                                )
-                                .iter()
-                                .map(String::as_str)
-                                .collect(),
+                                container::inject(&cmd, "entrypoint.sh")
+                                    .iter()
+                                    .map(String::as_str)
+                                    .collect(),
                             ),
                             ..RunSpec::default()
                         })

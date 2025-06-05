@@ -4,7 +4,7 @@ use bollard::network::CreateNetworkOptions;
 
 use crate::{
     api::WorkspaceApi,
-    config::config::{RoozCfg, RoozSidecar},
+    config::config::{RoozCfg, RoozSidecar, SidecarMount},
     constants,
     model::{
         types::{AnyError, RunMode, RunSpec},
@@ -64,11 +64,11 @@ impl<'a> WorkspaceApi<'a> {
                 mounts
                     .iter()
                     .map(|mount| match mount {
-                        crate::config::config::SidecarMount::Empty(mount) => {
+                        SidecarMount::Empty(mount) => {
                             RoozVolume::config_data(workspace_key, mount, None)
                         }
-                        crate::config::config::SidecarMount::Content { mount, content } => {
-                            RoozVolume::config_data(workspace_key, mount, Some(content.to_string()))
+                        SidecarMount::Files { mount, files } => {
+                            RoozVolume::config_data(workspace_key, mount, Some(files.clone()))
                         }
                     })
                     .collect::<Vec<_>>()

@@ -168,9 +168,8 @@ impl<'a> ContainerApi<'a> {
                                         ..
                                     }) = state
                                     {
-                                        return Ok(())
-                                    }
-                                    else {
+                                        return Ok(());
+                                    } else {
                                         sleep(Duration::from_millis(100)).await
                                     }
                                 }

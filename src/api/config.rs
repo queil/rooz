@@ -20,8 +20,12 @@ impl<'a> ConfigApi<'a> {
     ) -> Result<(), AnyError> {
         let config_vol = RoozVolume::config_data(
             workspace_key,
-            config_type.file_path(),
-            Some(data.to_string()),
+            "/etc/rooz",
+            Some(
+                [(config_type.file_path().to_string(), data.to_string())]
+                    .into_iter()
+                    .collect(),
+            ),
         );
         self.api
             .volume

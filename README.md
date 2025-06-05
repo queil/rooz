@@ -272,9 +272,12 @@ Supported keywords:
   # simple empty rw volumes
   - /my_test/data/
   # config files with a specified content
-  - mount: /work/ConfigFiles/Config.json
-    content: |
-      {"some": "config"}
+  - mount: /etc/tool/
+    files:
+      config.json: |-
+        {"some": "config"}
+      other.yaml: |-
+        some: config
 ```
 
 * `ports` - port bindings in the `"8080:8080"` format
