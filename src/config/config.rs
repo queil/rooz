@@ -116,6 +116,8 @@ pub struct RoozSidecar {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ports: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub privileged: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub mount_work: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub work_dir: Option<String>,

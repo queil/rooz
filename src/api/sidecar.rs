@@ -117,6 +117,7 @@ impl<'a> WorkspaceApi<'a> {
                     ports: Some(ports),
                     work_dir: Some(s.work_dir.as_deref().unwrap_or(work_dir)),
                     run_mode: RunMode::Sidecar,
+                    privileged: s.privileged.unwrap_or(false),
                     ..Default::default()
                 })
                 .await?;
