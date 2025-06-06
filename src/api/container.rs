@@ -301,8 +301,8 @@ impl<'a> ContainerApi<'a> {
                     restart_policy: None,
                     oom_score_adj,
                     privileged: Some(spec.privileged),
+                    init: Some(spec.init),
                     port_bindings,
-                    init: Some(true),
                     ..Default::default()
                 };
 

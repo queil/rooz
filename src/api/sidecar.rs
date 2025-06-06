@@ -118,6 +118,7 @@ impl<'a> WorkspaceApi<'a> {
                     work_dir: Some(s.work_dir.as_deref().unwrap_or(work_dir)),
                     run_mode: RunMode::Sidecar,
                     privileged: s.privileged.unwrap_or(false),
+                    init: s.init.unwrap_or(true),
                     ..Default::default()
                 })
                 .await?;
