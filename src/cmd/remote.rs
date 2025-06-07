@@ -63,7 +63,10 @@ async fn connect(
         socket_url
     );
 
-    let remote_socket = Path::new(&socket_url);
+    let remote_socket_path = Path::new(&socket_url);
+    let remote_socket = remote_socket_path
+        .strip_prefix("unix://")
+        .unwrap_or(&remote_socket_path);
 
     session
         .request_port_forward(ForwardType::Local, local_socket_path, remote_socket)
