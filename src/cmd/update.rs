@@ -1,3 +1,5 @@
+use std::fs;
+
 use crate::{
     api::WorkspaceApi,
     cli::{WorkEnvParams, WorkParams},
@@ -46,7 +48,9 @@ impl<'a> WorkspaceApi<'a> {
 
             if !interactive {
                 match ConfigPath::from_str(&config_source)? {
-                    ConfigPath::File { .. } => (),
+                    ConfigPath::File { path } => {
+                        original_body = fs::read_to_string(&path)?;
+                    }
                     ConfigPath::Git { url, file_path } => {
                         let clone_env = CloneEnv {
                             workspace_key: workspace_key.to_string(),
