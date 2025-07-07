@@ -48,10 +48,6 @@ The command creates:
 
 You can regenerate the keys by specifying the `--force` parameter. Please note that the existing keys will be wiped out.
 
-### System config
-
-Rooz exposes some system config via `rooz system configure`. At present it only allows to specify `.gitconfig` used by rooz for cloning. It can be used e.g. to specify aliases. This feature is new and may be extended in the future.
-
 ### Configure
 
 :information_source: Read more in the [Configuration](#configuration) section
@@ -68,6 +64,10 @@ export ROOZ_IMAGE=ghcr.io/queil/image:latest
 export ROOZ_SHELL=bash
 export ROOZ_CACHES='~/.local/share/containers/storage/'
 ```
+
+### System config
+
+Rooz exposes some system config via `rooz system configure`. At present it only allows to specify `.gitconfig` used by rooz for cloning. It can be used e.g. to specify aliases. This feature is new and may be extended in the future.
 
 ## Usage examples
 
