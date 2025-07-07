@@ -23,11 +23,16 @@ pub struct CompletionParams {
     pub shell: Shell,
 }
 
+#[derive(Parser, Debug)]
+#[command(about = "Opens the system config in EDITOR")]
+pub struct ConfigureParams {}
+
 #[derive(Subcommand, Debug)]
 pub enum SystemCommands {
     Prune(PruneParams),
     Init(InitParams),
     Completion(CompletionParams),
+    Configure(ConfigureParams),
 }
 
 #[derive(Subcommand, Debug)]

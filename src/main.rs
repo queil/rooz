@@ -16,11 +16,12 @@ use crate::{
             Code, Config, Enter, List, New, Remote, Remove, Restart, Start, Stop, System, Tmp,
             Update,
         },
-        CompletionParams, ListParams, NewParams, RemoveParams, ShowConfigParams, StopParams,
-        TmpParams,
+        CompletionParams, ConfigureParams, ListParams, NewParams, RemoveParams, ShowConfigParams,
+        StopParams, TmpParams,
     },
     cmd::remote,
-    model::types::AnyError,
+    config::config::SystemConfig,
+    model::{types::AnyError, volume::RoozVolume},
     util::backend::ContainerBackend,
 };
 
@@ -84,6 +85,21 @@ async fn main() -> Result<(), AnyError> {
         client: &docker,
         backend: &backend,
     };
+
+    let sys_config_result = container_api
+        .one_shot_output(
+            "read-sys-config",
+            "ls /tmp/sys/rooz.config > /dev/null 2>&1 && cat /tmp/sys/rooz.config || echo ''"
+                .into(),
+            Some(vec![
+                RoozVolume::system_config("/tmp/sys", None).to_mount(None)
+            ]),
+            None,
+        )
+        .await?;
+
+    let system_config = SystemConfig::from_string(&sys_config_result.data)?;
+
     let volume_api = VolumeApi {
         client: &docker,
         container: &container_api,
@@ -94,6 +110,7 @@ async fn main() -> Result<(), AnyError> {
         image: &image_api,
         volume: &volume_api,
         container: &container_api,
+        system_config: &system_config,
         client: &docker,
     };
 
@@ -354,6 +371,23 @@ async fn main() -> Result<(), AnyError> {
                 .disable_help_subcommand(true);
             let name = &cli.get_name().to_string();
             generate(shell, &mut cli, name, &mut io::stdout());
+        }
+
+        Cli {
+            command:
+                System(cli::System {
+                    command: cli::SystemCommands::Configure(ConfigureParams {}),
+                }),
+        } => {
+            let (_, config_string) = config_api
+                .system_edit_string(sys_config_result.data.clone())
+                .await?;
+            volume_api
+                .ensure_files(
+                    vec![RoozVolume::system_config("/tmp/sys", Some(config_string))],
+                    constants::ROOT_UID,
+                )
+                .await?;
         }
     };
     Ok(())

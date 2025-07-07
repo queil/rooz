@@ -1,6 +1,6 @@
 use bollard::Docker;
 
-use crate::util::backend::ContainerBackend;
+use crate::{config::config::SystemConfig, util::backend::ContainerBackend};
 
 pub mod config;
 pub mod container;
@@ -39,6 +39,7 @@ pub struct Api<'a> {
     pub image: &'a ImageApi<'a>,
     pub volume: &'a VolumeApi<'a>,
     pub container: &'a ContainerApi<'a>,
+    pub system_config: &'a SystemConfig,
     pub client: &'a Docker,
 }
 

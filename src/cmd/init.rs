@@ -6,7 +6,7 @@ use crate::{
     constants,
     model::{
         types::{AnyError, RunMode, RunSpec, VolumeResult},
-        volume::RoozVolumeRole,
+        volume::{RoozVolume, RoozVolumeRole},
     },
     util::{id, labels::Labels, ssh},
 };
@@ -57,6 +57,14 @@ impl<'a> Api<'a> {
 
     pub async fn init(&self, image: &str, uid: &str, spec: &InitParams) -> Result<(), AnyError> {
         let image_id = self.image.ensure(&image, false).await?;
+
+        self.volume
+            .ensure_files(
+                vec![RoozVolume::system_config("/tmp/sys", None)],
+                constants::ROOT_UID,
+            )
+            .await?;
+
         match self
             .volume
             .ensure_volume(

@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::{
     api::{container, ExecApi, GitApi},
     config::config::FileFormat,
@@ -104,7 +106,7 @@ impl<'a> ExecApi<'a> {
 
 impl<'a> GitApi<'a> {
     async fn clone_from_spec(&self, spec: &CloneEnv, urls: &CloneUrls) -> Result<String, AnyError> {
-        let mut clone_script = "export GIT_SSH_COMMAND='ssh -i /tmp/.ssh/id_ed25519 -o UserKnownHostsFile=/tmp/.ssh/known_hosts'\n".to_string();
+        let mut clone_script = String::new();
         let all_urls: Vec<String> = match &urls {
             CloneUrls::Root { url } => vec![url.to_string()],
             CloneUrls::Extra { urls } => {
@@ -122,7 +124,7 @@ impl<'a> GitApi<'a> {
             let clone_dir = get_clone_dir(&spec.working_dir, &url);
             clone_script.push_str(
                 format!(
-                    "ls '{}/.git' > /dev/null 2>&1 || git clone --filter=blob:none {} {}\n",
+                    "ls '{}/.git' > /dev/null 2>&1 || git -c include.path=/tmp/rooz/.gitconfig clone --filter=blob:none {} {}\n",
                     &clone_dir, &depth, &url
                 )
                 .as_str(),
@@ -133,15 +135,29 @@ impl<'a> GitApi<'a> {
         let labels = Labels::new(Some(&spec.workspace_key), Some("git"));
         let mut mounts = vec![ssh::mount("/tmp/.ssh")];
 
-        if spec.use_volume {
-            let vol = RoozVolume::work(&spec.workspace_key, &spec.working_dir);
+        let mut volumes: Vec<RoozVolume> = vec![];
 
-            self.api
-                .volume
-                .ensure_mounts(&vec![vol.clone().into()], None)
-                .await?;
-            mounts.push(vol.to_mount(None));
+        if let Some(gitconfig) = &self.api.system_config.gitconfig {
+            let mut config_hashmap = HashMap::<String, String>::new();
+            config_hashmap.insert(".gitconfig".into(), gitconfig.to_string());
+            let git_config_vol =
+                RoozVolume::config_data(&spec.workspace_key, "/tmp/rooz/", Some(config_hashmap));
+            volumes.push(git_config_vol.clone());
+        }
+
+        if spec.use_volume {
+            volumes.push(RoozVolume::work(&spec.workspace_key, &spec.working_dir));
         };
+
+        self.api.volume.ensure_mounts(&volumes, None).await?;
+        self.api
+            .volume
+            .ensure_files(volumes.clone(), &spec.uid)
+            .await?;
+
+        for vol in &volumes {
+            mounts.push(vol.to_mount(None));
+        }
 
         let run_spec = RunSpec {
             reason: "git-clone",

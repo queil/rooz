@@ -1,7 +1,7 @@
 use std::io;
 
 use crate::{
-    config::config::{ConfigType, FileFormat, RoozCfg},
+    config::config::{ConfigType, FileFormat, RoozCfg, SystemConfig},
     constants,
     model::{types::AnyError, volume::RoozVolume},
 };
@@ -82,6 +82,33 @@ impl<'a> ConfigApi<'a> {
             break;
         }
         self.encrypt(&mut edited_config, identity).await?;
+        Ok((edited_config, edited_body))
+    }
+
+    pub async fn system_edit_string(
+        &self,
+        body: String,
+    ) -> Result<(SystemConfig, String), AnyError> {
+        let mut edited_body = body;
+        let edited_config;
+        loop {
+            edited_body = match edit::edit(edited_body.clone()) {
+                Ok(b) => b,
+                Err(err) => {
+                    self.edit_error(&err.to_string());
+                    continue;
+                }
+            };
+            edited_config = match SystemConfig::from_string(&edited_body) {
+                Ok(c) => c,
+                Err(err) => {
+                    self.edit_error(&err.to_string());
+                    continue;
+                }
+            };
+
+            break;
+        }
         Ok((edited_config, edited_body))
     }
 }

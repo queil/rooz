@@ -345,3 +345,16 @@ impl RoozCfg {
         }
     }
 }
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct SystemConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gitconfig: Option<String>,
+}
+
+impl SystemConfig {
+    pub fn from_string(config: &str) -> Result<Self, AnyError> {
+        Ok(serde_yaml::from_str(&config)?)
+    }
+}
