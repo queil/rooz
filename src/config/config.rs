@@ -26,14 +26,14 @@ pub enum ConfigPath {
 
 impl<'a> ConfigPath {
     pub fn from_str(value: &'a str) -> Result<Self, AnyError> {
-        if value.starts_with("git@") || value.starts_with("ssh://") {
+        if value.contains(":") {
             let chunks = value.split("//").collect::<Vec<_>>();
             match chunks.as_slice() {
                 &[url, file_path] => Ok(Self::Git {
                     url: url.to_string(),
                     file_path: file_path.to_string(),
                 }),
-                _ => Err(format!("Invalid repo URL {}", value).into()),
+                _ => Err(format!("Invalid remote config spec URL {}", value).into()),
             }
         } else {
             Ok(Self::File {
