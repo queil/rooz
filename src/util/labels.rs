@@ -142,6 +142,17 @@ impl<'a> From<&'a Labels> for HashMap<&'a str, &'a str> {
     }
 }
 
+impl<'a> From<&'a Labels> for HashMap<String, String> {
+    fn from(value: &'a Labels) -> Self {
+        let labels: Vec<&KeyValue> = value.into();
+        let mut h = HashMap::new();
+        for l in labels {
+            h.insert(l.key.to_string(), l.value.to_string());
+        }
+        return h;
+    }
+}
+
 impl<'a> From<&'a Labels> for HashMap<String, Vec<String>> {
     fn from(value: &'a Labels) -> Self {
         let labels: Vec<&KeyValue> = value.into();

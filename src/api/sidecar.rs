@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use bollard::network::CreateNetworkOptions;
+use bollard::models::NetworkCreateRequest;
 
 use crate::{
     api::WorkspaceApi,
@@ -25,10 +25,9 @@ impl<'a> WorkspaceApi<'a> {
         let labels = &Labels::new(Some(workspace_key), None);
 
         let network = if !sidecars.is_empty() {
-            let network_options = CreateNetworkOptions::<&str> {
-                name: &workspace_key,
-                check_duplicate: true,
-                labels: labels.into(),
+            let network_options = NetworkCreateRequest {
+                name: workspace_key.into(),
+                labels: Some(labels.into()),
                 ..Default::default()
             };
 

@@ -9,19 +9,20 @@ use crate::{
     },
 };
 use base64::{engine::general_purpose, Engine as _};
-use bollard::container::LogOutput::Console;
+
 use bollard::{
-    container::{
-        Config, CreateContainerOptions, InspectContainerOptions, KillContainerOptions,
-        ListContainersOptions, LogsOptions, RemoveContainerOptions, StartContainerOptions,
-        StopContainerOptions, WaitContainerOptions,
-    },
+    container::LogOutput::Console,
     errors::Error,
-    models::{ContainerState, HostConfig},
-    network::ConnectNetworkOptions,
-    secret::{ContainerStateStatusEnum, Mount},
-    service::{ContainerInspectResponse, ContainerSummary, EndpointSettings, PortBinding},
+    models::{
+        ContainerCreateBody, ContainerInspectResponse, ContainerState, ContainerStateStatusEnum, ContainerSummary, EndpointSettings, HostConfig, Mount, NetworkConnectRequest, PortBinding
+    },
+    query_parameters::{
+        CreateContainerOptions, InspectContainerOptions, KillContainerOptions,
+        ListContainersOptions, LogsOptions, RemoveContainerOptions, StartContainerOptions,
+        StopContainerOptions, WaitContainerOptions
+    },
 };
+
 use futures::{future, StreamExt};
 use std::{
     collections::HashMap,
@@ -52,7 +53,7 @@ pub fn inject(script: &str, name: &str) -> Vec<String> {
 impl<'a> ContainerApi<'a> {
     pub async fn get_all(&self, labels: &Labels) -> Result<Vec<ContainerSummary>, AnyError> {
         let list_options = ListContainersOptions {
-            filters: labels.into(),
+            filters: Some(labels.into()),
             all: true,
             ..Default::default()
         };
@@ -62,7 +63,7 @@ impl<'a> ContainerApi<'a> {
 
     pub async fn get_running(&self, labels: &Labels) -> Result<Vec<ContainerSummary>, AnyError> {
         let list_options = ListContainersOptions {
-            filters: labels.into(),
+            filters: Some(labels.into()),
             all: false,
             ..Default::default()
         };
@@ -150,7 +151,7 @@ impl<'a> ContainerApi<'a> {
     pub async fn kill(&self, container_id: &str, wait_for_remove: bool) -> Result<(), AnyError> {
         match self
             .client
-            .kill_container(&container_id, None::<KillContainerOptions<String>>)
+            .kill_container(&container_id, None::<KillContainerOptions>)
             .await
         {
             Ok(_) => {
@@ -207,12 +208,21 @@ impl<'a> ContainerApi<'a> {
 
     pub async fn stop(&self, container_id: &str) -> Result<(), AnyError> {
         self.client
-            .stop_container(&container_id, Some(StopContainerOptions { t: 0 }))
+            .stop_container(
+                &container_id,
+                Some(StopContainerOptions {
+                    t: Some(0),
+                    signal: Some("SIGINT".into()),
+                }),
+            )
             .await?;
         let mut count = 10;
         while count > 0 {
             log::debug!("Waiting for container {} to be gone...", container_id);
-            let r = self.client.inspect_container(&container_id, None).await;
+            let r = self
+                .client
+                .inspect_container(&container_id, None::<InspectContainerOptions>)
+                .await;
             if let Err(Error::DockerResponseServerError {
                 status_code: 404, ..
             }) = r
@@ -241,7 +251,7 @@ impl<'a> ContainerApi<'a> {
 
         let container_id = match self
             .client
-            .inspect_container(&spec.container_name, None)
+            .inspect_container(&spec.container_name, None::<InspectContainerOptions>)
             .await
         {
             Ok(ContainerInspectResponse { id: Some(id), .. }) if !spec.force_recreate => {
@@ -260,8 +270,8 @@ impl<'a> ContainerApi<'a> {
                 }
 
                 let options = CreateContainerOptions {
-                    name: spec.container_name,
-                    platform: None,
+                    name: Some(spec.container_name.to_string()),
+                    platform: "linux/amd64".into(),
                 };
 
                 let oom_score_adj = match self.backend {
@@ -321,13 +331,17 @@ impl<'a> ContainerApi<'a> {
 
                 let env = KeyValue::to_vec_str(&env_kv);
 
-                let config = Config {
-                    image: Some(spec.image),
-                    entrypoint: spec.entrypoint,
-                    cmd: spec.command,
-                    working_dir: spec.work_dir,
+                let config = ContainerCreateBody {
+                    image: Some(spec.image.to_string()),
+                    entrypoint: spec
+                        .entrypoint
+                        .map(|vec| vec.iter().map(|&s| s.to_string()).collect()),
+                    cmd: spec
+                        .command
+                        .map(|vec| vec.iter().map(|&s| s.to_string()).collect()),
+                    working_dir: spec.work_dir.map(|s| s.to_string()),
                     // THIS MUST BE spec.uid, NOT spec.user - otherwise file ownership will break
-                    user: Some(spec.uid),
+                    user: Some(spec.uid.to_string()),
                     attach_stdin,
                     attach_stdout: Some(true),
                     attach_stderr: Some(true),
@@ -335,7 +349,7 @@ impl<'a> ContainerApi<'a> {
                     open_stdin,
                     host_config: Some(host_config),
                     labels: Some((&spec.labels).into()),
-                    env: Some(env),
+                    env: Some(env.iter().map(|&s| s.to_string()).collect()),
                     ..Default::default()
                 };
 
@@ -345,12 +359,12 @@ impl<'a> ContainerApi<'a> {
                     .await?;
 
                 if let Some(network) = &spec.network {
-                    let connect_network_options = ConnectNetworkOptions {
-                        container: &response.id,
-                        endpoint_config: EndpointSettings {
+                    let connect_network_options = NetworkConnectRequest {
+                        container: Some(response.id.to_string()),
+                        endpoint_config: Some(EndpointSettings {
                             aliases: spec.network_aliases,
                             ..Default::default()
-                        },
+                        }),
                     };
                     self.client
                         .connect_network(network, connect_network_options)
@@ -359,7 +373,7 @@ impl<'a> ContainerApi<'a> {
                 log::debug!(
                     "Created container: {} ({})",
                     spec.container_name,
-                    response.id
+                    response.id.to_string()
                 );
 
                 ContainerResult::Created { id: response.id }
@@ -371,7 +385,7 @@ impl<'a> ContainerApi<'a> {
     pub async fn start(&self, container_id: &str) -> Result<(), AnyError> {
         match self
             .client
-            .start_container(&container_id, None::<StartContainerOptions<String>>)
+            .start_container(&container_id, None::<StartContainerOptions>)
             .await
             .map_err(|e| Box::new(e))
         {
@@ -421,7 +435,7 @@ impl<'a> ContainerApi<'a> {
         let log_task = tokio::spawn(async move {
             let logs_stream = docker_logs.logs(
                 &s_id,
-                Some(LogsOptions::<String> {
+                Some(LogsOptions {
                     follow: true,
                     stdout: true,
                     stderr: true,
@@ -445,7 +459,7 @@ impl<'a> ContainerApi<'a> {
 
         let mut exit_code_stream = self
             .client
-            .wait_container(&id, None::<WaitContainerOptions<String>>);
+            .wait_container(&id, None::<WaitContainerOptions>);
 
         let _ = match exit_code_stream.next().await {
             Some(Ok(response)) => response.status_code,
@@ -475,7 +489,7 @@ impl<'a> ContainerApi<'a> {
         let log_task = tokio::spawn(async move {
             let logs_stream = docker_logs.logs(
                 &s_id,
-                Some(LogsOptions::<String> {
+                Some(LogsOptions {
                     follow: true,
                     stdout: true,
                     stderr: true,
@@ -502,7 +516,7 @@ impl<'a> ContainerApi<'a> {
 
         let mut exit_code_stream = self
             .client
-            .wait_container(&id, None::<WaitContainerOptions<String>>);
+            .wait_container(&id, None::<WaitContainerOptions>);
 
         let exit_code = match exit_code_stream.next().await {
             Some(Ok(response)) => response.status_code,
@@ -515,7 +529,7 @@ impl<'a> ContainerApi<'a> {
     }
 
     pub async fn logs_to_stdout(&self, container_name: &str) -> Result<(), AnyError> {
-        let log_options = LogsOptions::<String> {
+        let log_options = LogsOptions {
             stdout: true,
             follow: true,
             ..Default::default()

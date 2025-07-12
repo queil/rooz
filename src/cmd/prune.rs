@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
 use bollard::{
-    container::ListContainersOptions,
-    service::ContainerSummary,
-    volume::{ListVolumesOptions, RemoveVolumeOptions},
+   
+    query_parameters::{ListContainersOptions, ListVolumesOptions, RemoveVolumeOptions}, service::ContainerSummary
+   
 };
 
 use crate::{api::Api, model::types::AnyError, util::labels::Labels};
@@ -16,7 +16,7 @@ impl<'a> Api<'a> {
     ) -> Result<(), AnyError> {
         let ls_container_options = ListContainersOptions {
             all: true,
-            filters: filters.clone(),
+            filters: Some(filters.clone()),
             ..Default::default()
         };
         for cs in self
@@ -31,7 +31,7 @@ impl<'a> Api<'a> {
         }
 
         let ls_vol_options = ListVolumesOptions {
-            filters: filters.clone(),
+            filters: Some(filters.clone()),
             ..Default::default()
         };
 
@@ -49,7 +49,7 @@ impl<'a> Api<'a> {
             for v in volumes {
                 log::debug!("Force remove volume: {}", &v.name);
                 self.client
-                    .remove_volume(&v.name, Some(rm_vol_options))
+                    .remove_volume(&v.name, Some(rm_vol_options.clone()))
                     .await?
             }
         }

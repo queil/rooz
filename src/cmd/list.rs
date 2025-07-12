@@ -4,7 +4,7 @@ use crate::{
     util::labels::{self, Labels, CONFIG_ORIGIN},
 };
 
-use bollard::{container::ListContainersOptions, service::ContainerSummary};
+use bollard::{ query_parameters::ListContainersOptions, service::ContainerSummary};
 
 use tabled::{settings::Style, Table, Tabled};
 
@@ -22,8 +22,8 @@ impl<'a> Api<'a> {
     pub async fn list(&self) -> Result<(), AnyError> {
         let labels = Labels::new(None, Some(labels::ROLE_WORK));
         let list_options = ListContainersOptions {
-            filters: (&labels).into(),
             all: true,
+            filters: Some((&labels).into()),
             ..Default::default()
         };
 
@@ -38,8 +38,8 @@ impl<'a> Api<'a> {
                 ..
             } = c
             {
-                let is_running = match state.as_str() {
-                    "running" => true,
+                let is_running = match state {
+                    bollard::models::ContainerSummaryStateEnum::RUNNING => true,
                     _ => false,
                 };
                 views.push(WorkspaceView {

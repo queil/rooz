@@ -1,7 +1,6 @@
 use bollard::{
-    network::ListNetworksOptions,
-    service::{ContainerSummary, Volume},
-    volume::ListVolumesOptions,
+
+    query_parameters::{ListNetworksOptions, ListVolumesOptions}, service::{ContainerSummary, Volume}
 };
 
 use crate::{
@@ -26,7 +25,7 @@ impl<'a> WorkspaceApi<'a> {
     async fn remove_core(&self, labels: &Labels, force: bool) -> Result<(), AnyError> {
         self.remove_containers(labels, force).await?;
         let ls_vol_options = ListVolumesOptions {
-            filters: labels.into(),
+            filters: Some(labels.into()),
             ..Default::default()
         };
 
@@ -54,7 +53,7 @@ impl<'a> WorkspaceApi<'a> {
         }
 
         let ls_network_options = ListNetworksOptions {
-            filters: labels.into(),
+            filters: Some(labels.into()),
         };
         for n in self
             .api
