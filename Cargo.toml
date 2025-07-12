@@ -7,7 +7,7 @@ edition = "2021"
 age = {version = "0.11.1", features = ["armor"] }
 base64 = "0.22.1"
 #bollard = { version = "0.19.1" }
-bollard = { git = "https://github.com/fussybeaver/bollard", branch = "master"}
+bollard = { git = "https://github.com/fussybeaver/bollard", rev = "e785084893d6763dfa1a9c7e283c7ee9adde11eb"}
 bollard-stubs = "1.48.3-rc.28.0.4"
 clap = { version = "4.5.16", features = ["derive", "env"] }
 clap_complete = "4.5.24"

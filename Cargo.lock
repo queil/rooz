@@ -219,7 +219,7 @@ dependencies = [
 [[package]]
 name = "bollard"
 version = "0.19.1"
-source = "git+https://github.com/fussybeaver/bollard?branch=master#e785084893d6763dfa1a9c7e283c7ee9adde11eb"
+source = "git+https://github.com/fussybeaver/bollard?rev=e785084893d6763dfa1a9c7e283c7ee9adde11eb#e785084893d6763dfa1a9c7e283c7ee9adde11eb"
 dependencies = [
  "base64 0.22.1",
  "bollard-stubs",
