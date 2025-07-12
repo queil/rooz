@@ -1,9 +1,8 @@
 use crate::{api::ImageApi, model::types::AnyError};
-use bollard::errors::Error;
 use bollard::errors::Error::DockerResponseServerError;
-use bollard::image::CreateImageOptions;
 use bollard::models::CreateImageInfo;
 use bollard::service::ImageInspect;
+use bollard::{errors::Error, query_parameters::CreateImageOptions};
 use futures::StreamExt;
 use std::io::{stdout, Write};
 
@@ -12,12 +11,15 @@ impl<'a> ImageApi<'a> {
         println!("Pulling image: {}", &image);
         let img_chunks = &image.split(':').collect::<Vec<&str>>();
         let mut image_info = self.client.create_image(
-            Some(CreateImageOptions::<&str> {
-                from_image: img_chunks[0],
-                tag: match img_chunks.len() {
-                    2 => img_chunks[1],
-                    _ => "latest",
-                },
+            Some(CreateImageOptions {
+                from_image: Some(img_chunks[0].to_string()),
+                tag: Some(
+                    match img_chunks.len() {
+                        2 => img_chunks[1],
+                        _ => "latest",
+                    }
+                    .to_string(),
+                ),
                 ..Default::default()
             }),
             None,

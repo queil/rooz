@@ -9,16 +9,15 @@ use crate::{
     },
     util::labels::Labels,
 };
-use bollard::{errors::Error::DockerResponseServerError, volume::RemoveVolumeOptions};
-use bollard::{service::Mount, volume::CreateVolumeOptions};
+use bollard::{
+    errors::Error::DockerResponseServerError, models::VolumeCreateOptions,
+    query_parameters::RemoveVolumeOptions, service::Mount,
+};
 
 use super::container;
 
 impl<'a> VolumeApi<'a> {
-    async fn create_volume(
-        &self,
-        options: CreateVolumeOptions<&str>,
-    ) -> Result<VolumeResult, AnyError> {
+    async fn create_volume(&self, options: VolumeCreateOptions) -> Result<VolumeResult, AnyError> {
         match &self.client.create_volume(options).await {
             Ok(v) => {
                 log::debug!("Volume created: {:?}", v.name);
@@ -54,9 +53,9 @@ impl<'a> VolumeApi<'a> {
 
         let labels = Labels::new(workspace_key_label.as_deref(), Some(role.as_str()));
 
-        let create_vol_options = CreateVolumeOptions::<&str> {
-            name,
-            labels: (&labels).into(),
+        let create_vol_options = VolumeCreateOptions {
+            name: Some(name.into()),
+            labels: Some((&labels).into()),
             ..Default::default()
         };
 

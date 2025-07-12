@@ -1,4 +1,4 @@
-use bollard::{container::ListContainersOptions, models::Port, Docker};
+use bollard::{models::Port, query_parameters::ListContainersOptions, Docker};
 
 use openssh::{ForwardType, KnownHosts, Session, SessionBuilder};
 use regex::Regex;
@@ -171,7 +171,7 @@ fn is_available(port: &u16) -> bool {
 async fn get_docker_ports(docker: &Docker) -> Result<HashMap<u16, Tunnel>, AnyError> {
     let containers = match docker
         .list_containers(Some(ListContainersOptions {
-            filters: (&labels::Labels::default()).into(),
+            filters: Some((&labels::Labels::default()).into()),
             ..Default::default()
         }))
         .await

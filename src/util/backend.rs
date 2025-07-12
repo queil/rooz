@@ -1,6 +1,5 @@
 use crate::model::types::AnyError;
-use bollard::service::SystemInfo;
-use bollard::system::Version;
+use bollard::{secret::SystemVersion, service::SystemInfo};
 
 #[derive(Debug, Clone)]
 pub enum ContainerBackend {
@@ -11,8 +10,8 @@ pub enum ContainerBackend {
 }
 
 impl ContainerBackend {
-    pub async fn resolve(version: &Version, info: &SystemInfo) -> Result<Self, AnyError> {
-        fn backend(info: &SystemInfo, version: &Version) -> ContainerBackend {
+    pub async fn resolve(version: &SystemVersion, info: &SystemInfo) -> Result<Self, AnyError> {
+        fn backend(info: &SystemInfo, version: &SystemVersion) -> ContainerBackend {
             if let SystemInfo {
                 operating_system: Some(name),
                 ..
