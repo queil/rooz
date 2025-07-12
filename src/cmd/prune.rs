@@ -1,9 +1,8 @@
 use std::collections::HashMap;
 
 use bollard::{
-   
-    query_parameters::{ListContainersOptions, ListVolumesOptions, RemoveVolumeOptions}, service::ContainerSummary
-   
+    query_parameters::{ListContainersOptions, ListVolumesOptions, RemoveVolumeOptions},
+    service::ContainerSummary,
 };
 
 use crate::{api::Api, model::types::AnyError, util::labels::Labels};

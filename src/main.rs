@@ -62,7 +62,7 @@ async fn main() -> Result<(), AnyError> {
 
     log::debug!("Client ver: {}", &docker.client_version());
 
-    let version:&SystemVersion = &docker.version().await?;
+    let version: &SystemVersion = &docker.version().await?;
     let info = docker.info().await?;
     let backend = ContainerBackend::resolve(&version, &info).await?;
     log::debug!("Container backend: {:?}", &backend);

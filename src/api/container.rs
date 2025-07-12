@@ -14,12 +14,13 @@ use bollard::{
     container::LogOutput::Console,
     errors::Error,
     models::{
-        ContainerCreateBody, ContainerInspectResponse, ContainerState, ContainerStateStatusEnum, ContainerSummary, EndpointSettings, HostConfig, Mount, NetworkConnectRequest, PortBinding
+        ContainerCreateBody, ContainerInspectResponse, ContainerState, ContainerStateStatusEnum,
+        ContainerSummary, EndpointSettings, HostConfig, Mount, NetworkConnectRequest, PortBinding,
     },
     query_parameters::{
         CreateContainerOptions, InspectContainerOptions, KillContainerOptions,
         ListContainersOptions, LogsOptions, RemoveContainerOptions, StartContainerOptions,
-        StopContainerOptions, WaitContainerOptions
+        StopContainerOptions, WaitContainerOptions,
     },
 };
 

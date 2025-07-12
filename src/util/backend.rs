@@ -1,7 +1,6 @@
 use crate::model::types::AnyError;
 use bollard::{secret::SystemVersion, service::SystemInfo};
 
-
 #[derive(Debug, Clone)]
 pub enum ContainerBackend {
     DockerDesktop,

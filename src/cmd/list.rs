@@ -4,7 +4,7 @@ use crate::{
     util::labels::{self, Labels, CONFIG_ORIGIN},
 };
 
-use bollard::{ query_parameters::ListContainersOptions, service::ContainerSummary};
+use bollard::{query_parameters::ListContainersOptions, service::ContainerSummary};
 
 use tabled::{settings::Style, Table, Tabled};
 

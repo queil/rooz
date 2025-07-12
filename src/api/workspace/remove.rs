@@ -1,6 +1,6 @@
 use bollard::{
-
-    query_parameters::{ListNetworksOptions, ListVolumesOptions}, service::{ContainerSummary, Volume}
+    query_parameters::{ListNetworksOptions, ListVolumesOptions},
+    service::{ContainerSummary, Volume},
 };
 
 use crate::{
