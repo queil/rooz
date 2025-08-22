@@ -11,7 +11,7 @@ use crate::{
 use base64::{engine::general_purpose, Engine as _};
 
 use bollard::{
-    container::LogOutput::Console,
+    container::LogOutput::{Console, StdErr, StdOut},
     errors::Error,
     models::{
         ContainerCreateBody, ContainerInspectResponse, ContainerState, ContainerStateStatusEnum,
@@ -27,7 +27,7 @@ use bollard::{
 use futures::{future, StreamExt};
 use std::{
     collections::HashMap,
-    io::{stdout, Write},
+    io::{stderr, stdout, Write},
     time::Duration,
 };
 use tokio::time::{sleep, timeout};
@@ -541,6 +541,8 @@ impl<'a> ContainerApi<'a> {
         while let Some(l) = stream.next().await {
             match l {
                 Ok(Console { message: m }) => stdout().write_all(&m)?,
+                Ok(StdOut { message: m }) => stdout().write_all(&m)?,
+                Ok(StdErr { message: m }) => stderr().write_all(&m)?,
                 Ok(msg) => panic!("{}", msg),
                 Err(e) => panic!("{}", e),
             };
