@@ -1,9 +1,9 @@
 use crate::{
-    api::ContainerApi,
+    api::{image::ImageInfo, ContainerApi},
     constants,
     model::types::{AnyError, ContainerResult, OneShotResult, RunMode, RunSpec},
     util::{
-        backend::ContainerBackend,
+        backend::ContainerEngine,
         id,
         labels::{KeyValue, Labels},
     },
@@ -12,10 +12,11 @@ use base64::{engine::general_purpose, Engine as _};
 
 use bollard::{
     container::LogOutput::{Console, StdErr, StdOut},
-    errors::Error,
+    errors::Error::{self, DockerResponseServerError},
     models::{
-        ContainerCreateBody, ContainerInspectResponse, ContainerState, ContainerStateStatusEnum,
-        ContainerSummary, EndpointSettings, HostConfig, Mount, NetworkConnectRequest, PortBinding,
+        ContainerCreateBody, ContainerCreateResponse, ContainerInspectResponse, ContainerState,
+        ContainerStateStatusEnum, ContainerSummary, EndpointSettings, HostConfig, Mount,
+        NetworkConnectRequest, PortBinding,
     },
     query_parameters::{
         CreateContainerOptions, InspectContainerOptions, KillContainerOptions,
@@ -106,6 +107,12 @@ impl<'a> ContainerApi<'a> {
                     } else {
                         panic!("{}", message)
                     }
+                }
+                Err(DockerResponseServerError {
+                    status_code: 404,
+                    message,
+                }) => {
+                    log::debug!("Container no longer exists: {}", message);
                 }
                 Err(e) => panic!("{}", e),
             }
@@ -238,6 +245,132 @@ impl<'a> ContainerApi<'a> {
         Ok(())
     }
 
+    async fn create_core(&self, spec: RunSpec<'a>) -> Result<ContainerCreateResponse, AnyError> {
+        let image_info = self.image.ensure(&spec.image, spec.force_pull).await?;
+
+        let options = CreateContainerOptions {
+            name: Some(spec.container_name.to_string()),
+            platform: match image_info {
+                ImageInfo {
+                    platform: Some(platform),
+                    ..
+                } => platform,
+                _ => self.backend.platform.to_string(),
+            },
+        };
+
+        let oom_score_adj = match self.backend.engine {
+            ContainerEngine::Podman => Some(100),
+            _ => None,
+        };
+
+        let localhost = "127.0.0.1";
+        let port_bindings = spec.ports.map(|ports| {
+            let mut bindings = HashMap::<String, Option<Vec<PortBinding>>>::new();
+
+            for (source, target) in &ports {
+                bindings.insert(
+                    if source.contains('/') {
+                        source.to_string()
+                    } else {
+                        format!("{}/tcp", source)
+                    },
+                    Some(vec![PortBinding {
+                        host_port: target.as_deref().map(|x| x.to_string()),
+                        host_ip: Some(localhost.to_string()),
+                    }]),
+                );
+            }
+
+            bindings
+        });
+
+        let (attach_stdin, tty, open_stdin, auto_remove) = match spec.run_mode {
+            RunMode::Workspace => (Some(true), Some(true), None, None),
+            RunMode::Tmp => (Some(true), Some(true), None, Some(true)),
+            RunMode::Git => (None, None, Some(true), Some(true)),
+            RunMode::OneShot => (None, None, None, Some(true)),
+            RunMode::Sidecar => (None, None, None, None),
+            RunMode::Init => (None, None, None, None),
+        };
+
+        let host_config = HostConfig {
+            auto_remove,
+            mounts: spec.mounts,
+            restart_policy: None,
+            oom_score_adj,
+            privileged: Some(spec.privileged),
+            init: Some(spec.init),
+            port_bindings,
+            ..Default::default()
+        };
+
+        let mut env_kv = vec![
+            KeyValue::new("ROOZ_META_IMAGE", &spec.image),
+            KeyValue::new("ROOZ_META_UID", &spec.uid.to_string()),
+            KeyValue::new("ROOZ_META_USER", &spec.user),
+            KeyValue::new("ROOZ_META_HOME", &spec.home_dir),
+            KeyValue::new("ROOZ_META_WORKSPACE", &spec.workspace_key),
+            KeyValue::new("ROOZ_META_CONTAINER_NAME", &spec.container_name),
+        ];
+
+        if let Some(env) = spec.env {
+            env_kv.extend(KeyValue::to_vec(env));
+        }
+
+        let env = KeyValue::to_vec_str(&env_kv);
+
+        let config = ContainerCreateBody {
+            image: Some(spec.image.to_string()),
+            entrypoint: spec
+                .entrypoint
+                .map(|vec| vec.iter().map(|&s| s.to_string()).collect()),
+            cmd: spec
+                .command
+                .map(|vec| vec.iter().map(|&s| s.to_string()).collect()),
+            working_dir: spec.work_dir.map(|s| s.to_string()),
+            // THIS MUST BE spec.uid, NOT spec.user - otherwise file ownership will break
+            user: Some(spec.uid.to_string()),
+            attach_stdin,
+            attach_stdout: Some(true),
+            attach_stderr: Some(true),
+            tty,
+            open_stdin,
+            host_config: Some(host_config),
+            labels: Some((&spec.labels).into()),
+            env: Some(env.iter().map(|&s| s.to_string()).collect()),
+            ..Default::default()
+        };
+
+        let response = match self
+            .client
+            .create_container(Some(options.clone()), config.clone())
+            .await
+        {
+            Ok(r) => r,
+            Err(err) => panic!("ERROR: {:?}", err),
+        };
+
+        if let Some(network) = &spec.network {
+            let connect_network_options = NetworkConnectRequest {
+                container: Some(response.id.to_string()),
+                endpoint_config: Some(EndpointSettings {
+                    aliases: spec.network_aliases,
+                    ..Default::default()
+                }),
+            };
+            self.client
+                .connect_network(network, connect_network_options)
+                .await?;
+        }
+        log::debug!(
+            "Created container: {} ({})",
+            spec.container_name,
+            response.id.to_string()
+        );
+        Ok(response)
+    }
+
     pub async fn create(&self, spec: RunSpec<'a>) -> Result<ContainerResult, AnyError> {
         log::debug!(
             "[{}: {:?}]: CREATE CONTAINER - name: {}, uid: {}, user: {}, image: {}, entrypoint: {}",
@@ -258,141 +391,36 @@ impl<'a> ContainerApi<'a> {
             Ok(ContainerInspectResponse { id: Some(id), .. }) if !spec.force_recreate => {
                 ContainerResult::AlreadyExists { id }
             }
-            s => {
+            Ok(ContainerInspectResponse { id: Some(id), .. }) => {
                 let remove_options = RemoveContainerOptions {
                     force: true,
                     ..Default::default()
                 };
 
-                if let Ok(ContainerInspectResponse { id: Some(id), .. }) = s {
-                    self.client
-                        .remove_container(&id, Some(remove_options))
-                        .await?;
-                }
-
-                let options = CreateContainerOptions {
-                    name: Some(spec.container_name.to_string()),
-                    platform: "linux/amd64".into(),
-                };
-
-                let oom_score_adj = match self.backend {
-                    ContainerBackend::Podman => Some(100),
-                    _ => None,
-                };
-
-                let localhost = "127.0.0.1";
-                let port_bindings = spec.ports.map(|ports| {
-                    let mut bindings = HashMap::<String, Option<Vec<PortBinding>>>::new();
-
-                    for (source, target) in &ports {
-                        bindings.insert(
-                            source.to_string(),
-                            Some(vec![PortBinding {
-                                host_port: target.as_deref().map(|x| x.to_string()),
-                                host_ip: Some(localhost.to_string()),
-                            }]),
-                        );
-                    }
-
-                    bindings
-                });
-
-                let (attach_stdin, tty, open_stdin, auto_remove) = match spec.run_mode {
-                    RunMode::Workspace => (Some(true), Some(true), None, None),
-                    RunMode::Tmp => (Some(true), Some(true), None, Some(true)),
-                    RunMode::Git => (None, None, Some(true), Some(true)),
-                    RunMode::OneShot => (None, None, None, Some(true)),
-                    RunMode::Sidecar => (None, None, None, None),
-                    RunMode::Init => (None, None, None, None),
-                };
-
-                let host_config = HostConfig {
-                    auto_remove,
-                    mounts: spec.mounts,
-                    restart_policy: None,
-                    oom_score_adj,
-                    privileged: Some(spec.privileged),
-                    init: Some(spec.init),
-                    port_bindings,
-                    ..Default::default()
-                };
-
-                let mut env_kv = vec![
-                    KeyValue::new("ROOZ_META_IMAGE", &spec.image),
-                    KeyValue::new("ROOZ_META_UID", &spec.uid.to_string()),
-                    KeyValue::new("ROOZ_META_USER", &spec.user),
-                    KeyValue::new("ROOZ_META_HOME", &spec.home_dir),
-                    KeyValue::new("ROOZ_META_WORKSPACE", &spec.workspace_key),
-                    KeyValue::new("ROOZ_META_CONTAINER_NAME", &spec.container_name),
-                ];
-
-                if let Some(env) = spec.env {
-                    env_kv.extend(KeyValue::to_vec(env));
-                }
-
-                let env = KeyValue::to_vec_str(&env_kv);
-
-                let config = ContainerCreateBody {
-                    image: Some(spec.image.to_string()),
-                    entrypoint: spec
-                        .entrypoint
-                        .map(|vec| vec.iter().map(|&s| s.to_string()).collect()),
-                    cmd: spec
-                        .command
-                        .map(|vec| vec.iter().map(|&s| s.to_string()).collect()),
-                    working_dir: spec.work_dir.map(|s| s.to_string()),
-                    // THIS MUST BE spec.uid, NOT spec.user - otherwise file ownership will break
-                    user: Some(spec.uid.to_string()),
-                    attach_stdin,
-                    attach_stdout: Some(true),
-                    attach_stderr: Some(true),
-                    tty,
-                    open_stdin,
-                    host_config: Some(host_config),
-                    labels: Some((&spec.labels).into()),
-                    env: Some(env.iter().map(|&s| s.to_string()).collect()),
-                    ..Default::default()
-                };
-
-                let response = self
-                    .client
-                    .create_container(Some(options.clone()), config.clone())
+                self.client
+                    .remove_container(&id, Some(remove_options))
                     .await?;
-
-                if let Some(network) = &spec.network {
-                    let connect_network_options = NetworkConnectRequest {
-                        container: Some(response.id.to_string()),
-                        endpoint_config: Some(EndpointSettings {
-                            aliases: spec.network_aliases,
-                            ..Default::default()
-                        }),
-                    };
-                    self.client
-                        .connect_network(network, connect_network_options)
-                        .await?;
-                }
-                log::debug!(
-                    "Created container: {} ({})",
-                    spec.container_name,
-                    response.id.to_string()
-                );
+                let response = self.create_core(spec).await?;
 
                 ContainerResult::Created { id: response.id }
             }
+            Ok(ContainerInspectResponse { id: None, .. }) => unreachable!(),
+            Err(DockerResponseServerError {
+                status_code: 404, ..
+            }) => {
+                let response = self.create_core(spec).await?;
+
+                ContainerResult::Created { id: response.id }
+            }
+            Err(err) => panic!("ERROR: {:?}", err),
         };
         Ok(container_id.clone())
     }
 
-    pub async fn start(&self, container_id: &str) -> Result<(), AnyError> {
-        match self
-            .client
+    pub async fn start(&self, container_id: &str) -> Result<(), bollard::errors::Error> {
+        self.client
             .start_container(&container_id, None::<StartContainerOptions>)
             .await
-            .map_err(|e| Box::new(e))
-        {
-            Ok(_) => Ok(()),
-            Err(e) => Err(Box::new(e)),
-        }
     }
 
     async fn make_one_shot(

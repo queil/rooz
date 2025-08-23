@@ -48,7 +48,6 @@ impl<'a> WorkspaceApi<'a> {
 
         for (name, s) in sidecars {
             log::debug!("Process sidecar: {}", name);
-            self.api.image.ensure(&s.image, pull_image).await?;
             let container_name = format!("{}-{}", workspace_key, name);
             let labels = labels
                 .clone()
@@ -91,6 +90,7 @@ impl<'a> WorkspaceApi<'a> {
             self.api
                 .container
                 .create(RunSpec {
+                    reason: &container_name,
                     container_name: &container_name,
                     uid: &uid,
                     image: &s.image,
@@ -112,17 +112,21 @@ impl<'a> WorkspaceApi<'a> {
                         .command
                         .as_ref()
                         .map(|x| x.iter().map(|z| z.as_ref()).collect()),
-                    mounts: Some(self.api.volume.ensure_mounts(&mounts, None).await?),
+                    mounts: Some(
+                        self.api
+                            .volume
+                            .ensure_mounts(&mounts, None, Some(uid))
+                            .await?,
+                    ),
                     ports: Some(ports),
                     work_dir: Some(s.work_dir.as_deref().unwrap_or(work_dir)),
                     run_mode: RunMode::Sidecar,
                     privileged: s.privileged.unwrap_or(false),
                     init: s.init.unwrap_or(true),
+                    force_pull: pull_image,
                     ..Default::default()
                 })
                 .await?;
-
-            self.api.volume.ensure_files(mounts, uid).await?;
         }
 
         Ok(network.map(|n| n.to_string()))

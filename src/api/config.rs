@@ -29,7 +29,7 @@ impl<'a> ConfigApi<'a> {
         );
         self.api
             .volume
-            .ensure_files(vec![config_vol], constants::ROOT_UID)
+            .ensure_mounts(&vec![config_vol], None, Some(constants::ROOT_UID))
             .await?;
         Ok(())
     }

@@ -1,6 +1,5 @@
 use crate::{
-    api::container, api::ExecApi, constants, model::types::AnyError,
-    util::backend::ContainerBackend,
+    api::container, api::ExecApi, constants, model::types::AnyError, util::backend::ContainerEngine,
 };
 use bollard::{
     container::LogOutput,
@@ -232,7 +231,7 @@ impl<'a> ExecApi<'a> {
     }
 
     pub async fn chown(&self, container_id: &str, uid: &str, dir: &str) -> Result<(), AnyError> {
-        if let ContainerBackend::Podman = self.backend {
+        if let ContainerEngine::Podman = self.backend.engine {
             log::debug!("Podman won't need chown. Skipping");
             return Ok(());
         };

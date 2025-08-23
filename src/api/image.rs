@@ -6,8 +6,14 @@ use bollard::{errors::Error, query_parameters::CreateImageOptions};
 use futures::StreamExt;
 use std::io::{stdout, Write};
 
+#[derive(Debug)]
+pub struct ImageInfo {
+    pub id: String,
+    pub platform: Option<String>,
+}
+
 impl<'a> ImageApi<'a> {
-    async fn pull(&self, image: &str) -> Result<Option<String>, AnyError> {
+    async fn pull(&self, image: &str) -> Result<ImageInfo, AnyError> {
         println!("Pulling image: {}", &image);
         let img_chunks = &image.split(':').collect::<Vec<&str>>();
         let mut image_info = self.client.create_image(
@@ -53,18 +59,36 @@ impl<'a> ImageApi<'a> {
             };
         }
         println!("");
-        Ok(self.client.inspect_image(&image).await?.id)
+
+        let response = self.client.inspect_image(&image).await?;
+
+        Ok(ImageInfo {
+            id: response.id.unwrap(),
+            platform: Some(format!(
+                "{}/{}",
+                response.os.unwrap(),
+                response.architecture.unwrap()
+            )),
+        })
     }
 
-    pub async fn ensure(&self, image: &str, always_pull: bool) -> Result<String, AnyError> {
+    pub async fn ensure(&self, image: &str, always_pull: bool) -> Result<ImageInfo, AnyError> {
         log::debug!("Ensuring image: {}", &image);
 
-        let image_id = match self.client.inspect_image(&image).await {
-            Ok(ImageInspect { id, .. }) => {
+        let info = match self.client.inspect_image(&image).await {
+            Ok(ImageInspect {
+                id,
+                architecture,
+                os,
+                ..
+            }) => {
                 if always_pull {
                     self.pull(image).await?
                 } else {
-                    id
+                    ImageInfo {
+                        id: id.unwrap(),
+                        platform: Some(format!("{}/{}", os.unwrap(), architecture.unwrap())),
+                    }
                 }
             }
             Err(DockerResponseServerError {
@@ -73,7 +97,7 @@ impl<'a> ImageApi<'a> {
             Err(e) => panic!("{:?}", e),
         };
 
-        log::debug!("Image ID: {:?}", image_id);
-        Ok(image_id.unwrap())
+        log::debug!("Image ID: {:?}", info);
+        Ok(info)
     }
 }

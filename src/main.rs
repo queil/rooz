@@ -83,6 +83,7 @@ async fn main() -> Result<(), AnyError> {
     let image_api = ImageApi { client: &docker };
     let container_api = ContainerApi {
         client: &docker,
+        image: &image_api,
         backend: &backend,
     };
 
@@ -383,9 +384,10 @@ async fn main() -> Result<(), AnyError> {
                 .system_edit_string(sys_config_result.data.clone())
                 .await?;
             volume_api
-                .ensure_files(
-                    vec![RoozVolume::system_config("/tmp/sys", Some(config_string))],
-                    constants::ROOT_UID,
+                .ensure_mounts(
+                    &vec![RoozVolume::system_config("/tmp/sys", Some(config_string))],
+                    None,
+                    Some(constants::ROOT_UID),
                 )
                 .await?;
         }

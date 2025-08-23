@@ -2,11 +2,17 @@ use crate::model::types::AnyError;
 use bollard::{secret::SystemVersion, service::SystemInfo};
 
 #[derive(Debug, Clone)]
-pub enum ContainerBackend {
+pub enum ContainerEngine {
     DockerDesktop,
     RancherDesktop,
     Podman,
     Unknown,
+}
+
+#[derive(Debug, Clone)]
+pub struct ContainerBackend {
+    pub engine: ContainerEngine,
+    pub platform: String,
 }
 
 impl ContainerBackend {
@@ -14,34 +20,53 @@ impl ContainerBackend {
         fn backend(info: &SystemInfo, version: &SystemVersion) -> ContainerBackend {
             if let SystemInfo {
                 operating_system: Some(name),
+                architecture: Some(architecture),
                 ..
             } = &info
             {
                 match name.as_str() {
-                    "Rancher Desktop WSL Distribution" => ContainerBackend::RancherDesktop,
-                    "Docker Desktop" => ContainerBackend::DockerDesktop,
+                    "Rancher Desktop WSL Distribution" => ContainerBackend {
+                        engine: ContainerEngine::RancherDesktop,
+                        platform: architecture.to_string(),
+                    },
+                    "Docker Desktop" => ContainerBackend {
+                        engine: ContainerEngine::DockerDesktop,
+                        platform: architecture.to_string(),
+                    },
                     _ => {
                         if let Some(components) = &version.components {
                             if components.iter().any(|c| c.name == "Podman Engine") {
-                                ContainerBackend::Podman
+                                ContainerBackend {
+                                    engine: ContainerEngine::Podman,
+                                    platform: architecture.to_string(),
+                                }
                             } else {
-                                ContainerBackend::Unknown
+                                ContainerBackend {
+                                    engine: ContainerEngine::Unknown,
+                                    platform: architecture.to_string(),
+                                }
                             }
                         } else {
-                            ContainerBackend::Unknown
+                            ContainerBackend {
+                                engine: ContainerEngine::Unknown,
+                                platform: architecture.to_string(),
+                            }
                         }
                     }
                 }
             } else {
-                ContainerBackend::Unknown
+                ContainerBackend {
+                    engine: ContainerEngine::Unknown,
+                    platform: "Unknown".to_string(),
+                }
             }
         }
 
-        let backend = backend(&info, &version);
-        if let ContainerBackend::Unknown = backend {
+        let info = backend(&info, &version);
+        if let ContainerEngine::Unknown = info.engine {
             log::debug!("{:?}", &version);
             log::debug!("{:?}", &info);
         }
-        Ok(backend)
+        Ok(info)
     }
 }

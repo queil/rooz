@@ -2,19 +2,17 @@ use std::path::Path;
 
 use crate::{
     api::VolumeApi,
-    constants,
     model::{
-        types::{AnyError, RunSpec, VolumeResult},
-        volume::{RoozVolume, RoozVolumeRole},
+        types::{AnyError, VolumeResult},
+        volume::{RoozVolume, RoozVolumeFile, RoozVolumeRole},
     },
     util::labels::Labels,
 };
+use base64::{engine::general_purpose, Engine as _};
 use bollard::{
     errors::Error::DockerResponseServerError, models::VolumeCreateOptions,
     query_parameters::RemoveVolumeOptions, service::Mount,
 };
-
-use super::container;
 
 impl<'a> VolumeApi<'a> {
     async fn create_volume(&self, options: VolumeCreateOptions) -> Result<VolumeResult, AnyError> {
@@ -81,66 +79,82 @@ impl<'a> VolumeApi<'a> {
         &self,
         volumes: &Vec<RoozVolume>,
         tilde_replacement: Option<&str>,
+        uid: Option<&str>,
     ) -> Result<Vec<Mount>, AnyError> {
         let mut mounts = vec![];
         for v in volumes {
-            log::debug!("Process volume: {:?}", &v);
-            let mount = v.to_mount(tilde_replacement);
-            self.ensure_volume(&mount.source.clone().unwrap(), &v.role, v.key(), false)
-                .await?;
+            let mount = self.ensure_mount(&v, tilde_replacement).await?;
+            if let RoozVolume {
+                path,
+                files: Some(files),
+                ..
+            } = v
+            {
+                self.ensure_file(&v.safe_volume_name(), path, &files, mount.clone(), uid)
+                    .await?
+            };
 
             mounts.push(mount);
         }
         Ok(mounts.clone())
     }
 
-    pub async fn ensure_files(&self, mounts: Vec<RoozVolume>, uid: &str) -> Result<(), AnyError> {
-        for m in &mounts {
-            match m {
-                RoozVolume {
-                    files: Some(files),
-                    path,
-                    ..
-                } => {
-                    let cmd = files
-                        .iter()
-                        .map(|f| {
-                            format!(
-                                "echo '{}' > {}",
-                                f.data,
-                                Path::new(path)
-                                    .join(&f.file_path)
-                                    .to_string_lossy()
-                                    .to_string()
-                            )
-                        })
-                        .collect::<Vec<_>>()
-                        .join(" && ".into());
-                    match self
-                        .container
-                        .create(RunSpec {
-                            image: &constants::DEFAULT_IMAGE,
-                            uid,
-                            mounts: Some(self.ensure_mounts(&mounts, None).await?),
-                            entrypoint: Some(
-                                container::inject(&cmd, "entrypoint.sh")
-                                    .iter()
-                                    .map(String::as_str)
-                                    .collect(),
-                            ),
-                            ..RunSpec::default()
-                        })
-                        .await?
-                    {
-                        crate::model::types::ContainerResult::Created { id } => {
-                            self.container.start(&id).await?
-                        }
-                        crate::model::types::ContainerResult::AlreadyExists { .. } => (),
-                    }
-                }
-                _ => (),
-            }
+    async fn ensure_mount(
+        &self,
+        volume: &RoozVolume,
+        tilde_replacement: Option<&str>,
+    ) -> Result<Mount, AnyError> {
+        log::debug!("Process volume: {:?}", &volume);
+        let mount = volume.to_mount(tilde_replacement);
+        self.ensure_volume(
+            &mount.source.clone().unwrap(),
+            &volume.role,
+            volume.key(),
+            false,
+        )
+        .await?;
+        Ok(mount)
+    }
+
+    async fn ensure_file(
+        &self,
+        volume_name: &str,
+        path: &str,
+        files: &Vec<RoozVolumeFile>,
+        mount: Mount,
+        uid: Option<&str>,
+    ) -> Result<(), AnyError> {
+        let mut cmd = files
+            .iter()
+            .map(|f| {
+                let p = Path::new(path)
+                    .join(&f.file_path)
+                    .to_string_lossy()
+                    .to_string();
+                format!(
+                    "echo '{}' | base64 -d > {}",
+                    general_purpose::STANDARD.encode(f.data.trim()),
+                    p,
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(" && ".into());
+
+        if let Some(uid) = uid {
+            let chown = format!("chown -R {}:{} {} && ", uid, uid, path);
+            cmd = format!("{}{}", chown, cmd)
         }
+
+        self.container
+            .one_shot(
+                &format!("populate volume: {}", &volume_name),
+                cmd,
+                Some(vec![mount]),
+                None,
+                None,
+            )
+            .await?;
+
         Ok(())
     }
 }
