@@ -1,4 +1,4 @@
-pub const DEFAULT_IMAGE: &'static str = "docker.io/bitnami/git:latest";
+pub const DEFAULT_IMAGE: &'static str = "docker.io/chainguard/git:latest-dev";
 pub const DEFAULT_SHELL: &'static str = "sh";
 pub const DEFAULT_USER: &'static str = "rooz_user";
 pub const DEFAULT_UID: &'static str = "1000";
