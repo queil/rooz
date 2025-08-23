@@ -56,12 +56,13 @@ impl<'a> Api<'a> {
     }
 
     pub async fn init(&self, image: &str, uid: &str, spec: &InitParams) -> Result<(), AnyError> {
-        let image_id = self.image.ensure(&image, false).await?;
+        let image_id = self.image.ensure(&image, false).await?.id;
 
         self.volume
-            .ensure_files(
-                vec![RoozVolume::system_config("/tmp/sys", None)],
-                constants::ROOT_UID,
+            .ensure_mounts(
+                &vec![RoozVolume::system_config("/tmp/sys", None)],
+                None,
+                Some(constants::ROOT_UID),
             )
             .await?;
 

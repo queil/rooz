@@ -180,10 +180,9 @@ impl<'a> GitApi<'a> {
             volumes.push(RoozVolume::work(&spec.workspace_key, &spec.working_dir));
         };
 
-        self.api.volume.ensure_mounts(&volumes, None).await?;
         self.api
             .volume
-            .ensure_files(volumes.clone(), &spec.uid)
+            .ensure_mounts(&volumes, None, Some(&spec.uid))
             .await?;
 
         for vol in &volumes {
