@@ -336,20 +336,14 @@ impl<'a> ContainerApi<'a> {
             ..Default::default()
         };
 
-        log::debug!("BEEN HERE PRE");
         let response = match self
             .client
             .create_container(Some(options.clone()), config.clone())
             .await
         {
             Ok(r) => r,
-            Err(bollard::errors::Error::HyperLegacyError { err }) => {
-                panic!("Hyper error: {:?}", err);
-            }
-            Err(dd) => panic!("xx: {:?}", dd),
+            Err(err) => panic!("ERROR: {:?}", err),
         };
-
-        log::debug!("BEEN HERE POST");
 
         if let Some(network) = &spec.network {
             let connect_network_options = NetworkConnectRequest {
