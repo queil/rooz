@@ -42,7 +42,7 @@ The command creates:
 
   The generated key gets stored in the system config volume.
 
-  :information_source: It's important to back up the generated age identity.
+  :information_source: It's important to back up the generated age identity. Run `rooz system configure` to view it.
   If the key is lost all the existing config files with encrypted vars won't decrypt and re-encrypting will be required.
   To init rooz with an existing age identity use the `--age-identity` switch.
 
