@@ -108,6 +108,12 @@ impl<'a> ContainerApi<'a> {
                         panic!("{}", message)
                     }
                 }
+                Err(DockerResponseServerError {
+                    status_code: 404,
+                    message,
+                }) => {
+                    log::debug!("Container no longer exists: {}", message);
+                }
                 Err(e) => panic!("{}", e),
             }
         }
