@@ -36,13 +36,13 @@ The command creates:
 
 * an SSH key pair (ed25519) intended to use for auth wherever SSH keys can be used (like github.com)
   
-  The generated key gets stored in a volume and then mounted under `~/.ssh` to all rooz containers.
+  The generated key gets stored in a volume and then mounted under `~/.ssh` to all rooz workspace containers.
 
 * an age encryption key pair intended to use for encryption of sensitive config data (i.e. secrets)
 
-  The generated key gets stored in a volume and then mounted under `~/.age` to all rooz containers.
+  The generated key gets stored in the system config volume.
 
-  :information_source: It's important to back up the generated age identity (`~/.age/age.key`).
+  :information_source: It's important to back up the generated age identity.
   If the key is lost all the existing config files with encrypted vars won't decrypt and re-encrypting will be required.
   To init rooz with an existing age identity use the `--age-identity` switch.
 
@@ -67,7 +67,7 @@ export ROOZ_CACHES='~/.local/share/containers/storage/'
 
 ### System config
 
-Rooz exposes some system config via `rooz system configure`. At present it only allows to specify `.gitconfig` used by rooz for cloning. It can be used e.g. to specify aliases. This feature is new and may be extended in the future.
+Rooz exposes some system config via `rooz system configure`. At present it only allows to specify `.gitconfig` used by rooz for cloning. It can be used e.g. to specify aliases. This feature is new and may be extended in the future. It also contains the age key for secret's encryption/decryption.
 
 ## Usage examples
 
@@ -262,7 +262,7 @@ rooz enter secrets-test
   ```
   All containers within a workspace are connected to a workspace-wide network. They can *talk* to each other using sidecar names. In the above examples that would be `sql` and `tools`. Also the usual container ID and IP works too, but it is not as convenient.
 
-* the `enter` command now lets you specify `--container` to enter (otherwise it enters the work container).
+* the `enter` command lets you specify `--container` to enter (otherwise it enters the work container).
 
 Supported keywords:
 * `image` - set containers image
@@ -295,7 +295,7 @@ Supported keywords:
 
 * if `rooz` misbehaves you can go nuclear and run `rooz system prune` to remove ALL the rooz containers and volumes. You can also remove just the workspaces, (leaving shared caches volumes, and the ssh volume untouched), by: `rooz rm --all --force`
 
-  :warning: `rooz system prune` deletes all your state held with `rooz` so make sure everything important is stored before.
+  :warning: `rooz system prune` deletes all your state held with `rooz` so make sure anything important is stored before.
 
 ## Known issues
 
