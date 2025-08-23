@@ -1,7 +1,5 @@
 use std::fs;
 
-use age::x25519::Identity;
-
 use crate::{
     api::WorkspaceApi,
     cli::WorkParams,
@@ -30,13 +28,12 @@ impl<'a> WorkspaceApi<'a> {
         workspace_key: &str,
         force: bool,
         work_dir: &str,
-        identity: &Identity,
     ) -> Result<EnterSpec, AnyError> {
         if let Some(c) = &cli_config {
             cfg_builder.from_config(c);
         }
         cfg_builder.from_cli(cli_params, None);
-        self.config.decrypt(cfg_builder, identity).await?;
+        self.config.decrypt(cfg_builder, &self.api.system_config.age_identity()?).await?;
         cfg_builder.expand_vars()?;
 
         let cfg = RuntimeConfig::from(&*cfg_builder);
@@ -186,7 +183,6 @@ impl<'a> WorkspaceApi<'a> {
         cli_params: &WorkParams,
         cli_config_path: Option<ConfigSource>,
         ephemeral: bool,
-        identity: &Identity,
     ) -> Result<EnterSpec, AnyError> {
         let orig_uid = cli_params
             .uid
@@ -243,7 +239,6 @@ impl<'a> WorkspaceApi<'a> {
                     &workspace_key,
                     false,
                     work_dir,
-                    identity,
                 )
                 .await
             }
@@ -292,7 +287,6 @@ impl<'a> WorkspaceApi<'a> {
                         &workspace_key,
                         false,
                         work_dir,
-                        identity,
                     )
                     .await
                 }
@@ -305,13 +299,12 @@ impl<'a> WorkspaceApi<'a> {
     }
 
     pub async fn tmp(&self, spec: &WorkParams, root: bool, shell: &str) -> Result<(), AnyError> {
-        let identity = self.crypt.read_age_identity().await?;
         let EnterSpec {
             workspace,
             git_spec,
             config,
         } = self
-            .new(&id::random_suffix("tmp"), spec, None, true, &identity)
+            .new(&id::random_suffix("tmp"), spec, None, true)
             .await?;
 
         let working_dir = git_spec

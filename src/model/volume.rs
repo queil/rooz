@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::util::id::to_safe_id;
+use crate::{config::config::SystemConfig, model::types::AnyError, util::id::to_safe_id};
 use bollard::models::{Mount, MountTypeEnum};
 
 #[derive(Debug, Clone)]
@@ -14,7 +14,6 @@ pub const WORK_ROLE: &'static str = "work";
 pub const CACHE_ROLE: &'static str = "cache";
 pub const DATA_ROLE: &'static str = "data";
 pub const SSH_KEY_ROLE: &'static str = "ssh-key";
-pub const AGE_KEY_ROLE: &'static str = "age-key";
 pub const SYSTEM_CONFIG_ROLE: &'static str = "sys-config";
 
 #[derive(Debug, Clone)]
@@ -24,7 +23,6 @@ pub enum RoozVolumeRole {
     Cache,
     Data,
     SshKey,
-    AgeKey,
     SystemConfig,
 }
 
@@ -36,7 +34,6 @@ impl RoozVolumeRole {
             RoozVolumeRole::Cache => CACHE_ROLE,
             RoozVolumeRole::Data => DATA_ROLE,
             RoozVolumeRole::SshKey => SSH_KEY_ROLE,
-            RoozVolumeRole::AgeKey => AGE_KEY_ROLE,
             RoozVolumeRole::SystemConfig => SYSTEM_CONFIG_ROLE,
         }
     }
@@ -185,21 +182,31 @@ impl RoozVolume {
         }
     }
 
-    pub fn system_config(path: &str, data: Option<String>) -> RoozVolume {
+    pub fn system_config_read(path: &str) -> RoozVolume {
+        RoozVolume {
+            path: path.into(),
+            sharing: RoozVolumeSharing::Shared,
+            role: RoozVolumeRole::SystemConfig,
+            files: None,
+        }
+    }
+
+    pub fn system_config(path: &str, data: String) -> RoozVolume {
         RoozVolume {
             path: path.into(),
             sharing: RoozVolumeSharing::Shared,
             role: RoozVolumeRole::SystemConfig,
             files: Some(vec![RoozVolumeFile {
                 file_path: "rooz.config".to_string(),
-                data: data.unwrap_or(
-                    r#"gitconfig: |-
-  [core]
-    sshCommand = ssh -i /tmp/.ssh/id_ed25519 -o UserKnownHostsFile=/tmp/.ssh/known_hosts
-                "#
-                    .to_string(),
-                ),
+                data: data,
             }]),
         }
+    }
+
+    pub fn system_config_init(path: &str, data: SystemConfig) -> Result<RoozVolume, AnyError> {
+        Ok(RoozVolume::system_config(
+            path,
+            SystemConfig::to_string(&data)?,
+        ))
     }
 }

@@ -1,8 +1,9 @@
 use std::str::FromStr;
 
 use crate::{
-    api::{self, container, Api},
+    api::{container, Api},
     cli::InitParams,
+    config::config::SystemConfig,
     constants,
     model::{
         types::{AnyError, RunMode, RunSpec, VolumeResult},
@@ -58,9 +59,26 @@ impl<'a> Api<'a> {
     pub async fn init(&self, image: &str, uid: &str, spec: &InitParams) -> Result<(), AnyError> {
         let image_id = self.image.ensure(&image, false).await?.id;
 
+        let age_key = match spec.age_identity.clone() {
+            None => age::x25519::Identity::generate(),
+            Some(identity) => age::x25519::Identity::from_str(&identity)?,
+        };
         self.volume
             .ensure_mounts(
-                &vec![RoozVolume::system_config("/tmp/sys", None)],
+                &vec![RoozVolume::system_config_init(
+                    "/tmp/sys",
+                    SystemConfig {
+                        age_key: Some(age_key.to_string().expose_secret().to_string()),
+                        gitconfig: Some(
+                            r#"
+[core]
+  sshCommand = ssh -i /tmp/.ssh/id_ed25519 -o UserKnownHostsFile=/tmp/.ssh/known_hosts
+"#
+                            .trim()
+                            .to_string(),
+                        ),
+                    },
+                )?],
                 None,
                 Some(constants::ROOT_UID),
             )
@@ -96,57 +114,6 @@ impl<'a> Api<'a> {
                     &image_id,
                 )
                 .await?;
-            }
-            VolumeResult::AlreadyExists => {
-                println!("Rooz has been already initialized. Use --force to reinitialize.")
-            }
-        }
-
-        match self
-            .volume
-            .ensure_volume(
-                api::crypt::VOLUME_NAME.into(),
-                &RoozVolumeRole::AgeKey,
-                Some("age-key".into()),
-                spec.force,
-            )
-            .await?
-        {
-            VolumeResult::Created { .. } => {
-                let (key, pubkey) = match spec.age_identity.clone() {
-                    None => {
-                        let key = age::x25519::Identity::generate();
-                        let pubkey = key.to_public();
-                        (key, pubkey)
-                    }
-                    Some(identity) => {
-                        let key = age::x25519::Identity::from_str(&identity)?;
-                        let pubkey = key.to_public();
-                        (key, pubkey)
-                    }
-                };
-
-                let entrypoint = &format!(
-                    r#"mkdir -p /tmp/.age && \
-                        echo -n '{}' > /tmp/.age/age.key && \
-                        echo -n '{}' > /tmp/.age/age.pub && \
-                        chmod 400 /tmp/.age/age.key && \
-                        chown -R {} /tmp/.age
-                        "#,
-                    &key.to_string().expose_secret(),
-                    pubkey,
-                    &uid
-                );
-
-                self.execute_init(
-                    "rooz-init-age",
-                    entrypoint,
-                    api::crypt::VOLUME_NAME,
-                    "/tmp/.age",
-                    &image_id,
-                )
-                .await?;
-                println!("{}", pubkey);
             }
             VolumeResult::AlreadyExists => {
                 println!("Rooz has been already initialized. Use --force to reinitialize.")

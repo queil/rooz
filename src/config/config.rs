@@ -350,11 +350,18 @@ impl RoozCfg {
 #[serde(deny_unknown_fields)]
 pub struct SystemConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub age_key: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub gitconfig: Option<String>,
 }
 
 impl SystemConfig {
     pub fn from_string(config: &str) -> Result<Self, AnyError> {
         Ok(serde_yaml::from_str(&config)?)
+    }
+
+    pub fn to_string(config: &Self) -> Result<String, AnyError> {
+        Ok(serde_yaml::to_string(&config)?)
     }
 }

@@ -11,7 +11,7 @@ impl<'a> ConfigApi<'a> {
         let format = FileFormat::from_path(config_path);
         let body = fs::read_to_string(&config_path)?;
         let mut config = RoozCfg::deserialize_config(&body, format)?.unwrap();
-        let identity = self.crypt.read_age_identity().await?;
+        let identity = self.api.system_config.age_identity()?;
         self.decrypt(&mut config, &identity).await?;
         let decrypted_string = config.to_string(format)?;
         let (encrypted_config, edited_string) = self

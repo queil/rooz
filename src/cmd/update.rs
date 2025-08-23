@@ -39,7 +39,7 @@ impl<'a> WorkspaceApi<'a> {
             UpdateMode::Purge => self.remove(&workspace_key, true).await?,
         };
 
-        let identity = self.crypt.read_age_identity().await?;
+        let identity = self.api.system_config.age_identity()?;
 
         if let Some(labels) = &container.labels {
             let config_source = &labels[labels::CONFIG_ORIGIN];
@@ -99,7 +99,6 @@ impl<'a> WorkspaceApi<'a> {
                     format,
                 }),
                 false,
-                &identity,
             )
             .await?;
         }

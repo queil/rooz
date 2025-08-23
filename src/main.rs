@@ -93,7 +93,7 @@ async fn main() -> Result<(), AnyError> {
             "ls /tmp/sys/rooz.config > /dev/null 2>&1 && cat /tmp/sys/rooz.config || echo ''"
                 .into(),
             Some(vec![
-                RoozVolume::system_config("/tmp/sys", None).to_mount(None)
+                RoozVolume::system_config_read("/tmp/sys").to_mount(None)
             ]),
             None,
         )
@@ -115,7 +115,7 @@ async fn main() -> Result<(), AnyError> {
         client: &docker,
     };
 
-    let crypt_api = CryptApi { api: &rooz };
+    let crypt_api = CryptApi { };
 
     let git_api = GitApi { api: &rooz };
 
@@ -159,10 +159,8 @@ async fn main() -> Result<(), AnyError> {
                     None => Ok(()),
                 }?;
 
-            let identity = crypt_api.read_age_identity().await?;
-
             workspace
-                .new(&name, &work, config_source, false, &identity)
+                .new(&name, &work, config_source, false,)
                 .await?;
             println!(
                 "\nThe workspace is ready. Run 'rooz enter {}' to enter.",
@@ -385,7 +383,7 @@ async fn main() -> Result<(), AnyError> {
                 .await?;
             volume_api
                 .ensure_mounts(
-                    &vec![RoozVolume::system_config("/tmp/sys", Some(config_string))],
+                    &vec![RoozVolume::system_config("/tmp/sys", config_string)],
                     None,
                     Some(constants::ROOT_UID),
                 )

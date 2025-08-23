@@ -31,8 +31,7 @@ pub struct VolumeApi<'a> {
     pub container: &'a ContainerApi<'a>,
 }
 
-pub struct CryptApi<'a> {
-    pub api: &'a Api<'a>,
+pub struct CryptApi {
 }
 
 pub struct Api<'a> {
@@ -50,12 +49,12 @@ pub struct GitApi<'a> {
 
 pub struct ConfigApi<'a> {
     pub api: &'a Api<'a>,
-    pub crypt: &'a CryptApi<'a>,
+    pub crypt: &'a CryptApi,
 }
 
 pub struct WorkspaceApi<'a> {
     pub api: &'a Api<'a>,
     pub git: &'a GitApi<'a>,
     pub config: &'a ConfigApi<'a>,
-    pub crypt: &'a CryptApi<'a>,
+    pub crypt: &'a CryptApi,
 }
