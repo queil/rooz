@@ -112,7 +112,7 @@ The configuration file provides the most options: [example](examples/dotnet-nats
 
 ### Images
 
-:information_source: the default image is `docker.io/bitnami/git:latest`
+:information_source: the default image is `docker.io/chainguard/git:latest-dev`
 
 There are a few ways of specifying images:
 * via the `ROOZ_IMAGE` env variable
