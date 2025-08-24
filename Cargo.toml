@@ -1,13 +1,12 @@
 [package]
 name = "rooz"
-version = "0.128.0"
+version = "0.129.0"
 edition = "2021"
 
 [dependencies]
 age = {version = "0.11.1", features = ["armor"] }
 base64 = "0.22.1"
 bollard = { version = "0.19.2" }
-#bollard = { git = "https://github.com/fussybeaver/bollard", rev = "e785084893d6763dfa1a9c7e283c7ee9adde11eb"}
 bollard-stubs = "1.49.0-rc.28.3.3"
 clap = { version = "4.5.16", features = ["derive", "env"] }
 clap_complete = "4.5.24"

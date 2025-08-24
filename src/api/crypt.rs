@@ -26,8 +26,6 @@ impl CryptApi {
         }
     }
 
-
-
     pub fn encrypt(
         &self,
         plaintext: String,

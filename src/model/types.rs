@@ -78,7 +78,6 @@ pub enum RunMode {
     Git,
     OneShot,
     Sidecar,
-    Init,
 }
 
 pub struct RunSpec<'a> {

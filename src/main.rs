@@ -115,7 +115,7 @@ async fn main() -> Result<(), AnyError> {
         client: &docker,
     };
 
-    let crypt_api = CryptApi { };
+    let crypt_api = CryptApi {};
 
     let git_api = GitApi { api: &rooz };
 
@@ -159,9 +159,7 @@ async fn main() -> Result<(), AnyError> {
                     None => Ok(()),
                 }?;
 
-            workspace
-                .new(&name, &work, config_source, false,)
-                .await?;
+            workspace.new(&name, &work, config_source, false).await?;
             println!(
                 "\nThe workspace is ready. Run 'rooz enter {}' to enter.",
                 name

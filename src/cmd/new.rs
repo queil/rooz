@@ -33,7 +33,9 @@ impl<'a> WorkspaceApi<'a> {
             cfg_builder.from_config(c);
         }
         cfg_builder.from_cli(cli_params, None);
-        self.config.decrypt(cfg_builder, &self.api.system_config.age_identity()?).await?;
+        self.config
+            .decrypt(cfg_builder, &self.api.system_config.age_identity()?)
+            .await?;
         cfg_builder.expand_vars()?;
 
         let cfg = RuntimeConfig::from(&*cfg_builder);

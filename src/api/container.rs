@@ -11,7 +11,6 @@ use crate::{
 use base64::{engine::general_purpose, Engine as _};
 
 use bollard::{
-    container::LogOutput::{Console, StdErr, StdOut},
     errors::Error::{self, DockerResponseServerError},
     models::{
         ContainerCreateBody, ContainerCreateResponse, ContainerInspectResponse, ContainerState,
@@ -26,11 +25,7 @@ use bollard::{
 };
 
 use futures::{future, StreamExt};
-use std::{
-    collections::HashMap,
-    io::{stderr, stdout, Write},
-    time::Duration,
-};
+use std::{collections::HashMap, time::Duration};
 use tokio::time::{sleep, timeout};
 
 pub fn inject2(script: &str, name: &str, post_sleep: bool) -> Vec<String> {
@@ -291,7 +286,6 @@ impl<'a> ContainerApi<'a> {
             RunMode::Git => (None, None, Some(true), Some(true)),
             RunMode::OneShot => (None, None, None, Some(true)),
             RunMode::Sidecar => (None, None, None, None),
-            RunMode::Init => (None, None, None, None),
         };
 
         let host_config = HostConfig {
@@ -555,26 +549,5 @@ impl<'a> ContainerApi<'a> {
 
         let _ = tokio::time::timeout(std::time::Duration::from_secs(2), log_task).await;
         Ok(exit_code)
-    }
-
-    pub async fn logs_to_stdout(&self, container_name: &str) -> Result<(), AnyError> {
-        let log_options = LogsOptions {
-            stdout: true,
-            follow: true,
-            ..Default::default()
-        };
-
-        let mut stream = self.client.logs(&container_name, Some(log_options));
-
-        while let Some(l) = stream.next().await {
-            match l {
-                Ok(Console { message: m }) => stdout().write_all(&m)?,
-                Ok(StdOut { message: m }) => stdout().write_all(&m)?,
-                Ok(StdErr { message: m }) => stderr().write_all(&m)?,
-                Ok(msg) => panic!("{}", msg),
-                Err(e) => panic!("{}", e),
-            };
-        }
-        Ok(())
     }
 }

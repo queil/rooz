@@ -31,8 +31,7 @@ pub struct VolumeApi<'a> {
     pub container: &'a ContainerApi<'a>,
 }
 
-pub struct CryptApi {
-}
+pub struct CryptApi {}
 
 pub struct Api<'a> {
     pub exec: &'a ExecApi<'a>,
