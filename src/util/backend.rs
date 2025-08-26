@@ -20,36 +20,39 @@ impl ContainerBackend {
         fn backend(info: &SystemInfo, version: &SystemVersion) -> ContainerBackend {
             if let SystemInfo {
                 operating_system: Some(name),
-                architecture: Some(architecture),
                 ..
             } = &info
             {
+                let os = &version.os.as_deref().unwrap();
+                let arch = &version.arch.as_deref().unwrap();
+                let platform = format!("{}/{}", os, arch);
+
                 match name.as_str() {
                     "Rancher Desktop WSL Distribution" => ContainerBackend {
                         engine: ContainerEngine::RancherDesktop,
-                        platform: architecture.to_string(),
+                        platform: platform.to_string(),
                     },
                     "Docker Desktop" => ContainerBackend {
                         engine: ContainerEngine::DockerDesktop,
-                        platform: architecture.to_string(),
+                        platform: platform.to_string(),
                     },
                     _ => {
                         if let Some(components) = &version.components {
                             if components.iter().any(|c| c.name == "Podman Engine") {
                                 ContainerBackend {
                                     engine: ContainerEngine::Podman,
-                                    platform: architecture.to_string(),
+                                    platform: platform.to_string(),
                                 }
                             } else {
                                 ContainerBackend {
                                     engine: ContainerEngine::Unknown,
-                                    platform: architecture.to_string(),
+                                    platform: platform.to_string(),
                                 }
                             }
                         } else {
                             ContainerBackend {
                                 engine: ContainerEngine::Unknown,
-                                platform: architecture.to_string(),
+                                platform: platform.to_string(),
                             }
                         }
                     }
@@ -57,7 +60,7 @@ impl ContainerBackend {
             } else {
                 ContainerBackend {
                     engine: ContainerEngine::Unknown,
-                    platform: "Unknown".to_string(),
+                    platform: "unknown".to_string(),
                 }
             }
         }

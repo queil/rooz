@@ -1,5 +1,5 @@
 use crate::{
-    api::{image::ImageInfo, ContainerApi},
+    api::ContainerApi,
     constants,
     model::types::{AnyError, ContainerResult, OneShotResult, RunMode, RunSpec},
     util::{
@@ -245,13 +245,7 @@ impl<'a> ContainerApi<'a> {
 
         let options = CreateContainerOptions {
             name: Some(spec.container_name.to_string()),
-            platform: match image_info {
-                ImageInfo {
-                    platform: Some(platform),
-                    ..
-                } => platform,
-                _ => self.backend.platform.to_string(),
-            },
+            platform: image_info.platform.unwrap(),
         };
 
         let oom_score_adj = match self.backend.engine {

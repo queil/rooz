@@ -26,6 +26,7 @@ impl<'a> ImageApi<'a> {
                     }
                     .to_string(),
                 ),
+                platform: self.backend.platform.to_string(),
                 ..Default::default()
             }),
             None,

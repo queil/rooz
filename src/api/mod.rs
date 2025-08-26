@@ -13,6 +13,7 @@ pub mod workspace;
 
 pub struct ImageApi<'a> {
     pub client: &'a Docker,
+    pub backend: &'a ContainerBackend,
 }
 
 pub struct ExecApi<'a> {
