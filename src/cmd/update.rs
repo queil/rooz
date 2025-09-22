@@ -39,8 +39,6 @@ impl<'a> WorkspaceApi<'a> {
             UpdateMode::Purge => self.remove(&workspace_key, true).await?,
         };
 
-        let identity = self.api.system_config.age_identity()?;
-
         if let Some(labels) = &container.labels {
             let config_source = &labels[labels::CONFIG_ORIGIN];
             let format = FileFormat::from_path(config_source);
@@ -74,6 +72,7 @@ impl<'a> WorkspaceApi<'a> {
             let mut original_config = RoozCfg::deserialize_config(&original_body, format)?.unwrap();
 
             let config_to_apply = if interactive {
+                let identity = self.api.system_config.age_identity()?;
                 self.config.decrypt(&mut original_config, &identity).await?;
 
                 let decrypted_string = original_config.to_string(format)?;
