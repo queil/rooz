@@ -250,7 +250,10 @@ impl<'a> WorkspaceApi<'a> {
                     let mut cfg_builder = RoozCfg::default().from_cli_env(cli_params.clone());
 
                     match (&root_repo_result.config, &cli_config_path) {
-                        (Some((body, format)), None) => {
+                        (Some(_), Some(ConfigSource::Update { .. })) => {
+                            log::debug!("Ignoring the in-repo config file in update mode");
+                        }
+                        (Some((body, format)), _) => {
                             match RoozCfg::deserialize_config(body, *format)? {
                                 Some(c) => {
                                     cfg_builder.from_config(&c);
@@ -274,7 +277,7 @@ impl<'a> WorkspaceApi<'a> {
                                 }
                             }
                         }
-                        _ => {
+                        (None, _) => {
                             log::debug!("No valid config file found in the repository.");
                         }
                     }
