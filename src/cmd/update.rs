@@ -39,15 +39,14 @@ impl<'a> WorkspaceApi<'a> {
             UpdateMode::Purge => self.remove(&workspace_key, true).await?,
         };
 
-        let identity = self.api.system_config.age_identity()?;
-
         if let Some(labels) = &container.labels {
             let config_source = &labels[labels::CONFIG_ORIGIN];
             let format = FileFormat::from_path(config_source);
+            let config_path = ConfigPath::from_str(&config_source)?;
             let mut original_body = labels[labels::CONFIG_BODY].clone();
 
             if !interactive {
-                match ConfigPath::from_str(&config_source)? {
+                match &config_path {
                     ConfigPath::File { path } => {
                         original_body = fs::read_to_string(&path)?;
                     }
@@ -74,6 +73,7 @@ impl<'a> WorkspaceApi<'a> {
             let mut original_config = RoozCfg::deserialize_config(&original_body, format)?.unwrap();
 
             let config_to_apply = if interactive {
+                let identity = self.api.system_config.age_identity()?;
                 self.config.decrypt(&mut original_config, &identity).await?;
 
                 let decrypted_string = original_config.to_string(format)?;
@@ -89,6 +89,12 @@ impl<'a> WorkspaceApi<'a> {
             self.new(
                 &labels[labels::WORKSPACE_KEY],
                 &WorkParams {
+                    git_ssh_url: match &config_path {
+                        ConfigPath::Git { url, .. } if config_path.is_in_repo() => {
+                            Some(url.to_string())
+                        }
+                        _ => None,
+                    },
                     env: spec.clone(),
                     pull_image: if no_pull || interactive { false } else { true },
                     ..Default::default()
