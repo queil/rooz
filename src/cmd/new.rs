@@ -110,7 +110,7 @@ impl<'a> WorkspaceApi<'a> {
     async fn get_cli_config(
         &self,
         workspace_key: &str,
-        cli_config_path: Option<ConfigSource>,
+        cli_config_path: &Option<ConfigSource>,
         clone_env: &CloneEnv,
         labels: &mut Labels,
     ) -> Result<Option<RoozCfg>, AnyError> {
@@ -212,7 +212,7 @@ impl<'a> WorkspaceApi<'a> {
         };
 
         let cli_cfg = self
-            .get_cli_config(workspace_key, cli_config_path, &clone_env, &mut labels)
+            .get_cli_config(workspace_key, &cli_config_path, &clone_env, &mut labels)
             .await?;
 
         let work_spec = WorkSpec {
@@ -248,30 +248,33 @@ impl<'a> WorkspaceApi<'a> {
             Some(url) => match self.git.clone_root_repo(&url, &clone_env).await? {
                 root_repo_result => {
                     let mut cfg_builder = RoozCfg::default().from_cli_env(cli_params.clone());
-                    match &root_repo_result.config {
-                        Some((body, format)) => match RoozCfg::deserialize_config(body, *format)? {
-                            Some(c) => {
-                                cfg_builder.from_config(&c);
-                                log::debug!("Config file applied.");
-                                let origin = format!("{}//.rooz.{}", url, format.to_string());
-                                labels = Labels {
-                                    config_source: Labels::config_origin(&origin),
-                                    config_body: Labels::config_body(&body),
-                                    ..labels
-                                };
-                                self.config
-                                    .store(workspace_key, &ConfigType::Origin, &origin)
-                                    .await?;
 
-                                self.config
-                                    .store(workspace_key, &ConfigType::Body, &body)
-                                    .await?;
+                    match (&root_repo_result.config, &cli_config_path) {
+                        (Some((body, format)), None) => {
+                            match RoozCfg::deserialize_config(body, *format)? {
+                                Some(c) => {
+                                    cfg_builder.from_config(&c);
+                                    log::debug!("Config file applied.");
+                                    let origin = format!("{}//.rooz.{}", url, format.to_string());
+                                    labels = Labels {
+                                        config_source: Labels::config_origin(&origin),
+                                        config_body: Labels::config_body(&body),
+                                        ..labels
+                                    };
+                                    self.config
+                                        .store(workspace_key, &ConfigType::Origin, &origin)
+                                        .await?;
+
+                                    self.config
+                                        .store(workspace_key, &ConfigType::Body, &body)
+                                        .await?;
+                                }
+                                None => {
+                                    log::debug!("No valid config file found in the repository.");
+                                }
                             }
-                            None => {
-                                log::debug!("No valid config file found in the repository.");
-                            }
-                        },
-                        None => {
+                        }
+                        _ => {
                             log::debug!("No valid config file found in the repository.");
                         }
                     }
