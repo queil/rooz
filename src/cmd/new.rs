@@ -224,82 +224,65 @@ impl<'a> WorkspaceApi<'a> {
             force_recreate: false,
             ..Default::default()
         };
+        let mut cfg_builder = RoozCfg::default().from_cli_env(cli_params.clone());
+        let root_repo_result = match &RoozCfg::git_ssh_url(cli_params, &cli_cfg) {
+            Some(url) => {
+                let result = self.git.clone_root_repo(&url, &clone_env).await?;
+                match (&result.config, &cli_config_path) {
+                    (Some(_), Some(ConfigSource::Update { .. })) => {
+                        log::debug!("Ignoring the in-repo config file in update mode");
+                    }
+                    (Some((body, format)), _) => {
+                        match RoozCfg::deserialize_config(body, *format)? {
+                            Some(c) => {
+                                cfg_builder.from_config(&c);
+                                log::debug!("Config file applied.");
+                                let origin = format!("{}//.rooz.{}", url, format.to_string());
+                                labels = Labels {
+                                    config_source: Labels::config_origin(&origin),
+                                    config_body: Labels::config_body(&body),
+                                    ..labels
+                                };
+                                self.config
+                                    .store(workspace_key, &ConfigType::Origin, &origin)
+                                    .await?;
 
-        let enter_spec = match &RoozCfg::git_ssh_url(cli_params, &cli_cfg) {
-            None => {
-                let mut cfg_builder = RoozCfg::default().from_cli_env(cli_params.clone());
-                self.new_core(
-                    &mut cfg_builder,
-                    cli_cfg,
-                    cli_params,
-                    &WorkSpec {
-                        labels,
-                        ..work_spec
-                    },
-                    &clone_env,
-                    None,
-                    &workspace_key,
-                    false,
-                    work_dir,
-                )
-                .await
-            }
-
-            Some(url) => match self.git.clone_root_repo(&url, &clone_env).await? {
-                root_repo_result => {
-                    let mut cfg_builder = RoozCfg::default().from_cli_env(cli_params.clone());
-
-                    match (&root_repo_result.config, &cli_config_path) {
-                        (Some(_), Some(ConfigSource::Update { .. })) => {
-                            log::debug!("Ignoring the in-repo config file in update mode");
-                        }
-                        (Some((body, format)), _) => {
-                            match RoozCfg::deserialize_config(body, *format)? {
-                                Some(c) => {
-                                    cfg_builder.from_config(&c);
-                                    log::debug!("Config file applied.");
-                                    let origin = format!("{}//.rooz.{}", url, format.to_string());
-                                    labels = Labels {
-                                        config_source: Labels::config_origin(&origin),
-                                        config_body: Labels::config_body(&body),
-                                        ..labels
-                                    };
-                                    self.config
-                                        .store(workspace_key, &ConfigType::Origin, &origin)
-                                        .await?;
-
-                                    self.config
-                                        .store(workspace_key, &ConfigType::Body, &body)
-                                        .await?;
-                                }
-                                None => {
-                                    log::debug!("No valid config file found in the repository.");
-                                }
+                                self.config
+                                    .store(workspace_key, &ConfigType::Body, &body)
+                                    .await?;
+                            }
+                            None => {
+                                log::debug!("No valid config file found in the repository.");
                             }
                         }
-                        (None, _) => {
-                            log::debug!("No valid config file found in the repository.");
-                        }
                     }
-
-                    self.new_core(
-                        &mut cfg_builder,
-                        cli_cfg,
-                        cli_params,
-                        &WorkSpec {
-                            labels,
-                            ..work_spec
-                        },
-                        &clone_env,
-                        Some(root_repo_result),
-                        &workspace_key,
-                        false,
-                        work_dir,
-                    )
-                    .await
+                    (None, _) => {
+                        log::debug!("No valid config file found in the repository.");
+                    }
                 }
-            },
+
+                Some(result)
+            }
+            None => None,
         };
+
+        let enter_spec = self
+            .new_core(
+                &mut cfg_builder,
+                cli_cfg,
+                cli_params,
+                &WorkSpec {
+                    labels,
+                    ..work_spec
+                },
+                &clone_env,
+                root_repo_result,
+                &workspace_key,
+                false,
+                work_dir,
+            )
+            .await;
+
         if let Some(true) = cli_params.start {
             self.start(&workspace_key).await?;
         }
