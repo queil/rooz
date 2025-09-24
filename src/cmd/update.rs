@@ -7,7 +7,7 @@ use crate::{
     model::types::AnyError,
     util::{
         git::CloneEnv,
-        labels::{self, Labels, ROLE_WORK},
+        labels::{self, Labels, WORK_ROLE},
     },
 };
 
@@ -25,7 +25,7 @@ impl<'a> WorkspaceApi<'a> {
         mode: UpdateMode,
         no_pull: bool,
     ) -> Result<(), AnyError> {
-        let labels = Labels::from(&[Labels::workspace(workspace_key), Labels::role(ROLE_WORK)]);
+        let labels = Labels::from(&[Labels::workspace(workspace_key), Labels::role(WORK_ROLE)]);
 
         let container = self
             .api

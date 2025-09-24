@@ -50,7 +50,7 @@ impl<'a> WorkspaceApi<'a> {
             log::debug!("Process sidecar: {}", name);
             let container_name = format!("{}-{}", workspace_key, name);
             let mut labels = labels.clone();
-            labels.extend(&[Labels::container(&name), Labels::role(labels::ROLE_SIDECAR)]);
+            labels.extend(&[Labels::container(&name), Labels::role(labels::SIDECAR_ROLE)]);
             let mut ports = HashMap::<String, Option<String>>::new();
             RoozCfg::parse_ports(&mut ports, s.ports.clone());
 
@@ -61,11 +61,15 @@ impl<'a> WorkspaceApi<'a> {
                     .iter()
                     .map(|mount| match mount {
                         SidecarMount::Empty(mount) => {
-                            RoozVolume::config_data(workspace_key, mount, None)
+                            RoozVolume::config_data(workspace_key, mount, None, None, None)
                         }
-                        SidecarMount::Files { mount, files } => {
-                            RoozVolume::config_data(workspace_key, mount, Some(files.clone()))
-                        }
+                        SidecarMount::Files { mount, files } => RoozVolume::config_data(
+                            workspace_key,
+                            mount,
+                            Some(files.clone()),
+                            None,
+                            None,
+                        ),
                     })
                     .collect::<Vec<_>>()
             });

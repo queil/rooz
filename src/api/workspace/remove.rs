@@ -5,9 +5,9 @@ use bollard::{
 
 use crate::{
     api::WorkspaceApi,
-    model::{types::AnyError, volume::CACHE_ROLE},
+    model::types::AnyError,
     util::{
-        labels::{Labels, ROLE},
+        labels::{Labels, CACHE_ROLE, ROLE},
         ssh,
     },
 };

@@ -4,7 +4,7 @@ use crate::{
     api::WorkspaceApi,
     cli::WorkParams,
     config::{
-        config::{ConfigPath, ConfigSource, ConfigType, FileFormat, RoozCfg},
+        config::{ConfigPath, ConfigSource, FileFormat, RoozCfg},
         runtime::RuntimeConfig,
     },
     constants,
@@ -70,11 +70,7 @@ impl<'a> WorkspaceApi<'a> {
         ]);
 
         self.config
-            .store(
-                workspace_key,
-                &ConfigType::Runtime,
-                &cfg.clone().to_string()?,
-            )
+            .store_runtime(workspace_key, &cfg.clone().to_string()?)
             .await?;
 
         let work_spec = WorkSpec {
@@ -113,7 +109,7 @@ impl<'a> WorkspaceApi<'a> {
         workspace_key: &str,
         cli_config_path: &Option<ConfigSource>,
         clone_env: &CloneEnv,
-    ) -> Result<(Option<RoozCfg>, Option<Labels>), AnyError> {
+    ) -> Result<Option<RoozCfg>, AnyError> {
         let val = if let Some(source) = &cli_config_path {
             let (origin, body, rooz_cfg): (String, Option<String>, Option<RoozCfg>) = match source {
                 ConfigSource::Update {
@@ -153,23 +149,14 @@ impl<'a> WorkspaceApi<'a> {
                     }
                 },
             };
-            let mut labels = Labels::default();
-            labels.append(Labels::config_origin(&origin));
 
             self.config
-                .store(workspace_key, &ConfigType::Origin, &origin)
+                .store(workspace_key, &origin, &body.unwrap())
                 .await?;
 
-            if let Some(b) = &body {
-                labels.append(Labels::config_body(b));
-
-                self.config
-                    .store(workspace_key, &ConfigType::Body, &b)
-                    .await?;
-            }
-            (rooz_cfg, Some(labels.clone()))
+            rooz_cfg
         } else {
-            (None, None)
+            None
         };
 
         Ok(val)
@@ -187,9 +174,9 @@ impl<'a> WorkspaceApi<'a> {
             .map(|x| x.to_string())
             .unwrap_or(constants::DEFAULT_UID.to_string());
 
-        let mut labels = Labels::from(&[
+        let labels = Labels::from(&[
             Labels::workspace(&workspace_key),
-            Labels::role(labels::ROLE_WORK),
+            Labels::role(labels::WORK_ROLE),
         ]);
 
         self.api
@@ -206,13 +193,9 @@ impl<'a> WorkspaceApi<'a> {
             ..Default::default()
         };
 
-        let (cli_cfg, cli_cfg_labels) = self
+        let cli_cfg = self
             .get_cli_config(workspace_key, &cli_config_path, &clone_env)
             .await?;
-
-        if let Some(values) = cli_cfg_labels {
-            labels.extend_with_labels(values);
-        }
 
         let work_spec = WorkSpec {
             uid: &orig_uid,
@@ -237,15 +220,7 @@ impl<'a> WorkspaceApi<'a> {
                                 cfg_builder.from_config(&c);
                                 log::debug!("Config file applied.");
                                 let origin = format!("{}//.rooz.{}", url, format.to_string());
-                                labels.append(Labels::config_origin(&origin));
-                                labels.append(Labels::config_body(&body));
-                                self.config
-                                    .store(workspace_key, &ConfigType::Origin, &origin)
-                                    .await?;
-
-                                self.config
-                                    .store(workspace_key, &ConfigType::Body, &body)
-                                    .await?;
+                                self.config.store(workspace_key, &origin, &body).await?;
                             }
                             None => {
                                 log::debug!("No valid config file found in the repository.");

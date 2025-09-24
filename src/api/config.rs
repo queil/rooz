@@ -3,7 +3,11 @@ use std::io;
 use crate::{
     config::config::{ConfigType, FileFormat, RoozCfg, SystemConfig},
     constants,
-    model::{types::AnyError, volume::RoozVolume},
+    model::{
+        types::AnyError,
+        volume::{RoozVolume, RoozVolumeRole},
+    },
+    util::labels::Labels,
 };
 
 use age::x25519::Identity;
@@ -15,17 +19,41 @@ impl<'a> ConfigApi<'a> {
     pub async fn store(
         &self,
         workspace_key: &str,
-        config_type: &ConfigType,
-        data: &str,
+        origin: &str,
+        body: &str,
     ) -> Result<(), AnyError> {
         let config_vol = RoozVolume::config_data(
             workspace_key,
             "/etc/rooz",
             Some(
-                [(config_type.file_path().to_string(), data.to_string())]
+                [(ConfigType::Body.file_path().to_string(), body.to_string())]
                     .into_iter()
                     .collect(),
             ),
+            Some(Labels::from(&[Labels::config_origin(origin)])),
+            Some(RoozVolumeRole::WorkspaceConfig),
+        );
+        self.api
+            .volume
+            .ensure_mounts(&vec![config_vol], None, Some(constants::ROOT_UID))
+            .await?;
+        Ok(())
+    }
+
+    pub async fn store_runtime(&self, workspace_key: &str, data: &str) -> Result<(), AnyError> {
+        let config_vol = RoozVolume::config_data(
+            workspace_key,
+            "/etc/rooz",
+            Some(
+                [(
+                    ConfigType::Runtime.file_path().to_string(),
+                    data.to_string(),
+                )]
+                .into_iter()
+                .collect(),
+            ),
+            None,
+            Some(RoozVolumeRole::WorkspaceConfig),
         );
         self.api
             .volume

@@ -175,7 +175,7 @@ async fn main() -> Result<(), AnyError> {
                 None => None,
             };
 
-            let labels = Labels::from(&[Labels::workspace(&name), Labels::role(labels::ROLE_WORK)]);
+            let labels = Labels::from(&[Labels::workspace(&name), Labels::role(labels::WORK_ROLE)]);
 
             match workspace.api.container.get_single(&labels).await? {
                     Some(_) => Err(format!("Workspace already exists. Did you mean: rooz enter {}? Otherwise, use rooz update to modify the workspace.", name.clone())),

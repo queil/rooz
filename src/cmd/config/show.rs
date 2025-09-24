@@ -6,7 +6,7 @@ use crate::{
         runtime::RuntimeConfig,
     },
     model::types::AnyError,
-    util::labels::{self, Labels, ROLE_WORK},
+    util::labels::{self, Labels, WORK_ROLE},
 };
 
 impl<'a> ConfigApi<'a> {
@@ -16,7 +16,7 @@ impl<'a> ConfigApi<'a> {
         part: ConfigPart,
         output: Option<ConfigFormat>,
     ) -> Result<(), AnyError> {
-        let labels = Labels::from(&[Labels::workspace(workspace_key), Labels::role(ROLE_WORK)]);
+        let labels = Labels::from(&[Labels::workspace(workspace_key), Labels::role(WORK_ROLE)]);
 
         let container = self
             .api

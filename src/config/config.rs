@@ -59,7 +59,6 @@ impl<'a> ConfigPath {
 
 #[derive(Debug, Clone, Copy)]
 pub enum ConfigType {
-    Origin,
     Body,
     Runtime,
 }
@@ -67,7 +66,6 @@ pub enum ConfigType {
 impl ConfigType {
     pub fn file_path(&self) -> &str {
         match self {
-            ConfigType::Origin => "origin.config",
             ConfigType::Body => "workspace.config",
             ConfigType::Runtime => "runtime.config",
         }
