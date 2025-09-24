@@ -62,11 +62,12 @@ impl<'a> WorkspaceApi<'a> {
             )
             .await?;
 
-        let labels = work_spec
-            .labels
-            .clone()
-            .with_container(Some(constants::DEFAULT_CONTAINER_NAME))
-            .with_runtime_config(cfg.clone());
+        let mut labels = work_spec.labels.clone();
+
+        labels.extend(&[
+            Labels::container(constants::DEFAULT_CONTAINER_NAME),
+            Labels::config_runtime(&cfg.to_string().unwrap()),
+        ]);
 
         self.config
             .store(
@@ -112,8 +113,7 @@ impl<'a> WorkspaceApi<'a> {
         workspace_key: &str,
         cli_config_path: &Option<ConfigSource>,
         clone_env: &CloneEnv,
-        labels: &mut Labels,
-    ) -> Result<Option<RoozCfg>, AnyError> {
+    ) -> Result<(Option<RoozCfg>, Option<Labels>), AnyError> {
         let val = if let Some(source) = &cli_config_path {
             let (origin, body, rooz_cfg): (String, Option<String>, Option<RoozCfg>) = match source {
                 ConfigSource::Update {
@@ -153,27 +153,23 @@ impl<'a> WorkspaceApi<'a> {
                     }
                 },
             };
+            let mut labels = Labels::default();
+            labels.append(Labels::config_origin(&origin));
 
-            *labels = Labels {
-                config_source: Labels::config_origin(&origin),
-                ..labels.clone()
-            };
             self.config
                 .store(workspace_key, &ConfigType::Origin, &origin)
                 .await?;
 
             if let Some(b) = &body {
-                *labels = Labels {
-                    config_body: Labels::config_body(&b),
-                    ..labels.clone()
-                };
+                labels.append(Labels::config_body(b));
+
                 self.config
                     .store(workspace_key, &ConfigType::Body, &b)
                     .await?;
             }
-            rooz_cfg
+            (rooz_cfg, Some(labels.clone()))
         } else {
-            None
+            (None, None)
         };
 
         Ok(val)
@@ -191,11 +187,10 @@ impl<'a> WorkspaceApi<'a> {
             .map(|x| x.to_string())
             .unwrap_or(constants::DEFAULT_UID.to_string());
 
-        let mut labels = Labels {
-            workspace: Labels::workspace(&workspace_key),
-            role: Labels::role(labels::ROLE_WORK),
-            ..Default::default()
-        };
+        let mut labels = Labels::from(&[
+            Labels::workspace(&workspace_key),
+            Labels::role(labels::ROLE_WORK),
+        ]);
 
         self.api
             .image
@@ -211,9 +206,13 @@ impl<'a> WorkspaceApi<'a> {
             ..Default::default()
         };
 
-        let cli_cfg = self
-            .get_cli_config(workspace_key, &cli_config_path, &clone_env, &mut labels)
+        let (cli_cfg, cli_cfg_labels) = self
+            .get_cli_config(workspace_key, &cli_config_path, &clone_env)
             .await?;
+
+        if let Some(values) = cli_cfg_labels {
+            labels.extend_with_labels(values);
+        }
 
         let work_spec = WorkSpec {
             uid: &orig_uid,
@@ -238,11 +237,8 @@ impl<'a> WorkspaceApi<'a> {
                                 cfg_builder.from_config(&c);
                                 log::debug!("Config file applied.");
                                 let origin = format!("{}//.rooz.{}", url, format.to_string());
-                                labels = Labels {
-                                    config_source: Labels::config_origin(&origin),
-                                    config_body: Labels::config_body(&body),
-                                    ..labels
-                                };
+                                labels.append(Labels::config_origin(&origin));
+                                labels.append(Labels::config_body(&body));
                                 self.config
                                     .store(workspace_key, &ConfigType::Origin, &origin)
                                     .await?;

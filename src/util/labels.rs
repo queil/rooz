@@ -1,7 +1,5 @@
 use std::{collections::HashMap, vec};
 
-use crate::config::runtime::RuntimeConfig;
-
 pub const WORKSPACE_KEY: &'static str = "dev.rooz.workspace";
 pub const CONTAINER: &'static str = "dev.rooz.workspace.container";
 pub const ROLE: &'static str = "dev.rooz.role";
@@ -17,26 +15,14 @@ pub const ROLE_SIDECAR: &'static str = "sidecar";
 
 #[derive(Clone, Debug)]
 pub struct KeyValue {
-    pub key: String,
-    pub value: String,
     formatted: String,
 }
 
 impl KeyValue {
     pub fn new(key: &str, value: &str) -> Self {
         KeyValue {
-            key: key.into(),
-            value: value.into(),
             formatted: format!("{}={}", key, value),
         }
-    }
-
-    pub fn to_hashmap_of_ref<'a>(value: &'a HashMap<String, String>) -> HashMap<&'a str, &'a str> {
-        let mut h = HashMap::new();
-        for (key, value) in value {
-            h.insert(key.as_ref(), value.as_ref());
-        }
-        return h;
     }
 
     pub fn to_vec(value: HashMap<String, String>) -> Vec<Self> {
@@ -57,135 +43,84 @@ impl KeyValue {
 }
 
 #[derive(Clone, Debug)]
-pub struct Labels {
-    pub rooz: KeyValue,
-    pub workspace: Option<KeyValue>,
-    pub container: Option<KeyValue>,
-    pub runtime_config: Option<KeyValue>,
-    pub role: Option<KeyValue>,
-    pub config_source: Option<KeyValue>,
-    pub config_body: Option<KeyValue>,
-}
+pub struct Labels(HashMap<String, String>);
 
 impl Labels {
-    pub fn new(workspace_key: Option<&str>, role: Option<&str>) -> Labels {
-        Labels {
-            workspace: workspace_key.map(|v| KeyValue::new(WORKSPACE_KEY, v)),
-            role: role.map(|v| KeyValue::new(ROLE, v)),
-            ..Default::default()
+    pub fn new(map: HashMap<String, String>) -> Self {
+        Self(map)
+    }
+
+    pub fn from(items: &[(&str, &str)]) -> Self {
+        let mut map = HashMap::from(
+            items
+                .into_iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect::<HashMap<String, String>>(),
+        );
+        map.insert(ROOZ.to_string(), TRUE.to_string());
+        Labels::new(map)
+    }
+
+    pub fn append(&mut self, item: (&str, &str)) {
+        self.0.insert(item.0.to_string(), item.1.to_string());
+    }
+
+    pub fn extend(&mut self, items: &[(&str, &str)]) {
+        for item in items {
+            self.append(*item);
         }
     }
 
-    pub fn workspace(key: &str) -> Option<KeyValue> {
-        Some(KeyValue::new(WORKSPACE_KEY, key))
-    }
-
-    pub fn role(role: &str) -> Option<KeyValue> {
-        Some(KeyValue::new(ROLE, role))
-    }
-
-    pub fn config_origin(path: &str) -> Option<KeyValue> {
-        Some(KeyValue::new(CONFIG_ORIGIN, path))
-    }
-
-    pub fn config_body(body: &str) -> Option<KeyValue> {
-        Some(KeyValue::new(CONFIG_BODY, body))
-    }
-
-    pub fn with_role(self, role: &str) -> Labels {
-        Labels {
-            role: Some(KeyValue::new(ROLE, role)),
-            ..self
+    pub fn extend_with_labels(&mut self, items: Labels) {
+        for (k, v) in items.0 {
+            self.append((&k, &v));
         }
     }
 
-    pub fn with_container(self, container: Option<&str>) -> Labels {
-        match container {
-            Some(c) => Labels {
-                container: Some(KeyValue::new(CONTAINER, c)),
-                ..self
-            },
-            None => self,
-        }
+    pub fn workspace(key: &str) -> (&str, &str) {
+        (WORKSPACE_KEY, key)
     }
 
-    pub fn with_runtime_config(self, config: RuntimeConfig) -> Self {
-        Labels {
-            runtime_config: Some(KeyValue::new(RUNTIME_CONFIG, &config.to_string().unwrap())),
-            ..self
-        }
+    pub fn container(key: &str) -> (&str, &str) {
+        (CONTAINER, key)
+    }
+
+    pub fn config_runtime(value: &str) -> (&str, &str) {
+        (RUNTIME_CONFIG, value)
+    }
+
+    pub fn config_origin(path: &str) -> (&str, &str) {
+        (CONFIG_ORIGIN, path)
+    }
+
+    pub fn config_body(body: &str) -> (&str, &str) {
+        (CONFIG_BODY, body)
+    }
+
+    pub fn role(role: &str) -> (&str, &str) {
+        (ROLE, role)
+    }
+}
+
+impl From<Labels> for HashMap<String, String> {
+    fn from(value: Labels) -> Self {
+        value.0
     }
 }
 
 impl Default for Labels {
     fn default() -> Self {
-        Self {
-            rooz: KeyValue::new(ROOZ, TRUE),
-            workspace: None,
-            container: None,
-            runtime_config: None,
-            role: None,
-            config_source: None,
-            config_body: None,
-        }
+        Self::from(&[])
     }
 }
 
-impl<'a> From<&'a Labels> for HashMap<&'a str, &'a str> {
-    fn from(value: &'a Labels) -> Self {
-        let labels: Vec<&KeyValue> = value.into();
-        let mut h = HashMap::new();
-        for l in labels {
-            h.insert(l.key.as_ref(), l.value.as_ref());
-        }
-        return h;
-    }
-}
-
-impl<'a> From<&'a Labels> for HashMap<String, String> {
-    fn from(value: &'a Labels) -> Self {
-        let labels: Vec<&KeyValue> = value.into();
-        let mut h = HashMap::new();
-        for l in labels {
-            h.insert(l.key.to_string(), l.value.to_string());
-        }
-        return h;
-    }
-}
-
-impl<'a> From<&'a Labels> for HashMap<String, Vec<String>> {
-    fn from(value: &'a Labels) -> Self {
-        let labels: Vec<&KeyValue> = value.into();
+impl From<Labels> for HashMap<String, Vec<String>> {
+    fn from(value: Labels) -> Self {
         let mut h = HashMap::new();
         h.insert(
             LABEL_KEY.into(),
-            labels.iter().map(|v| v.formatted.to_string()).collect(),
+            value.0.iter().map(|x| format!("{}={}", x.0, x.1)).collect(),
         );
         return h;
-    }
-}
-
-impl<'a> From<&'a Labels> for Vec<&'a KeyValue> {
-    fn from(value: &'a Labels) -> Self {
-        let mut labels = vec![&value.rooz];
-        if let Some(role) = &value.role {
-            labels.push(role);
-        }
-        if let Some(value) = &value.workspace {
-            labels.push(value);
-        }
-        if let Some(value) = &value.container {
-            labels.push(value);
-        }
-        if let Some(value) = &value.runtime_config {
-            labels.push(value);
-        }
-        if let Some(value) = &value.config_source {
-            labels.push(value);
-        }
-        if let Some(value) = &value.config_body {
-            labels.push(value);
-        }
-        labels
     }
 }

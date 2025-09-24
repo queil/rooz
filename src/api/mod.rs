@@ -32,6 +32,13 @@ pub struct VolumeApi<'a> {
     pub container: &'a ContainerApi<'a>,
 }
 
+pub struct InitApi<'a> {
+    pub client: &'a Docker,
+    pub image: &'a ImageApi<'a>,
+    pub volume: &'a VolumeApi<'a>,
+    pub container: &'a ContainerApi<'a>,
+}
+
 pub struct CryptApi {}
 
 pub struct Api<'a> {
@@ -56,5 +63,4 @@ pub struct WorkspaceApi<'a> {
     pub api: &'a Api<'a>,
     pub git: &'a GitApi<'a>,
     pub config: &'a ConfigApi<'a>,
-    pub crypt: &'a CryptApi,
 }

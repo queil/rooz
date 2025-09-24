@@ -15,7 +15,7 @@ impl<'a> WorkspaceApi<'a> {
             self.stop(workspace_key).await?;
             self.start(workspace_key).await?;
         } else {
-            let labels = Labels::new(Some(workspace_key), Some(ROLE_WORK));
+            let labels = Labels::from(&[Labels::workspace(workspace_key), Labels::role(ROLE_WORK)]);
             if let Some(c) = self.api.container.get_single(&labels).await? {
                 let cid = &c.id.unwrap();
                 let cname = &c.names.unwrap().join(", ");

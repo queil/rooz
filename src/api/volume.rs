@@ -4,7 +4,7 @@ use crate::{
     api::VolumeApi,
     model::{
         types::{AnyError, VolumeResult},
-        volume::{RoozVolume, RoozVolumeFile, RoozVolumeRole},
+        volume::{RoozVolume, RoozVolumeFile},
     },
     util::labels::Labels,
 };
@@ -40,20 +40,12 @@ impl<'a> VolumeApi<'a> {
     pub async fn ensure_volume(
         &self,
         name: &str,
-        role: &RoozVolumeRole,
-        workspace_key: Option<String>,
         force_recreate: bool,
+        labels: Option<Labels>,
     ) -> Result<VolumeResult, AnyError> {
-        let workspace_key_label = match role {
-            RoozVolumeRole::Cache => None,
-            _ => workspace_key,
-        };
-
-        let labels = Labels::new(workspace_key_label.as_deref(), Some(role.as_str()));
-
         let create_vol_options = VolumeCreateOptions {
             name: Some(name.into()),
-            labels: Some((&labels).into()),
+            labels: labels.map(|x| x.into()),
             ..Default::default()
         };
 
@@ -83,7 +75,9 @@ impl<'a> VolumeApi<'a> {
     ) -> Result<Vec<Mount>, AnyError> {
         let mut mounts = vec![];
         for v in volumes {
-            let mount = self.ensure_mount(&v, tilde_replacement).await?;
+            let mount = self
+                .ensure_mount(&v, tilde_replacement, v.labels.clone())
+                .await?;
             if let RoozVolume {
                 path,
                 files: Some(files),
@@ -103,16 +97,12 @@ impl<'a> VolumeApi<'a> {
         &self,
         volume: &RoozVolume,
         tilde_replacement: Option<&str>,
+        labels: Option<Labels>,
     ) -> Result<Mount, AnyError> {
         log::debug!("Process volume: {:?}", &volume);
         let mount = volume.to_mount(tilde_replacement);
-        self.ensure_volume(
-            &mount.source.clone().unwrap(),
-            &volume.role,
-            volume.key(),
-            false,
-        )
-        .await?;
+        self.ensure_volume(&mount.source.clone().unwrap(), false, labels)
+            .await?;
         Ok(mount)
     }
 

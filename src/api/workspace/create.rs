@@ -59,11 +59,6 @@ impl<'a> WorkspaceApi<'a> {
             Path::new(&home_dir).join(".ssh").to_string_lossy().as_ref(),
         ));
 
-        mounts.push(
-            self.crypt
-                .mount(Path::new(&home_dir).join(".age").to_string_lossy().as_ref()),
-        );
-
         let run_spec = RunSpec {
             reason: "work",
             image: &spec.image,

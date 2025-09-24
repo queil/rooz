@@ -4,7 +4,7 @@ use bollard::{
 };
 
 use crate::{
-    api::{self, WorkspaceApi},
+    api::WorkspaceApi,
     model::{types::AnyError, volume::CACHE_ROLE},
     util::{
         labels::{Labels, ROLE},
@@ -25,7 +25,7 @@ impl<'a> WorkspaceApi<'a> {
     async fn remove_core(&self, labels: &Labels, force: bool) -> Result<(), AnyError> {
         self.remove_containers(labels, force).await?;
         let ls_vol_options = ListVolumesOptions {
-            filters: Some(labels.into()),
+            filters: Some(labels.clone().into()),
             ..Default::default()
         };
 
@@ -38,9 +38,7 @@ impl<'a> WorkspaceApi<'a> {
         {
             for v in volumes {
                 match v {
-                    Volume { ref name, .. }
-                        if name == ssh::VOLUME_NAME || name == api::crypt::VOLUME_NAME =>
-                    {
+                    Volume { ref name, .. } if name == ssh::VOLUME_NAME => {
                         continue;
                     }
                     Volume { labels, .. } => match labels.get(ROLE) {
@@ -53,7 +51,7 @@ impl<'a> WorkspaceApi<'a> {
         }
 
         let ls_network_options = ListNetworksOptions {
-            filters: Some(labels.into()),
+            filters: Some(labels.clone().into()),
         };
         for n in self
             .api
@@ -73,7 +71,7 @@ impl<'a> WorkspaceApi<'a> {
     }
 
     pub async fn remove(&self, workspace_key: &str, force: bool) -> Result<(), AnyError> {
-        let labels = Labels::new(Some(workspace_key), None);
+        let labels = Labels::from(&[Labels::workspace(workspace_key)]);
         self.remove_core((&labels).into(), force).await?;
         Ok(())
     }
@@ -83,7 +81,7 @@ impl<'a> WorkspaceApi<'a> {
         workspace_key: &str,
         force: bool,
     ) -> Result<(), AnyError> {
-        let labels = Labels::new(Some(workspace_key), None);
+        let labels = Labels::from(&[Labels::workspace(workspace_key)]);
         self.remove_containers((&labels).into(), force).await?;
         Ok(())
     }

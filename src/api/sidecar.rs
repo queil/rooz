@@ -22,12 +22,12 @@ impl<'a> WorkspaceApi<'a> {
         pull_image: bool,
         work_dir: &str,
     ) -> Result<Option<String>, AnyError> {
-        let labels = &Labels::new(Some(workspace_key), None);
+        let labels = Labels::from(&[Labels::workspace(workspace_key)]);
 
         let network = if !sidecars.is_empty() {
             let network_options = NetworkCreateRequest {
                 name: workspace_key.into(),
-                labels: Some(labels.into()),
+                labels: Some(labels.clone().into()),
                 ..Default::default()
             };
 
@@ -49,10 +49,8 @@ impl<'a> WorkspaceApi<'a> {
         for (name, s) in sidecars {
             log::debug!("Process sidecar: {}", name);
             let container_name = format!("{}-{}", workspace_key, name);
-            let labels = labels
-                .clone()
-                .with_container(Some(&name))
-                .with_role(labels::ROLE_SIDECAR);
+            let mut labels = labels.clone();
+            labels.extend(&[Labels::container(&name), Labels::role(labels::ROLE_SIDECAR)]);
             let mut ports = HashMap::<String, Option<String>>::new();
             RoozCfg::parse_ports(&mut ports, s.ports.clone());
 

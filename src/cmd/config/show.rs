@@ -5,8 +5,8 @@ use crate::{
         config::{FileFormat, RoozCfg},
         runtime::RuntimeConfig,
     },
-    model::{types::AnyError, volume::WORK_ROLE},
-    util::labels::{self, Labels},
+    model::types::AnyError,
+    util::labels::{self, Labels, ROLE_WORK},
 };
 
 impl<'a> ConfigApi<'a> {
@@ -16,7 +16,7 @@ impl<'a> ConfigApi<'a> {
         part: ConfigPart,
         output: Option<ConfigFormat>,
     ) -> Result<(), AnyError> {
-        let labels = Labels::new(Some(workspace_key), Some(WORK_ROLE));
+        let labels = Labels::from(&[Labels::workspace(workspace_key), Labels::role(ROLE_WORK)]);
 
         let container = self
             .api

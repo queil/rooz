@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
 use crate::{
-    api::Api,
+    api::InitApi,
     cli::InitParams,
     config::config::SystemConfig,
     constants,
@@ -9,11 +9,11 @@ use crate::{
         types::{AnyError, VolumeResult},
         volume::{RoozVolume, RoozVolumeRole},
     },
-    util::ssh,
+    util::{labels::Labels, ssh},
 };
 use age::secrecy::ExposeSecret;
 
-impl<'a> Api<'a> {
+impl<'a> InitApi<'a> {
     pub async fn init(&self, image: &str, uid: &str, spec: &InitParams) -> Result<(), AnyError> {
         let image_id = self.image.ensure(&image, false).await?.id;
 
@@ -46,9 +46,10 @@ impl<'a> Api<'a> {
             .volume
             .ensure_volume(
                 ssh::VOLUME_NAME.into(),
-                &RoozVolumeRole::SshKey,
-                Some("ssh-key".into()),
                 spec.force,
+                Some(Labels::from(&[Labels::role(
+                    RoozVolumeRole::SshKey.as_str(),
+                )])),
             )
             .await?
         {

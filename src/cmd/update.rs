@@ -4,10 +4,10 @@ use crate::{
     api::WorkspaceApi,
     cli::{WorkEnvParams, WorkParams},
     config::config::{ConfigPath, ConfigSource, FileFormat, RoozCfg},
-    model::{types::AnyError, volume::WORK_ROLE},
+    model::types::AnyError,
     util::{
         git::CloneEnv,
-        labels::{self, Labels},
+        labels::{self, Labels, ROLE_WORK},
     },
 };
 
@@ -25,7 +25,7 @@ impl<'a> WorkspaceApi<'a> {
         mode: UpdateMode,
         no_pull: bool,
     ) -> Result<(), AnyError> {
-        let labels = Labels::new(Some(workspace_key), Some(WORK_ROLE));
+        let labels = Labels::from(&[Labels::workspace(workspace_key), Labels::role(ROLE_WORK)]);
 
         let container = self
             .api

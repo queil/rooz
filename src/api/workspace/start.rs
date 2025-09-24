@@ -3,7 +3,7 @@ use colored::Colorize;
 
 impl<'a> WorkspaceApi<'a> {
     pub async fn start(&self, workspace_key: &str) -> Result<(), AnyError> {
-        let labels = Labels::new(Some(workspace_key), None);
+        let labels = Labels::from(&[Labels::workspace(workspace_key)]);
 
         for c in self.api.container.get_all(&labels).await? {
             print!("Starting container: {} ... ", c.names.unwrap().join(", "));

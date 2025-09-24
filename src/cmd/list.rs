@@ -1,7 +1,7 @@
 use crate::{
     api::Api,
     model::types::AnyError,
-    util::labels::{self, Labels, CONFIG_ORIGIN},
+    util::labels::{Labels, CONFIG_ORIGIN, ROLE_WORK},
 };
 
 use bollard::{query_parameters::ListContainersOptions, service::ContainerSummary};
@@ -20,10 +20,10 @@ struct WorkspaceView {
 
 impl<'a> Api<'a> {
     pub async fn list(&self) -> Result<(), AnyError> {
-        let labels = Labels::new(None, Some(labels::ROLE_WORK));
+        let labels = Labels::from(&[Labels::role(ROLE_WORK)]);
         let list_options = ListContainersOptions {
             all: true,
-            filters: Some((&labels).into()),
+            filters: Some(labels.into()),
             ..Default::default()
         };
 

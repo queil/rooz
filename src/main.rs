@@ -9,7 +9,7 @@ mod util;
 use std::io;
 
 use crate::{
-    api::{Api, ContainerApi, ExecApi, GitApi, ImageApi, VolumeApi, WorkspaceApi},
+    api::{Api, ContainerApi, ExecApi, GitApi, ImageApi, InitApi, VolumeApi, WorkspaceApi},
     cli::{
         Cli,
         Commands::{
@@ -53,7 +53,8 @@ async fn main() -> Result<(), AnyError> {
             }),
     } = &args
     {
-        remote::remote(ssh_url, local_docker_host).await?
+        remote::remote(ssh_url, local_docker_host).await?;
+        std::process::exit(0);
     }
 
     let connection = Docker::connect_with_local_defaults();
@@ -90,6 +91,35 @@ async fn main() -> Result<(), AnyError> {
         backend: &backend,
     };
 
+    let volume_api = VolumeApi {
+        client: &docker,
+        container: &container_api,
+    };
+
+    let init = InitApi {
+        client: &docker,
+        image: &image_api,
+        volume: &volume_api,
+        container: &container_api,
+    };
+
+    if let Cli {
+        command:
+            System(cli::System {
+                command: cli::SystemCommands::Init(init_params),
+            }),
+        ..
+    } = &args
+    {
+        init.init(
+            constants::DEFAULT_IMAGE,
+            constants::DEFAULT_UID,
+            &init_params,
+        )
+        .await?;
+        std::process::exit(0);
+    }
+
     let sys_config_result = container_api
         .one_shot_output(
             "read-sys-config",
@@ -103,11 +133,6 @@ async fn main() -> Result<(), AnyError> {
         .await?;
 
     let system_config = SystemConfig::from_string(&sys_config_result.data)?;
-
-    let volume_api = VolumeApi {
-        client: &docker,
-        container: &container_api,
-    };
 
     let rooz = Api {
         exec: &exec_api,
@@ -131,7 +156,6 @@ async fn main() -> Result<(), AnyError> {
         api: &rooz,
         git: &git_api,
         config: &config_api,
-        crypt: &crypt_api,
     };
 
     match args {
@@ -151,11 +175,7 @@ async fn main() -> Result<(), AnyError> {
                 None => None,
             };
 
-            let labels = Labels {
-                workspace: Labels::workspace(&name),
-                role: Labels::role(labels::ROLE_WORK),
-                ..Default::default()
-            };
+            let labels = Labels::from(&[Labels::workspace(&name), Labels::role(labels::ROLE_WORK)]);
 
             match workspace.api.container.get_single(&labels).await? {
                     Some(_) => Err(format!("Workspace already exists. Did you mean: rooz enter {}? Otherwise, use rooz update to modify the workspace.", name.clone())),
@@ -330,6 +350,7 @@ async fn main() -> Result<(), AnyError> {
                     local_docker_host: _,
                 }),
         } => {
+            unreachable!()
             //TODO: this needs to be handled more elegantly. I.e. Rooz should
             // only connect to Docker API when actually running commands requiring that
             // this command only forwards a local socket to a remote one.
@@ -348,16 +369,11 @@ async fn main() -> Result<(), AnyError> {
         Cli {
             command:
                 System(cli::System {
-                    command: cli::SystemCommands::Init(init_params),
+                    command: cli::SystemCommands::Init(_),
                 }),
             ..
         } => {
-            rooz.init(
-                constants::DEFAULT_IMAGE,
-                constants::DEFAULT_UID,
-                &init_params,
-            )
-            .await?
+            unreachable!()
         }
 
         Cli {

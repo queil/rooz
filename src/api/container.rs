@@ -50,7 +50,7 @@ pub fn inject(script: &str, name: &str) -> Vec<String> {
 impl<'a> ContainerApi<'a> {
     pub async fn get_all(&self, labels: &Labels) -> Result<Vec<ContainerSummary>, AnyError> {
         let list_options = ListContainersOptions {
-            filters: Some(labels.into()),
+            filters: Some(labels.clone().into()),
             all: true,
             ..Default::default()
         };
@@ -60,7 +60,7 @@ impl<'a> ContainerApi<'a> {
 
     pub async fn get_running(&self, labels: &Labels) -> Result<Vec<ContainerSummary>, AnyError> {
         let list_options = ListContainersOptions {
-            filters: Some(labels.into()),
+            filters: Some(labels.clone().into()),
             all: false,
             ..Default::default()
         };
@@ -325,7 +325,7 @@ impl<'a> ContainerApi<'a> {
             tty,
             open_stdin,
             host_config: Some(host_config),
-            labels: Some((&spec.labels).into()),
+            labels: Some(spec.labels.into()),
             env: Some(env.iter().map(|&s| s.to_string()).collect()),
             ..Default::default()
         };
