@@ -10,11 +10,35 @@ use crate::{
 };
 use base64::{engine::general_purpose, Engine as _};
 use bollard::{
-    errors::Error::DockerResponseServerError, models::VolumeCreateOptions,
-    query_parameters::RemoveVolumeOptions, service::Mount,
+    errors::Error::DockerResponseServerError,
+    models::{Volume, VolumeCreateOptions},
+    query_parameters::{ListVolumesOptions, RemoveVolumeOptions},
+    service::Mount,
 };
 
 impl<'a> VolumeApi<'a> {
+    pub async fn get_all(&self, labels: &Labels) -> Result<Vec<Volume>, AnyError> {
+        let list_options = ListVolumesOptions {
+            filters: Some(labels.clone().into()),
+            ..Default::default()
+        };
+
+        Ok(self
+            .client
+            .list_volumes(Some(list_options))
+            .await?
+            .volumes
+            .unwrap_or_default())
+    }
+
+    pub async fn get_single(&self, labels: &Labels) -> Result<Option<Volume>, AnyError> {
+        match self.get_all(&labels).await?.as_slice() {
+            [] => Ok(None),
+            [volume] => Ok(Some(volume.clone())),
+            _ => panic!("Too many volumes found"),
+        }
+    }
+
     async fn create_volume(&self, options: VolumeCreateOptions) -> Result<VolumeResult, AnyError> {
         match &self.client.create_volume(options).await {
             Ok(v) => {
@@ -101,8 +125,9 @@ impl<'a> VolumeApi<'a> {
     ) -> Result<Mount, AnyError> {
         log::debug!("Process volume: {:?}", &volume);
         let mount = volume.to_mount(tilde_replacement);
-        self.ensure_volume(&mount.source.clone().unwrap(), false, labels)
-            .await?;
+        if let Some(name) = &mount.source {
+            self.ensure_volume(&name, false, labels).await?;
+        }
         Ok(mount)
     }
 

@@ -40,6 +40,33 @@ impl<'a> ConfigApi<'a> {
         Ok(())
     }
 
+    pub async fn read(
+        &self,
+        workspace_key: &str,
+        config_type: &ConfigType,
+    ) -> Result<String, AnyError> {
+        let config_path = config_type.file_path();
+        let result = &self
+            .api
+            .container
+            .one_shot_output(
+                "read-workspace-config",
+                format!(
+                    "ls /etc/rooz/{} > /dev/null 2>&1 && cat /etc/rooz/{} || echo ''",
+                    config_path, config_path
+                )
+                .into(),
+                Some(vec![RoozVolume::workspace_config_read(
+                    workspace_key,
+                    "/etc/rooz",
+                )
+                .to_mount(None)]),
+                None,
+            )
+            .await?;
+        Ok(result.data.to_string())
+    }
+
     pub async fn store_runtime(&self, workspace_key: &str, data: &str) -> Result<(), AnyError> {
         let config_vol = RoozVolume::config_data(
             workspace_key,

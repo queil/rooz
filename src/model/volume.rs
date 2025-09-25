@@ -199,6 +199,18 @@ impl RoozVolume {
         }
     }
 
+    pub fn workspace_config_read(workspace_key: &str, path: &str) -> RoozVolume {
+        RoozVolume {
+            path: path.into(),
+            sharing: RoozVolumeSharing::Exclusive {
+                key: workspace_key.to_string(),
+            },
+            role: RoozVolumeRole::WorkspaceConfig,
+            files: None,
+            labels: None,
+        }
+    }
+
     pub fn system_config_read(path: &str) -> RoozVolume {
         RoozVolume {
             path: path.into(),
