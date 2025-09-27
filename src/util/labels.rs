@@ -87,6 +87,10 @@ impl Labels {
         (WORKSPACE_KEY, key)
     }
 
+    pub fn any_workspace() -> (&'static str, &'static str) {
+        (WORKSPACE_KEY, "")
+    }
+
     pub fn container(key: &str) -> (&str, &str) {
         (CONTAINER, key)
     }
@@ -125,7 +129,14 @@ impl From<Labels> for HashMap<String, Vec<String>> {
         let mut h = HashMap::new();
         h.insert(
             LABEL_KEY.into(),
-            value.0.iter().map(|x| format!("{}={}", x.0, x.1)).collect(),
+            value
+                .0
+                .iter()
+                .map(|x| match x {
+                    (k, v) if v == "" => k.to_string(),
+                    (k, v) => format!("{}={}", k, v),
+                })
+                .collect(),
         );
         return h;
     }

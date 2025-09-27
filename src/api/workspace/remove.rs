@@ -6,10 +6,7 @@ use bollard::{
 use crate::{
     api::WorkspaceApi,
     model::types::AnyError,
-    util::{
-        labels::{Labels, CACHE_ROLE, ROLE, WORKSPACE_CONFIG_ROLE},
-        ssh,
-    },
+    util::labels::{Labels, ROLE, WORKSPACE_CONFIG_ROLE},
 };
 
 impl<'a> WorkspaceApi<'a> {
@@ -64,24 +61,6 @@ impl<'a> WorkspaceApi<'a> {
         Ok(())
     }
 
-    // Docker volume ls doesn't support negative labels filters so any filtering must be on the client-side
-    fn delete_volume_if(v: &&Volume, keep_config: bool) -> bool {
-        match v {
-            Volume { ref name, .. } if name == ssh::VOLUME_NAME => false,
-            Volume { labels, .. } if labels.contains_key(ROLE) && labels[ROLE] == CACHE_ROLE => {
-                false
-            }
-            Volume { labels, .. }
-                if keep_config
-                    && labels.contains_key(ROLE)
-                    && labels[ROLE] == WORKSPACE_CONFIG_ROLE =>
-            {
-                false
-            }
-            _ => true,
-        }
-    }
-
     pub async fn remove(
         &self,
         workspace_key: &str,
@@ -91,7 +70,10 @@ impl<'a> WorkspaceApi<'a> {
         let labels = Labels::from(&[Labels::workspace(workspace_key)]);
         self.remove_core(
             (&labels).into(),
-            |v| WorkspaceApi::delete_volume_if(v, keep_config),
+            |v| match v.labels.get(ROLE) {
+                Some(r) if r == WORKSPACE_CONFIG_ROLE => !keep_config,
+                _ => true,
+            },
             force,
         )
         .await?;
@@ -109,9 +91,8 @@ impl<'a> WorkspaceApi<'a> {
     }
 
     pub async fn remove_all(&self, force: bool) -> Result<(), AnyError> {
-        let labels = Labels::default();
-        self.remove_core(&labels, |v| WorkspaceApi::delete_volume_if(v, false), force)
-            .await?;
+        let labels = Labels::from(&[Labels::any_workspace()]);
+        self.remove_core(&labels, |_| true, force).await?;
         Ok(())
     }
 }
