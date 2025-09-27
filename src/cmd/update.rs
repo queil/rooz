@@ -3,11 +3,11 @@ use std::fs;
 use crate::{
     api::WorkspaceApi,
     cli::{WorkEnvParams, WorkParams},
-    config::config::{ConfigPath, ConfigSource, FileFormat, RoozCfg},
+    config::config::{ConfigPath, ConfigSource, ConfigType, FileFormat, RoozCfg},
     model::types::AnyError,
     util::{
         git::CloneEnv,
-        labels::{self, Labels, WORK_ROLE},
+        labels::{self, Labels, WORKSPACE_CONFIG_ROLE},
     },
 };
 
@@ -25,89 +25,91 @@ impl<'a> WorkspaceApi<'a> {
         mode: UpdateMode,
         no_pull: bool,
     ) -> Result<(), AnyError> {
-        let labels = Labels::from(&[Labels::workspace(workspace_key), Labels::role(WORK_ROLE)]);
+        let labels = Labels::from(&[
+            Labels::workspace(workspace_key),
+            Labels::role(WORKSPACE_CONFIG_ROLE),
+        ]);
 
-        let container = self
+        let volume = self
             .api
-            .container
+            .volume
             .get_single(&labels)
             .await?
             .ok_or(format!("Workspace not found: {}", &workspace_key))?;
 
         match mode {
             UpdateMode::Apply => self.remove_containers_only(&workspace_key, true).await?,
-            UpdateMode::Purge => self.remove(&workspace_key, true).await?,
+            UpdateMode::Purge => self.remove(&workspace_key, true, true).await?,
         };
 
-        if let Some(labels) = &container.labels {
-            let config_source = &labels[labels::CONFIG_ORIGIN];
-            let format = FileFormat::from_path(config_source);
-            let config_path = ConfigPath::from_str(&config_source)?;
-            let mut original_body = labels[labels::CONFIG_BODY].clone();
+        let config_source = &volume.labels[labels::CONFIG_ORIGIN];
+        let format = FileFormat::from_path(config_source);
+        let config_path = ConfigPath::from_str(&config_source)?;
+        let mut original_body = self.config.read(workspace_key, &ConfigType::Body).await?;
 
-            if !interactive {
-                match &config_path {
-                    ConfigPath::File { path } => {
-                        original_body = fs::read_to_string(&path)?;
-                    }
-                    ConfigPath::Git { url, file_path } => {
-                        let clone_env = CloneEnv {
-                            workspace_key: workspace_key.to_string(),
-                            use_volume: false,
-                            depth_override: Some(1),
-                            ..Default::default()
-                        };
+        if !interactive {
+            match &config_path {
+                ConfigPath::File { path } => {
+                    original_body = fs::read_to_string(&path)?;
+                }
+                ConfigPath::Git { url, file_path } => {
+                    let clone_env = CloneEnv {
+                        workspace_key: workspace_key.to_string(),
+                        use_volume: false,
+                        depth_override: Some(1),
+                        ..Default::default()
+                    };
 
-                        match self
-                            .git
-                            .clone_config_repo(clone_env, &url, &file_path)
-                            .await?
-                        {
-                            Some(cfg) => original_body = cfg.to_string(),
-                            None => (),
-                        };
-                    }
-                };
-            }
-
-            let mut original_config = RoozCfg::deserialize_config(&original_body, format)?.unwrap();
-
-            let config_to_apply = if interactive {
-                let identity = self.api.system_config.age_identity()?;
-                self.config.decrypt(&mut original_config, &identity).await?;
-
-                let decrypted_string = original_config.to_string(format)?;
-                let (encrypted_config, _) = self
-                    .config
-                    .edit_string(decrypted_string.clone(), format, &identity)
-                    .await?;
-                encrypted_config
-            } else {
-                original_config
+                    match self
+                        .git
+                        .clone_config_repo(clone_env, &url, &file_path)
+                        .await?
+                    {
+                        Some(cfg) => original_body = cfg.to_string(),
+                        None => (),
+                    };
+                }
             };
-
-            self.new(
-                &labels[labels::WORKSPACE_KEY],
-                &WorkParams {
-                    git_ssh_url: match &config_path {
-                        ConfigPath::Git { url, .. } if config_path.is_in_repo() => {
-                            Some(url.to_string())
-                        }
-                        _ => None,
-                    },
-                    env: spec.clone(),
-                    pull_image: if no_pull || interactive { false } else { true },
-                    ..Default::default()
-                },
-                Some(ConfigSource::Update {
-                    value: config_to_apply,
-                    origin: config_source.to_string(),
-                    format,
-                }),
-                false,
-            )
-            .await?;
         }
+
+        let mut original_config = RoozCfg::deserialize_config(&original_body, format)?.unwrap();
+
+        let config_to_apply = if interactive {
+            let identity = self.api.system_config.age_identity()?;
+            self.config.decrypt(&mut original_config, &identity).await?;
+
+            let decrypted_string = original_config.to_string(format)?;
+            let (encrypted_config, _) = self
+                .config
+                .edit_string(decrypted_string.clone(), format, &identity)
+                .await?;
+            encrypted_config
+        } else {
+            original_config
+        };
+
+        self.new(
+            &volume.labels[labels::WORKSPACE_KEY],
+            &WorkParams {
+                git_ssh_url: match &config_path {
+                    ConfigPath::Git { url, .. } if config_path.is_in_repo() => {
+                        Some(url.to_string())
+                    }
+                    _ => None,
+                },
+                env: spec.clone(),
+                pull_image: if no_pull || interactive { false } else { true },
+                ..Default::default()
+            },
+            Some(ConfigSource::Update {
+                value: config_to_apply,
+                origin: config_source.to_string(),
+                format,
+            }),
+            false,
+        )
+        .await?;
+
         Ok(())
     }
 }
