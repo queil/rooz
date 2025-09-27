@@ -1,7 +1,13 @@
 use std::{
+    io::stdout,
     process::{Command, Stdio},
     thread::sleep,
     time::Duration,
+};
+
+use crossterm::{
+    execute,
+    terminal::{Clear, ClearType},
 };
 
 use crate::{
@@ -9,7 +15,7 @@ use crate::{
     config::{config::ConfigType, runtime::RuntimeConfig},
     constants::{self},
     model::{types::AnyError, volume::RoozVolume},
-    util::labels::{Labels},
+    util::labels::Labels,
 };
 
 impl<'a> WorkspaceApi<'a> {
@@ -71,7 +77,7 @@ impl<'a> WorkspaceApi<'a> {
 
         // the loop here is needed for auto-reconnecting the session
         loop {
-            println!("{}", termion::clear::All);
+            execute!(stdout(), Clear(ClearType::All))?;
             match self.start(workspace_key).await {
                 Ok(_) => (),
                 Err(e) => {

@@ -1,6 +1,6 @@
 [package]
 name = "rooz"
-version = "0.132.1"
+version = "0.133.0"
 edition = "2021"
 
 [dependencies]
@@ -11,6 +11,14 @@ bollard-stubs = "1.49.0-rc.28.3.3"
 clap = { version = "4.5.16", features = ["derive", "env"] }
 clap_complete = "4.5.24"
 colored = "3.0.0"
+crossterm = {version = "0.29.0", default-features = false, features = [
+    "events",
+    "use-dev-tty", 
+    # Add these when you need fancy display:
+    # "cursor",
+    # "style", 
+    # "terminal",
+] }
 ctrlc = "3.4.5"
 edit = "0.1.5"
 env_logger = "0.11.5"
@@ -27,7 +35,6 @@ serde = "1.0.209"
 serde_yaml = "0.9.34"
 shellexpand = "3.1.0"
 tabled = "0.20.0"
-termion = "4.0.2"
-tokio = { version = "1.46", features = ["rt-multi-thread", "macros"] }
+tokio = { version = "1.46", features = ["rt-multi-thread", "macros", "io-std"] }
 toml = "0.9.2"
 url = "2.5.2"

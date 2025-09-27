@@ -7,14 +7,17 @@ use bollard::{
     exec::{CreateExecOptions, ResizeExecOptions, StartExecResults},
     secret::ExecInspectResponse,
 };
-use futures::{channel::oneshot, Stream, StreamExt};
+use futures::{Stream, StreamExt};
 
-use std::{
-    io::{stdout, Read, Write},
-    time::Duration,
+use std::{io::Read, time::Duration};
+
+use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
+use tokio::{
+    io::{unix::AsyncFd, AsyncWriteExt},
+    select, spawn,
+    sync::broadcast,
+    time::sleep,
 };
-use termion::{raw::IntoRawMode, terminal_size};
-use tokio::{io::AsyncWriteExt, spawn, time::sleep};
 
 async fn collect(stream: impl Stream<Item = Result<LogOutput, Error>>) -> Result<String, AnyError> {
     let out = stream
@@ -33,12 +36,28 @@ async fn collect(stream: impl Stream<Item = Result<LogOutput, Error>>) -> Result
 }
 
 impl<'a> ExecApi<'a> {
+    async fn handle_output<S>(&self, mut output: S)
+    where
+        S: Stream<Item = Result<LogOutput, bollard::errors::Error>> + Unpin,
+    {
+        let mut stdout = tokio::io::stdout();
+        while let Some(Ok(out)) = output.next().await {
+            let bytes = out.into_bytes();
+
+            while let Err(_) = stdout.write_all(&bytes).await {
+                sleep(Duration::from_millis(10)).await;
+            }
+
+            while let Err(_) = stdout.flush().await {
+                sleep(Duration::from_millis(10)).await;
+            }
+        }
+    }
+
     async fn start_tty(&self, exec_id: &str, interactive: bool) -> Result<(), AnyError> {
-        let tty_size = terminal_size()?;
-        if let StartExecResults::Attached {
-            mut output,
-            mut input,
-        } = self.client.start_exec(exec_id, None).await?
+        let (width, height) = crossterm::terminal::size()?;
+        if let StartExecResults::Attached { output, mut input } =
+            self.client.start_exec(exec_id, None).await?
         {
             let exec_state = self.client.inspect_exec(&exec_id).await?;
 
@@ -50,55 +69,47 @@ impl<'a> ExecApi<'a> {
                     },
                     true,
                 ) => {
-                    let (s, mut r) = oneshot::channel::<bool>();
+                    enable_raw_mode()?;
+
+                    let stdin_reader = std::io::stdin();
+                    let async_stdin = AsyncFd::new(stdin_reader)?;
+
+                    let mut buffer = [0; 1024];
+                    let (s, mut r) = broadcast::channel::<bool>(1);
                     let handle = spawn(async move {
-                        let stdin = termion::async_stdin();
-                        let mut bytes = stdin.bytes();
                         loop {
-                            match bytes.next() {
-                                Some(Ok(b)) => {
-                                    input.write(&[b]).await.ok();
-                                }
-                                _ => {
-                                    if let Some(true) = r.try_recv().unwrap() {
-                                        break;
+                            select! {
+                                guard = async_stdin.readable() => {
+                                    let mut guard = guard?;
+                                    match guard.try_io(|inner| inner.get_ref().read(&mut buffer)) {
+                                        Ok(Ok(n)) => {
+                                            input.write_all(&buffer[..n]).await?;
+                                            guard.clear_ready();
+                                        }
+                                        _ => {}
                                     }
-                                    sleep(Duration::from_millis(10)).await;
                                 }
+
+                              _ = r.recv() => {break}
+                              _ = sleep(Duration::from_millis(10)) => { }
+
                             }
                         }
+                        Result::<(), AnyError>::Ok(())
                     });
 
                     self.client
-                        .resize_exec(
-                            exec_id,
-                            ResizeExecOptions {
-                                height: tty_size.1,
-                                width: tty_size.0,
-                            },
-                        )
+                        .resize_exec(exec_id, ResizeExecOptions { height, width })
                         .await
                         .inspect_err(|e| log::debug!("Exec might have already terminated: {}", e))
                         .ok();
 
-                    // set stdout in raw mode so we can do tty stuff
-                    let stdout = stdout();
-                    let mut stdout = stdout.lock().into_raw_mode()?;
-                    // pipe docker exec output into stdout
-                    while let Some(Ok(out)) = output.next().await {
-                        let bytes = out.clone().into_bytes();
-
-                        while let Err(_) = stdout.write_all(bytes.as_ref()) {
-                            sleep(Duration::from_millis(10)).await;
-                        }
-
-                        while let Err(_) = stdout.flush() {
-                            sleep(Duration::from_millis(10)).await;
-                        }
-                    }
+                    self.handle_output(output).await;
 
                     s.send(true).ok();
-                    handle.await?;
+
+                    handle.await??;
+                    disable_raw_mode()?;
                     // try ping to see if the connection was lost
                     // if this fails the calling code loops retrying to connect to the session
                     self.client.ping().await?;
@@ -110,21 +121,7 @@ impl<'a> ExecApi<'a> {
                     },
                     false,
                 ) => {
-                    // set stdout in raw mode so we can do tty stuff
-                    let stdout = stdout();
-                    let mut stdout = stdout.lock();
-                    // pipe docker exec output into stdout
-                    while let Some(Ok(out)) = output.next().await {
-                        let bytes = out.clone().into_bytes();
-
-                        while let Err(_) = stdout.write_all(bytes.as_ref()) {
-                            sleep(Duration::from_millis(10)).await;
-                        }
-
-                        while let Err(_) = stdout.flush() {
-                            sleep(Duration::from_millis(10)).await;
-                        }
-                    }
+                    self.handle_output(output).await;
                 }
                 (
                     ExecInspectResponse {
@@ -133,21 +130,7 @@ impl<'a> ExecApi<'a> {
                     },
                     _,
                 ) => {
-                    // set stdout in raw mode so we can do tty stuff
-                    let stdout = stdout();
-                    let mut stdout = stdout.lock();
-                    // pipe docker exec output into stdout
-                    while let Some(Ok(out)) = output.next().await {
-                        let bytes = out.clone().into_bytes();
-
-                        while let Err(_) = stdout.write_all(bytes.as_ref()) {
-                            sleep(Duration::from_millis(10)).await;
-                        }
-
-                        while let Err(_) = stdout.flush() {
-                            sleep(Duration::from_millis(10)).await;
-                        }
-                    }
+                    self.handle_output(output).await;
                     if exit_code != 0 {
                         panic!("Exec terminated with exit code: {}.", exit_code);
                     }

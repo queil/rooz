@@ -38,9 +38,7 @@ impl Default for RuntimeConfig {
 }
 
 impl RuntimeConfig {
-    pub fn from_string(
-        config: String,
-    ) -> Result<RuntimeConfig, Box<dyn std::error::Error + 'static>> {
+    pub fn from_string(config: String) -> Result<RuntimeConfig, AnyError> {
         match serde_yaml::from_str(&config) {
             Ok(val) => Ok(val),
             Err(e) => Err(Box::new(e)),
