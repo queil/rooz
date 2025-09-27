@@ -7,7 +7,7 @@ use std::{
 use crate::{
     api::WorkspaceApi,
     config::runtime::RuntimeConfig,
-    constants,
+    constants::{self},
     model::{types::AnyError, volume::RoozVolume},
     util::labels::{self, Labels},
 };
@@ -44,8 +44,10 @@ impl<'a> WorkspaceApi<'a> {
         root: bool,
         ephemeral: bool,
     ) -> Result<(), AnyError> {
-        let enter_labels = Labels::new(Some(workspace_key), None)
-            .with_container(container_id.or(Some(constants::DEFAULT_CONTAINER_NAME)));
+        let enter_labels = Labels::from(&[
+            Labels::workspace(workspace_key),
+            Labels::container(container_id.unwrap_or(constants::DEFAULT_CONTAINER_NAME)),
+        ]);
 
         let container = self
             .api

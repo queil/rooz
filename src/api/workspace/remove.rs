@@ -4,12 +4,9 @@ use bollard::{
 };
 
 use crate::{
-    api::{self, WorkspaceApi},
-    model::{types::AnyError, volume::CACHE_ROLE},
-    util::{
-        labels::{Labels, ROLE},
-        ssh,
-    },
+    api::WorkspaceApi,
+    model::types::AnyError,
+    util::labels::{Labels, ROLE, WORKSPACE_CONFIG_ROLE},
 };
 
 impl<'a> WorkspaceApi<'a> {
@@ -22,10 +19,13 @@ impl<'a> WorkspaceApi<'a> {
         Ok(())
     }
 
-    async fn remove_core(&self, labels: &Labels, force: bool) -> Result<(), AnyError> {
+    async fn remove_core<F>(&self, labels: &Labels, filter: F, force: bool) -> Result<(), AnyError>
+    where
+        F: FnMut(&&Volume) -> bool,
+    {
         self.remove_containers(labels, force).await?;
         let ls_vol_options = ListVolumesOptions {
-            filters: Some(labels.into()),
+            filters: Some(labels.clone().into()),
             ..Default::default()
         };
 
@@ -36,24 +36,13 @@ impl<'a> WorkspaceApi<'a> {
             .await?
             .volumes
         {
-            for v in volumes {
-                match v {
-                    Volume { ref name, .. }
-                        if name == ssh::VOLUME_NAME || name == api::crypt::VOLUME_NAME =>
-                    {
-                        continue;
-                    }
-                    Volume { labels, .. } => match labels.get(ROLE) {
-                        Some(role) if role == CACHE_ROLE => continue,
-                        _ => {}
-                    },
-                };
+            for v in volumes.iter().filter(filter) {
                 self.api.volume.remove_volume(&v.name, force).await?
             }
         }
 
         let ls_network_options = ListNetworksOptions {
-            filters: Some(labels.into()),
+            filters: Some(labels.clone().into()),
         };
         for n in self
             .api
@@ -72,9 +61,22 @@ impl<'a> WorkspaceApi<'a> {
         Ok(())
     }
 
-    pub async fn remove(&self, workspace_key: &str, force: bool) -> Result<(), AnyError> {
-        let labels = Labels::new(Some(workspace_key), None);
-        self.remove_core((&labels).into(), force).await?;
+    pub async fn remove(
+        &self,
+        workspace_key: &str,
+        keep_config: bool,
+        force: bool,
+    ) -> Result<(), AnyError> {
+        let labels = Labels::from(&[Labels::workspace(workspace_key)]);
+        self.remove_core(
+            (&labels).into(),
+            |v| match v.labels.get(ROLE) {
+                Some(r) if r == WORKSPACE_CONFIG_ROLE => !keep_config,
+                _ => true,
+            },
+            force,
+        )
+        .await?;
         Ok(())
     }
 
@@ -83,14 +85,14 @@ impl<'a> WorkspaceApi<'a> {
         workspace_key: &str,
         force: bool,
     ) -> Result<(), AnyError> {
-        let labels = Labels::new(Some(workspace_key), None);
+        let labels = Labels::from(&[Labels::workspace(workspace_key)]);
         self.remove_containers((&labels).into(), force).await?;
         Ok(())
     }
 
     pub async fn remove_all(&self, force: bool) -> Result<(), AnyError> {
-        let labels = Labels::default();
-        self.remove_core(&labels, force).await?;
+        let labels = Labels::from(&[Labels::any_workspace()]);
+        self.remove_core(&labels, |_| true, force).await?;
         Ok(())
     }
 }

@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use bollard::{
     query_parameters::{ListContainersOptions, ListVolumesOptions, RemoveVolumeOptions},
     service::ContainerSummary,
@@ -8,14 +6,10 @@ use bollard::{
 use crate::{api::Api, model::types::AnyError, util::labels::Labels};
 
 impl<'a> Api<'a> {
-    async fn prune(
-        &self,
-        filters: HashMap<String, Vec<String>>,
-        force: bool,
-    ) -> Result<(), AnyError> {
+    async fn prune(&self, filters: Labels, force: bool) -> Result<(), AnyError> {
         let ls_container_options = ListContainersOptions {
             all: true,
-            filters: Some(filters.clone()),
+            filters: Some(filters.clone().into()),
             ..Default::default()
         };
         for cs in self
@@ -30,7 +24,7 @@ impl<'a> Api<'a> {
         }
 
         let ls_vol_options = ListVolumesOptions {
-            filters: Some(filters.clone()),
+            filters: Some(filters.into()),
             ..Default::default()
         };
 
@@ -57,7 +51,6 @@ impl<'a> Api<'a> {
     }
 
     pub async fn prune_system(&self) -> Result<(), AnyError> {
-        let labels = Labels::default();
-        self.prune((&labels).into(), true).await
+        self.prune(Labels::default(), true).await
     }
 }

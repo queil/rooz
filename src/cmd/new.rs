@@ -4,7 +4,7 @@ use crate::{
     api::WorkspaceApi,
     cli::WorkParams,
     config::{
-        config::{ConfigPath, ConfigSource, ConfigType, FileFormat, RoozCfg},
+        config::{ConfigPath, ConfigSource, FileFormat, RoozCfg},
         runtime::RuntimeConfig,
     },
     constants,
@@ -62,18 +62,12 @@ impl<'a> WorkspaceApi<'a> {
             )
             .await?;
 
-        let labels = work_spec
-            .labels
-            .clone()
-            .with_container(Some(constants::DEFAULT_CONTAINER_NAME))
-            .with_runtime_config(cfg.clone());
+        let mut labels = work_spec.labels.clone();
+
+        labels.extend(&[Labels::container(constants::DEFAULT_CONTAINER_NAME)]);
 
         self.config
-            .store(
-                workspace_key,
-                &ConfigType::Runtime,
-                &cfg.clone().to_string()?,
-            )
+            .store_runtime(workspace_key, &cfg.clone().to_string()?)
             .await?;
 
         let work_spec = WorkSpec {
@@ -112,7 +106,6 @@ impl<'a> WorkspaceApi<'a> {
         workspace_key: &str,
         cli_config_path: &Option<ConfigSource>,
         clone_env: &CloneEnv,
-        labels: &mut Labels,
     ) -> Result<Option<RoozCfg>, AnyError> {
         let val = if let Some(source) = &cli_config_path {
             let (origin, body, rooz_cfg): (String, Option<String>, Option<RoozCfg>) = match source {
@@ -154,23 +147,10 @@ impl<'a> WorkspaceApi<'a> {
                 },
             };
 
-            *labels = Labels {
-                config_source: Labels::config_origin(&origin),
-                ..labels.clone()
-            };
             self.config
-                .store(workspace_key, &ConfigType::Origin, &origin)
+                .store(workspace_key, &origin, &body.unwrap())
                 .await?;
 
-            if let Some(b) = &body {
-                *labels = Labels {
-                    config_body: Labels::config_body(&b),
-                    ..labels.clone()
-                };
-                self.config
-                    .store(workspace_key, &ConfigType::Body, &b)
-                    .await?;
-            }
             rooz_cfg
         } else {
             None
@@ -191,11 +171,10 @@ impl<'a> WorkspaceApi<'a> {
             .map(|x| x.to_string())
             .unwrap_or(constants::DEFAULT_UID.to_string());
 
-        let mut labels = Labels {
-            workspace: Labels::workspace(&workspace_key),
-            role: Labels::role(labels::ROLE_WORK),
-            ..Default::default()
-        };
+        let labels = Labels::from(&[
+            Labels::workspace(&workspace_key),
+            Labels::role(labels::WORK_ROLE),
+        ]);
 
         self.api
             .image
@@ -212,7 +191,7 @@ impl<'a> WorkspaceApi<'a> {
         };
 
         let cli_cfg = self
-            .get_cli_config(workspace_key, &cli_config_path, &clone_env, &mut labels)
+            .get_cli_config(workspace_key, &cli_config_path, &clone_env)
             .await?;
 
         let work_spec = WorkSpec {
@@ -238,18 +217,7 @@ impl<'a> WorkspaceApi<'a> {
                                 cfg_builder.from_config(&c);
                                 log::debug!("Config file applied.");
                                 let origin = format!("{}//.rooz.{}", url, format.to_string());
-                                labels = Labels {
-                                    config_source: Labels::config_origin(&origin),
-                                    config_body: Labels::config_body(&body),
-                                    ..labels
-                                };
-                                self.config
-                                    .store(workspace_key, &ConfigType::Origin, &origin)
-                                    .await?;
-
-                                self.config
-                                    .store(workspace_key, &ConfigType::Body, &body)
-                                    .await?;
+                                self.config.store(workspace_key, &origin, &body).await?;
                             }
                             None => {
                                 log::debug!("No valid config file found in the repository.");

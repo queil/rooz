@@ -4,7 +4,7 @@ use colored::Colorize;
 use handlebars::{no_escape, Handlebars};
 use linked_hash_map::LinkedHashMap;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, ffi::OsStr, fs, path::Path};
+use std::{collections::HashMap, ffi::OsStr, path::Path};
 
 #[derive(Debug, Clone)]
 pub enum ConfigSource {
@@ -59,7 +59,6 @@ impl<'a> ConfigPath {
 
 #[derive(Debug, Clone, Copy)]
 pub enum ConfigType {
-    Origin,
     Body,
     Runtime,
 }
@@ -67,7 +66,6 @@ pub enum ConfigType {
 impl ConfigType {
     pub fn file_path(&self) -> &str {
         match self {
-            ConfigType::Origin => "origin.config",
             ConfigType::Body => "workspace.config",
             ConfigType::Runtime => "runtime.config",
         }
@@ -191,12 +189,6 @@ impl RoozCfg {
             FileFormat::Yaml => serde_yaml::from_str(&config)?,
             FileFormat::Toml => toml::from_str(&config)?,
         })
-    }
-
-    pub fn to_file(&self, path: &str) -> Result<(), AnyError> {
-        let file_format = FileFormat::from_path(path);
-        fs::write(path, self.to_string(file_format)?)?;
-        Ok(())
     }
 
     pub fn to_string(&self, file_format: FileFormat) -> Result<String, AnyError> {

@@ -2,11 +2,7 @@ use crate::api::CryptApi;
 use crate::config::config::SystemConfig;
 use crate::model::types::AnyError;
 use age::x25519::Identity;
-use bollard::models::MountTypeEnum::VOLUME;
-use bollard::service::Mount;
 use std::str::FromStr;
-
-pub const VOLUME_NAME: &'static str = "rooz-age-key-vol";
 
 impl SystemConfig {
     pub fn age_identity(&self) -> Result<Identity, AnyError> {
@@ -17,15 +13,6 @@ impl SystemConfig {
 }
 
 impl CryptApi {
-    pub fn mount(&self, target: &str) -> Mount {
-        Mount {
-            typ: Some(VOLUME),
-            source: Some(VOLUME_NAME.into()),
-            target: Some(target.into()),
-            ..Default::default()
-        }
-    }
-
     pub fn encrypt(
         &self,
         plaintext: String,

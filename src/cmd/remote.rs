@@ -20,7 +20,7 @@ use tokio::{
     net::TcpStream,
 };
 
-use crate::{model::types::AnyError, util::labels};
+use crate::{model::types::AnyError, util::labels::Labels};
 
 const LOCALHOST_IP: &str = "127.0.0.1";
 
@@ -171,7 +171,7 @@ fn is_available(port: &u16) -> bool {
 async fn get_docker_ports(docker: &Docker) -> Result<HashMap<u16, Tunnel>, AnyError> {
     let containers = match docker
         .list_containers(Some(ListContainersOptions {
-            filters: Some((&labels::Labels::default()).into()),
+            filters: Some(Labels::default().into()),
             ..Default::default()
         }))
         .await
@@ -405,5 +405,5 @@ pub async fn remote(ssh_url: &str, local_docker_host: &str) -> Result<(), AnyErr
     }
     // TODO: close forwarded socket
     session.close().await?;
-    std::process::exit(0);
+    Ok(())
 }
