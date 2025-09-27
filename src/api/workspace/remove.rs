@@ -68,16 +68,33 @@ impl<'a> WorkspaceApi<'a> {
     fn delete_volume_if(v: &&Volume, keep_config: bool) -> bool {
         match v {
             Volume { ref name, .. } if name == ssh::VOLUME_NAME => false,
-            Volume { labels, .. } if labels.contains_key(ROLE) && labels[ROLE] == CACHE_ROLE => false,
-            Volume { labels, .. } if keep_config && labels.contains_key(ROLE) && labels[ROLE] == WORKSPACE_CONFIG_ROLE => false,
-            _ => true
+            Volume { labels, .. } if labels.contains_key(ROLE) && labels[ROLE] == CACHE_ROLE => {
+                false
+            }
+            Volume { labels, .. }
+                if keep_config
+                    && labels.contains_key(ROLE)
+                    && labels[ROLE] == WORKSPACE_CONFIG_ROLE =>
+            {
+                false
+            }
+            _ => true,
         }
     }
 
-    pub async fn remove(&self, workspace_key: &str, keep_config: bool, force: bool) -> Result<(), AnyError> {
+    pub async fn remove(
+        &self,
+        workspace_key: &str,
+        keep_config: bool,
+        force: bool,
+    ) -> Result<(), AnyError> {
         let labels = Labels::from(&[Labels::workspace(workspace_key)]);
-        self.remove_core((&labels).into(), |v| WorkspaceApi::delete_volume_if(v, keep_config), force)
-            .await?;
+        self.remove_core(
+            (&labels).into(),
+            |v| WorkspaceApi::delete_volume_if(v, keep_config),
+            force,
+        )
+        .await?;
         Ok(())
     }
 
