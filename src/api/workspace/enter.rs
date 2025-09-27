@@ -6,10 +6,10 @@ use std::{
 
 use crate::{
     api::WorkspaceApi,
-    config::runtime::RuntimeConfig,
+    config::{config::ConfigType, runtime::RuntimeConfig},
     constants::{self},
     model::{types::AnyError, volume::RoozVolume},
-    util::labels::{self, Labels},
+    util::labels::{Labels},
 };
 
 impl<'a> WorkspaceApi<'a> {
@@ -56,14 +56,12 @@ impl<'a> WorkspaceApi<'a> {
             .await?
             .ok_or(format!("Workspace not found: {}", &workspace_key))?;
 
-        let mut shell_value = vec![constants::DEFAULT_SHELL.to_string()];
+        let config = self
+            .config
+            .read(workspace_key, &ConfigType::Runtime)
+            .await?;
 
-        if let Some(labels) = &container.labels {
-            if labels.contains_key(labels::RUNTIME_CONFIG) {
-                shell_value =
-                    RuntimeConfig::from_string(labels[labels::RUNTIME_CONFIG].clone())?.shell;
-            }
-        }
+        let mut shell_value = RuntimeConfig::from_string(config)?.shell;
 
         if let Some(shell) = shell {
             shell_value = shell.iter().map(|v| v.to_string()).collect::<Vec<_>>();
