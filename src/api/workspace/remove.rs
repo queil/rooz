@@ -64,7 +64,7 @@ impl<'a> WorkspaceApi<'a> {
         Ok(())
     }
 
-    //TODO: maybe support excluding roles via negative filters in labels
+    // Docker volume ls doesn't support negative labels filters so any filtering must be on the client-side
     fn delete_volume_if(v: &&Volume, keep_config: bool) -> bool {
         match v {
             Volume { ref name, .. } if name == ssh::VOLUME_NAME => false,
