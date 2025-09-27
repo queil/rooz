@@ -85,7 +85,7 @@ async fn connect(
     Ok(session)
 }
 
-async fn test_http_tunnel(host: &str, port: u16) -> Result<bool, Box<dyn std::error::Error>> {
+async fn test_http_tunnel(host: &str, port: u16) -> Result<bool, AnyError> {
     log::debug!("Testing tunnel: {}:{}", host, port);
 
     let mut stream = match TcpStream::connect((host, port)).await {

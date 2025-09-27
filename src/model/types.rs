@@ -6,7 +6,7 @@ use crate::{
 use bollard::service::Mount;
 use std::collections::HashMap;
 
-pub type AnyError = Box<dyn std::error::Error + 'static>;
+pub type AnyError = Box<dyn std::error::Error + Send + Sync>;
 
 #[derive(Debug, Clone)]
 pub enum ContainerResult {
