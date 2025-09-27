@@ -2323,7 +2323,7 @@ checksum = "caf4aa5b0f434c91fe5c7f1ecb6a5ece2130b02ad2a590589dda5146df959001"
 
 [[package]]
 name = "rooz"
-version = "0.131.0"
+version = "0.132.0"
 dependencies = [
  "age",
  "base64 0.22.1",
