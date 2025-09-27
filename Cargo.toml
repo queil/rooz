@@ -14,7 +14,6 @@ colored = "3.0.0"
 crossterm = {version = "0.29.0", default-features = false, features = [
     "events",
     "use-dev-tty", 
-    # Add these when you need fancy display:
     # "cursor",
     # "style", 
     # "terminal",
