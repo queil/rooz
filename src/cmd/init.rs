@@ -27,14 +27,7 @@ impl<'a> InitApi<'a> {
                     "/tmp/sys",
                     SystemConfig {
                         age_key: Some(age_key.to_string().expose_secret().to_string()),
-                        gitconfig: Some(
-                            r#"
-[core]
-  sshCommand = ssh -i /tmp/.ssh/id_ed25519 -o UserKnownHostsFile=/tmp/.ssh/known_hosts
-"#
-                            .trim()
-                            .to_string(),
-                        ),
+                        gitconfig: None,
                     },
                 )?],
                 None,
