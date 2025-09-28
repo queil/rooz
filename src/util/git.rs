@@ -136,7 +136,7 @@ impl<'a> ExecApi<'a> {
 
 impl<'a> GitApi<'a> {
     async fn clone_from_spec(&self, spec: &CloneEnv, urls: &CloneUrls) -> Result<String, AnyError> {
-        let mut clone_script = String::new();
+        let mut clone_script = "export GIT_SSH_COMMAND='ssh -i /tmp/.ssh/id_ed25519 -o UserKnownHostsFile=/tmp/.ssh/known_hosts'\n".to_string();
         let all_urls: Vec<String> = match &urls {
             CloneUrls::Root { url } => vec![url.to_string()],
             CloneUrls::Extra { urls } => {

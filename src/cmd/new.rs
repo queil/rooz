@@ -64,7 +64,7 @@ impl<'a> WorkspaceApi<'a> {
 
         let mut labels = work_spec.labels.clone();
 
-        labels.extend(&[Labels::container(constants::DEFAULT_CONTAINER_NAME)]);
+        labels.extend(&[Labels::container(constants::WORK_CONTAINER_NAME)]);
 
         self.config
             .store_runtime(workspace_key, &cfg.clone().to_string()?)

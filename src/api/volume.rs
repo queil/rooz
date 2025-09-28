@@ -42,7 +42,7 @@ impl<'a> VolumeApi<'a> {
     async fn create_volume(&self, options: VolumeCreateOptions) -> Result<VolumeResult, AnyError> {
         match &self.client.create_volume(options).await {
             Ok(v) => {
-                log::debug!("Volume created: {:?}", v.name);
+                log::debug!("Volume created: {}", v.name);
                 return Ok(VolumeResult::Created);
             }
             Err(e) => panic!("{}", e),
@@ -99,9 +99,12 @@ impl<'a> VolumeApi<'a> {
     ) -> Result<Vec<Mount>, AnyError> {
         let mut mounts = vec![];
         for v in volumes {
-            let mount = self
-                .ensure_mount(&v, tilde_replacement, v.labels.clone())
-                .await?;
+            log::debug!("Process volume: {:?}", &v);
+            let mount = v.to_mount(tilde_replacement);
+            if let Some(name) = &mount.source {
+                self.ensure_volume(&name, false, v.labels.clone()).await?;
+            }
+
             if let RoozVolume {
                 path,
                 files: Some(files),
@@ -115,20 +118,6 @@ impl<'a> VolumeApi<'a> {
             mounts.push(mount);
         }
         Ok(mounts.clone())
-    }
-
-    async fn ensure_mount(
-        &self,
-        volume: &RoozVolume,
-        tilde_replacement: Option<&str>,
-        labels: Option<Labels>,
-    ) -> Result<Mount, AnyError> {
-        log::debug!("Process volume: {:?}", &volume);
-        let mount = volume.to_mount(tilde_replacement);
-        if let Some(name) = &mount.source {
-            self.ensure_volume(&name, false, labels).await?;
-        }
-        Ok(mount)
     }
 
     async fn ensure_file(

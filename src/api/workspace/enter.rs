@@ -52,7 +52,7 @@ impl<'a> WorkspaceApi<'a> {
     ) -> Result<(), AnyError> {
         let enter_labels = Labels::from(&[
             Labels::workspace(workspace_key),
-            Labels::container(container_id.unwrap_or(constants::DEFAULT_CONTAINER_NAME)),
+            Labels::container(container_id.unwrap_or(constants::WORK_CONTAINER_NAME)),
         ]);
 
         let container = self
