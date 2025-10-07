@@ -1,13 +1,13 @@
 [package]
 name = "rooz"
-version = "0.133.0"
+version = "0.134.0"
 edition = "2021"
 
 [dependencies]
 age = {version = "0.11.1", features = ["armor"] }
 base64 = "0.22.1"
-bollard = { version = "0.19.2" }
-bollard-stubs = "1.49.0-rc.28.3.3"
+bollard = { version = "0.19.3" }
+bollard-stubs = "1.49.1-rc.28.4.0"
 clap = { version = "4.5.16", features = ["derive", "env"] }
 clap_complete = "4.5.24"
 colored = "3.0.0"
