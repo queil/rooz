@@ -12,25 +12,17 @@ use crate::{
 
 impl<'a> WorkspaceApi<'a> {
     pub async fn create(&self, spec: &WorkSpec<'a>) -> Result<WorkspaceResult, AnyError> {
-        let home_dir = format!("/home/{}", &spec.user);
-        let home_vol = RoozVolume::home(spec.container_name.into(), &home_dir);
+        let mut volumes = vec![RoozVolume::work(spec.container_name, constants::WORK_DIR)];
 
-        let mut volumes = vec![
-            home_vol.clone(),
-            RoozVolume::work(spec.container_name, constants::WORK_DIR),
-        ];
+        let auto_mounts = spec.mounts.as_ref().map(|mounts| {
+            mounts
+                .iter()
+                .map(|mount| mount.to_volume(spec.workspace_key))
+                .collect::<Vec<_>>()
+        });
 
-        if let Some(home_from_image) = spec.home_from_image {
-            self.api
-                .container
-                .one_shot(
-                    "populate-home",
-                    "exit 0".into(),
-                    Some(vec![home_vol.to_mount(None)]),
-                    Some(spec.uid),
-                    Some(home_from_image),
-                )
-                .await?;
+        if let Some(v) = auto_mounts {
+            volumes.extend_from_slice(&v.as_slice());
         }
 
         if let Some(caches) = &spec.caches {
@@ -49,6 +41,28 @@ impl<'a> WorkspaceApi<'a> {
             log::debug!("No caches configured. Skipping");
         }
 
+        let home_dir = format!("/home/{}", &spec.user);
+        //let home_vol = RoozVolume::home(spec.container_name.into(), "~");
+        //let home_target = home_vol.to_mount(Some(&home_dir)).target;
+        // if let None = volumes
+        //     .iter()
+        //     .find(|v| v.to_mount(Some(&home_dir)).target == &home_dir)
+        // {
+
+        // if let Some(home_from_image) = spec.home_from_image {
+        //     self.api
+        //         .container
+        //         .one_shot(
+        //             "populate-home",
+        //             "exit 0".into(),
+        //             Some(vec![home_vol.to_mount(Some(&home_dir))]),
+        //             Some(spec.uid),
+        //             Some(home_from_image),
+        //         )
+        //         .await?;
+        // }
+        // volumes.push(home_vol.clone());
+        // }
         let mut mounts = self
             .api
             .volume

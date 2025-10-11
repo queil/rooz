@@ -1,4 +1,5 @@
 use crate::model::types::AnyError;
+use crate::model::volume::RoozVolume;
 use crate::{cli::WorkParams, constants};
 use colored::Colorize;
 use handlebars::{no_escape, Handlebars};
@@ -98,12 +99,9 @@ impl FileFormat {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(untagged)]
-pub enum SidecarMount {
+pub enum RoozMountSpec {
     Empty(String),
-    Files {
-        mount: String,
-        files: HashMap<String, String>,
-    },
+    Files { mount: String, file: String },
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -117,7 +115,7 @@ pub struct RoozSidecar {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub args: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub mounts: Option<Vec<SidecarMount>>,
+    pub mounts: Option<Vec<RoozMountSpec>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ports: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -156,6 +154,8 @@ pub struct RoozCfg {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ports: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub mounts: Option<Vec<RoozMountSpec>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub privileged: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub env: Option<LinkedHashMap<String, String>>,
@@ -179,6 +179,7 @@ impl Default for RoozCfg {
             privileged: None,
             env: Some(LinkedHashMap::new()),
             sidecars: Some(LinkedHashMap::new()),
+            mounts: Some(Vec::new()),
         }
     }
 }
@@ -242,6 +243,7 @@ impl RoozCfg {
             privileged: config.privileged.clone().or(self.privileged.clone()),
             env: Self::extend_if_any(self.env.clone(), config.env.clone()),
             sidecars: Self::extend_if_any(self.sidecars.clone(), config.sidecars.clone()),
+            mounts: Self::extend_if_any(self.mounts.clone(), config.mounts.clone()),
         }
     }
 
@@ -340,6 +342,19 @@ impl RoozCfg {
                     e.to_string().yellow()
                 );
                 Ok(None)
+            }
+        }
+    }
+}
+
+impl RoozMountSpec {
+    pub fn to_volume(&self, workspace_key: &str) -> RoozVolume {
+        match self {
+            RoozMountSpec::Empty(mount) => {
+                RoozVolume::config_data(workspace_key, mount, None, None, None)
+            }
+            RoozMountSpec::Files { mount, file } => {
+                RoozVolume::config_data(workspace_key, mount, Some(file.to_string()), None, None)
             }
         }
     }

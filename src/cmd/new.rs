@@ -72,7 +72,6 @@ impl<'a> WorkspaceApi<'a> {
 
         let work_spec = WorkSpec {
             image: &cfg.image,
-            home_from_image: cfg.home_from_image.as_deref(),
             user: &cfg.user,
             caches: Some(cfg.caches),
             env_vars: Some(cfg.env),
@@ -85,6 +84,7 @@ impl<'a> WorkspaceApi<'a> {
             labels,
             privileged: cfg.privileged,
             entrypoint: constants::default_entrypoint(),
+            mounts: Some(cfg.mounts),
             ..*work_spec
         };
 

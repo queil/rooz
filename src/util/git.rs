@@ -169,12 +169,10 @@ impl<'a> GitApi<'a> {
         let mut volumes: Vec<RoozVolume> = vec![];
 
         if let Some(gitconfig) = &self.api.system_config.gitconfig {
-            let mut config_hashmap = HashMap::<String, String>::new();
-            config_hashmap.insert(".gitconfig".into(), gitconfig.to_string());
             let git_config_vol = RoozVolume::config_data(
                 &spec.workspace_key,
-                "/tmp/rooz/",
-                Some(config_hashmap),
+                "/tmp/rooz/.gitconfig",
+                Some(gitconfig.to_string()),
                 None,
                 None,
             );

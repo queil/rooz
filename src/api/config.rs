@@ -24,12 +24,8 @@ impl<'a> ConfigApi<'a> {
     ) -> Result<(), AnyError> {
         let config_vol = RoozVolume::config_data(
             workspace_key,
-            "/etc/rooz",
-            Some(
-                [(ConfigType::Body.file_path().to_string(), body.to_string())]
-                    .into_iter()
-                    .collect(),
-            ),
+            &format!("/etc/rooz/{}", ConfigType::Body.file_path().to_string()),
+            Some(body.to_string()),
             Some(Labels::from(&[Labels::config_origin(origin)])),
             Some(RoozVolumeRole::WorkspaceConfig),
         );
@@ -70,15 +66,8 @@ impl<'a> ConfigApi<'a> {
     pub async fn store_runtime(&self, workspace_key: &str, data: &str) -> Result<(), AnyError> {
         let config_vol = RoozVolume::config_data(
             workspace_key,
-            "/etc/rooz",
-            Some(
-                [(
-                    ConfigType::Runtime.file_path().to_string(),
-                    data.to_string(),
-                )]
-                .into_iter()
-                .collect(),
-            ),
+            &format!("/etc/rooz/{}", ConfigType::Runtime.file_path().to_string()),
+            Some(data.to_string()),
             None,
             Some(RoozVolumeRole::WorkspaceConfig),
         );

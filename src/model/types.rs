@@ -1,5 +1,5 @@
 use crate::{
-    config::config::RoozCfg,
+    config::config::{RoozCfg, RoozMountSpec},
     model::volume::RoozVolume,
     util::{git::RootRepoCloneResult, labels::Labels},
 };
@@ -31,7 +31,6 @@ pub enum VolumeResult {
 #[derive(Clone, Debug)]
 pub struct WorkSpec<'a> {
     pub image: &'a str,
-    pub home_from_image: Option<&'a str>,
     pub uid: &'a str,
     pub user: &'a str,
     pub container_working_dir: &'a str,
@@ -46,13 +45,13 @@ pub struct WorkSpec<'a> {
     pub env_vars: Option<HashMap<String, String>>,
     pub ports: Option<HashMap<String, Option<String>>>,
     pub entrypoint: Option<Vec<&'a str>>,
+    pub mounts: Option<Vec<RoozMountSpec>>,
 }
 
 impl Default for WorkSpec<'_> {
     fn default() -> Self {
         Self {
             image: Default::default(),
-            home_from_image: None,
             uid: Default::default(),
             user: Default::default(),
             container_working_dir: Default::default(),
@@ -67,6 +66,7 @@ impl Default for WorkSpec<'_> {
             env_vars: None,
             ports: None,
             entrypoint: None,
+            mounts: None,
         }
     }
 }

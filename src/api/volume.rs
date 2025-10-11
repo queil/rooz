@@ -99,18 +99,28 @@ impl<'a> VolumeApi<'a> {
     ) -> Result<Vec<Mount>, AnyError> {
         let mut mounts = vec![];
         for v in volumes {
-            let mount = self
-                .ensure_mount(&v, tilde_replacement, v.labels.clone())
-                .await?;
             if let RoozVolume {
                 path,
-                files: Some(files),
+                file: Some(file),
                 ..
             } = v
             {
-                self.ensure_file(&v.safe_volume_name(), path, &files, mount.clone(), uid)
-                    .await?
+                let root_mount = self
+                    .ensure_mount(&v, Some("/root"), v.labels.clone())
+                    .await?;
+
+                self.ensure_file(
+                    &v.safe_volume_name(),
+                    path,
+                    &vec![file.clone()],
+                    root_mount.clone(),
+                    uid,
+                )
+                .await?;
             };
+            let mount = self
+                .ensure_mount(&v, tilde_replacement, v.labels.clone())
+                .await?;
 
             mounts.push(mount);
         }
@@ -142,14 +152,10 @@ impl<'a> VolumeApi<'a> {
         let mut cmd = files
             .iter()
             .map(|f| {
-                let p = Path::new(path)
-                    .join(&f.file_path)
-                    .to_string_lossy()
-                    .to_string();
                 format!(
                     "echo '{}' | base64 -d > {}",
                     general_purpose::STANDARD.encode(f.data.trim()),
-                    p,
+                    path,
                 )
             })
             .collect::<Vec<_>>()

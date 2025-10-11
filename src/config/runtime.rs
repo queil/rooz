@@ -1,4 +1,5 @@
 use super::config::{RoozCfg, RoozSidecar};
+use crate::config::config::RoozMountSpec;
 use crate::constants;
 use crate::AnyError;
 use serde::{Deserialize, Serialize};
@@ -17,6 +18,7 @@ pub struct RuntimeConfig {
     pub privileged: bool,
     pub env: HashMap<String, String>,
     pub sidecars: HashMap<String, RoozSidecar>,
+    pub mounts: Vec<RoozMountSpec>,
 }
 
 impl Default for RuntimeConfig {
@@ -33,6 +35,7 @@ impl Default for RuntimeConfig {
             privileged: false,
             sidecars: HashMap::new(),
             env: HashMap::new(),
+            mounts: Vec::new(),
         }
     }
 }
@@ -92,6 +95,7 @@ impl<'a> From<&'a RoozCfg> for RuntimeConfig {
                 .collect::<HashMap<_, _>>(),
             ports,
             privileged: value.privileged.unwrap_or(default.privileged),
+            mounts: value.mounts.as_deref().unwrap_or(&default.mounts).to_vec(),
             ..default
         }
     }

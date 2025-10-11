@@ -10,7 +10,7 @@ const ROOZ: &'static str = "dev.rooz";
 pub const LABEL_KEY: &'static str = "label";
 const TRUE: &'static str = "true";
 
-pub const HOME_ROLE: &'static str = "home";
+//pub const HOME_ROLE: &'static str = "home";
 pub const WORK_ROLE: &'static str = "work";
 pub const DATA_ROLE: &'static str = "data";
 pub const SSH_KEY_ROLE: &'static str = "ssh-key";
