@@ -1,5 +1,4 @@
 use gix_config::File;
-use std::collections::HashMap;
 
 use crate::{
     api::{container, ExecApi, GitApi},

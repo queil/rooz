@@ -4,7 +4,7 @@ use crate::{
     api::VolumeApi,
     model::{
         types::{AnyError, VolumeResult},
-        volume::{RoozVolume, RoozVolumeFile},
+        volume::RoozVolume,
     },
     util::labels::Labels,
 };
@@ -98,29 +98,40 @@ impl<'a> VolumeApi<'a> {
         uid: Option<&str>,
     ) -> Result<Vec<Mount>, AnyError> {
         let mut mounts = vec![];
+
+        let file_volumes = volumes
+            .iter()
+            .filter(|v| v.file.is_some())
+            .collect::<Vec<_>>();
+
+        self.ensure_file(file_volumes, tilde_replacement, uid)
+            .await?;
+
         for v in volumes {
-            if let RoozVolume {
+            let mount = if let RoozVolume {
                 path,
-                file: Some(file),
+                file: Some(_),
                 ..
             } = v
             {
-                let root_mount = self
-                    .ensure_mount(&v, Some("/root"), v.labels.clone())
-                    .await?;
-
-                self.ensure_file(
-                    &v.safe_volume_name(),
-                    path,
-                    &vec![file.clone()],
-                    root_mount.clone(),
-                    uid,
+                self.ensure_mount(
+                    &RoozVolume {
+                        path: Path::new("/rooz/data")
+                            .join(path)
+                            .parent()
+                            .unwrap()
+                            .to_string_lossy()
+                            .to_string(),
+                        ..v.clone()
+                    },
+                    tilde_replacement,
+                    v.labels.clone(),
                 )
-                .await?;
+                .await?
+            } else {
+                self.ensure_mount(&v, tilde_replacement, v.labels.clone())
+                    .await?
             };
-            let mount = self
-                .ensure_mount(&v, tilde_replacement, v.labels.clone())
-                .await?;
 
             mounts.push(mount);
         }
@@ -143,37 +154,46 @@ impl<'a> VolumeApi<'a> {
 
     async fn ensure_file(
         &self,
-        volume_name: &str,
-        path: &str,
-        files: &Vec<RoozVolumeFile>,
-        mount: Mount,
+        volumes: Vec<&RoozVolume>,
+        tilde_replacement: Option<&str>,
         uid: Option<&str>,
     ) -> Result<(), AnyError> {
-        let mut cmd = files
-            .iter()
-            .map(|f| {
-                format!(
-                    "echo '{}' | base64 -d > {}",
-                    general_purpose::STANDARD.encode(f.data.trim()),
-                    path,
-                )
-            })
-            .collect::<Vec<_>>()
-            .join(" && ".into());
+        let mut mounts = vec![];
+        let mut files_cmd = vec![];
+        for v in volumes {
+            let init_file_path = Path::new("/rooz/data").join(&v.path.trim_start_matches('/'));
+            log::debug!("Init file path: {:?}", init_file_path);
+            let x_vol = &RoozVolume {
+                path: init_file_path
+                    .parent()
+                    .unwrap()
+                    .to_string_lossy()
+                    .to_string(),
+                ..v.clone()
+            };
+            mounts.push(
+                self.ensure_mount(x_vol, tilde_replacement, v.labels.clone())
+                    .await?,
+            );
+            let file_cmd = format!(
+                "echo '{}' | base64 -d > {}",
+                general_purpose::STANDARD.encode(x_vol.file.as_ref().unwrap().data.trim()),
+                &init_file_path.to_string_lossy().to_string().replace("~", tilde_replacement.unwrap_or("~")),
+            );
+            files_cmd.push(file_cmd);
+        }
+        let mut cmd = files_cmd.join(" && ");
 
-        if let Some(uid) = uid {
-            let chown = format!("chown -R {}:{} {} && ", uid, uid, path);
-            cmd = format!("{}{}", chown, cmd)
+        match uid {
+            Some(uid) if uid != "0" => {
+                let chown = format!(" && chown -R {}:{} /rooz/data", uid, uid,);
+                cmd.push_str(chown.as_str());
+            }
+            _ => (),
         }
 
         self.container
-            .one_shot(
-                &format!("populate volume: {}", &volume_name),
-                cmd,
-                Some(vec![mount]),
-                None,
-                None,
-            )
+            .one_shot("populate volumes", cmd, Some(mounts), None, None)
             .await?;
 
         Ok(())
