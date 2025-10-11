@@ -104,7 +104,7 @@ impl<'a> VolumeApi<'a> {
             .filter(|v| v.file.is_some())
             .collect::<Vec<_>>();
 
-        self.ensure_file(file_volumes, tilde_replacement, uid)
+        self.ensure_files(file_volumes, tilde_replacement, uid)
             .await?;
 
         for v in volumes {
@@ -152,7 +152,7 @@ impl<'a> VolumeApi<'a> {
         Ok(mount)
     }
 
-    async fn ensure_file(
+    async fn ensure_files(
         &self,
         volumes: Vec<&RoozVolume>,
         tilde_replacement: Option<&str>,
