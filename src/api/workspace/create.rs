@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use crate::{
-    api::WorkspaceApi,
+    api::{container, WorkspaceApi},
     constants,
     model::{
         types::{AnyError, ContainerResult, RunMode, RunSpec, WorkSpec, WorkspaceResult},
@@ -42,27 +42,7 @@ impl<'a> WorkspaceApi<'a> {
         }
 
         let home_dir = format!("/home/{}", &spec.user);
-        //let home_vol = RoozVolume::home(spec.container_name.into(), "~");
-        //let home_target = home_vol.to_mount(Some(&home_dir)).target;
-        // if let None = volumes
-        //     .iter()
-        //     .find(|v| v.to_mount(Some(&home_dir)).target == &home_dir)
-        // {
 
-        // if let Some(home_from_image) = spec.home_from_image {
-        //     self.api
-        //         .container
-        //         .one_shot(
-        //             "populate-home",
-        //             "exit 0".into(),
-        //             Some(vec![home_vol.to_mount(Some(&home_dir))]),
-        //             Some(spec.uid),
-        //             Some(home_from_image),
-        //         )
-        //         .await?;
-        // }
-        // volumes.push(home_vol.clone());
-        // }
         let mut mounts = self
             .api
             .volume
@@ -72,6 +52,20 @@ impl<'a> WorkspaceApi<'a> {
         mounts.push(ssh::mount(
             Path::new(&home_dir).join(".ssh").to_string_lossy().as_ref(),
         ));
+
+        let symlink_paths = volumes
+            .iter()
+            .filter(|v| v.file.is_some())
+            .map(|v|
+                v.to_mount(Some(&home_dir)).target.unwrap()
+            ).collect::<Vec<_>>();
+
+        let make_dirs = format!(
+            "for f in {}; do [ ! -e $f ] && mkdir -p $(dirname $f) && ln -s /rooz/data$f $f; done",
+            &symlink_paths.join(" ")
+        );
+
+        let entrypoint = container::inject(&vec![make_dirs, "cat".to_string()].join(" && "), "entrypoint.sh");
 
         let run_spec = RunSpec {
             reason: "work",
@@ -83,7 +77,7 @@ impl<'a> WorkspaceApi<'a> {
             container_name: &spec.container_name,
             workspace_key: &spec.workspace_key,
             mounts: Some(mounts),
-            entrypoint: spec.entrypoint.clone(),
+            entrypoint: Some((&entrypoint).iter().map(|f| f.as_str()).collect::<_>()),
             privileged: spec.privileged,
             force_recreate: spec.force_recreate,
             run_mode: if spec.ephemeral {
