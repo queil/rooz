@@ -6,6 +6,7 @@ pub const DEFAULT_CONTAINER_NAME: &'static str = "work";
 pub const ROOT_UID: &'static str = "0";
 pub const ROOT_USER: &'static str = "root";
 pub const WORK_DIR: &'static str = "/work";
+pub const ROOZ_DATA_DIR: &'static str = "/opt/rooz/data";
 pub fn default_entrypoint<'a>() -> Option<Vec<&'a str>> {
     Some(vec!["cat"])
 }

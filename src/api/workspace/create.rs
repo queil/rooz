@@ -56,16 +56,19 @@ impl<'a> WorkspaceApi<'a> {
         let symlink_paths = volumes
             .iter()
             .filter(|v| v.file.is_some())
-            .map(|v|
-                v.to_mount(Some(&home_dir)).target.unwrap()
-            ).collect::<Vec<_>>();
+            .map(|v| v.to_mount(Some(&home_dir)).target.unwrap())
+            .collect::<Vec<_>>();
 
         let make_dirs = format!(
-            "for f in {}; do [ ! -e $f ] && mkdir -p $(dirname $f) && ln -s /rooz/data$f $f; done",
-            &symlink_paths.join(" ")
+            "for f in {}; do [ ! -e $f ] && mkdir -p $(dirname $f) && ln -s {}$f $f; done",
+            &symlink_paths.join(" "),
+            constants::ROOZ_DATA_DIR,
         );
 
-        let entrypoint = container::inject(&vec![make_dirs, "cat".to_string()].join(" && "), "entrypoint.sh");
+        let entrypoint = container::inject(
+            &vec![make_dirs, "cat".to_string()].join(" && "),
+            "entrypoint.sh",
+        );
 
         let run_spec = RunSpec {
             reason: "work",

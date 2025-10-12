@@ -2,6 +2,7 @@ use std::path::Path;
 
 use crate::{
     api::VolumeApi,
+    constants,
     model::{
         types::{AnyError, VolumeResult},
         volume::RoozVolume,
@@ -116,7 +117,7 @@ impl<'a> VolumeApi<'a> {
             {
                 self.ensure_mount(
                     &RoozVolume {
-                        path: Path::new("/rooz/data")
+                        path: Path::new(constants::ROOZ_DATA_DIR)
                             .join(path)
                             .parent()
                             .unwrap()
@@ -161,7 +162,8 @@ impl<'a> VolumeApi<'a> {
         let mut mounts = vec![];
         let mut files_cmd = vec![];
         for v in volumes {
-            let init_file_path = Path::new("/rooz/data").join(&v.path.trim_start_matches('/'));
+            let init_file_path =
+                Path::new(constants::ROOZ_DATA_DIR).join(&v.path.trim_start_matches('/'));
             log::debug!("Init file path: {:?}", init_file_path);
             let x_vol = &RoozVolume {
                 path: init_file_path
@@ -178,7 +180,10 @@ impl<'a> VolumeApi<'a> {
             let file_cmd = format!(
                 "echo '{}' | base64 -d > {}",
                 general_purpose::STANDARD.encode(x_vol.file.as_ref().unwrap().data.trim()),
-                &init_file_path.to_string_lossy().to_string().replace("~", tilde_replacement.unwrap_or("~")),
+                &init_file_path
+                    .to_string_lossy()
+                    .to_string()
+                    .replace("~", tilde_replacement.unwrap_or("~")),
             );
             files_cmd.push(file_cmd);
         }
@@ -186,7 +191,7 @@ impl<'a> VolumeApi<'a> {
 
         match uid {
             Some(uid) if uid != "0" => {
-                let chown = format!(" && chown -R {}:{} /rooz/data", uid, uid,);
+                let chown = format!(" && chown -R {}:{} {}", uid, uid, constants::ROOZ_DATA_DIR);
                 cmd.push_str(chown.as_str());
             }
             _ => (),
