@@ -24,6 +24,7 @@ pub struct ExecApi<'a> {
 pub struct ContainerApi<'a> {
     pub client: &'a Docker,
     pub image: &'a ImageApi<'a>,
+    pub exec: &'a ExecApi<'a>,
     pub backend: &'a ContainerBackend,
 }
 

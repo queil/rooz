@@ -87,6 +87,7 @@ async fn main() -> Result<(), AnyError> {
     };
     let container_api = ContainerApi {
         client: &docker,
+        exec: &exec_api,
         image: &image_api,
         backend: &backend,
     };
@@ -175,7 +176,10 @@ async fn main() -> Result<(), AnyError> {
                 None => None,
             };
 
-            let labels = Labels::from(&[Labels::workspace(&name), Labels::role(labels::WORKSPACE_CONFIG_ROLE)]);
+            let labels = Labels::from(&[
+                Labels::workspace(&name),
+                Labels::role(labels::WORKSPACE_CONFIG_ROLE),
+            ]);
 
             match workspace.api.volume.get_single(&labels).await? {
                     Some(_) => Err(format!("Workspace already exists. Did you mean: rooz enter {}? Otherwise, use rooz update to modify the workspace.", name.clone())),

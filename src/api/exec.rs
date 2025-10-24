@@ -35,6 +35,28 @@ async fn collect(stream: impl Stream<Item = Result<LogOutput, Error>>) -> Result
     Ok(trimmed.to_string())
 }
 
+async fn log(stream: impl Stream<Item = Result<LogOutput, Error>>) -> Result<(), AnyError> {
+    use futures::stream::StreamExt;
+    use std::io::Write;
+
+    let mut stream = std::pin::pin!(stream);
+    let mut stdout = std::io::stdout();
+
+    while let Some(item) = stream.next().await {
+        match item {
+            Ok(output) => {
+                let bytes = output.into_bytes();
+                let text = std::str::from_utf8(bytes.as_ref())?;
+                stdout.write_all(text.as_bytes())?;
+                stdout.flush()?;
+            }
+            Err(err) => return Err(err.into()),
+        }
+    }
+
+    Ok(())
+}
+
 impl<'a> ExecApi<'a> {
     async fn handle_output<S>(&self, mut output: S)
     where
@@ -208,6 +230,26 @@ impl<'a> ExecApi<'a> {
             self.client.start_exec(&exec_id, None).await?
         {
             collect(output).await
+        } else {
+            panic!("Could not start exec");
+        }
+    }
+
+    pub async fn run(
+        &self,
+        reason: &str,
+        container_id: &str,
+        user: Option<&str>,
+        cmd: Option<Vec<&str>>,
+    ) -> Result<(), AnyError> {
+        let exec_id = self
+            .create_exec(reason, container_id, None, user, cmd)
+            .await?;
+        if let StartExecResults::Attached { output, .. } =
+            self.client.start_exec(&exec_id, None).await?
+        {
+            log(output).await?;
+            Ok(())
         } else {
             panic!("Could not start exec");
         }
