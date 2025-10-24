@@ -19,12 +19,12 @@ use bollard::{
     },
     query_parameters::{
         CreateContainerOptions, InspectContainerOptions, KillContainerOptions,
-        ListContainersOptions, LogsOptions, RemoveContainerOptions, StartContainerOptions,
+        ListContainersOptions, RemoveContainerOptions, StartContainerOptions,
         StopContainerOptions, WaitContainerOptions,
     },
 };
 
-use futures::{future, StreamExt};
+use futures::StreamExt;
 use std::{collections::HashMap, time::Duration};
 use tokio::time::{sleep, timeout};
 
