@@ -1,13 +1,13 @@
 [package]
 name = "rooz"
-version = "0.134.0"
-edition = "2021"
+version = "0.135.0"
+edition = "2024"
 
 [dependencies]
 age = {version = "0.11.1", features = ["armor"] }
 base64 = "0.22.1"
-bollard = { version = "0.19.2" }
-bollard-stubs = "1.49.0-rc.28.3.3"
+bollard = { version = "0.19.3" }
+bollard-stubs = "1.49.1-rc.28.4.0"
 clap = { version = "4.5.16", features = ["derive", "env"] }
 clap_complete = "4.5.24"
 colored = "3.0.0"
@@ -22,7 +22,7 @@ ctrlc = "3.4.5"
 edit = "0.1.5"
 env_logger = "0.11.5"
 futures = "0.3.30"
-gix-config = { version = "0.46.0", features = ["serde"] }
+gix-config = { version = "0.47.1", features = ["serde"] }
 handlebars = "6.0.0"
 lazy_static = "1.5.0"
 linked-hash-map = { version = "0.5.6", features = ["serde", "serde_impl"] }

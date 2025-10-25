@@ -1,6 +1,6 @@
 use super::config::{RoozCfg, RoozSidecar};
-use crate::constants;
 use crate::AnyError;
+use crate::constants;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 

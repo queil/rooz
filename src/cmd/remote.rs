@@ -1,4 +1,4 @@
-use bollard::{models::Port, query_parameters::ListContainersOptions, Docker};
+use bollard::{Docker, models::Port, query_parameters::ListContainersOptions};
 
 use openssh::{ForwardType, KnownHosts, Session, SessionBuilder};
 use regex::Regex;
@@ -9,8 +9,8 @@ use std::{
     path::Path,
     process::Command,
     sync::{
-        mpsc::{self, Sender},
         Mutex,
+        mpsc::{self, Sender},
     },
     time::Duration,
 };

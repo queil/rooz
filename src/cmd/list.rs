@@ -1,12 +1,12 @@
 use crate::{
     api::Api,
     model::types::AnyError,
-    util::labels::{Labels, CONFIG_ORIGIN, WORKSPACE_CONFIG_ROLE, WORKSPACE_KEY, WORK_ROLE},
+    util::labels::{CONFIG_ORIGIN, Labels, WORK_ROLE, WORKSPACE_CONFIG_ROLE, WORKSPACE_KEY},
 };
 
 use bollard::query_parameters::{ListContainersOptions, ListVolumesOptions};
 
-use tabled::{settings::Style, Table, Tabled};
+use tabled::{Table, Tabled, settings::Style};
 
 #[derive(Debug, Tabled)]
 struct WorkspaceView {

@@ -2,7 +2,7 @@ use gix_config::File;
 use std::collections::HashMap;
 
 use crate::{
-    api::{container, ExecApi, GitApi},
+    api::{ExecApi, GitApi, container},
     config::config::FileFormat,
     constants,
     model::{

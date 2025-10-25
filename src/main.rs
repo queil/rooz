@@ -26,7 +26,7 @@ use crate::{
 };
 
 use api::{ConfigApi, CryptApi};
-use bollard::{secret::SystemVersion, Docker};
+use bollard::{Docker, secret::SystemVersion};
 use clap::{CommandFactory, Parser};
 use clap_complete::generate;
 use cli::{
@@ -87,6 +87,7 @@ async fn main() -> Result<(), AnyError> {
     };
     let container_api = ContainerApi {
         client: &docker,
+        exec: &exec_api,
         image: &image_api,
         backend: &backend,
     };
@@ -126,7 +127,7 @@ async fn main() -> Result<(), AnyError> {
             "ls /tmp/sys/rooz.config > /dev/null 2>&1 && cat /tmp/sys/rooz.config || echo ''"
                 .into(),
             Some(vec![
-                RoozVolume::system_config_read("/tmp/sys").to_mount(None)
+                RoozVolume::system_config_read("/tmp/sys").to_mount(None),
             ]),
             None,
         )
@@ -175,12 +176,18 @@ async fn main() -> Result<(), AnyError> {
                 None => None,
             };
 
-            let labels = Labels::from(&[Labels::workspace(&name), Labels::role(labels::WORKSPACE_CONFIG_ROLE)]);
+            let labels = Labels::from(&[
+                Labels::workspace(&name),
+                Labels::role(labels::WORKSPACE_CONFIG_ROLE),
+            ]);
 
             match workspace.api.volume.get_single(&labels).await? {
-                    Some(_) => Err(format!("Workspace already exists. Did you mean: rooz enter {}? Otherwise, use rooz update to modify the workspace.", name.clone())),
-                    None => Ok(()),
-                }?;
+                Some(_) => Err(format!(
+                    "Workspace already exists. Did you mean: rooz enter {}? Otherwise, use rooz update to modify the workspace.",
+                    name.clone()
+                )),
+                None => Ok(()),
+            }?;
 
             workspace.new(&name, &work, config_source, false).await?;
             println!(

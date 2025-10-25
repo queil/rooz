@@ -8,7 +8,7 @@ use crate::{
         labels::{KeyValue, Labels},
     },
 };
-use base64::{engine::general_purpose, Engine as _};
+use base64::{Engine as _, engine::general_purpose};
 
 use bollard::{
     errors::Error::{self, DockerResponseServerError},
@@ -19,12 +19,12 @@ use bollard::{
     },
     query_parameters::{
         CreateContainerOptions, InspectContainerOptions, KillContainerOptions,
-        ListContainersOptions, LogsOptions, RemoveContainerOptions, StartContainerOptions,
-        StopContainerOptions, WaitContainerOptions,
+        ListContainersOptions, RemoveContainerOptions, StartContainerOptions, StopContainerOptions,
+        WaitContainerOptions,
     },
 };
 
-use futures::{future, StreamExt};
+use futures::StreamExt;
 use std::{collections::HashMap, time::Duration};
 use tokio::time::{sleep, timeout};
 
@@ -414,13 +414,24 @@ impl<'a> ContainerApi<'a> {
     async fn make_one_shot(
         &self,
         name: &str,
-        command: String,
         mounts: Option<Vec<Mount>>,
         uid: Option<&str>,
         image: Option<&str>,
     ) -> Result<String, AnyError> {
-        let entrypoint_v = inject2(&command, "entrypoint.sh", true);
-        let entrypoint = entrypoint_v.iter().map(String::as_str).collect();
+        let wait_for_exec = r#"#!/bin/sh
+TIMEOUT=${EXEC_TIMEOUT:-300}
+mkfifo /tmp/exec_start /tmp/exec_end
+
+echo "Waiting for exec session (timeout: ${TIMEOUT}s)..."
+timeout $TIMEOUT sh -c 'read _ < /tmp/exec_start' || exit 1
+
+echo "Exec session started"
+read _ < /tmp/exec_end
+echo "Exec session ended"
+exit 0"#;
+
+        let epv = inject(&wait_for_exec, "entrypoint.sh");
+        let entrypoint = epv.iter().map(String::as_str).collect();
         let id = self
             .create(RunSpec {
                 reason: name,
@@ -438,6 +449,18 @@ impl<'a> ContainerApi<'a> {
         Ok(id)
     }
 
+    fn format_cmd(command: String) -> Vec<String> {
+        let cmd = format!(
+            r#"#!/bin/sh
+trap 'echo end > /tmp/exec_end' EXIT
+echo start > /tmp/exec_start
+{}
+        "#,
+            command
+        );
+        inject(&cmd, "exec.sh")
+    }
+
     pub async fn one_shot_output(
         &self,
         name: &str,
@@ -445,46 +468,11 @@ impl<'a> ContainerApi<'a> {
         mounts: Option<Vec<Mount>>,
         uid: Option<&str>,
     ) -> Result<OneShotResult, AnyError> {
-        let id = self.make_one_shot(name, command, mounts, uid, None).await?;
-        let docker_logs = self.client.clone();
-        let s_id = id.clone();
+        let id = self.make_one_shot(name, mounts, uid, None).await?;
+        let cmd = Self::format_cmd(command);
+        let cmd = cmd.iter().map(|x| x.as_str()).collect::<Vec<_>>();
+        let data = self.exec.output(name, &id.clone(), uid, Some(cmd)).await?;
 
-        let log_task = tokio::spawn(async move {
-            let logs_stream = docker_logs.logs(
-                &s_id,
-                Some(LogsOptions {
-                    follow: true,
-                    stdout: true,
-                    stderr: true,
-                    ..Default::default()
-                }),
-            );
-
-            let data = logs_stream
-                .map(|x| match x {
-                    Ok(r) => String::from_utf8_lossy(r.into_bytes().as_ref())
-                        .to_string()
-                        .trim_end()
-                        .to_string(),
-                    Err(err) => panic!("{}", err),
-                })
-                .collect::<Vec<_>>()
-                .await
-                .join("\n");
-            data
-        });
-
-        let mut exit_code_stream = self
-            .client
-            .wait_container(&id, None::<WaitContainerOptions>);
-
-        let _ = match exit_code_stream.next().await {
-            Some(Ok(response)) => response.status_code,
-            Some(Err(e)) => return Err(e.into()),
-            None => unreachable!("Container exited without status code"),
-        };
-
-        let data = tokio::time::timeout(std::time::Duration::from_secs(2), log_task).await??;
         Ok(OneShotResult { data })
     }
 
@@ -496,40 +484,10 @@ impl<'a> ContainerApi<'a> {
         uid: Option<&str>,
         image: Option<&str>,
     ) -> Result<i64, AnyError> {
-        let id = self
-            .make_one_shot(name, command, mounts, uid, image)
-            .await?;
-        let docker_logs = self.client.clone();
-        let s_id = id.clone();
-        let s_name = name.to_string();
-
-        let log_task = tokio::spawn(async move {
-            let logs_stream = docker_logs.logs(
-                &s_id,
-                Some(LogsOptions {
-                    follow: true,
-                    stdout: true,
-                    stderr: true,
-                    ..Default::default()
-                }),
-            );
-
-            logs_stream
-                .for_each(|x| {
-                    match x {
-                        Ok(r) => println!(
-                            "{} | {}",
-                            s_name,
-                            String::from_utf8_lossy(r.into_bytes().as_ref())
-                                .to_string()
-                                .trim_end()
-                        ),
-                        Err(err) => panic!("{}", err),
-                    };
-                    future::ready(())
-                })
-                .await;
-        });
+        let id = self.make_one_shot(name, mounts, uid, image).await?;
+        let cmd = Self::format_cmd(command);
+        let cmd = cmd.iter().map(|x| x.as_str()).collect::<Vec<_>>();
+        self.exec.run(name, &id, uid, Some(cmd)).await?;
 
         let mut exit_code_stream = self
             .client
@@ -541,7 +499,6 @@ impl<'a> ContainerApi<'a> {
             None => unreachable!("Container exited without status code"),
         };
 
-        let _ = tokio::time::timeout(std::time::Duration::from_secs(2), log_task).await;
         Ok(exit_code)
     }
 }
