@@ -4,7 +4,7 @@ use bollard::models::CreateImageInfo;
 use bollard::service::ImageInspect;
 use bollard::{errors::Error, query_parameters::CreateImageOptions};
 use futures::StreamExt;
-use std::io::{stdout, Write};
+use std::io::{Write, stdout};
 
 #[derive(Debug)]
 pub struct ImageInfo {

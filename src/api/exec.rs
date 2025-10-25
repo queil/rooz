@@ -1,5 +1,5 @@
 use crate::{
-    api::container, api::ExecApi, constants, model::types::AnyError, util::backend::ContainerEngine,
+    api::ExecApi, api::container, constants, model::types::AnyError, util::backend::ContainerEngine,
 };
 use bollard::{
     container::LogOutput,
@@ -13,7 +13,7 @@ use std::{io::Read, time::Duration};
 
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use tokio::{
-    io::{unix::AsyncFd, AsyncWriteExt},
+    io::{AsyncWriteExt, unix::AsyncFd},
     select, spawn,
     sync::broadcast,
     time::sleep,

@@ -8,7 +8,7 @@ use crate::{
         labels::{KeyValue, Labels},
     },
 };
-use base64::{engine::general_purpose, Engine as _};
+use base64::{Engine as _, engine::general_purpose};
 
 use bollard::{
     errors::Error::{self, DockerResponseServerError},
@@ -19,8 +19,8 @@ use bollard::{
     },
     query_parameters::{
         CreateContainerOptions, InspectContainerOptions, KillContainerOptions,
-        ListContainersOptions, RemoveContainerOptions, StartContainerOptions,
-        StopContainerOptions, WaitContainerOptions,
+        ListContainersOptions, RemoveContainerOptions, StartContainerOptions, StopContainerOptions,
+        WaitContainerOptions,
     },
 };
 
@@ -418,7 +418,6 @@ impl<'a> ContainerApi<'a> {
         uid: Option<&str>,
         image: Option<&str>,
     ) -> Result<String, AnyError> {
-
         let wait_for_exec = r#"#!/bin/sh
 TIMEOUT=${EXEC_TIMEOUT:-300}
 mkfifo /tmp/exec_start /tmp/exec_end

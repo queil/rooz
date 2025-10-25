@@ -6,8 +6,8 @@ use crate::{
     util::{
         id::to_safe_id,
         labels::{
-            Labels, CACHE_ROLE, DATA_ROLE, HOME_ROLE, SSH_KEY_ROLE, SYSTEM_CONFIG_ROLE,
-            WORKSPACE_CONFIG_ROLE, WORK_ROLE,
+            CACHE_ROLE, DATA_ROLE, HOME_ROLE, Labels, SSH_KEY_ROLE, SYSTEM_CONFIG_ROLE, WORK_ROLE,
+            WORKSPACE_CONFIG_ROLE,
         },
     },
 };

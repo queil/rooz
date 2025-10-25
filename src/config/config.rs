@@ -1,7 +1,7 @@
 use crate::model::types::AnyError;
 use crate::{cli::WorkParams, constants};
 use colored::Colorize;
-use handlebars::{no_escape, Handlebars};
+use handlebars::{Handlebars, no_escape};
 use linked_hash_map::LinkedHashMap;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, ffi::OsStr, path::Path};
