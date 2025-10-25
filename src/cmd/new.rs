@@ -34,7 +34,10 @@ impl<'a> WorkspaceApi<'a> {
         }
         cfg_builder.from_cli(cli_params, None);
         self.config
-            .decrypt(cfg_builder, &self.api.system_config.age_identity()?)
+            .decrypt(
+                cfg_builder,
+                &self.api.get_system_config().await?.age_identity()?,
+            )
             .await?;
         cfg_builder.expand_vars()?;
 

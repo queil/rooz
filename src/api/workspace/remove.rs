@@ -11,11 +11,18 @@ use crate::{
 
 impl<'a> WorkspaceApi<'a> {
     async fn remove_containers(&self, labels: &Labels, force: bool) -> Result<(), AnyError> {
-        for cs in self.api.container.get_all(labels).await? {
+        let containers = self.api.container.get_all(labels).await?;
+        let container_api = self.api.container;
+
+        let futures = containers.into_iter().filter_map(|cs| {
             if let ContainerSummary { id: Some(id), .. } = cs {
-                self.api.container.remove(&id, force).await?
+                Some(async move { container_api.remove(&id, force).await })
+            } else {
+                None
             }
-        }
+        });
+
+        futures::future::try_join_all(futures).await?;
         Ok(())
     }
 
@@ -36,9 +43,11 @@ impl<'a> WorkspaceApi<'a> {
             .await?
             .volumes
         {
-            for v in volumes.iter().filter(filter) {
-                self.api.volume.remove_volume(&v.name, force).await?
-            }
+            let volume_api = self.api.volume;
+            let futures = volumes.iter().filter(filter).into_iter().filter_map(|v| {
+                Some(async move { volume_api.remove_volume(&v.name, force).await })
+            });
+            futures::future::try_join_all(futures).await?;
         }
 
         let ls_network_options = ListNetworksOptions {

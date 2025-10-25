@@ -20,7 +20,6 @@ use crate::{
         StopParams, TmpParams,
     },
     cmd::remote,
-    config::config::SystemConfig,
     model::{types::AnyError, volume::RoozVolume},
     util::backend::ContainerBackend,
 };
@@ -97,50 +96,11 @@ async fn main() -> Result<(), AnyError> {
         container: &container_api,
     };
 
-    let init = InitApi {
-        client: &docker,
-        image: &image_api,
-        volume: &volume_api,
-        container: &container_api,
-    };
-
-    if let Cli {
-        command:
-            System(cli::System {
-                command: cli::SystemCommands::Init(init_params),
-            }),
-        ..
-    } = &args
-    {
-        init.init(
-            constants::DEFAULT_IMAGE,
-            constants::DEFAULT_UID,
-            &init_params,
-        )
-        .await?;
-        std::process::exit(0);
-    }
-
-    let sys_config_result = container_api
-        .one_shot_output(
-            "read-sys-config",
-            "ls /tmp/sys/rooz.config > /dev/null 2>&1 && cat /tmp/sys/rooz.config || echo ''"
-                .into(),
-            Some(vec![
-                RoozVolume::system_config_read("/tmp/sys").to_mount(None),
-            ]),
-            None,
-        )
-        .await?;
-
-    let system_config = SystemConfig::from_string(&sys_config_result.data)?;
-
     let rooz = Api {
         exec: &exec_api,
         image: &image_api,
         volume: &volume_api,
         container: &container_api,
-        system_config: &system_config,
         client: &docker,
     };
 
@@ -376,11 +336,22 @@ async fn main() -> Result<(), AnyError> {
         Cli {
             command:
                 System(cli::System {
-                    command: cli::SystemCommands::Init(_),
+                    command: cli::SystemCommands::Init(init_params),
                 }),
             ..
         } => {
-            unreachable!()
+            let init = InitApi {
+                client: &docker,
+                image: &image_api,
+                volume: &volume_api,
+                container: &container_api,
+            };
+            init.init(
+                constants::DEFAULT_IMAGE,
+                constants::DEFAULT_UID,
+                &init_params,
+            )
+            .await?;
         }
 
         Cli {
@@ -403,7 +374,7 @@ async fn main() -> Result<(), AnyError> {
                 }),
         } => {
             let (_, config_string) = config_api
-                .system_edit_string(sys_config_result.data.clone())
+                .system_edit_string(rooz.get_system_config_string().await?.clone())
                 .await?;
             volume_api
                 .ensure_mounts(

@@ -19,12 +19,12 @@ use bollard::{
     },
     query_parameters::{
         CreateContainerOptions, InspectContainerOptions, KillContainerOptions,
-        ListContainersOptions, RemoveContainerOptions, StartContainerOptions, StopContainerOptions,
-        WaitContainerOptions,
+        ListContainersOptions, LogsOptions, RemoveContainerOptions, StartContainerOptions,
+        StopContainerOptions, WaitContainerOptions,
     },
 };
 
-use futures::StreamExt;
+use futures::{StreamExt, future};
 use std::{collections::HashMap, time::Duration};
 use tokio::time::{sleep, timeout};
 
@@ -446,6 +446,41 @@ exit 0"#;
             .map(|r| r.id().to_string())?;
 
         self.start(&id).await?;
+
+        if log::log_enabled!(log::Level::Debug) {
+            let docker_logs = self.client.clone();
+            let s_id = id.clone();
+            let s_name = name.to_string();
+
+            tokio::spawn(async move {
+                let logs_stream = docker_logs.logs(
+                    &s_id,
+                    Some(LogsOptions {
+                        follow: true,
+                        stdout: true,
+                        stderr: true,
+                        ..Default::default()
+                    }),
+                );
+
+                logs_stream
+                    .for_each(|x| {
+                        match x {
+                            Ok(r) => log::debug!(
+                                "{} | {}",
+                                s_name,
+                                String::from_utf8_lossy(r.into_bytes().as_ref())
+                                    .to_string()
+                                    .trim_end()
+                            ),
+                            Err(err) => panic!("{}", err),
+                        };
+                        future::ready(())
+                    })
+                    .await;
+            });
+        }
+
         Ok(id)
     }
 

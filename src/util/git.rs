@@ -151,8 +151,11 @@ impl<'a> GitApi<'a> {
         };
 
         for url in all_urls {
-            let clone_dir =
-                get_clone_dir(&spec.working_dir, &url, &self.api.system_config.gitconfig)?;
+            let clone_dir = get_clone_dir(
+                &spec.working_dir,
+                &url,
+                &self.api.get_system_config().await?.gitconfig,
+            )?;
             clone_script.push_str(
                 format!(
                     "ls '{}/.git' > /dev/null 2>&1 || git -c include.path=/tmp/rooz/.gitconfig clone --filter=blob:none {} {}\n",
@@ -168,7 +171,7 @@ impl<'a> GitApi<'a> {
 
         let mut volumes: Vec<RoozVolume> = vec![];
 
-        if let Some(gitconfig) = &self.api.system_config.gitconfig {
+        if let Some(gitconfig) = &self.api.get_system_config().await?.gitconfig {
             let mut config_hashmap = HashMap::<String, String>::new();
             config_hashmap.insert(".gitconfig".into(), gitconfig.to_string());
             let git_config_vol = RoozVolume::config_data(
@@ -269,7 +272,11 @@ impl<'a> GitApi<'a> {
         let container_id = self
             .clone_from_spec(&spec, &CloneUrls::Root { url: url.into() })
             .await?;
-        let clone_dir = get_clone_dir(&spec.working_dir, &url, &self.api.system_config.gitconfig)?;
+        let clone_dir = get_clone_dir(
+            &spec.working_dir,
+            &url,
+            &self.api.get_system_config().await?.gitconfig,
+        )?;
         let config = self.try_read_config(&container_id, &clone_dir).await?;
         self.api.container.kill(&container_id, false).await?;
 
@@ -312,7 +319,11 @@ impl<'a> GitApi<'a> {
                 },
             )
             .await?;
-        let clone_dir = get_clone_dir(&spec.working_dir, &url, &self.api.system_config.gitconfig)?;
+        let clone_dir = get_clone_dir(
+            &spec.working_dir,
+            &url,
+            &self.api.get_system_config().await?.gitconfig,
+        )?;
         let file_format = FileFormat::from_path(path);
         let rooz_cfg = self
             .api

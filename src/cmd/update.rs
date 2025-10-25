@@ -75,7 +75,7 @@ impl<'a> WorkspaceApi<'a> {
         let mut original_config = RoozCfg::deserialize_config(&original_body, format)?.unwrap();
 
         let config_to_apply = if interactive {
-            let identity = self.api.system_config.age_identity()?;
+            let identity = self.api.get_system_config().await?.age_identity()?;
             self.config.decrypt(&mut original_config, &identity).await?;
 
             let decrypted_string = original_config.to_string(format)?;
