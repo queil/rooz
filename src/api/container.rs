@@ -20,7 +20,7 @@ use bollard::{
     query_parameters::{
         CreateContainerOptions, InspectContainerOptions, KillContainerOptions,
         ListContainersOptions, LogsOptions, RemoveContainerOptions, StartContainerOptions,
-        StopContainerOptions, WaitContainerOptions,
+        StopContainerOptions,
     },
 };
 
@@ -518,22 +518,10 @@ echo start > /tmp/exec_start
         mounts: Option<Vec<Mount>>,
         uid: Option<&str>,
         image: Option<&str>,
-    ) -> Result<i64, AnyError> {
+    ) -> Result<(), AnyError> {
         let id = self.make_one_shot(name, mounts, uid, image).await?;
         let cmd = Self::format_cmd(command);
         let cmd = cmd.iter().map(|x| x.as_str()).collect::<Vec<_>>();
-        self.exec.run(name, &id, uid, Some(cmd)).await?;
-
-        let mut exit_code_stream = self
-            .client
-            .wait_container(&id, None::<WaitContainerOptions>);
-
-        let exit_code = match exit_code_stream.next().await {
-            Some(Ok(response)) => response.status_code,
-            Some(Err(e)) => return Err(e.into()),
-            None => unreachable!("Container exited without status code"),
-        };
-
-        Ok(exit_code)
+        self.exec.run(name, &id, uid, Some(cmd)).await
     }
 }
