@@ -12,15 +12,12 @@ use crate::{
 
 impl<'a> WorkspaceApi<'a> {
     pub async fn create(&self, spec: &WorkSpec<'a>) -> Result<WorkspaceResult, AnyError> {
+        let mut volumes = vec![RoozVolume::work(spec.container_name, constants::WORK_DIR)];
+
         let home_dir = format!("/home/{}", &spec.user);
-        let home_vol = RoozVolume::home(spec.container_name.into(), &home_dir);
-
-        let mut volumes = vec![
-            home_vol.clone(),
-            RoozVolume::work(spec.container_name, constants::WORK_DIR),
-        ];
-
         if let Some(home_from_image) = spec.home_from_image {
+            let home_vol = RoozVolume::home(spec.container_name.into(), &home_dir);
+            volumes.push(home_vol.clone());
             self.api
                 .container
                 .one_shot(
