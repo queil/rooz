@@ -20,7 +20,10 @@ use tokio::{
     net::TcpStream,
 };
 
-use crate::{model::types::AnyError, util::labels::Labels};
+use crate::{
+    model::types::AnyError,
+    util::labels::{self, Labels},
+};
 
 const LOCALHOST_IP: &str = "127.0.0.1";
 
@@ -193,8 +196,21 @@ async fn get_docker_ports(docker: &Docker) -> Result<HashMap<u16, Tunnel>, AnyEr
                 .unwrap_or(c.id.as_ref().unwrap().to_string());
             let ports = c.clone().ports.unwrap_or(Vec::<_>::new());
 
+            let forward_ports_str = c
+                .labels
+                .as_ref()
+                .and_then(|l| l.get(labels::FORWARD_PORTS))
+                .map(|s| s.as_str())
+                .unwrap_or("");
+
+            let forward_ports: HashSet<u16> = forward_ports_str
+                .split(',')
+                .filter_map(|p| p.trim().parse::<u16>().ok())
+                .collect();
+
             ports
                 .iter()
+                .filter(|Port { private_port, .. }| forward_ports.contains(private_port))
                 .map(
                     |Port {
                          private_port,
@@ -204,7 +220,7 @@ async fn get_docker_ports(docker: &Docker) -> Result<HashMap<u16, Tunnel>, AnyEr
                         (
                             public_port.unwrap_or(*private_port),
                             Tunnel {
-                                local_port: *private_port,
+                                local_port: public_port.unwrap_or(*private_port),
                                 container_name: names.to_string(),
                                 is_active: false,
                             },
