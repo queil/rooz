@@ -6,6 +6,7 @@ pub const ROLE: &'static str = "dev.rooz.role";
 pub const RUNTIME_CONFIG: &'static str = "dev.rooz.config.runtime";
 pub const CONFIG_ORIGIN: &'static str = "dev.rooz.config.origin";
 pub const CONFIG_BODY: &'static str = "dev.rooz.config.body";
+pub const FORWARD_PORTS: &'static str = "dev.rooz.forward-ports";
 const ROOZ: &'static str = "dev.rooz";
 pub const LABEL_KEY: &'static str = "label";
 const TRUE: &'static str = "true";

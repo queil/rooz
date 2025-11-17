@@ -20,7 +20,10 @@ use tokio::{
     net::TcpStream,
 };
 
-use crate::{model::types::AnyError, util::labels::Labels};
+use crate::{
+    model::types::AnyError,
+    util::labels::{self, Labels},
+};
 
 const LOCALHOST_IP: &str = "127.0.0.1";
 
@@ -85,7 +88,7 @@ async fn connect(
     Ok(session)
 }
 
-async fn test_http_tunnel(host: &str, port: u16) -> Result<bool, AnyError> {
+async fn test_tunnel(host: &str, port: u16) -> Result<bool, AnyError> {
     log::debug!("Testing tunnel: {}:{}", host, port);
 
     let mut stream = match TcpStream::connect((host, port)).await {
@@ -96,6 +99,18 @@ async fn test_http_tunnel(host: &str, port: u16) -> Result<bool, AnyError> {
         }
     };
 
+    let mut response = vec![0; 256];
+    match tokio::time::timeout(Duration::from_secs(1), stream.read(&mut response)).await {
+        Ok(Ok(n)) if n > 0 => {
+            let response_str = String::from_utf8_lossy(&response[..n]);
+            if response_str.starts_with("SSH-") {
+                log::debug!("Tunnel: OK (SSH)");
+                return Ok(true);
+            }
+        }
+        _ => {}
+    }
+
     let request = "HEAD / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
     stream.write_all(request.as_bytes()).await?;
 
@@ -103,7 +118,7 @@ async fn test_http_tunnel(host: &str, port: u16) -> Result<bool, AnyError> {
     stream.read_to_end(&mut response).await?;
 
     let response_str = String::from_utf8_lossy(&response);
-    let is_success = response_str.starts_with("HTTP/1.1") || response_str.starts_with("HTTP/2.0");
+    let is_success = response_str.starts_with("HTTP/");
     log::debug!("Tunnel: {}", if is_success { "OK" } else { "Dead" });
     Ok(is_success)
 }
@@ -193,8 +208,21 @@ async fn get_docker_ports(docker: &Docker) -> Result<HashMap<u16, Tunnel>, AnyEr
                 .unwrap_or(c.id.as_ref().unwrap().to_string());
             let ports = c.clone().ports.unwrap_or(Vec::<_>::new());
 
+            let forward_ports_str = c
+                .labels
+                .as_ref()
+                .and_then(|l| l.get(labels::FORWARD_PORTS))
+                .map(|s| s.as_str())
+                .unwrap_or("");
+
+            let forward_ports: HashSet<u16> = forward_ports_str
+                .split(',')
+                .filter_map(|p| p.trim().parse::<u16>().ok())
+                .collect();
+
             ports
                 .iter()
+                .filter(|Port { private_port, .. }| forward_ports.contains(private_port))
                 .map(
                     |Port {
                          private_port,
@@ -204,7 +232,7 @@ async fn get_docker_ports(docker: &Docker) -> Result<HashMap<u16, Tunnel>, AnyEr
                         (
                             public_port.unwrap_or(*private_port),
                             Tunnel {
-                                local_port: *private_port,
+                                local_port: public_port.unwrap_or(*private_port),
                                 container_name: names.to_string(),
                                 is_active: false,
                             },
@@ -242,7 +270,7 @@ pub async fn manage_tunnels(
         let local_socket = format!("{}:{}", LOCALHOST_IP, local_port);
         let remote_socket = format!("{}:{}", container_name, remote_port);
         let was_active = is_active;
-        let now_active = test_http_tunnel(LOCALHOST_IP, *local_port).await?;
+        let now_active = test_tunnel(LOCALHOST_IP, *local_port).await?;
 
         match (was_active, now_active) {
             (true, false) => {
@@ -298,7 +326,7 @@ pub async fn manage_tunnels(
             let remote_socket = format!("{}:{}", container_name, remote_port);
             log::debug!("Opening tunnel: {} -> {}", local_socket, remote_socket);
             open_tunnel(&session, *local_port, *remote_port).await?;
-            let is_active = test_http_tunnel(LOCALHOST_IP, *local_port).await?;
+            let is_active = test_tunnel(LOCALHOST_IP, *local_port).await?;
             open_tunnels_map.insert(
                 *remote_port,
                 Tunnel {

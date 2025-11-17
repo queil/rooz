@@ -5,7 +5,7 @@ use crate::{
     util::{
         backend::ContainerEngine,
         id,
-        labels::{KeyValue, Labels},
+        labels::{self, KeyValue, Labels},
     },
 };
 use base64::{Engine as _, engine::general_purpose};
@@ -254,7 +254,7 @@ impl<'a> ContainerApi<'a> {
         };
 
         let localhost = "127.0.0.1";
-        let port_bindings = spec.ports.map(|ports| {
+        let port_bindings = spec.ports.clone().map(|ports| {
             let mut bindings = HashMap::<String, Option<Vec<PortBinding>>>::new();
 
             for (source, target) in &ports {
@@ -273,6 +273,16 @@ impl<'a> ContainerApi<'a> {
 
             bindings
         });
+
+        let mut labels = spec.labels.clone();
+        if let Some(ports) = &spec.ports {
+            let forward_ports: Vec<String> = ports.keys().map(|p| p.to_string()).collect();
+
+            if !forward_ports.is_empty() {
+                let all_ports = forward_ports.join(",");
+                labels.append((labels::FORWARD_PORTS, &all_ports));
+            }
+        }
 
         let (attach_stdin, tty, open_stdin, auto_remove) = match spec.run_mode {
             RunMode::Workspace => (Some(true), Some(true), None, None),
@@ -325,7 +335,7 @@ impl<'a> ContainerApi<'a> {
             tty,
             open_stdin,
             host_config: Some(host_config),
-            labels: Some(spec.labels.into()),
+            labels: Some(labels.into()),
             env: Some(env.iter().map(|&s| s.to_string()).collect()),
             ..Default::default()
         };
