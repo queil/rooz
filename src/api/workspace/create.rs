@@ -68,6 +68,7 @@ impl<'a> WorkspaceApi<'a> {
             mounts: Some(mounts),
             entrypoint: spec.entrypoint.clone(),
             privileged: spec.privileged,
+            init: spec.init,
             force_recreate: spec.force_recreate,
             run_mode: if spec.ephemeral {
                 RunMode::Tmp

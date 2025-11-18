@@ -158,6 +158,8 @@ pub struct RoozCfg {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub privileged: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub init: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub env: Option<LinkedHashMap<String, String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sidecars: Option<LinkedHashMap<String, RoozSidecar>>,
@@ -177,6 +179,7 @@ impl Default for RoozCfg {
             user: Some(constants::DEFAULT_USER.into()),
             ports: Some(Vec::new()),
             privileged: None,
+            init: None,
             env: Some(LinkedHashMap::new()),
             sidecars: Some(LinkedHashMap::new()),
         }
@@ -240,6 +243,7 @@ impl RoozCfg {
             user: config.user.clone().or(self.user.clone()),
             ports: Self::extend_if_any(self.ports.clone(), config.ports.clone()),
             privileged: config.privileged.clone().or(self.privileged.clone()),
+            init: config.init.clone().or(self.init.clone()),
             env: Self::extend_if_any(self.env.clone(), config.env.clone()),
             sidecars: Self::extend_if_any(self.sidecars.clone(), config.sidecars.clone()),
         }

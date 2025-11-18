@@ -87,6 +87,7 @@ impl<'a> WorkspaceApi<'a> {
             network: network.as_deref(),
             labels,
             privileged: cfg.privileged,
+            init: cfg.init,
             entrypoint: constants::default_entrypoint(),
             ..*work_spec
         };

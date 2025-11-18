@@ -15,6 +15,7 @@ pub struct RuntimeConfig {
     pub user: String,
     pub ports: HashMap<String, Option<String>>,
     pub privileged: bool,
+    pub init: bool,
     pub env: HashMap<String, String>,
     pub sidecars: HashMap<String, RoozSidecar>,
 }
@@ -31,6 +32,7 @@ impl Default for RuntimeConfig {
             user: constants::DEFAULT_USER.into(),
             ports: HashMap::new(),
             privileged: false,
+            init: true,
             sidecars: HashMap::new(),
             env: HashMap::new(),
         }
@@ -92,6 +94,7 @@ impl<'a> From<&'a RoozCfg> for RuntimeConfig {
                 .collect::<HashMap<_, _>>(),
             ports,
             privileged: value.privileged.unwrap_or(default.privileged),
+            init: value.init.unwrap_or(default.init),
             ..default
         }
     }
