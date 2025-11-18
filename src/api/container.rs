@@ -321,10 +321,10 @@ impl<'a> ContainerApi<'a> {
         let config = ContainerCreateBody {
             image: Some(spec.image.to_string()),
             entrypoint: spec
-                .entrypoint
+                .command
                 .map(|vec| vec.iter().map(|&s| s.to_string()).collect()),
             cmd: spec
-                .command
+                .args
                 .map(|vec| vec.iter().map(|&s| s.to_string()).collect()),
             working_dir: spec.work_dir.map(|s| s.to_string()),
             // THIS MUST BE spec.uid, NOT spec.user - otherwise file ownership will break
@@ -378,7 +378,7 @@ impl<'a> ContainerApi<'a> {
             spec.uid,
             spec.user,
             spec.image,
-            spec.entrypoint.clone().unwrap_or(vec![]).join(" ")
+            spec.command.clone().unwrap_or(vec![]).join(" ")
         );
 
         let container_id = match self
@@ -447,7 +447,7 @@ exit 0"#;
                 reason: name,
                 image: image.unwrap_or(constants::DEFAULT_IMAGE),
                 container_name: &id::random_suffix("one-shot"),
-                entrypoint: Some(entrypoint),
+                command: Some(entrypoint),
                 mounts,
                 uid: uid.unwrap_or(constants::ROOT_UID),
                 ..Default::default()

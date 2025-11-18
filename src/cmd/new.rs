@@ -88,7 +88,20 @@ impl<'a> WorkspaceApi<'a> {
             labels,
             privileged: cfg.privileged,
             init: cfg.init,
-            entrypoint: constants::default_entrypoint(),
+            args: (if cfg.args.len() > 0 {
+                Some(&cfg.args)
+            } else {
+                None
+            })
+            .as_ref()
+            .map(|x| x.iter().map(|z| z.as_ref()).collect()),
+            command: (if cfg.command.len() > 0 {
+                Some(&cfg.command)
+            } else {
+                None
+            })
+            .as_ref()
+            .map(|x| x.iter().map(|z| z.as_ref()).collect()),
             ..*work_spec
         };
 

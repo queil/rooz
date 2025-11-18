@@ -46,7 +46,8 @@ pub struct WorkSpec<'a> {
     pub network: Option<&'a str>,
     pub env_vars: Option<HashMap<String, String>>,
     pub ports: Option<HashMap<String, Option<String>>>,
-    pub entrypoint: Option<Vec<&'a str>>,
+    pub command: Option<Vec<&'a str>>,
+    pub args: Option<Vec<&'a str>>,
 }
 
 impl Default for WorkSpec<'_> {
@@ -68,7 +69,8 @@ impl Default for WorkSpec<'_> {
             network: None,
             env_vars: None,
             ports: None,
-            entrypoint: None,
+            command: None,
+            args: None,
         }
     }
 }
@@ -92,7 +94,8 @@ pub struct RunSpec<'a> {
     pub container_name: &'a str,
     pub workspace_key: &'a str,
     pub mounts: Option<Vec<Mount>>,
-    pub entrypoint: Option<Vec<&'a str>>,
+    pub command: Option<Vec<&'a str>>,
+    pub args: Option<Vec<&'a str>>,
     pub privileged: bool,
     pub init: bool,
     pub force_recreate: bool,
@@ -102,7 +105,6 @@ pub struct RunSpec<'a> {
     pub ports: Option<HashMap<String, Option<String>>>,
     pub network: Option<&'a str>,
     pub network_aliases: Option<Vec<String>>,
-    pub command: Option<Vec<&'a str>>,
     pub run_mode: RunMode,
 }
 
@@ -118,7 +120,8 @@ impl Default for RunSpec<'_> {
             container_name: Default::default(),
             workspace_key: Default::default(),
             mounts: None,
-            entrypoint: None,
+            command: None,
+            args: None,
             privileged: false,
             init: true,
             force_recreate: false,
@@ -127,7 +130,6 @@ impl Default for RunSpec<'_> {
             env: Default::default(),
             network: None,
             network_aliases: None,
-            command: None,
             ports: None,
             run_mode: RunMode::OneShot,
         }

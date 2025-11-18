@@ -107,11 +107,11 @@ impl<'a> WorkspaceApi<'a> {
                     network,
                     network_aliases: Some(vec![name.into()]),
                     command: s
-                        .args
+                        .command
                         .as_ref()
                         .map(|x| x.iter().map(|z| z.as_ref()).collect()),
-                    entrypoint: s
-                        .command
+                    args: s
+                        .args
                         .as_ref()
                         .map(|x| x.iter().map(|z| z.as_ref()).collect()),
                     mounts: Some(
