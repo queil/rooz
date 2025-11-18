@@ -160,6 +160,10 @@ pub struct RoozCfg {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub init: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub command: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub args: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub env: Option<LinkedHashMap<String, String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sidecars: Option<LinkedHashMap<String, RoozSidecar>>,
@@ -180,6 +184,8 @@ impl Default for RoozCfg {
             ports: Some(Vec::new()),
             privileged: None,
             init: None,
+            command: Some(Vec::new()),
+            args: Some(Vec::new()),
             env: Some(LinkedHashMap::new()),
             sidecars: Some(LinkedHashMap::new()),
         }
@@ -244,6 +250,8 @@ impl RoozCfg {
             ports: Self::extend_if_any(self.ports.clone(), config.ports.clone()),
             privileged: config.privileged.clone().or(self.privileged.clone()),
             init: config.init.clone().or(self.init.clone()),
+            command: Self::extend_if_any(self.command.clone(), config.command.clone()),
+            args: Self::extend_if_any(self.args.clone(), config.args.clone()),
             env: Self::extend_if_any(self.env.clone(), config.env.clone()),
             sidecars: Self::extend_if_any(self.sidecars.clone(), config.sidecars.clone()),
         }

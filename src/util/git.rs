@@ -205,7 +205,7 @@ impl<'a> GitApi<'a> {
             container_name: &id::random_suffix("rooz-git"),
             workspace_key: &spec.workspace_key,
             mounts: Some(mounts),
-            entrypoint: constants::default_entrypoint(),
+            command: constants::default_command(),
             privileged: false,
             force_recreate: false,
             run_mode: RunMode::Git,

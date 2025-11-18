@@ -16,6 +16,8 @@ pub struct RuntimeConfig {
     pub ports: HashMap<String, Option<String>>,
     pub privileged: bool,
     pub init: bool,
+    pub command: Vec<String>,
+    pub args: Vec<String>,
     pub env: HashMap<String, String>,
     pub sidecars: HashMap<String, RoozSidecar>,
 }
@@ -33,6 +35,8 @@ impl Default for RuntimeConfig {
             ports: HashMap::new(),
             privileged: false,
             init: true,
+            command: Vec::new(),
+            args: Vec::new(),
             sidecars: HashMap::new(),
             env: HashMap::new(),
         }
@@ -95,6 +99,12 @@ impl<'a> From<&'a RoozCfg> for RuntimeConfig {
             ports,
             privileged: value.privileged.unwrap_or(default.privileged),
             init: value.init.unwrap_or(default.init),
+            command: value
+                .command
+                .as_deref()
+                .unwrap_or(&default.command)
+                .to_vec(),
+            args: value.args.as_deref().unwrap_or(&default.args).to_vec(),
             ..default
         }
     }
