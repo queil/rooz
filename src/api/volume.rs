@@ -4,7 +4,7 @@ use crate::{
     api::VolumeApi,
     model::{
         types::{AnyError, VolumeResult},
-        volume::{RoozVolume, RoozVolumeFile},
+        volume::{VolumeBackedPath, RoozVolumeFile},
     },
     util::labels::Labels,
 };
@@ -93,7 +93,7 @@ impl<'a> VolumeApi<'a> {
 
     pub async fn ensure_mounts(
         &self,
-        volumes: &Vec<RoozVolume>,
+        volumes: &Vec<VolumeBackedPath>,
         tilde_replacement: Option<&str>,
         uid: Option<&str>,
     ) -> Result<Vec<Mount>, AnyError> {
@@ -102,7 +102,7 @@ impl<'a> VolumeApi<'a> {
             let mount = self
                 .ensure_mount(&v, tilde_replacement, v.labels.clone())
                 .await?;
-            if let RoozVolume {
+            if let VolumeBackedPath {
                 path,
                 files: Some(files),
                 ..
@@ -119,7 +119,7 @@ impl<'a> VolumeApi<'a> {
 
     async fn ensure_mount(
         &self,
-        volume: &RoozVolume,
+        volume: &VolumeBackedPath,
         tilde_replacement: Option<&str>,
         labels: Option<Labels>,
     ) -> Result<Mount, AnyError> {

@@ -7,7 +7,7 @@ use crate::{
     constants,
     model::{
         types::{AnyError, ContainerResult, RunMode, RunSpec},
-        volume::RoozVolume,
+        volume::VolumeBackedPath,
     },
 };
 
@@ -169,12 +169,12 @@ impl<'a> GitApi<'a> {
         let labels = Labels::from(&[Labels::workspace(&spec.workspace_key), Labels::role("git")]);
         let mut mounts = vec![ssh::mount("/tmp/.ssh")];
 
-        let mut volumes: Vec<RoozVolume> = vec![];
+        let mut volumes: Vec<VolumeBackedPath> = vec![];
 
         if let Some(gitconfig) = &self.api.get_system_config().await?.gitconfig {
             let mut config_hashmap = HashMap::<String, String>::new();
             config_hashmap.insert(".gitconfig".into(), gitconfig.to_string());
-            let git_config_vol = RoozVolume::config_data(
+            let git_config_vol = VolumeBackedPath::config_data(
                 &spec.workspace_key,
                 "/tmp/rooz/",
                 Some(config_hashmap),
@@ -185,7 +185,7 @@ impl<'a> GitApi<'a> {
         }
 
         if spec.use_volume {
-            volumes.push(RoozVolume::work(&spec.workspace_key, &spec.working_dir));
+            volumes.push(VolumeBackedPath::work(&spec.workspace_key, &spec.working_dir));
         };
 
         self.api

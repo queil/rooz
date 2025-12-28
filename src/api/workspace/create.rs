@@ -5,18 +5,18 @@ use crate::{
     constants,
     model::{
         types::{AnyError, ContainerResult, RunMode, RunSpec, WorkSpec, WorkspaceResult},
-        volume::RoozVolume,
+        volume::VolumeBackedPath,
     },
     util::ssh,
 };
 
 impl<'a> WorkspaceApi<'a> {
     pub async fn create(&self, spec: &WorkSpec<'a>) -> Result<WorkspaceResult, AnyError> {
-        let mut volumes = vec![RoozVolume::work(spec.container_name, constants::WORK_DIR)];
+        let mut volumes = vec![VolumeBackedPath::work(spec.container_name, constants::WORK_DIR)];
 
         let home_dir = format!("/home/{}", &spec.user);
         if let Some(home_from_image) = spec.home_from_image {
-            let home_vol = RoozVolume::home(spec.container_name.into(), &home_dir);
+            let home_vol = VolumeBackedPath::home(spec.container_name.into(), &home_dir);
             volumes.push(home_vol.clone());
             self.api
                 .container
@@ -34,7 +34,7 @@ impl<'a> WorkspaceApi<'a> {
             log::debug!("Processing caches");
             let cache_vols = caches
                 .iter()
-                .map(|p| RoozVolume::cache(p))
+                .map(|p| VolumeBackedPath::cache(p))
                 .collect::<Vec<_>>();
 
             for c in caches {

@@ -5,7 +5,7 @@ use crate::{
     constants,
     model::{
         types::AnyError,
-        volume::{RoozVolume, RoozVolumeRole},
+        volume::{VolumeBackedPath, RoozVolumeRole},
     },
     util::labels::Labels,
 };
@@ -22,7 +22,7 @@ impl<'a> ConfigApi<'a> {
         origin: &str,
         body: &str,
     ) -> Result<(), AnyError> {
-        let config_vol = RoozVolume::config_data(
+        let config_vol = VolumeBackedPath::config_data(
             workspace_key,
             "/etc/rooz",
             Some(
@@ -57,7 +57,7 @@ impl<'a> ConfigApi<'a> {
                 )
                 .into(),
                 Some(vec![
-                    RoozVolume::workspace_config_read(workspace_key, "/etc/rooz").to_mount(None),
+                    VolumeBackedPath::workspace_config_read(workspace_key, "/etc/rooz").to_mount(None),
                 ]),
                 None,
             )
@@ -66,7 +66,7 @@ impl<'a> ConfigApi<'a> {
     }
 
     pub async fn store_runtime(&self, workspace_key: &str, data: &str) -> Result<(), AnyError> {
-        let config_vol = RoozVolume::config_data(
+        let config_vol = VolumeBackedPath::config_data(
             workspace_key,
             "/etc/rooz",
             Some(

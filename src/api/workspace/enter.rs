@@ -14,7 +14,7 @@ use crate::{
     api::WorkspaceApi,
     config::{config::ConfigType, runtime::RuntimeConfig},
     constants::{self},
-    model::{types::AnyError, volume::RoozVolume},
+    model::{types::AnyError, volume::VolumeBackedPath},
     util::labels::Labels,
 };
 
@@ -45,7 +45,7 @@ impl<'a> WorkspaceApi<'a> {
         working_dir: Option<&str>,
         shell: Option<Vec<&str>>,
         container_id: Option<&str>,
-        volumes: Vec<RoozVolume>,
+        volumes: Vec<VolumeBackedPath>,
         chown_uid: &str,
         root: bool,
         ephemeral: bool,

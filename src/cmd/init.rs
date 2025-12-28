@@ -7,7 +7,7 @@ use crate::{
     constants,
     model::{
         types::{AnyError, VolumeResult},
-        volume::{RoozVolume, RoozVolumeRole},
+        volume::{VolumeBackedPath, RoozVolumeRole},
     },
     util::{labels::Labels, ssh},
 };
@@ -47,7 +47,7 @@ impl<'a> InitApi<'a> {
         if spec.force {
             self.volume
                 .ensure_mounts(
-                    &vec![RoozVolume::system_config_init(
+                    &vec![VolumeBackedPath::system_config_init(
                         "/tmp/sys",
                         SystemConfig {
                             age_key: Some(age_key.to_string().expose_secret().to_string()),

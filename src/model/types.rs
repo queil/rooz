@@ -1,6 +1,6 @@
 use crate::{
     config::config::RoozCfg,
-    model::volume::RoozVolume,
+    model::volume::VolumeBackedPath,
     util::{git::RootRepoCloneResult, labels::Labels},
 };
 use bollard::service::Mount;
@@ -141,7 +141,7 @@ pub struct OneShotResult {
 }
 
 pub struct WorkspaceResult {
-    pub volumes: Vec<RoozVolume>,
+    pub volumes: Vec<VolumeBackedPath>,
     pub workspace_key: String,
     pub working_dir: String,
     pub orig_uid: String,

@@ -8,7 +8,7 @@ use crate::{
     constants,
     model::{
         types::{AnyError, RunMode, RunSpec},
-        volume::RoozVolume,
+        volume::VolumeBackedPath,
     },
     util::labels::{self, Labels},
 };
@@ -54,16 +54,16 @@ impl<'a> WorkspaceApi<'a> {
             let mut ports = HashMap::<String, Option<String>>::new();
             RoozCfg::parse_ports(&mut ports, s.ports.clone());
 
-            let mut mounts = Vec::<RoozVolume>::new();
+            let mut mounts = Vec::<VolumeBackedPath>::new();
 
             let auto_mounts = s.mounts.as_ref().map(|mounts| {
                 mounts
                     .iter()
                     .map(|mount| match mount {
                         SidecarMount::Empty(mount) => {
-                            RoozVolume::config_data(workspace_key, mount, None, None, None)
+                            VolumeBackedPath::config_data(workspace_key, mount, None, None, None)
                         }
-                        SidecarMount::Files { mount, files } => RoozVolume::config_data(
+                        SidecarMount::Files { mount, files } => VolumeBackedPath::config_data(
                             workspace_key,
                             mount,
                             Some(files.clone()),
@@ -79,7 +79,7 @@ impl<'a> WorkspaceApi<'a> {
             }
 
             let work_mount = if let Some(true) = s.mount_work {
-                Some(vec![RoozVolume::work(workspace_key, work_dir)])
+                Some(vec![VolumeBackedPath::work(workspace_key, work_dir)])
             } else {
                 None
             };
