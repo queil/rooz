@@ -94,7 +94,7 @@ impl<'a> WorkspaceApi<'a> {
                     volumes: volumes.iter().map(|v|v.clone()).collect::<Vec<_>>() }),
 
         ContainerResult::AlreadyExists { .. } => {
-            Err(format!("Container already exists. Did you mean: rooz enter {}? Otherwise, use --apply to reconfigure containers or --replace to recreate the whole workspace.", spec.workspace_key).into())
+            Err(format!("Workspace {} already exists.", spec.workspace_key).into())
         }
     }
     }
