@@ -1,0 +1,21 @@
+# draft - this is not an actual example
+mounts:
+  caches:                # backed by a volume per path (path is the key). Sharing: all workspaces defining a particular path. Mount: RW
+  - ~/.nuget
+  files:                 # backed by a volume, holds all the files defined. Sharing: a volume per workspace. Mount: RW
+                         # the volume mounted under /var/lib/rooz. That is the root the files are stored under,
+                         # then files get sym-linked to the actual locations
+  - ~/.bash_history      # an empty file
+  - path: ~/k8s.config   # an empty file shared with the dkr sidecar (that would mean the sym-linking logic must also run in the sidecar)
+    shared_with: [dkr]
+  - path: /etc/my.config # a file pre-populated with content - i.e. injected configuration
+    content: |-
+      {"some": "config"}
+  dirs:                  # I guess dirs can be also sym-linked to the actual locations
+  - /work                # system built-in - That wouldn't be defined here I reckon
+  - path: /done          # an example where the dir is shared with dkr
+    shared_with: [dkr]
+
+sidecars:
+  dkr:
+    image: docker.io/dind
