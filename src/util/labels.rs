@@ -11,7 +11,8 @@ const ROOZ: &'static str = "dev.rooz";
 pub const LABEL_KEY: &'static str = "label";
 const TRUE: &'static str = "true";
 
-pub const HOME_ROLE: &'static str = "home";
+//TODO: remove in v2
+//pub const HOME_ROLE: &'static str = "home";
 pub const WORK_ROLE: &'static str = "work";
 pub const DATA_ROLE: &'static str = "data";
 pub const SSH_KEY_ROLE: &'static str = "ssh-key";
@@ -19,6 +20,12 @@ pub const WORKSPACE_CONFIG_ROLE: &'static str = "workspace-config";
 pub const SYSTEM_CONFIG_ROLE: &'static str = "sys-config";
 pub const CACHE_ROLE: &'static str = "cache";
 pub const SIDECAR_ROLE: &'static str = "sidecar";
+
+// -- volume v2 roles
+
+
+//
+
 
 #[derive(Clone, Debug)]
 pub struct KeyValue {

@@ -1,4 +1,4 @@
-use super::config::{RoozCfg, RoozSidecar};
+use super::config::{DataValue, RoozCfg, RoozSidecar};
 use crate::AnyError;
 use crate::constants;
 use serde::{Deserialize, Serialize};
@@ -20,6 +20,8 @@ pub struct RuntimeConfig {
     pub args: Vec<String>,
     pub env: HashMap<String, String>,
     pub sidecars: HashMap<String, RoozSidecar>,
+    pub data: HashMap<String, DataValue>,
+    pub mounts: HashMap<String, String>,
 }
 
 impl Default for RuntimeConfig {
@@ -39,6 +41,8 @@ impl Default for RuntimeConfig {
             args: Vec::new(),
             sidecars: HashMap::new(),
             env: HashMap::new(),
+            data: HashMap::new(),
+            mounts: HashMap::new(),
         }
     }
 }
@@ -84,18 +88,11 @@ impl<'a> From<&'a RoozCfg> for RuntimeConfig {
             },
             sidecars: value
                 .sidecars
-                .as_ref()
-                .unwrap()
-                .iter()
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect::<HashMap<_, _>>(),
-            env: value
-                .env
-                .as_ref()
-                .unwrap()
-                .iter()
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect::<HashMap<_, _>>(),
+                .clone()
+                .unwrap_or_default()
+                .into_iter()
+                .collect(),
+            env: value.env.clone().unwrap_or_default().into_iter().collect(),
             ports,
             privileged: value.privileged.unwrap_or(default.privileged),
             init: value.init.unwrap_or(default.init),
@@ -105,6 +102,8 @@ impl<'a> From<&'a RoozCfg> for RuntimeConfig {
                 .unwrap_or(&default.command)
                 .to_vec(),
             args: value.args.as_deref().unwrap_or(&default.args).to_vec(),
+            data: value.data.clone().unwrap_or_default().into_iter().collect(),
+            mounts: value.mounts.clone().unwrap_or_default().into_iter().collect(),
             ..default
         }
     }

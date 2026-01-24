@@ -15,6 +15,7 @@ use bollard::{
     query_parameters::{ListVolumesOptions, RemoveVolumeOptions},
     service::Mount,
 };
+use crate::model::types::VolumeSpec;
 
 impl<'a> VolumeApi<'a> {
     pub async fn get_all(&self, labels: &Labels) -> Result<Vec<Volume>, AnyError> {
@@ -43,7 +44,7 @@ impl<'a> VolumeApi<'a> {
         match &self.client.create_volume(options).await {
             Ok(v) => {
                 log::debug!("Volume created: {:?}", v.name);
-                return Ok(VolumeResult::Created);
+                Ok(VolumeResult::Created)
             }
             Err(e) => panic!("{}", e),
         }
@@ -55,8 +56,37 @@ impl<'a> VolumeApi<'a> {
             Ok(_) => {
                 let force_display = if force { " (force)" } else { "" };
                 log::debug!("Volume removed: {} {}", &name, &force_display);
-                return Ok(());
+                Ok(())
             }
+            Err(e) => panic!("{}", e),
+        }
+    }
+
+    pub async fn ensure_volume_v2(
+        &self,
+        spec: &VolumeSpec,
+    ) -> Result<VolumeResult, AnyError> {
+        let create_vol_options = VolumeCreateOptions {
+            name: Some(spec.name.to_string()),
+            labels: spec.labels.clone().map(|x| x.into()),
+            ..Default::default()
+        };
+
+        match self.client.inspect_volume(&spec.name).await {
+            // TODO: check, but this seems not used anymore
+            // Ok(_) if spec.force => {
+            //     let options = RemoveVolumeOptions { force: true };
+            //     self.client.remove_volume(&spec.name, Some(options)).await?;
+            //      self.create_volume(create_vol_options).await
+            // }
+            Ok(_) => {
+                log::debug!("Reusing an existing {} volume", &spec.name);
+                Ok(VolumeResult::AlreadyExists)
+            }
+            Err(DockerResponseServerError {
+                    status_code: 404,
+                    message: _,
+                }) => self.create_volume(create_vol_options).await,
             Err(e) => panic!("{}", e),
         }
     }

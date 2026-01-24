@@ -56,7 +56,7 @@ impl<'a> WorkspaceApi<'a> {
 
             let mut mounts = Vec::<RoozVolume>::new();
 
-            let auto_mounts = s.mounts.as_ref().map(|mounts| {
+            let auto_mounts = s.inline_mounts.as_ref().map(|mounts| {
                 mounts
                     .iter()
                     .map(|mount| match mount {
@@ -78,15 +78,20 @@ impl<'a> WorkspaceApi<'a> {
                 mounts.extend_from_slice(&v.as_slice());
             }
 
-            let work_mount = if let Some(true) = s.mount_work {
-                Some(vec![RoozVolume::work(workspace_key, work_dir)])
-            } else {
-                None
-            };
+            //TODO: remove in v2 - this would just become:
+            //  sidecars:
+            //    test:
+            //      mounts:
+            //        /work: work
+            // let work_mount = if let Some(true) = s.mount_work {
+            //     Some(vec![RoozVolume::work(workspace_key, work_dir)])
+            // } else {
+            //     None
+            // };
 
-            if let Some(v) = work_mount {
-                mounts.extend_from_slice(&v.as_slice());
-            }
+            // if let Some(v) = work_mount {
+            //     mounts.extend_from_slice(&v.as_slice());
+            // }
 
             let uid = s.user.as_deref().unwrap_or(&constants::ROOT_UID);
             self.api

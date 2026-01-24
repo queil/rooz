@@ -1,3 +1,4 @@
+use crate::config::config::DataEntry;
 use crate::{
     config::config::RoozCfg,
     model::volume::RoozVolume,
@@ -31,7 +32,8 @@ pub enum VolumeResult {
 #[derive(Clone, Debug)]
 pub struct WorkSpec<'a> {
     pub image: &'a str,
-    pub home_from_image: Option<&'a str>,
+    //TODO: remove in v2
+    //pub home_from_image: Option<&'a str>,
     pub uid: &'a str,
     pub user: &'a str,
     pub container_working_dir: &'a str,
@@ -48,13 +50,16 @@ pub struct WorkSpec<'a> {
     pub ports: Option<HashMap<String, Option<String>>>,
     pub command: Option<Vec<&'a str>>,
     pub args: Option<Vec<&'a str>>,
+    pub data: Option<Vec<DataEntry>>,
+    pub mounts: Option<HashMap<String,String>>,
 }
 
 impl Default for WorkSpec<'_> {
     fn default() -> Self {
         Self {
             image: Default::default(),
-            home_from_image: None,
+            //TODO: remove in v2
+            //home_from_image: None,
             uid: Default::default(),
             user: Default::default(),
             container_working_dir: Default::default(),
@@ -71,6 +76,8 @@ impl Default for WorkSpec<'_> {
             ports: None,
             command: None,
             args: None,
+            data: None,
+            mounts: None,
         }
     }
 }
@@ -151,4 +158,9 @@ pub struct EnterSpec {
     pub workspace: WorkspaceResult,
     pub git_spec: Option<RootRepoCloneResult>,
     pub config: RoozCfg,
+}
+
+pub struct VolumeSpec {
+    pub name: String,
+    pub labels: Option<Labels>,
 }

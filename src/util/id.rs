@@ -3,7 +3,7 @@ use rand::{Rng, distr::Alphanumeric, rng};
 use regex::Regex;
 
 lazy_static! {
-    static ref ID_REGEX: Regex = Regex::new(r"[^a-zA-Z0-9_.-]").unwrap();
+    static ref ID_REGEX: Regex = Regex::new(r"[^a-zA-Z0-9-]").unwrap();
 }
 
 pub fn random_suffix(prefix: &str) -> String {
@@ -15,7 +15,7 @@ pub fn random_suffix(prefix: &str) -> String {
     format!("{}-{}", prefix, suffix)
 }
 
-pub fn to_safe_id(dirty: &str) -> String {
+pub fn sanitize(dirty: &str) -> String {
     ID_REGEX
         .replace_all(&dirty, "-")
         .to_ascii_lowercase()

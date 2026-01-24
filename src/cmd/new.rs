@@ -15,6 +15,7 @@ use crate::{
         labels::{self, Labels},
     },
 };
+use crate::config::config::DataExt;
 
 impl<'a> WorkspaceApi<'a> {
     async fn new_core(
@@ -75,7 +76,8 @@ impl<'a> WorkspaceApi<'a> {
 
         let work_spec = WorkSpec {
             image: &cfg.image,
-            home_from_image: cfg.home_from_image.as_deref(),
+            //TODO: remove in v2
+            //home_from_image: cfg.home_from_image.as_deref(),
             user: &cfg.user,
             caches: Some(cfg.caches),
             env_vars: Some(cfg.env),
@@ -102,6 +104,8 @@ impl<'a> WorkspaceApi<'a> {
             })
             .as_ref()
             .map(|x| x.iter().map(|z| z.as_ref()).collect()),
+            data: Some(cfg.data.into_entries()),
+            mounts: Some(cfg.mounts),
             ..*work_spec
         };
 
@@ -183,6 +187,16 @@ impl<'a> WorkspaceApi<'a> {
         cli_config_path: Option<ConfigSource>,
         ephemeral: bool,
     ) -> Result<EnterSpec, AnyError> {
+
+        // volume v2 test
+
+
+
+
+        // end: volume v2 test
+
+
+
         let orig_uid = cli_params
             .uid
             .map(|x| x.to_string())

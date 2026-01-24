@@ -117,15 +117,18 @@ pub struct RoozSidecar {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub args: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub mounts: Option<Vec<SidecarMount>>,
+    pub inline_mounts: Option<Vec<SidecarMount>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mounts: Option<LinkedHashMap<String, String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ports: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub privileged: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub init: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub mount_work: Option<bool>,
+    //TODO: remove in v2
+    //#[serde(skip_serializing_if = "Option::is_none")]
+    //pub mount_work: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub work_dir: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -167,6 +170,10 @@ pub struct RoozCfg {
     pub env: Option<LinkedHashMap<String, String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sidecars: Option<LinkedHashMap<String, RoozSidecar>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<LinkedHashMap<String, DataValue>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mounts: Option<LinkedHashMap<String, String>>,
 }
 
 impl Default for RoozCfg {
@@ -188,6 +195,8 @@ impl Default for RoozCfg {
             args: Some(Vec::new()),
             env: Some(LinkedHashMap::new()),
             sidecars: Some(LinkedHashMap::new()),
+            data: Some(LinkedHashMap::new()),
+            mounts: Some(LinkedHashMap::new()),
         }
     }
 }
@@ -254,6 +263,8 @@ impl RoozCfg {
             args: Self::extend_if_any(self.args.clone(), config.args.clone()),
             env: Self::extend_if_any(self.env.clone(), config.env.clone()),
             sidecars: Self::extend_if_any(self.sidecars.clone(), config.sidecars.clone()),
+            data: Self::extend_if_any(self.data.clone(), config.data.clone()),
+            mounts: Self::extend_if_any(self.mounts.clone(), config.mounts.clone()),
         }
     }
 
@@ -374,5 +385,146 @@ impl SystemConfig {
 
     pub fn to_string(config: &Self) -> Result<String, AnyError> {
         Ok(serde_yaml::to_string(&config)?)
+    }
+}
+
+// VOLUMES v2 temporary placeholder
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum DataValue {
+    InlineContent(String),
+    Source(Source),
+    Dir {},
+}
+
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Source {
+    Git(GitSource),
+    Image(ImageSource),
+    Path(String),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GitSource {
+    pub repo: String,
+    pub path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImageSource {
+    #[serde(rename = "ref")]
+    pub image_ref: String,
+    pub path: String,
+}
+
+#[derive(Debug, Clone)]
+pub enum DataEntry {
+    Dir { name: String },
+    File { name: String, content: String },
+    LocalPath { name: String, path: String },
+    GitRepo { name: String, repo: String, path: Option<String> },
+    Image { name: String, image_ref: String, path: String },
+}
+
+impl DataValue {
+    pub fn into_entry(self, name: String) -> DataEntry {
+        match self {
+            DataValue::InlineContent(content) => DataEntry::File { name, content },
+            DataValue::Dir {} => DataEntry::Dir { name },
+            DataValue::Source(Source::Git(g)) => DataEntry::GitRepo {
+                name,
+                repo: g.repo,
+                path: g.path,
+            },
+            DataValue::Source(Source::Image(i)) => DataEntry::Image {
+                name,
+                image_ref: i.image_ref,
+                path: i.path,
+            },
+            DataValue::Source(Source::Path(p)) => DataEntry::LocalPath { name, path: p },
+        }
+    }
+}
+
+pub trait DataExt {
+    fn into_entries(self) -> Vec<DataEntry>;
+}
+
+impl<T> DataExt for T
+where
+    T: IntoIterator<Item = (String, DataValue)>,
+{
+    fn into_entries(self) -> Vec<DataEntry> {
+        self.into_iter()
+            .map(|(name, value)| value.into_entry(name))
+            .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_all_variants() {
+        let yaml = r#"
+data:
+  some-dir: {}
+
+  inline-file: |
+    some content
+    here
+
+  empty-file: ""
+
+  my-repo:
+    git:
+      repo: git@github.com:user/repo
+      path: /src
+
+  my-repo-root:
+    git:
+      repo: git@github.com:user/other
+
+  from-image:
+    image:
+      ref: nginx:latest
+      path: /etc/nginx/nginx.conf
+
+  local-thing:
+    path: ./local/file.txt
+"#;
+
+        let config: RoozCfg = serde_yaml::from_str(yaml).unwrap();
+        let entries = config.data.unwrap().into_entries();
+
+        assert_eq!(entries.len(), 7);
+
+        for entry in &entries {
+            match entry {
+                DataEntry::Dir { name } => {
+                    assert_eq!(name, "some-dir");
+                }
+                DataEntry::File { name, content } => {
+                    assert!(name == "inline-file" || name == "empty-file");
+                }
+                DataEntry::GitRepo { name, repo, path } => {
+                    assert!(name == "my-repo" || name == "my-repo-root");
+                    assert!(repo.contains("github.com"));
+                }
+                DataEntry::Image { name, image_ref, path } => {
+                    assert_eq!(name, "from-image");
+                    assert_eq!(image_ref, "nginx:latest");
+                    assert_eq!(path, "/etc/nginx/nginx.conf");
+                }
+                DataEntry::LocalPath { name, path } => {
+                    assert_eq!(name, "local-thing");
+                    assert_eq!(path, "./local/file.txt");
+                }
+            }
+        }
     }
 }

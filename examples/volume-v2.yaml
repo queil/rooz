@@ -1,0 +1,11 @@
+data:
+  empty-dir: {}
+
+mounts:
+  ~/placeholder: empty-dir
+
+sidecars:
+  dkr:
+    image: alpine
+    mounts:
+      /tmp/2: empty-dir
