@@ -20,7 +20,7 @@ use crate::{
         StopParams, TmpParams,
     },
     cmd::remote,
-    model::{types::AnyError, volume::VolumeBackedPath},
+    model::{types::AnyError, volume::RoozVolume},
     util::backend::ContainerBackend,
 };
 
@@ -378,7 +378,7 @@ async fn main() -> Result<(), AnyError> {
                 .await?;
             volume_api
                 .ensure_mounts(
-                    &vec![VolumeBackedPath::system_config("/tmp/sys", config_string)],
+                    &vec![RoozVolume::system_config("/tmp/sys", config_string)],
                     None,
                     Some(constants::ROOT_UID),
                 )

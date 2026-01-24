@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use crate::model::volume::RoozVolumeRole::WorkspaceConfig;
 use crate::{
     config::config::SystemConfig,
     model::types::AnyError,
@@ -52,7 +51,7 @@ pub struct RoozVolumeFile {
 }
 
 #[derive(Debug, Clone)]
-pub struct VolumeBackedPath {
+pub struct RoozVolume {
     pub path: String,
     pub role: RoozVolumeRole,
     pub sharing: RoozVolumeSharing,
@@ -60,12 +59,12 @@ pub struct VolumeBackedPath {
     pub labels: Option<Labels>,
 }
 
-impl VolumeBackedPath {
+impl RoozVolume {
     pub fn safe_volume_name(&self) -> String {
         let role_segment = to_safe_id(self.role.as_str());
 
         match self {
-            VolumeBackedPath {
+            RoozVolume {
                 path,
                 role: RoozVolumeRole::Data,
                 sharing: RoozVolumeSharing::Exclusive { key },
@@ -76,17 +75,17 @@ impl VolumeBackedPath {
                 to_safe_id(&path),
                 &role_segment
             ),
-            VolumeBackedPath {
+            RoozVolume {
                 path,
                 sharing: RoozVolumeSharing::Shared,
                 role: RoozVolumeRole::Cache,
                 ..
             } => format!("rooz_{}_{}", &role_segment, to_safe_id(&path)),
-            VolumeBackedPath {
+            RoozVolume {
                 sharing: RoozVolumeSharing::Exclusive { key },
                 ..
             } => format!("rooz_{}_{}", to_safe_id(&key), &role_segment),
-            VolumeBackedPath { .. } => format!("rooz_{}", &role_segment),
+            RoozVolume { .. } => format!("rooz_{}", &role_segment),
         }
     }
 
@@ -116,43 +115,42 @@ impl VolumeBackedPath {
         }
     }
 
-    fn exclusive(key: &str, path: &str, role: RoozVolumeRole) -> VolumeBackedPath {
-        VolumeBackedPath {
+    pub fn work(key: &str, path: &str) -> RoozVolume {
+        RoozVolume {
             path: path.into(),
             sharing: RoozVolumeSharing::Exclusive { key: key.into() },
-            role: role.clone(),
+            role: RoozVolumeRole::Work,
             files: None,
             labels: Some(Labels::from(&[
                 Labels::workspace(key),
-                Labels::role(role.as_str()),
+                Labels::role(RoozVolumeRole::Work.as_str()),
             ])),
         }
     }
 
-    fn shared(path: &str, role: RoozVolumeRole) -> VolumeBackedPath {
-        VolumeBackedPath {
+    pub fn home(key: &str, path: &str) -> RoozVolume {
+        RoozVolume {
             path: path.into(),
-            sharing: RoozVolumeSharing::Shared,
-            role: role.clone(),
+            sharing: RoozVolumeSharing::Exclusive { key: key.into() },
+            role: RoozVolumeRole::Home,
             files: None,
-            labels: Some(Labels::from(&[Labels::role(role.as_str())])),
+            labels: Some(Labels::from(&[
+                Labels::workspace(key),
+                Labels::role(RoozVolumeRole::Home.as_str()),
+            ])),
         }
     }
 
-    pub fn home(key: &str, path: &str) -> VolumeBackedPath {
-        VolumeBackedPath::exclusive(key, path, RoozVolumeRole::Home)
-    }
-
-    pub fn work(key: &str, path: &str) -> VolumeBackedPath {
-        VolumeBackedPath::exclusive(key, path, RoozVolumeRole::Work)
-    }
-
-    pub fn cache(path: &str) -> VolumeBackedPath {
-        VolumeBackedPath::shared(path, RoozVolumeRole::Cache)
-    }
-
-    pub fn system_config_read(path: &str) -> VolumeBackedPath {
-        VolumeBackedPath::shared(path, RoozVolumeRole::SystemConfig)
+    pub fn cache(path: &str) -> RoozVolume {
+        RoozVolume {
+            path: path.into(),
+            sharing: RoozVolumeSharing::Shared,
+            role: RoozVolumeRole::Cache,
+            files: None,
+            labels: Some(Labels::from(&[Labels::role(
+                RoozVolumeRole::Cache.as_str(),
+            )])),
+        }
     }
 
     pub fn config_data(
@@ -161,30 +159,23 @@ impl VolumeBackedPath {
         files: Option<HashMap<String, String>>,
         labels: Option<Labels>,
         role: Option<RoozVolumeRole>,
-    ) -> VolumeBackedPath {
+    ) -> RoozVolume {
         let role = role.unwrap_or(RoozVolumeRole::Data);
+        let mut all_labels = Labels::from(&[
+            Labels::workspace(workspace_key),
+            Labels::role(role.as_str()),
+        ]);
 
-        let vbp = {
-            let default = VolumeBackedPath::exclusive(path, workspace_key, role.clone());
-            VolumeBackedPath {
-                labels: {
-                    let mut all_labels = if let Some(custom_labels) = labels {
-                        custom_labels
-                    } else {
-                        Labels::from(&[])
-                    };
-                    if let Some(ls) = default.labels {
-                        all_labels.extend_with_labels(ls);
-                    }
-
-                    Some(all_labels)
-                },
-                ..default
-            }
-        };
-
+        if let Some(items) = labels {
+            all_labels.extend_with_labels(items);
+        }
         match files {
-            Some(files) => VolumeBackedPath {
+            Some(files) => RoozVolume {
+                path: path.to_string(),
+                role: role,
+                sharing: RoozVolumeSharing::Exclusive {
+                    key: workspace_key.into(),
+                },
                 files: Some(
                     files
                         .iter()
@@ -194,34 +185,61 @@ impl VolumeBackedPath {
                         })
                         .collect::<Vec<_>>(),
                 ),
-                ..vbp
+                labels: Some(all_labels),
             },
-            None => vbp,
+            None => RoozVolume {
+                path: path.into(),
+                role: role,
+                sharing: RoozVolumeSharing::Exclusive {
+                    key: workspace_key.into(),
+                },
+                files: None,
+                labels: Some(all_labels),
+            },
         }
     }
 
-    pub fn workspace_config_read(workspace_key: &str, path: &str) -> VolumeBackedPath {
-        VolumeBackedPath {
+    pub fn workspace_config_read(workspace_key: &str, path: &str) -> RoozVolume {
+        RoozVolume {
+            path: path.into(),
+            sharing: RoozVolumeSharing::Exclusive {
+                key: workspace_key.to_string(),
+            },
+            role: RoozVolumeRole::WorkspaceConfig,
+            files: None,
             labels: None,
-            ..VolumeBackedPath::exclusive(workspace_key, path, WorkspaceConfig)
         }
     }
 
-    pub fn system_config(path: &str, data: String) -> VolumeBackedPath {
-        VolumeBackedPath {
+    pub fn system_config_read(path: &str) -> RoozVolume {
+        RoozVolume {
+            path: path.into(),
+            sharing: RoozVolumeSharing::Shared,
+            role: RoozVolumeRole::SystemConfig,
+            files: None,
+            labels: Some(Labels::from(&[Labels::role(
+                RoozVolumeRole::SystemConfig.as_str(),
+            )])),
+        }
+    }
+
+    pub fn system_config(path: &str, data: String) -> RoozVolume {
+        RoozVolume {
+            path: path.into(),
+            sharing: RoozVolumeSharing::Shared,
+            role: RoozVolumeRole::SystemConfig,
             files: Some(vec![RoozVolumeFile {
                 file_path: "rooz.config".to_string(),
-                data,
+                data: data,
             }]),
-            ..VolumeBackedPath::shared(path, RoozVolumeRole::SystemConfig)
+            labels: Some(Labels::from(&[Labels::role(
+                RoozVolumeRole::SystemConfig.as_str(),
+            )])),
         }
     }
 
-    pub fn system_config_init(
-        path: &str,
-        data: SystemConfig,
-    ) -> Result<VolumeBackedPath, AnyError> {
-        Ok(VolumeBackedPath::system_config(
+    pub fn system_config_init(path: &str, data: SystemConfig) -> Result<RoozVolume, AnyError> {
+        Ok(RoozVolume::system_config(
             path,
             SystemConfig::to_string(&data)?,
         ))
