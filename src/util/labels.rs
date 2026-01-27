@@ -23,9 +23,7 @@ pub const SIDECAR_ROLE: &'static str = "sidecar";
 
 // -- volume v2 roles
 
-
 //
-
 
 #[derive(Clone, Debug)]
 pub struct KeyValue {

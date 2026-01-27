@@ -103,7 +103,12 @@ impl<'a> From<&'a RoozCfg> for RuntimeConfig {
                 .to_vec(),
             args: value.args.as_deref().unwrap_or(&default.args).to_vec(),
             data: value.data.clone().unwrap_or_default().into_iter().collect(),
-            mounts: value.mounts.clone().unwrap_or_default().into_iter().collect(),
+            mounts: value
+                .mounts
+                .clone()
+                .unwrap_or_default()
+                .into_iter()
+                .collect(),
             ..default
         }
     }

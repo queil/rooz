@@ -185,10 +185,7 @@ impl<'a> GitApi<'a> {
         }
 
         if spec.use_volume {
-            volumes.push(RoozVolume::work(
-                &spec.workspace_key,
-                &spec.working_dir,
-            ));
+            volumes.push(RoozVolume::work(&spec.workspace_key, &spec.working_dir));
         };
 
         self.api

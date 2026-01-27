@@ -1,9 +1,11 @@
 data:
   empty-dir: {}
+  work: {}
 
 mounts:
   ~/placeholder: empty-dir
-  /tmp/4: unknoen-git
+  /work: work
+  #/tmp/4: unknown-git
 
 sidecars:
   dkr:

@@ -45,11 +45,9 @@ impl<'a> WorkspaceApi<'a> {
         working_dir: Option<&str>,
         shell: Option<Vec<&str>>,
         container_id: Option<&str>,
-        volumes: Vec<RoozVolume>,
         chown_uid: &str,
         root: bool,
-        ephemeral: bool,
-    ) -> Result<(), AnyError> {
+    ) -> Result<String, AnyError> {
         let enter_labels = Labels::from(&[
             Labels::workspace(workspace_key),
             Labels::container(container_id.unwrap_or(constants::DEFAULT_CONTAINER_NAME)),
@@ -62,12 +60,13 @@ impl<'a> WorkspaceApi<'a> {
             .await?
             .ok_or(format!("Workspace not found: {}", &workspace_key))?;
 
-        let config = self
-            .config
-            .read(workspace_key, &ConfigType::Runtime)
-            .await?;
+        let config = RuntimeConfig::from_string(
+            self.config
+                .read(workspace_key, &ConfigType::Runtime)
+                .await?,
+        )?;
 
-        let mut shell_value = RuntimeConfig::from_string(config)?.shell;
+        let mut shell_value = config.shell;
 
         if let Some(shell) = shell {
             shell_value = shell.iter().map(|v| v.to_string()).collect::<Vec<_>>();
@@ -90,10 +89,12 @@ impl<'a> WorkspaceApi<'a> {
 
             if !root {
                 self.api.exec.ensure_user(container_id).await?;
-                for v in &volumes {
+                
+                //TODO: v2 - not much of use in tmp without implicit /work 
+                for (target, _) in &config.mounts {
                     self.api
                         .exec
-                        .chown(&container_id, chown_uid, &v.path)
+                        .chown(&container_id, chown_uid, target)
                         .await?;
                 }
             }
@@ -121,15 +122,6 @@ impl<'a> WorkspaceApi<'a> {
                 }
             };
         }
-        if ephemeral {
-            self.api.container.kill(&container_id, true).await?;
-            for vol in volumes.iter().filter(|v| v.is_exclusive()) {
-                self.api
-                    .volume
-                    .remove_volume(&vol.safe_volume_name(), true)
-                    .await?;
-            }
-        }
-        Ok(())
+        Ok(container_id.to_string())
     }
 }

@@ -1,5 +1,6 @@
 use std::fs;
 
+use crate::config::config::DataExt;
 use crate::{
     api::WorkspaceApi,
     cli::WorkParams,
@@ -15,7 +16,6 @@ use crate::{
         labels::{self, Labels},
     },
 };
-use crate::config::config::DataExt;
 
 impl<'a> WorkspaceApi<'a> {
     async fn new_core(
@@ -187,15 +187,9 @@ impl<'a> WorkspaceApi<'a> {
         cli_config_path: Option<ConfigSource>,
         ephemeral: bool,
     ) -> Result<EnterSpec, AnyError> {
-
         // volume v2 test
 
-
-
-
         // end: volume v2 test
-
-
 
         let orig_uid = cli_params
             .uid
@@ -306,16 +300,33 @@ impl<'a> WorkspaceApi<'a> {
             ..config
         });
 
-        self.enter(
-            &workspace.workspace_key,
-            working_dir.as_deref(),
-            Some(cfg.shell.iter().map(|v| v.as_str()).collect::<Vec<_>>()),
-            None,
-            workspace.volumes,
-            &workspace.orig_uid,
-            root,
-            true,
-        )
-        .await
+        let container_id = self
+            .enter(
+                &workspace.workspace_key,
+                working_dir.as_deref(),
+                Some(cfg.shell.iter().map(|v| v.as_str()).collect::<Vec<_>>()),
+                None,
+                &workspace.orig_uid,
+                root,
+            )
+            .await?;
+
+        let killed = self.api.container.kill(&container_id, true);
+        let volumes = self
+            .api
+            .volume
+            .get_all(&Labels::from(&[Labels::workspace(
+                &workspace.workspace_key,
+            )]))
+            .await?;
+        killed.await?;
+
+        let volume_api = self.api.volume;
+
+        let futures = volumes
+            .iter()
+            .filter_map(|v| Some(async move { volume_api.remove_volume(&v.name, true).await }));
+        futures::future::try_join_all(futures).await?;
+        Ok(())
     }
 }

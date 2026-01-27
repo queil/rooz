@@ -13,6 +13,7 @@ use crate::{
 };
 use bollard_stubs::models::Mount;
 use bollard_stubs::models::MountTypeEnum::VOLUME;
+use std::collections::HashMap;
 use std::path::Path;
 
 impl<'a> WorkspaceApi<'a> {
@@ -25,30 +26,30 @@ impl<'a> WorkspaceApi<'a> {
     }
     pub async fn create(&self, spec: &WorkSpec<'a>) -> Result<WorkspaceResult, AnyError> {
         // ---- VOLUMES v2 impl ----
-        // here each DataEntry case needs different handling
-        // leaving these excessive comments here so I can resume the work after a break
 
-        // make volume specs
-        let volumes_v2 = if let Some(data) = &spec.data {
-            data.iter()
-                .map(|d| match d {
-                    DataEntry::Dir { name } => VolumeSpec {
-                        name: format!(
-                            "rooz-{}-{}",
-                            id::sanitize(spec.workspace_key),
-                            id::sanitize(name)
-                        ),
-                        labels: Some(Labels::from(&[
-                            Labels::workspace(spec.workspace_key),
-                            Labels::role(DATA_ROLE),
-                        ])),
-                    },
-                    _ => panic!("Not implemented yet"),
-                })
-                .collect::<Vec<_>>()
-        } else {
-            Vec::new()
-        };
+        let mut data_entries = vec![];
+
+        if let Some(data) = &spec.data {
+            data_entries.extend_from_slice(data.as_slice());
+        }
+
+        let volumes_v2 = data_entries
+            .iter()
+            .map(|d| match d {
+                DataEntry::Dir { name } => VolumeSpec {
+                    name: format!(
+                        "rooz-{}-{}",
+                        id::sanitize(spec.workspace_key),
+                        id::sanitize(name)
+                    ),
+                    labels: Some(Labels::from(&[
+                        Labels::workspace(spec.workspace_key),
+                        Labels::role(DATA_ROLE),
+                    ])),
+                },
+                _ => panic!("Not implemented yet"),
+            })
+            .collect::<Vec<_>>();
 
         // make volumes
 
@@ -58,16 +59,16 @@ impl<'a> WorkspaceApi<'a> {
 
         let home_dir = format!("/home/{}", &spec.user);
 
-        let mounts_v2 = if let Some(mounts) = spec.mounts.clone() {
-            let unknown_entries: Vec<_> = mounts
+        let mut mount_entries = HashMap::new();
+
+        if let Some(mounts) = spec.mounts.clone() {
+            mount_entries.extend(mounts);
+        }
+
+        let mounts_v2 = {
+            let unknown_entries: Vec<_> = mount_entries
                 .values()
-                .filter(|k| {
-                    !spec
-                        .data
-                        .as_ref()
-                        .map(|v| v.iter().any(|e| e.name() == *k))
-                        .unwrap_or(false)
-                })
+                .filter(|k| !data_entries.clone().into_iter().any(|e| e.name() == *k))
                 .collect();
 
             if !unknown_entries.is_empty() {
@@ -81,7 +82,7 @@ impl<'a> WorkspaceApi<'a> {
                 )
             }
 
-            mounts
+            mount_entries
                 .into_iter()
                 .map(|(target, source)| Mount {
                     target: Some(Self::expand_home(target, Some(&home_dir))),
@@ -91,12 +92,15 @@ impl<'a> WorkspaceApi<'a> {
                     ..Mount::default()
                 })
                 .collect::<Vec<_>>()
-        } else {
-            Vec::new()
         };
 
         //TODO: initialize volumes according to the DataEntry type
 
+        // TODO: DESIGN CHANGES - BREAKING
+        // /work is not longer backed by a volume by default
+        // In volumes-v2 it can be explicitly configured for workspaces with configuration files, but 
+        // can't in tmp or simple persistent workspaces without config
+        
         //TODO: NEXT STEPS
         //TODO: 1. all great but we need to make sure the volumes v2 are chown'd, that happens on enter
         // so need to refactor there.
@@ -105,19 +109,19 @@ impl<'a> WorkspaceApi<'a> {
         // so that we can chown on enter as we do on `tmp`. It turns chown on normal enter is missing, only visible in Docker
         // as Podman sorts out the right ownership on its own
 
-
         //TODO: 2. in tmp mode we delete volumes exclusive to the workspace so that must be retained
 
         //TODO: 3. all built-in stuff must be included in v2 - caches, ssh, system-config, work, etc.
 
         //TODO: 4. v2 in sidecars
+        // - remove mount_work
 
         //TODO 5. caches and system shared volumes (ssh-key) shall maybe owned by a rooz group that need to be
         // ensured in containers and the user would beed to be added to that group to read (and write as the group - caches)
 
         // ---- END VOLUMES v2 impl ----
 
-        let mut volumes = vec![RoozVolume::work(spec.container_name, constants::WORK_DIR)];
+        let mut volumes = vec![];
 
         // TODO: in v2 is just a special case of image
         // if let Some(home_from_image) = spec.home_from_image {

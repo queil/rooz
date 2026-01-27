@@ -398,7 +398,6 @@ pub enum DataValue {
     Dir {},
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Source {
@@ -422,11 +421,27 @@ pub struct ImageSource {
 
 #[derive(Debug, Clone)]
 pub enum DataEntry {
-    Dir { name: String },
-    File { name: String, content: String },
-    LocalPath { name: String, path: String },
-    GitRepo { name: String, repo: String, path: Option<String> },
-    Image { name: String, image_ref: String, path: String },
+    Dir {
+        name: String,
+    },
+    File {
+        name: String,
+        content: String,
+    },
+    LocalPath {
+        name: String,
+        path: String,
+    },
+    GitRepo {
+        name: String,
+        repo: String,
+        path: Option<String>,
+    },
+    Image {
+        name: String,
+        image_ref: String,
+        path: String,
+    },
 }
 
 impl DataEntry {
@@ -527,7 +542,11 @@ data:
                     assert!(name == "my-repo" || name == "my-repo-root");
                     assert!(repo.contains("github.com"));
                 }
-                DataEntry::Image { name, image_ref, path } => {
+                DataEntry::Image {
+                    name,
+                    image_ref,
+                    path,
+                } => {
                     assert_eq!(name, "from-image");
                     assert_eq!(image_ref, "nginx:latest");
                     assert_eq!(path, "/etc/nginx/nginx.conf");

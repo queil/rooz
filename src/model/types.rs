@@ -51,7 +51,7 @@ pub struct WorkSpec<'a> {
     pub command: Option<Vec<&'a str>>,
     pub args: Option<Vec<&'a str>>,
     pub data: Option<Vec<DataEntry>>,
-    pub mounts: Option<HashMap<String,String>>,
+    pub mounts: Option<HashMap<String, String>>,
 }
 
 impl Default for WorkSpec<'_> {

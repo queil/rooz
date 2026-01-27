@@ -1,5 +1,6 @@
 use std::path::Path;
 
+use crate::model::types::VolumeSpec;
 use crate::{
     api::VolumeApi,
     model::{
@@ -15,7 +16,6 @@ use bollard::{
     query_parameters::{ListVolumesOptions, RemoveVolumeOptions},
     service::Mount,
 };
-use crate::model::types::VolumeSpec;
 
 impl<'a> VolumeApi<'a> {
     pub async fn get_all(&self, labels: &Labels) -> Result<Vec<Volume>, AnyError> {
@@ -62,10 +62,7 @@ impl<'a> VolumeApi<'a> {
         }
     }
 
-    pub async fn ensure_volume_v2(
-        &self,
-        spec: &VolumeSpec,
-    ) -> Result<VolumeResult, AnyError> {
+    pub async fn ensure_volume_v2(&self, spec: &VolumeSpec) -> Result<VolumeResult, AnyError> {
         let create_vol_options = VolumeCreateOptions {
             name: Some(spec.name.to_string()),
             labels: spec.labels.clone().map(|x| x.into()),
@@ -84,9 +81,9 @@ impl<'a> VolumeApi<'a> {
                 Ok(VolumeResult::AlreadyExists)
             }
             Err(DockerResponseServerError {
-                    status_code: 404,
-                    message: _,
-                }) => self.create_volume(create_vol_options).await,
+                status_code: 404,
+                message: _,
+            }) => self.create_volume(create_vol_options).await,
             Err(e) => panic!("{}", e),
         }
     }

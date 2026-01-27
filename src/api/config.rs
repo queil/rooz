@@ -57,8 +57,7 @@ impl<'a> ConfigApi<'a> {
                 )
                 .into(),
                 Some(vec![
-                    RoozVolume::workspace_config_read(workspace_key, "/etc/rooz")
-                        .to_mount(None),
+                    RoozVolume::workspace_config_read(workspace_key, "/etc/rooz").to_mount(None),
                 ]),
                 None,
             )
