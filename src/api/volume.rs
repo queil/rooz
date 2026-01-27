@@ -63,11 +63,7 @@ impl<'a> VolumeApi<'a> {
     }
 
     pub async fn ensure_volume_v2(&self, spec: &VolumeSpec) -> Result<VolumeResult, AnyError> {
-        let create_vol_options = VolumeCreateOptions {
-            name: Some(spec.name.to_string()),
-            labels: spec.labels.clone().map(|x| x.into()),
-            ..Default::default()
-        };
+
 
         match self.client.inspect_volume(&spec.name).await {
             // TODO: check, but this seems not used anymore
@@ -83,7 +79,11 @@ impl<'a> VolumeApi<'a> {
             Err(DockerResponseServerError {
                 status_code: 404,
                 message: _,
-            }) => self.create_volume(create_vol_options).await,
+            }) => self.create_volume(VolumeCreateOptions {
+                name: Some(spec.name.to_string()),
+                labels: spec.labels.clone().map(|x| x.into()),
+                ..Default::default()
+            }).await,
             Err(e) => panic!("{}", e),
         }
     }

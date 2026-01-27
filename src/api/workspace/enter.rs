@@ -89,8 +89,8 @@ impl<'a> WorkspaceApi<'a> {
 
             if !root {
                 self.api.exec.ensure_user(container_id).await?;
-                
-                //TODO: v2 - not much of use in tmp without implicit /work 
+
+                //TODO: v2 - not much of use in tmp without implicit /work
                 for (target, _) in &config.mounts {
                     self.api
                         .exec

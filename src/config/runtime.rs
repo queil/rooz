@@ -9,7 +9,6 @@ pub struct RuntimeConfig {
     pub git_ssh_url: Option<String>,
     pub extra_repos: Vec<String>,
     pub image: String,
-    pub home_from_image: Option<String>,
     pub caches: Vec<String>,
     pub shell: Vec<String>,
     pub user: String,
@@ -30,7 +29,6 @@ impl Default for RuntimeConfig {
             git_ssh_url: None,
             extra_repos: Vec::new(),
             image: constants::DEFAULT_IMAGE.into(),
-            home_from_image: None,
             caches: Vec::new(),
             shell: vec![constants::DEFAULT_SHELL.into()],
             user: constants::DEFAULT_USER.into(),
@@ -79,7 +77,6 @@ impl<'a> From<&'a RoozCfg> for RuntimeConfig {
                 .to_vec(),
             shell: value.shell.as_deref().unwrap_or(&default.shell).into(),
             image: value.image.as_deref().unwrap_or(&default.image).into(),
-            home_from_image: value.home_from_image.clone(),
             user: value.user.as_deref().unwrap_or(&default.user).into(),
             caches: {
                 let mut val = value.caches.as_deref().unwrap_or(&default.caches).to_vec();

@@ -1,7 +1,5 @@
 use std::collections::HashMap;
 
-use bollard::models::NetworkCreateRequest;
-
 use crate::{
     api::WorkspaceApi,
     config::config::{RoozCfg, RoozSidecar, SidecarMount},
@@ -12,6 +10,8 @@ use crate::{
     },
     util::labels::{self, Labels},
 };
+use bollard::models::NetworkCreateRequest;
+use bollard_stubs::models::Mount;
 
 impl<'a> WorkspaceApi<'a> {
     pub async fn ensure_sidecars(
@@ -54,44 +54,9 @@ impl<'a> WorkspaceApi<'a> {
             let mut ports = HashMap::<String, Option<String>>::new();
             RoozCfg::parse_ports(&mut ports, s.ports.clone());
 
-            let mut mounts = Vec::<RoozVolume>::new();
+            let mut mounts = Vec::<Mount>::new();
 
-            let auto_mounts = s.inline_mounts.as_ref().map(|mounts| {
-                mounts
-                    .iter()
-                    .map(|mount| match mount {
-                        SidecarMount::Empty(mount) => {
-                            RoozVolume::config_data(workspace_key, mount, None, None, None)
-                        }
-                        SidecarMount::Files { mount, files } => RoozVolume::config_data(
-                            workspace_key,
-                            mount,
-                            Some(files.clone()),
-                            None,
-                            None,
-                        ),
-                    })
-                    .collect::<Vec<_>>()
-            });
-
-            if let Some(v) = auto_mounts {
-                mounts.extend_from_slice(&v.as_slice());
-            }
-
-            //TODO: remove in v2 - this would just become:
-            //  sidecars:
-            //    test:
-            //      mounts:
-            //        /work: work
-            // let work_mount = if let Some(true) = s.mount_work {
-            //     Some(vec![RoozVolume::work(workspace_key, work_dir)])
-            // } else {
-            //     None
-            // };
-
-            // if let Some(v) = work_mount {
-            //     mounts.extend_from_slice(&v.as_slice());
-            // }
+            //TODO: implement v2 mounts.
 
             let uid = s.user.as_deref().unwrap_or(&constants::ROOT_UID);
             self.api
@@ -119,12 +84,7 @@ impl<'a> WorkspaceApi<'a> {
                         .args
                         .as_ref()
                         .map(|x| x.iter().map(|z| z.as_ref()).collect()),
-                    mounts: Some(
-                        self.api
-                            .volume
-                            .ensure_mounts(&mounts, None, Some(uid))
-                            .await?,
-                    ),
+                    mounts: Some(mounts),
                     ports: Some(ports),
                     work_dir: Some(s.work_dir.as_deref().unwrap_or(work_dir)),
                     run_mode: RunMode::Sidecar,

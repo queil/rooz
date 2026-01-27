@@ -50,16 +50,13 @@ pub struct WorkSpec<'a> {
     pub ports: Option<HashMap<String, Option<String>>>,
     pub command: Option<Vec<&'a str>>,
     pub args: Option<Vec<&'a str>>,
-    pub data: Option<Vec<DataEntry>>,
-    pub mounts: Option<HashMap<String, String>>,
+    pub mounts: Vec<Mount>,
 }
 
 impl Default for WorkSpec<'_> {
     fn default() -> Self {
         Self {
             image: Default::default(),
-            //TODO: remove in v2
-            //home_from_image: None,
             uid: Default::default(),
             user: Default::default(),
             container_working_dir: Default::default(),
@@ -76,8 +73,7 @@ impl Default for WorkSpec<'_> {
             ports: None,
             command: None,
             args: None,
-            data: None,
-            mounts: None,
+            mounts: Vec::new(),
         }
     }
 }
