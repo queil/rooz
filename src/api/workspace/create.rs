@@ -101,11 +101,19 @@ impl<'a> WorkspaceApi<'a> {
         //TODO: 1. all great but we need to make sure the volumes v2 are chown'd, that happens on enter
         // so need to refactor there.
 
+        //TODO 1.1: first must make sure all mounts (workspace-exclusive) are baked in to the runtime config
+        // so that we can chown on enter as we do on `tmp`. It turns chown on normal enter is missing, only visible in Docker
+        // as Podman sorts out the right ownership on its own
+
+
         //TODO: 2. in tmp mode we delete volumes exclusive to the workspace so that must be retained
 
         //TODO: 3. all built-in stuff must be included in v2 - caches, ssh, system-config, work, etc.
 
         //TODO: 4. v2 in sidecars
+
+        //TODO 5. caches and system shared volumes (ssh-key) shall maybe owned by a rooz group that need to be
+        // ensured in containers and the user would beed to be added to that group to read (and write as the group - caches)
 
         // ---- END VOLUMES v2 impl ----
 
