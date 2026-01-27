@@ -1,4 +1,4 @@
-use crate::config::config::{DataEntry};
+use crate::config::config::DataEntry;
 use crate::model::types::VolumeSpec;
 use crate::util::id;
 use crate::util::labels::{DATA_ROLE, Labels};
@@ -16,7 +16,6 @@ use bollard_stubs::models::MountTypeEnum::VOLUME;
 use std::path::Path;
 
 impl<'a> WorkspaceApi<'a> {
-
     fn expand_home(path: String, home: Option<&str>) -> String {
         match (home, path.strip_prefix("~/")) {
             (Some(h), Some(rest)) => format!("{}/{}", h, rest),
@@ -59,8 +58,29 @@ impl<'a> WorkspaceApi<'a> {
 
         let home_dir = format!("/home/{}", &spec.user);
 
-        //TODO: verify if source is actually declared in `data`
         let mounts_v2 = if let Some(mounts) = spec.mounts.clone() {
+            let unknown_entries: Vec<_> = mounts
+                .values()
+                .filter(|k| {
+                    !spec
+                        .data
+                        .as_ref()
+                        .map(|v| v.iter().any(|e| e.name() == *k))
+                        .unwrap_or(false)
+                })
+                .collect();
+
+            if !unknown_entries.is_empty() {
+                panic!(
+                    "Invalid mounts spec. The following entries must be declared under data: {}",
+                    unknown_entries
+                        .iter()
+                        .map(|s| s.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            }
+
             mounts
                 .into_iter()
                 .map(|(target, source)| Mount {
@@ -75,8 +95,6 @@ impl<'a> WorkspaceApi<'a> {
             Vec::new()
         };
 
-
-
         //TODO: initialize volumes according to the DataEntry type
 
         //TODO: NEXT STEPS
@@ -86,6 +104,8 @@ impl<'a> WorkspaceApi<'a> {
         //TODO: 2. in tmp mode we delete volumes exclusive to the workspace so that must be retained
 
         //TODO: 3. all built-in stuff must be included in v2 - caches, ssh, system-config, work, etc.
+
+        //TODO: 4. v2 in sidecars
 
         // ---- END VOLUMES v2 impl ----
 

@@ -3,6 +3,7 @@ data:
 
 mounts:
   ~/placeholder: empty-dir
+  /tmp/4: unknoen-git
 
 sidecars:
   dkr:

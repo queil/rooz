@@ -429,6 +429,18 @@ pub enum DataEntry {
     Image { name: String, image_ref: String, path: String },
 }
 
+impl DataEntry {
+    pub fn name(&self) -> &str {
+        match self {
+            DataEntry::Dir { name }
+            | DataEntry::File { name, .. }
+            | DataEntry::LocalPath { name, .. }
+            | DataEntry::GitRepo { name, .. }
+            | DataEntry::Image { name, .. } => name,
+        }
+    }
+}
+
 impl DataValue {
     pub fn into_entry(self, name: String) -> DataEntry {
         match self {
