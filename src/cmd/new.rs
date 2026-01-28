@@ -29,6 +29,15 @@ impl<'a> WorkspaceApi<'a> {
             _ => path.clone(),
         }
     }
+
+    fn volume_name(workspace_key: &str, data_entry_name: &str) -> String {
+        format!(
+            "rooz-{}-{}",
+            id::sanitize(workspace_key),
+            id::sanitize(data_entry_name)
+        )
+    }
+
     async fn volumes_v2(
         &self,
         workspace_key: &str,
@@ -40,11 +49,7 @@ impl<'a> WorkspaceApi<'a> {
             .iter()
             .map(|d| match d {
                 DataEntry::Dir { name } => VolumeSpec {
-                    name: format!(
-                        "rooz-{}-{}",
-                        id::sanitize(workspace_key),
-                        id::sanitize(name)
-                    ),
+                    name: Self::volume_name(workspace_key, name),
                     labels: Some(Labels::from(&[
                         Labels::workspace(workspace_key),
                         Labels::role(DATA_ROLE),
@@ -85,11 +90,7 @@ impl<'a> WorkspaceApi<'a> {
                 .into_iter()
                 .map(|(target, source)| Mount {
                     target: Some(Self::expand_home(target, Some(&home_dir))),
-                    source: Some(format!(
-                        "rooz-{}-{}",
-                        id::sanitize(workspace_key),
-                        id::sanitize(&source)
-                    )),
+                    source: Some(Self::volume_name(workspace_key, &source)),
                     typ: Some(VOLUME),
                     read_only: Some(false),
                     ..Mount::default()
@@ -106,10 +107,6 @@ impl<'a> WorkspaceApi<'a> {
         // can't in tmp or simple persistent workspaces without config
 
         //TODO: NEXT STEPS
-
-        //TODO REFAC BUG - when making mounts_v2 - the source must be the actual volume name, not the data
-        // entry name. I fixed it but the logic for generating volume name from the daate entry name
-        // should be unified
 
         //TODO: 3. all built-in stuff must be included in v2 - caches, ssh, system-config, etc.
 
