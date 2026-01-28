@@ -2,9 +2,14 @@ data:
   empty-dir: {}
   work: {}
 
+  git-config: |-
+    [url "git@github.com:"]
+    insteadOf = gh:
+
 mounts:
   ~/placeholder: empty-dir
   /work: work
+  ~/.gitconfig: git-config
 
 sidecars:
   dkr:
@@ -19,3 +24,4 @@ sidecars:
     init: false
     mounts:
       /var/placeholder: empty-dir
+      /root/.gitconfig: git-config

@@ -1,38 +1,3 @@
-# draft - this is not an actual example
-mounts:
-  caches:                # backed by a volume per path (path is the key). Sharing: all workspaces defining a particular path. Mount: RW
-  - ~/.nuget
-  files:                 # each unique parent dir backed by a volume (group by parent dir), holds all the files defined in that dir. Sharing: a set of volumes per workspace. Mount: RW
-                         # the volumes mounted under /var/lib/rooz/{unique-normalized-parent-dir-path}. That is the root the files are stored under,
-                         # then files get symlinked to the actual locations
-  # example
-  - ~/more/dir/test.json # <-- 1 volume -> work mounts as /var/lib/rooz/home/dir/
-  - ~/more/less/d.txt    # <-- 1 volume ->
-  - ~/test2.txt
-
-  - ~/.bash_history      # an empty file
-  - path: ~/k8s.config   # an empty file shared with the dkr sidecar
-    shared_with: [dkr]
-    # sharing files from a common volume to a sidecar seems not feasible
-    # - in the proposed design (for the work container) the sym-linking happens via an exec when the container has started.
-    #   For sidecars, we usually have an entrypoint that runs a service that would often need the config on startup so sym-linking
-    #   at best would be prone to race conditions or simply too late.
-    # - it seems the solution may be grouping the shared files by parent dir and backing each dir by a volume
-    #   That way we can both symlink files into the work container (to avoid mounting whole dirs like ~/) and
-    #   mount dirs directly in the sidecars
-
-  - path: /etc/my.config # a file pre-populated with content - i.e. injected configuration
-    content: |-
-      {"some": "config"}
-  dirs:                  # I guess dirs can be also sym-linked to the actual locations
-  - /work                # system built-in - That wouldn't be defined here I reckon
-  - path: /done          # an example where the dir is shared with dkr
-    shared_with: [dkr]
-
-sidecars:
-  dkr:
-    image: docker.io/dind
-
 # v2.1 --------------------------------------
 
 # OK actually maybe split the definition of objects from the usage (like docker compose) and have:
@@ -40,32 +5,37 @@ sidecars:
 data:
 
   # keys in this map as used as a key that we reference in mounts and sidecar.mounts
-  some-dir: {} # empty map/sequence indicates a dir
+  some-dir: {} # empty map indicates a dir
 
-  k8s-config: "" # content indicates a file. Empty content means empty file
+  inline-file: |
+    some content
+    here
 
-  k8s-config-inline: |- 
-    yaml:
-      some: content    
+  empty-file: ""
 
-  k8s-config-file: # this would be read by rooz on workspace creation and stored in a volume (no host mounts)
-  - source: ./local/file.txt
+  my-repo:
+    git:
+      repo: git@github.com:user/repo
+      path: /src # <-- optional dir
 
-  # I guess extra_repos could go under data here like
-  my-repo-1:
-    - source: git@github.com:c/z
+  my-repo-root:
+    git:
+      repo: git@github.com:user/other
+
+  from-image:
+    image:
+      ref: nginx:latest
+      path: /etc/nginx/nginx.conf # mandatory dir or file
+
+  local-thing:
+    path: ./local/file.txt # mandatory dir or file
 
 #workspace mounts
 mounts:
-  - from: k8s-config # <-- reference to files
-    to: ~/.kubeconfig
+  ~/.kubeconfig: k8s-config
 
 sidecars:
   k3s:
     # sidecar mounts
     mounts:
-      - from: k8s-config
-        to: /etc/k3s/kubeconfig
-
-# on creating workspace we'd need to determine sidecar sharing. If a key is used in at least two mounts of separate containers
-# we consider it shared
+      /etc/k3s/kubeconfig: k8s-config
