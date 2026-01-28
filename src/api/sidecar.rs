@@ -1,13 +1,11 @@
 use std::collections::HashMap;
 
+use crate::model::types::VolumeSpec;
 use crate::{
     api::WorkspaceApi,
-    config::config::{RoozCfg, RoozSidecar, SidecarMount},
+    config::config::{RoozCfg, RoozSidecar},
     constants,
-    model::{
-        types::{AnyError, RunMode, RunSpec},
-        volume::RoozVolume,
-    },
+    model::types::{AnyError, RunMode, RunSpec},
     util::labels::{self, Labels},
 };
 use bollard::models::NetworkCreateRequest;
@@ -17,10 +15,10 @@ impl<'a> WorkspaceApi<'a> {
     pub async fn ensure_sidecars(
         &self,
         sidecars: &HashMap<String, RoozSidecar>,
+        volumes: &Vec<VolumeSpec>,
         workspace_key: &str,
         force: bool,
         pull_image: bool,
-        work_dir: &str,
     ) -> Result<Option<String>, AnyError> {
         let labels = Labels::from(&[Labels::workspace(workspace_key)]);
 
@@ -54,7 +52,20 @@ impl<'a> WorkspaceApi<'a> {
             let mut ports = HashMap::<String, Option<String>>::new();
             RoozCfg::parse_ports(&mut ports, s.ports.clone());
 
-            let mut mounts = Vec::<Mount>::new();
+            let mut mounts_v2 = Vec::<Mount>::new();
+
+            mounts_v2.extend_from_slice(
+                self.api
+                    .volume
+                    .mounts_v2(
+                        workspace_key,
+                        None,
+                        volumes,
+                        &s.mounts.clone().unwrap_or_default().into_iter().collect(),
+                    )
+                    .await?
+                    .as_slice(),
+            );
 
             //TODO: implement v2 mounts.
 
@@ -84,9 +95,9 @@ impl<'a> WorkspaceApi<'a> {
                         .args
                         .as_ref()
                         .map(|x| x.iter().map(|z| z.as_ref()).collect()),
-                    mounts: Some(mounts),
+                    mounts: Some(mounts_v2),
                     ports: Some(ports),
-                    work_dir: Some(s.work_dir.as_deref().unwrap_or(work_dir)),
+                    work_dir: s.work_dir.as_deref(),
                     run_mode: RunMode::Sidecar,
                     privileged: s.privileged.unwrap_or(false),
                     init: s.init.unwrap_or(true),

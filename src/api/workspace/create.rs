@@ -1,4 +1,3 @@
-use crate::util::labels::Labels;
 use crate::{
     api::WorkspaceApi,
     model::{
@@ -73,7 +72,6 @@ impl<'a> WorkspaceApi<'a> {
                 workspace_key: (&spec).workspace_key.to_string(),
                 working_dir: (&spec).container_working_dir.to_string(),
                 orig_uid: spec.uid.to_string(),
-                volumes: volumes.iter().map(|v| v.clone()).collect::<Vec<_>>(),
             }),
 
             ContainerResult::AlreadyExists { .. } => {

@@ -1,6 +1,3 @@
-use crate::config::config::{DataEntry, DataExt};
-use crate::model::types::VolumeSpec;
-use crate::util::labels::DATA_ROLE;
 use crate::{
     api::WorkspaceApi,
     cli::WorkParams,
@@ -16,109 +13,9 @@ use crate::{
         labels::{self, Labels},
     },
 };
-use bollard_stubs::models::Mount;
-use bollard_stubs::models::MountTypeEnum::VOLUME;
-use std::collections::HashMap;
 use std::fs;
 
 impl<'a> WorkspaceApi<'a> {
-    fn expand_home(path: String, home: Option<&str>) -> String {
-        match (home, path.strip_prefix("~/")) {
-            (Some(h), Some(rest)) => format!("{}/{}", h, rest),
-            (Some(h), None) if path == "~" => h.to_string(),
-            _ => path.clone(),
-        }
-    }
-
-    fn volume_name(workspace_key: &str, data_entry_name: &str) -> String {
-        format!(
-            "rooz-{}-{}",
-            id::sanitize(workspace_key),
-            id::sanitize(data_entry_name)
-        )
-    }
-
-    async fn volumes_v2(
-        &self,
-        workspace_key: &str,
-        config: &RuntimeConfig,
-    ) -> Result<(Vec<VolumeSpec>, Vec<Mount>), AnyError> {
-        let mut data_entries = vec![];
-        data_entries.extend_from_slice(config.data.clone().into_entries().as_slice());
-        let volumes_v2 = data_entries
-            .iter()
-            .map(|d| match d {
-                DataEntry::Dir { name } => VolumeSpec {
-                    name: Self::volume_name(workspace_key, name),
-                    labels: Some(Labels::from(&[
-                        Labels::workspace(workspace_key),
-                        Labels::role(DATA_ROLE),
-                    ])),
-                },
-                _ => panic!("Not implemented yet"),
-            })
-            .collect::<Vec<_>>();
-
-        for v in volumes_v2.iter().clone() {
-            self.api.volume.ensure_volume_v2(&v).await?;
-        }
-
-        let home_dir = format!("/home/{}", &config.user);
-
-        let mut mount_entries = HashMap::new();
-
-        mount_entries.extend(config.mounts.clone());
-
-        let mounts_v2 = {
-            let unknown_entries: Vec<_> = mount_entries
-                .values()
-                .filter(|k| !data_entries.clone().into_iter().any(|e| e.name() == *k))
-                .collect();
-
-            if !unknown_entries.is_empty() {
-                panic!(
-                    "Invalid mounts spec. The following entries must be declared under data: {}",
-                    unknown_entries
-                        .iter()
-                        .map(|s| s.as_str())
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                )
-            }
-
-            mount_entries
-                .into_iter()
-                .map(|(target, source)| Mount {
-                    target: Some(Self::expand_home(target, Some(&home_dir))),
-                    source: Some(Self::volume_name(workspace_key, &source)),
-                    typ: Some(VOLUME),
-                    read_only: Some(false),
-                    ..Mount::default()
-                })
-                .collect::<Vec<_>>()
-        };
-
-        Ok((volumes_v2, mounts_v2))
-        //TODO: initialize volumes according to the DataEntry type
-
-        // TODO: DESIGN CHANGES - BREAKING
-        // /work is not longer backed by a volume by default
-        // In volumes-v2 it can be explicitly configured for workspaces with configuration files, but
-        // can't in tmp or simple persistent workspaces without config
-
-        //TODO: NEXT STEPS
-
-        //TODO: 3. all built-in stuff must be included in v2 - caches, ssh, system-config, etc.
-
-        //TODO: 4. v2 in sidecars
-        // - remove mount_work
-
-        //TODO 5. caches and system shared volumes (ssh-key) shall maybe owned by a rooz group that need to be
-        // ensured in containers and the user would beed to be added to that group to read (and write as the group - caches)
-
-        // ---- END VOLUMES v2 impl ----
-    }
-
     async fn new_core(
         &self,
         cfg_builder: &mut RoozCfg,
@@ -129,7 +26,6 @@ impl<'a> WorkspaceApi<'a> {
         root_git_repo: Option<RootRepoCloneResult>,
         workspace_key: &str,
         force: bool,
-        work_dir: &str,
     ) -> Result<EnterSpec, AnyError> {
         if let Some(c) = &cli_config {
             cfg_builder.from_config(c);
@@ -150,23 +46,25 @@ impl<'a> WorkspaceApi<'a> {
             .ensure(&cfg.image, cli_params.pull_image)
             .await?;
 
-        //TODO: v2 - do not forget that in DataEntry::Image init
-        // if let Some(home_from_image) = &cfg.home_from_image {
-        //     self.api
-        //         .image
-        //         .ensure(&home_from_image, cli_params.pull_image)
-        //         .await?;
-        // }
-
-        let (volumes_v2, mounts_v2) = self.volumes_v2(workspace_key, &cfg).await?;
+        let volumes_v2 = self
+            .api
+            .volume
+            .ensure_volumes_v2(workspace_key, &cfg.data)
+            .await?;
+        let home_dir = format!("/home/{}", &cfg.user);
+        let mounts_v2 = self
+            .api
+            .volume
+            .mounts_v2(workspace_key, Some(&home_dir), &volumes_v2, &cfg.mounts)
+            .await?;
 
         let network = self
             .ensure_sidecars(
                 &cfg.sidecars,
+                &volumes_v2,
                 workspace_key,
                 force,
                 cli_params.pull_image,
-                &work_dir,
             )
             .await?;
 
@@ -288,9 +186,6 @@ impl<'a> WorkspaceApi<'a> {
         cli_config_path: Option<ConfigSource>,
         ephemeral: bool,
     ) -> Result<EnterSpec, AnyError> {
-        // volume v2 test
-
-        // end: volume v2 test
 
         let orig_uid = cli_params
             .uid
@@ -373,7 +268,6 @@ impl<'a> WorkspaceApi<'a> {
                 root_repo_result,
                 &workspace_key,
                 false,
-                work_dir,
             )
             .await;
 

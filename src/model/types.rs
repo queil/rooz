@@ -1,7 +1,5 @@
-use crate::config::config::DataEntry;
 use crate::{
     config::config::RoozCfg,
-    model::volume::RoozVolume,
     util::{git::RootRepoCloneResult, labels::Labels},
 };
 use bollard::service::Mount;
@@ -144,7 +142,6 @@ pub struct OneShotResult {
 }
 
 pub struct WorkspaceResult {
-    pub volumes: Vec<RoozVolume>,
     pub workspace_key: String,
     pub working_dir: String,
     pub orig_uid: String,
@@ -159,4 +156,5 @@ pub struct EnterSpec {
 pub struct VolumeSpec {
     pub name: String,
     pub labels: Option<Labels>,
+    pub data_key: String,
 }

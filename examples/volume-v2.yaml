@@ -5,10 +5,17 @@ data:
 mounts:
   ~/placeholder: empty-dir
   /work: work
-  #/tmp/4: unknown-git
 
 sidecars:
   dkr:
-    image: alpine
+    image: docker.io/docker:28-dind-rootless
+    env:
+      DOCKER_TLS_CERTDIR: ''
+      DOCKER_TLS_VERIFY: ''
+    args:
+      - --tls=false
+      - --host=tcp://0.0.0.0:2375
+    privileged: true
+    init: false
     mounts:
-      /tmp/2: empty-dir
+      /var/placeholder: empty-dir

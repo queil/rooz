@@ -91,13 +91,6 @@ impl RoozVolume {
         }
     }
 
-    pub fn is_exclusive(&self) -> bool {
-        match self.sharing {
-            RoozVolumeSharing::Exclusive { .. } => true,
-            _ => false,
-        }
-    }
-
     pub fn expanded_path(&self, tilde_replacement: Option<&str>) -> String {
         match tilde_replacement {
             Some(replacement) => self.path.replace("~", &replacement),

@@ -14,7 +14,7 @@ use crate::{
     api::WorkspaceApi,
     config::{config::ConfigType, runtime::RuntimeConfig},
     constants::{self},
-    model::{types::AnyError, volume::RoozVolume},
+    model::types::AnyError,
     util::labels::Labels,
 };
 
@@ -44,13 +44,14 @@ impl<'a> WorkspaceApi<'a> {
         workspace_key: &str,
         working_dir: Option<&str>,
         shell: Option<Vec<&str>>,
-        container_id: Option<&str>,
+        container_name: Option<&str>,
         chown_uid: &str,
         root: bool,
     ) -> Result<String, AnyError> {
+        let container_name = container_name.unwrap_or(constants::DEFAULT_CONTAINER_NAME);
         let enter_labels = Labels::from(&[
             Labels::workspace(workspace_key),
-            Labels::container(container_id.unwrap_or(constants::DEFAULT_CONTAINER_NAME)),
+            Labels::container(container_name),
         ]);
 
         let container = self
@@ -87,7 +88,7 @@ impl<'a> WorkspaceApi<'a> {
                 }
             };
 
-            if !root {
+            if !root && container_name == constants::DEFAULT_CONTAINER_NAME {
                 self.api.exec.ensure_user(container_id).await?;
 
                 //TODO: v2 - not much of use in tmp without implicit /work

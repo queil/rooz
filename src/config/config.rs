@@ -97,16 +97,6 @@ impl FileFormat {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(untagged)]
-pub enum SidecarMount {
-    Empty(String),
-    Files {
-        mount: String,
-        files: HashMap<String, String>,
-    },
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct RoozSidecar {
     pub image: String,
