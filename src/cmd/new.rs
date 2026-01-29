@@ -68,7 +68,7 @@ impl<'a> WorkspaceApi<'a> {
         for (t, m) in real_mounts {
             self.api
                 .volume
-                .populate_volume(t, m, Some(cfg.user.as_str()))
+                .populate_volume(t, m, Some(&work_spec.uid))
                 .await?;
         }
 
