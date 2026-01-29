@@ -290,6 +290,7 @@ impl<'a> ExecApi<'a> {
         &self,
         container_id: &str,
         mounts: &HashMap<TargetDir, VolumeFilesSpec>,
+        uid: &str,
     ) -> Result<(), AnyError> {
         for (_, spec) in mounts {
             for file in &spec.files {
@@ -300,9 +301,10 @@ impl<'a> ExecApi<'a> {
             );
 
                 let cmd = format!(
-                    "mkdir -p $(dirname {0}) && ln -sf {1} {0}",
+                    "mkdir -p $(dirname {0}) && ln -sf {1} {0} && chown -h {2}:{2} {0}",
                     &file.user_file.as_str().replace("~", "${ROOZ_META_HOME}"),
                     &file.target_file.as_str(),
+                    uid
                 );
 
                 let output = self

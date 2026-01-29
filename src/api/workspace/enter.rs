@@ -102,7 +102,7 @@ impl<'a> WorkspaceApi<'a> {
                         .await?;
                 }
                 
-                self.api.exec.symlink_files(container_id, &config.real_mounts).await?;
+                self.api.exec.symlink_files(container_id, &config.real_mounts, chown_uid).await?;
             }
 
             match self
