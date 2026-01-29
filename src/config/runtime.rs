@@ -1,6 +1,7 @@
 use super::config::{DataValue, RoozCfg, RoozSidecar};
 use crate::AnyError;
 use crate::constants;
+use crate::model::types::{TargetDir, VolumeName};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -21,7 +22,7 @@ pub struct RuntimeConfig {
     pub sidecars: HashMap<String, RoozSidecar>,
     pub data: HashMap<String, DataValue>,
     pub mounts: HashMap<String, String>,
-    pub real_mounts: HashMap<String, String>,
+    pub real_mounts: HashMap<TargetDir, VolumeName>,
 }
 
 impl Default for RuntimeConfig {

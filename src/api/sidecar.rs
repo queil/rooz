@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::api::VolumeApi;
-use crate::model::types::DataEntryVolumeSpec;
+use crate::model::types::{DataEntryKey, DataEntryVolumeSpec};
 use crate::{
     api::WorkspaceApi,
     config::config::{RoozCfg, RoozSidecar},
@@ -16,7 +16,7 @@ impl<'a> WorkspaceApi<'a> {
     pub async fn ensure_sidecars(
         &self,
         sidecars: &HashMap<String, RoozSidecar>,
-        volumes: &HashMap<String, DataEntryVolumeSpec>,
+        volumes: &HashMap<DataEntryKey, DataEntryVolumeSpec>,
         workspace_key: &str,
         force: bool,
         pull_image: bool,

@@ -50,6 +50,7 @@ impl<'a> WorkspaceApi<'a> {
         let volumes_v2 = VolumeApi::create_volume_specs(workspace_key, &cfg.data);
 
         self.api.volume.ensure_volumes_v2(&volumes_v2).await?;
+
         let home_dir = format!("/home/{}", &cfg.user);
         let mounts_config = self
             .api
@@ -57,6 +58,8 @@ impl<'a> WorkspaceApi<'a> {
             .mounts_with_sources(&volumes_v2, &cfg.mounts);
 
         let real_mounts = VolumeApi::real_mounts_v2(mounts_config.clone(), Some(&home_dir));
+
+        //self.api.volume.populate_volumes_v2(&real_mounts).await?;
 
         let cfg = RuntimeConfig {
             real_mounts: real_mounts.clone(),

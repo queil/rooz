@@ -4,6 +4,7 @@ use crate::{
     util::{git::RootRepoCloneResult, labels::Labels},
 };
 use bollard::service::Mount;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 pub type AnyError = Box<dyn std::error::Error + Send + Sync>;
@@ -164,4 +165,99 @@ pub struct VolumeSpec {
 pub struct DataEntryVolumeSpec {
     pub data: DataEntry,
     pub volume: VolumeSpec,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct TargetPath(pub String);
+
+impl TargetPath {
+    pub fn new(id: impl Into<String>) -> Self {
+        Self(id.into())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl From<String> for TargetPath {
+    fn from(s: String) -> Self {
+        Self(s)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct TargetDir(pub String);
+
+impl TargetDir {
+    pub fn new(id: impl Into<String>) -> Self {
+        Self(id.into())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl From<String> for TargetDir {
+    fn from(s: String) -> Self {
+        Self(s)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct TargetFile(pub String);
+
+impl TargetFile {
+    pub fn new(id: impl Into<String>) -> Self {
+        Self(id.into())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl From<String> for TargetFile {
+    fn from(s: String) -> Self {
+        Self(s)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct DataEntryKey(pub String);
+
+impl DataEntryKey {
+    pub fn new(id: impl Into<String>) -> Self {
+        Self(id.into())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl From<String> for DataEntryKey {
+    fn from(s: String) -> Self {
+        Self(s)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct VolumeName(pub String);
+
+impl VolumeName {
+    pub fn new(id: impl Into<String>) -> Self {
+        Self(id.into())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl From<String> for VolumeName {
+    fn from(s: String) -> Self {
+        Self(s)
+    }
 }

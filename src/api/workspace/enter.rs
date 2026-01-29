@@ -98,9 +98,8 @@ impl<'a> WorkspaceApi<'a> {
                 for (target, _) in &config.real_mounts {
                     self.api
                         .exec
-                        .chown(&container_id, chown_uid, target)
+                        .chown(&container_id, chown_uid, target.as_str())
                         .await?;
-
                 }
             }
 

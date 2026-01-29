@@ -2,7 +2,9 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use crate::config::config::{DataEntry, DataExt, DataValue};
-use crate::model::types::{DataEntryVolumeSpec, VolumeSpec};
+use crate::model::types::{
+    DataEntryKey, DataEntryVolumeSpec, TargetDir, TargetPath, VolumeName, VolumeSpec,
+};
 use crate::util::id;
 use crate::util::labels::DATA_ROLE;
 use crate::{
@@ -98,20 +100,21 @@ impl<'a> VolumeApi<'a> {
 
     pub fn mounts_with_sources(
         &self,
-        volumes: &HashMap<String, DataEntryVolumeSpec>,
+        volumes: &HashMap<DataEntryKey, DataEntryVolumeSpec>,
         mounts: &HashMap<String, String>,
-    ) -> HashMap<String, DataEntryVolumeSpec> {
+    ) -> HashMap<TargetPath, DataEntryVolumeSpec> {
         let mut result = HashMap::new();
         for (target, source_key) in mounts {
-            let source_exists = volumes.contains_key(source_key);
+            let source_key = DataEntryKey(source_key.to_string());
+            let source_exists = volumes.contains_key(&source_key);
             if !source_exists {
                 panic!(
                     "Key '{}' not found under 'data:' in workspace config. Keys: {:?}",
-                    source_key,
+                    source_key.as_str(),
                     &volumes.keys(),
                 );
             }
-            result.insert(target.to_string(), volumes[source_key].clone());
+            result.insert(TargetPath(target.clone()), volumes[&source_key].clone());
         }
         result
     }
@@ -125,7 +128,7 @@ impl<'a> VolumeApi<'a> {
     pub fn create_volume_specs(
         workspace_key: &str,
         data: &HashMap<String, DataValue>,
-    ) -> HashMap<String, DataEntryVolumeSpec> {
+    ) -> HashMap<DataEntryKey, DataEntryVolumeSpec> {
         let mut data_entries = vec![];
         data_entries.extend_from_slice(data.clone().into_entries().as_slice());
 
@@ -142,7 +145,7 @@ impl<'a> VolumeApi<'a> {
             .iter()
             .filter_map(|d| match d {
                 DataEntry::Dir { name } => Some((
-                    name.to_string(),
+                    DataEntryKey(name.to_string()),
                     DataEntryVolumeSpec {
                         data: d.clone(),
                         volume: VolumeSpec {
@@ -155,7 +158,7 @@ impl<'a> VolumeApi<'a> {
                     },
                 )),
                 DataEntry::File { name, .. } => Some((
-                    name.to_string(),
+                    DataEntryKey(name.to_string()),
                     DataEntryVolumeSpec {
                         data: d.clone(),
                         volume: files_volume_spec.clone(),
@@ -167,13 +170,13 @@ impl<'a> VolumeApi<'a> {
     }
 
     pub fn real_mounts_v2(
-        mounts: HashMap<String, DataEntryVolumeSpec>,
+        mounts: HashMap<TargetPath, DataEntryVolumeSpec>,
         home_dir: Option<&str>,
-    ) -> HashMap<String, String> {
+    ) -> HashMap<TargetDir, VolumeName> {
         mounts
             .iter()
             .map(|(target, source_entry)| {
-                let expanded_target = Self::expand_home(target.to_string(), home_dir);
+                let expanded_target = Self::expand_home(target.as_str().to_string(), home_dir);
                 // remap '/' to '/var/lib/rooz' and drop the file name
                 let real_target = match source_entry.data {
                     DataEntry::File { .. } => Path::new("/var/lib/rooz")
@@ -188,13 +191,16 @@ impl<'a> VolumeApi<'a> {
                         .into_owned(),
                     _ => expanded_target,
                 };
-                (real_target, source_entry.volume.name.to_string())
+                (
+                    TargetDir(real_target.to_string()),
+                    VolumeName(source_entry.volume.name.to_string()),
+                )
             })
             .collect::<HashMap<_, _>>()
     }
     pub async fn ensure_volumes_v2(
         &self,
-        data_entries: &HashMap<String, DataEntryVolumeSpec>,
+        data_entries: &HashMap<DataEntryKey, DataEntryVolumeSpec>,
     ) -> Result<(), AnyError> {
         for d in data_entries
             .iter()
@@ -207,9 +213,15 @@ impl<'a> VolumeApi<'a> {
         Ok(())
     }
 
+    pub async fn populate_volumes_v2(&self, mount_specs: &HashMap<TargetDir, DataEntryVolumeSpec>) {
+        for (target, v) in mount_specs {
+            // self.ensure_file(&v.volume.name, target, vec![RoozVolumeFile{ file_path: "".to_string(), data: "".to_string() }] )
+        }
+    }
+
     pub async fn mounts_v2(
         &self,
-        real_mounts: &HashMap<String, String>,
+        real_mounts: &HashMap<TargetDir, VolumeName>,
     ) -> Result<Vec<Mount>, AnyError> {
         let mut mount_entries = HashMap::new();
         mount_entries.extend(real_mounts.clone());
@@ -217,8 +229,8 @@ impl<'a> VolumeApi<'a> {
         let mounts_v2 = mount_entries
             .into_iter()
             .map(|(target, source)| Mount {
-                target: Some(target),
-                source: Some(source.to_string()),
+                target: Some(target.as_str().to_string()),
+                source: Some(source.as_str().to_string()),
                 typ: Some(VOLUME),
                 read_only: Some(false),
                 ..Mount::default()
