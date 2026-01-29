@@ -325,7 +325,7 @@ impl<'a> ExecApi<'a> {
             format!(
                     r#"grep -q "^$ROOZ_META_USER:x:$ROOZ_META_UID" /etc/passwd && exit 0
                        sed -i "/:x:${{ROOZ_META_UID}}/d" /etc/passwd && \
-                       echo "$ROOZ_META_USER:x:$ROOZ_META_UID:$ROOZ_META_UID:$ROOZ_META_USER:$ROOZ_META_HOME:/bin/sh" >> /etc/passwd"#, 
+                       echo "$ROOZ_META_USER:x:$ROOZ_META_UID:$ROOZ_META_UID:$ROOZ_META_USER:$ROOZ_META_HOME:/bin/sh" >> /etc/passwd"#,
             )
             .as_ref(),
             "make_user.sh",

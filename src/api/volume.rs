@@ -4,7 +4,7 @@ use std::path::Path;
 use crate::config::config::{DataEntry, DataExt, DataValue};
 use crate::model::types::{
     DataEntryKey, DataEntryVolumeSpec, FileSpec, TargetDir, TargetFile, TargetPath, UserFile,
-    VolumeName, VolumeSpec, VolumeFilesSpec,
+    VolumeFilesSpec, VolumeName, VolumeSpec,
 };
 use crate::util::id;
 use crate::util::labels::DATA_ROLE;
@@ -394,8 +394,13 @@ impl<'a> VolumeApi<'a> {
             .join(" && ".into());
 
         if let Some(uid) = uid {
-            let chown = format!(" && chown -R {}:{} {}", uid, uid, path);
-            cmd = format!("{}{}", cmd, chown)
+            let chown = format!("chown -R {}:{} {}", uid, uid, path);
+            cmd = format!(
+                "{}{}{}",
+                cmd,
+                if cmd.is_empty() { "" } else { " && " },
+                chown
+            )
         }
 
         self.container
