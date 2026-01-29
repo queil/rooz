@@ -88,15 +88,19 @@ impl<'a> WorkspaceApi<'a> {
                 }
             };
 
+            //TODO: v2 chown is disabled for sidecars
+            // symlinking might be happening in wrapped entrypoints so maybe chowning could to
+            // Chowing as exec to work in non-root containers
             if !root && container_name == constants::DEFAULT_CONTAINER_NAME {
                 self.api.exec.ensure_user(container_id).await?;
 
                 //TODO: v2 - not much of use in tmp without implicit /work
-                for (target, _) in &config.mounts {
+                for (target, _) in &config.real_mounts {
                     self.api
                         .exec
                         .chown(&container_id, chown_uid, target)
                         .await?;
+
                 }
             }
 

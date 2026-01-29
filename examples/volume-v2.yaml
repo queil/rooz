@@ -6,10 +6,14 @@ data:
     [url "git@github.com:"]
     insteadOf = gh:
 
+  bash-history: ""
+
 mounts:
   ~/placeholder: empty-dir
   /work: work
-  ~/.gitconfig: git-config
+  ~/.gitconfig2: git-config
+  ~/.bash_history: bash-history
+  /this/is/weird: bash-history
 
 sidecars:
   dkr:

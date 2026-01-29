@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use crate::config::config::{DataEntry, DataExt, DataValue};
-use crate::model::types::VolumeSpec;
+use crate::model::types::{DataEntryVolumeSpec, VolumeSpec};
 use crate::util::id;
 use crate::util::labels::DATA_ROLE;
 use crate::{
@@ -96,6 +96,25 @@ impl<'a> VolumeApi<'a> {
         }
     }
 
+    pub fn mounts_with_sources(
+        &self,
+        volumes: &HashMap<String, DataEntryVolumeSpec>,
+        mounts: &HashMap<String, String>,
+    ) -> HashMap<String, DataEntryVolumeSpec> {
+        let mut result = HashMap::new();
+        for (target, source_key) in mounts {
+            let source_exists = volumes.contains_key(source_key);
+            if !source_exists {
+                panic!(
+                    "Key '{}' not found under 'data:' in workspace config. Keys: {:?}",
+                    source_key,
+                    &volumes.keys(),
+                );
+            }
+            result.insert(target.to_string(), volumes[source_key].clone());
+        }
+        result
+    }
     fn volume_name(workspace_key: &str, data_entry_name: &str) -> String {
         format!(
             "rooz-{}-{}",
@@ -103,90 +122,130 @@ impl<'a> VolumeApi<'a> {
             id::sanitize(data_entry_name)
         )
     }
-
-    fn validate_mounts(data: &Vec<VolumeSpec>, mounts: &HashMap<String, String>) {
-        let unknown_entries: Vec<_> = mounts
-            .values()
-            .filter(|k| !data.into_iter().any(|e| e.data_key == **k))
-            .collect();
-
-        if !unknown_entries.is_empty() {
-            panic!(
-                "Invalid mounts spec. The following entries must be declared under data: {}",
-                unknown_entries
-                    .iter()
-                    .map(|s| s.as_str())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            )
-        }
-    }
-
-    pub async fn ensure_volumes_v2(
-        &self,
+    pub fn create_volume_specs(
         workspace_key: &str,
         data: &HashMap<String, DataValue>,
-    ) -> Result<Vec<VolumeSpec>, AnyError> {
+    ) -> HashMap<String, DataEntryVolumeSpec> {
         let mut data_entries = vec![];
         data_entries.extend_from_slice(data.clone().into_entries().as_slice());
-        let volumes_v2 = data_entries
+
+        let files_key = "files";
+        let files_volume_spec = VolumeSpec {
+            name: Self::volume_name(workspace_key, files_key),
+            labels: Some(Labels::from(&[
+                Labels::workspace(workspace_key),
+                Labels::role(DATA_ROLE),
+            ])),
+        };
+
+        data_entries
             .iter()
-            .map(|d| match d {
-                DataEntry::Dir { name } => VolumeSpec {
-                    name: Self::volume_name(workspace_key, name),
-                    data_key: name.to_string(),
-                    labels: Some(Labels::from(&[
-                        Labels::workspace(workspace_key),
-                        Labels::role(DATA_ROLE),
-                    ])),
-                },
+            .filter_map(|d| match d {
+                DataEntry::Dir { name } => Some((
+                    name.to_string(),
+                    DataEntryVolumeSpec {
+                        data: d.clone(),
+                        volume: VolumeSpec {
+                            name: Self::volume_name(workspace_key, name),
+                            labels: Some(Labels::from(&[
+                                Labels::workspace(workspace_key),
+                                Labels::role(DATA_ROLE),
+                            ])),
+                        },
+                    },
+                )),
+                DataEntry::File { name, .. } => Some((
+                    name.to_string(),
+                    DataEntryVolumeSpec {
+                        data: d.clone(),
+                        volume: files_volume_spec.clone(),
+                    },
+                )),
                 _ => panic!("Not implemented yet"),
             })
-            .collect::<Vec<_>>();
+            .collect::<HashMap<_, _>>()
+    }
 
-        for v in volumes_v2.iter().clone() {
-            self.ensure_volume_v2(&v).await?;
+    pub fn real_mounts_v2(
+        mounts: HashMap<String, DataEntryVolumeSpec>,
+        home_dir: Option<&str>,
+    ) -> HashMap<String, String> {
+        mounts
+            .iter()
+            .map(|(target, source_entry)| {
+                let expanded_target = Self::expand_home(target.to_string(), home_dir);
+                // remap '/' to '/var/lib/rooz' and drop the file name
+                let real_target = match source_entry.data {
+                    DataEntry::File { .. } => Path::new("/var/lib/rooz")
+                        .join(
+                            Path::new(&expanded_target)
+                                .parent()
+                                .unwrap()
+                                .to_string_lossy()
+                                .trim_start_matches('/'),
+                        )
+                        .to_string_lossy()
+                        .into_owned(),
+                    _ => expanded_target,
+                };
+                (real_target, source_entry.volume.name.to_string())
+            })
+            .collect::<HashMap<_, _>>()
+    }
+    pub async fn ensure_volumes_v2(
+        &self,
+        data_entries: &HashMap<String, DataEntryVolumeSpec>,
+    ) -> Result<(), AnyError> {
+        for d in data_entries
+            .iter()
+            .map(|(_, v)| (v.volume.name.clone(), v.volume.clone()))
+            .collect::<HashMap<_, _>>()
+            .into_values()
+        {
+            self.ensure_volume_v2(&d).await?;
         }
-        Ok(volumes_v2)
+        Ok(())
     }
 
     pub async fn mounts_v2(
         &self,
-        workspace_key: &str,
-        home_dir: Option<&str>,
-        volumes: &Vec<VolumeSpec>,
-        mounts: &HashMap<String, String>,
+        real_mounts: &HashMap<String, String>,
     ) -> Result<Vec<Mount>, AnyError> {
         let mut mount_entries = HashMap::new();
-        mount_entries.extend(mounts.clone());
-        Self::validate_mounts(&volumes, &mount_entries);
+        mount_entries.extend(real_mounts.clone());
 
-        Ok(mount_entries
+        let mounts_v2 = mount_entries
             .into_iter()
             .map(|(target, source)| Mount {
-                target: Some(Self::expand_home(target, home_dir)),
-                source: Some(Self::volume_name(workspace_key, &source)),
+                target: Some(target),
+                source: Some(source.to_string()),
                 typ: Some(VOLUME),
                 read_only: Some(false),
                 ..Mount::default()
             })
-            .collect::<Vec<_>>())
+            .map(|v| (v.target.clone().unwrap().to_string(), v.clone()))
+            .collect::<HashMap<_, _>>() //dedupe entries to avoid duplicate mounts
+            .into_values()
+            .collect::<Vec<_>>();
+
+        Ok(mounts_v2)
 
         //TODO: initialize volumes according to the DataEntry type
+
+        // TODO: NEXT STEPS
+        // TODO 1: implement populating volumes with files
+        // TODO 2: implement symbolic linking (entrypoint wrapping)
+        // TODO 3: maybe include chowning in entrypoint wrapping
+
+        //TODO: all built-in stuff must be included in v2 - caches, ssh, system-config, etc.
+
+        //TODO caches and system shared volumes (ssh-key) shall maybe owned by a rooz group that need to be
+        // ensured in containers and the user would beed to be added to that group to read (and write as the group - caches)
 
         // TODO: DESIGN CHANGES - BREAKING
         // /work is not longer backed by a volume by default
         // In volumes-v2 it can be explicitly configured for workspaces with configuration files, but
         // can't in tmp or simple persistent workspaces without config
-
-        //TODO: NEXT STEPS
-
-        //TODO: 3. all built-in stuff must be included in v2 - caches, ssh, system-config, etc.
-
-        //TODO 5. caches and system shared volumes (ssh-key) shall maybe owned by a rooz group that need to be
-        // ensured in containers and the user would beed to be added to that group to read (and write as the group - caches)
-
-        // ---- END VOLUMES v2 impl ----
     }
 
     pub async fn ensure_volume(
@@ -205,16 +264,16 @@ impl<'a> VolumeApi<'a> {
             Ok(_) if force_recreate => {
                 let options = RemoveVolumeOptions { force: true };
                 self.client.remove_volume(&name, Some(options)).await?;
-                return self.create_volume(create_vol_options).await;
+                self.create_volume(create_vol_options).await
             }
             Ok(_) => {
                 log::debug!("Reusing an existing {} volume", &name);
-                return Ok(VolumeResult::AlreadyExists);
+                Ok(VolumeResult::AlreadyExists)
             }
             Err(DockerResponseServerError {
                 status_code: 404,
                 message: _,
-            }) => return self.create_volume(create_vol_options).await,
+            }) => self.create_volume(create_vol_options).await,
             Err(e) => panic!("{}", e),
         }
     }

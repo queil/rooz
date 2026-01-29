@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
-use crate::model::types::VolumeSpec;
+use crate::api::VolumeApi;
+use crate::model::types::DataEntryVolumeSpec;
 use crate::{
     api::WorkspaceApi,
     config::config::{RoozCfg, RoozSidecar},
@@ -15,7 +16,7 @@ impl<'a> WorkspaceApi<'a> {
     pub async fn ensure_sidecars(
         &self,
         sidecars: &HashMap<String, RoozSidecar>,
-        volumes: &Vec<VolumeSpec>,
+        volumes: &HashMap<String, DataEntryVolumeSpec>,
         workspace_key: &str,
         force: bool,
         pull_image: bool,
@@ -54,20 +55,14 @@ impl<'a> WorkspaceApi<'a> {
 
             let mut mounts_v2 = Vec::<Mount>::new();
 
-            mounts_v2.extend_from_slice(
-                self.api
-                    .volume
-                    .mounts_v2(
-                        workspace_key,
-                        None,
-                        volumes,
-                        &s.mounts.clone().unwrap_or_default().into_iter().collect(),
-                    )
-                    .await?
-                    .as_slice(),
+            let mounts_config = self.api.volume.mounts_with_sources(
+                volumes,
+                &s.mounts.clone().unwrap_or_default().into_iter().collect(),
             );
 
-            //TODO: implement v2 mounts.
+            let real_mounts = VolumeApi::real_mounts_v2(mounts_config.clone(), None);
+
+            mounts_v2.extend_from_slice(self.api.volume.mounts_v2(&real_mounts).await?.as_slice());
 
             let uid = s.user.as_deref().unwrap_or(&constants::ROOT_UID);
             self.api

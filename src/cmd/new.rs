@@ -1,3 +1,4 @@
+use crate::api::VolumeApi;
 use crate::{
     api::WorkspaceApi,
     cli::WorkParams,
@@ -46,17 +47,23 @@ impl<'a> WorkspaceApi<'a> {
             .ensure(&cfg.image, cli_params.pull_image)
             .await?;
 
-        let volumes_v2 = self
-            .api
-            .volume
-            .ensure_volumes_v2(workspace_key, &cfg.data)
-            .await?;
+        let volumes_v2 = VolumeApi::create_volume_specs(workspace_key, &cfg.data);
+
+        self.api.volume.ensure_volumes_v2(&volumes_v2).await?;
         let home_dir = format!("/home/{}", &cfg.user);
-        let mounts_v2 = self
+        let mounts_config = self
             .api
             .volume
-            .mounts_v2(workspace_key, Some(&home_dir), &volumes_v2, &cfg.mounts)
-            .await?;
+            .mounts_with_sources(&volumes_v2, &cfg.mounts);
+
+        let real_mounts = VolumeApi::real_mounts_v2(mounts_config.clone(), Some(&home_dir));
+
+        let cfg = RuntimeConfig {
+            real_mounts: real_mounts.clone(),
+            ..cfg
+        };
+
+        let mounts_v2 = self.api.volume.mounts_v2(&real_mounts).await?;
 
         let network = self
             .ensure_sidecars(
@@ -186,7 +193,6 @@ impl<'a> WorkspaceApi<'a> {
         cli_config_path: Option<ConfigSource>,
         ephemeral: bool,
     ) -> Result<EnterSpec, AnyError> {
-
         let orig_uid = cli_params
             .uid
             .map(|x| x.to_string())

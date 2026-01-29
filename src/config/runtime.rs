@@ -21,6 +21,7 @@ pub struct RuntimeConfig {
     pub sidecars: HashMap<String, RoozSidecar>,
     pub data: HashMap<String, DataValue>,
     pub mounts: HashMap<String, String>,
+    pub real_mounts: HashMap<String, String>,
 }
 
 impl Default for RuntimeConfig {
@@ -41,6 +42,7 @@ impl Default for RuntimeConfig {
             env: HashMap::new(),
             data: HashMap::new(),
             mounts: HashMap::new(),
+            real_mounts: HashMap::new(),
         }
     }
 }

@@ -1,3 +1,4 @@
+use crate::config::config::DataEntry;
 use crate::{
     config::config::RoozCfg,
     util::{git::RootRepoCloneResult, labels::Labels},
@@ -153,8 +154,14 @@ pub struct EnterSpec {
     pub config: RoozCfg,
 }
 
+#[derive(Clone, Debug)]
 pub struct VolumeSpec {
     pub name: String,
     pub labels: Option<Labels>,
-    pub data_key: String,
+}
+
+#[derive(Clone)]
+pub struct DataEntryVolumeSpec {
+    pub data: DataEntry,
+    pub volume: VolumeSpec,
 }
