@@ -11,7 +11,7 @@ data:
 mounts:
   ~/placeholder: empty-dir
   /work: work
-  ~/.gitconfig2: git-config
+  ~/.gitconfig: git-config
   ~/.bash_history: bash-history
   # TODO: KNOWN ISSUE - backing different mount paths by the same data entry crashes when trying to cat/edit such
   # a file
