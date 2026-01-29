@@ -3,7 +3,8 @@ use std::path::Path;
 
 use crate::config::config::{DataEntry, DataExt, DataValue};
 use crate::model::types::{
-    DataEntryKey, DataEntryVolumeSpec, TargetDir, TargetPath, VolumeName, VolumeSpec,
+    DataEntryKey, DataEntryVolumeSpec, FileSpec, TargetDir, TargetFile, TargetPath, UserFile,
+    VolumeName, VolumeSpec, VolumeFilesSpec,
 };
 use crate::util::id;
 use crate::util::labels::DATA_ROLE;
@@ -172,31 +173,49 @@ impl<'a> VolumeApi<'a> {
     pub fn real_mounts_v2(
         mounts: HashMap<TargetPath, DataEntryVolumeSpec>,
         home_dir: Option<&str>,
-    ) -> HashMap<TargetDir, VolumeName> {
+    ) -> HashMap<TargetDir, VolumeFilesSpec> {
         mounts
             .iter()
             .map(|(target, source_entry)| {
                 let expanded_target = Self::expand_home(target.as_str().to_string(), home_dir);
-                // remap '/' to '/var/lib/rooz' and drop the file name
-                let real_target = match source_entry.data {
-                    DataEntry::File { .. } => Path::new("/var/lib/rooz")
-                        .join(
+                let (real_target, maybe_file) = match source_entry.data.clone() {
+                    DataEntry::File { content, .. } => {
+                        let real_file = Path::new("/var/lib/rooz").join(
                             Path::new(&expanded_target)
-                                .parent()
-                                .unwrap()
                                 .to_string_lossy()
                                 .trim_start_matches('/'),
+                        );
+
+                        (
+                            real_file.parent().unwrap().to_string_lossy().into_owned(),
+                            Some(FileSpec {
+                                target_file: TargetFile(real_file.to_string_lossy().into_owned()),
+                                user_file: UserFile(expanded_target),
+                                content: content.to_string(),
+                            }),
                         )
-                        .to_string_lossy()
-                        .into_owned(),
-                    _ => expanded_target,
+                    }
+                    _ => (expanded_target, None),
                 };
                 (
-                    TargetDir(real_target.to_string()),
+                    TargetDir(real_target),
                     VolumeName(source_entry.volume.name.to_string()),
+                    maybe_file,
                 )
             })
-            .collect::<HashMap<_, _>>()
+            .fold(
+                HashMap::new(),
+                |mut acc, (target_dir, volume_name, maybe_file)| {
+                    acc.entry(target_dir)
+                        .or_insert_with(|| VolumeFilesSpec {
+                            volume_name,
+                            files: Vec::new(),
+                        })
+                        .files
+                        .extend(maybe_file);
+                    acc
+                },
+            )
     }
     pub async fn ensure_volumes_v2(
         &self,
@@ -213,28 +232,48 @@ impl<'a> VolumeApi<'a> {
         Ok(())
     }
 
-    pub async fn populate_volumes_v2(&self, mount_specs: &HashMap<TargetDir, DataEntryVolumeSpec>) {
-        for (target, v) in mount_specs {
-            // self.ensure_file(&v.volume.name, target, vec![RoozVolumeFile{ file_path: "".to_string(), data: "".to_string() }] )
-        }
+    pub async fn populate_volume(
+        &self,
+        target_dir: TargetDir,
+        xxx: VolumeFilesSpec,
+        uid: Option<&str>,
+    ) -> Result<(), AnyError> {
+        self.ensure_file(
+            xxx.volume_name.as_str(),
+            target_dir.as_str(),
+            &xxx.clone()
+                .files
+                .into_iter()
+                .map(|file| RoozVolumeFile {
+                    file_path: file.target_file.as_str().to_string(),
+                    data: file.content,
+                })
+                .collect::<Vec<_>>(),
+            Self::mount(&target_dir, &xxx),
+            uid,
+        )
+        .await
     }
 
+    pub fn mount(target: &TargetDir, source: &VolumeFilesSpec) -> Mount {
+        Mount {
+            target: Some(target.as_str().to_string()),
+            source: Some(source.volume_name.as_str().to_string()),
+            typ: Some(VOLUME),
+            read_only: Some(false),
+            ..Mount::default()
+        }
+    }
     pub async fn mounts_v2(
         &self,
-        real_mounts: &HashMap<TargetDir, VolumeName>,
+        real_mounts: &HashMap<TargetDir, VolumeFilesSpec>,
     ) -> Result<Vec<Mount>, AnyError> {
         let mut mount_entries = HashMap::new();
         mount_entries.extend(real_mounts.clone());
 
         let mounts_v2 = mount_entries
             .into_iter()
-            .map(|(target, source)| Mount {
-                target: Some(target.as_str().to_string()),
-                source: Some(source.as_str().to_string()),
-                typ: Some(VOLUME),
-                read_only: Some(false),
-                ..Mount::default()
-            })
+            .map(|(target, source)| Self::mount(&target, &source))
             .map(|v| (v.target.clone().unwrap().to_string(), v.clone()))
             .collect::<HashMap<_, _>>() //dedupe entries to avoid duplicate mounts
             .into_values()
@@ -355,8 +394,8 @@ impl<'a> VolumeApi<'a> {
             .join(" && ".into());
 
         if let Some(uid) = uid {
-            let chown = format!("chown -R {}:{} {} && ", uid, uid, path);
-            cmd = format!("{}{}", chown, cmd)
+            let chown = format!(" && chown -R {}:{} {}", uid, uid, path);
+            cmd = format!("{}{}", cmd, chown)
         }
 
         self.container

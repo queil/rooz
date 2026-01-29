@@ -225,6 +225,25 @@ impl From<String> for TargetFile {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct UserFile(pub String);
+
+impl UserFile {
+    pub fn new(id: impl Into<String>) -> Self {
+        Self(id.into())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl From<String> for UserFile {
+    fn from(s: String) -> Self {
+        Self(s)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct DataEntryKey(pub String);
 
 impl DataEntryKey {
@@ -260,4 +279,17 @@ impl From<String> for VolumeName {
     fn from(s: String) -> Self {
         Self(s)
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FileSpec {
+    pub target_file: TargetFile,
+    pub user_file: UserFile,
+    pub content: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VolumeFilesSpec {
+    pub volume_name: VolumeName,
+    pub files: Vec<FileSpec>,
 }

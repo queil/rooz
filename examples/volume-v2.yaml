@@ -13,7 +13,8 @@ mounts:
   /work: work
   ~/.gitconfig2: git-config
   ~/.bash_history: bash-history
-  /this/is/weird: bash-history
+  # TODO: KNOWN ISSUE - backing different mount paths by the same data entry crashes when trying to cat/edit such
+  # a file
 
 sidecars:
   dkr:

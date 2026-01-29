@@ -59,14 +59,18 @@ impl<'a> WorkspaceApi<'a> {
 
         let real_mounts = VolumeApi::real_mounts_v2(mounts_config.clone(), Some(&home_dir));
 
-        //self.api.volume.populate_volumes_v2(&real_mounts).await?;
-
         let cfg = RuntimeConfig {
             real_mounts: real_mounts.clone(),
             ..cfg
         };
 
         let mounts_v2 = self.api.volume.mounts_v2(&real_mounts).await?;
+        for (t, m) in real_mounts {
+            self.api
+                .volume
+                .populate_volume(t, m, Some(cfg.user.as_str()))
+                .await?;
+        }
 
         let network = self
             .ensure_sidecars(
