@@ -174,20 +174,22 @@ impl<'a> VolumeApi<'a> {
         mounts: HashMap<TargetPath, DataEntryVolumeSpec>,
         home_dir: Option<&str>,
     ) -> HashMap<TargetDir, VolumeFilesSpec> {
+
+        const SHADOW_ROOT_DIR: &str = "/var/lib/rooz";
         mounts
             .iter()
             .map(|(target, source_entry)| {
                 let expanded_target = Self::expand_home(target.as_str().to_string(), home_dir);
                 let (real_target, maybe_file) = match source_entry.data.clone() {
                     DataEntry::File { content, .. } => {
-                        let real_file = Path::new("/var/lib/rooz").join(
+                        let real_file = Path::new(SHADOW_ROOT_DIR).join(
                             Path::new(&expanded_target)
                                 .to_string_lossy()
                                 .trim_start_matches('/'),
                         );
 
                         (
-                            real_file.parent().unwrap().to_string_lossy().into_owned(),
+                            SHADOW_ROOT_DIR.to_string(),
                             Some(FileSpec {
                                 target_file: TargetFile(real_file.to_string_lossy().into_owned()),
                                 user_file: UserFile(expanded_target),
@@ -284,7 +286,6 @@ impl<'a> VolumeApi<'a> {
         //TODO: initialize volumes according to the DataEntry type
 
         // TODO: NEXT STEPS
-        // TODO 1: implement populating volumes with files
         // TODO 2: implement symbolic linking (entrypoint wrapping)
         // TODO 3: maybe include chowning in entrypoint wrapping
 
@@ -293,8 +294,8 @@ impl<'a> VolumeApi<'a> {
         //TODO caches and system shared volumes (ssh-key) shall maybe owned by a rooz group that need to be
         // ensured in containers and the user would beed to be added to that group to read (and write as the group - caches)
 
-        // TODO: DESIGN CHANGES - BREAKING
-        // /work is not longer backed by a volume by default
+        // TODO: DESIGN CHANGES - BREAKING - it seems it breaks git clone
+        // /work is no longer backed by a volume by default
         // In volumes-v2 it can be explicitly configured for workspaces with configuration files, but
         // can't in tmp or simple persistent workspaces without config
     }

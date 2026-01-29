@@ -64,6 +64,8 @@ impl<'a> WorkspaceApi<'a> {
             ..cfg
         };
 
+        // TODO: when volumes get created check if already existed, then skip the initial population
+        // THIS CAUSES wiping the volumes out on update
         let mounts_v2 = self.api.volume.mounts_v2(&real_mounts).await?;
         for (t, m) in real_mounts {
             self.api
