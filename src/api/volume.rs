@@ -237,13 +237,13 @@ impl<'a> VolumeApi<'a> {
     pub async fn populate_volume(
         &self,
         target_dir: TargetDir,
-        xxx: VolumeFilesSpec,
+        volume_file: VolumeFilesSpec,
         uid: Option<&str>,
     ) -> Result<(), AnyError> {
         self.ensure_file(
-            xxx.volume_name.as_str(),
+            volume_file.volume_name.as_str(),
             target_dir.as_str(),
-            &xxx.clone()
+            &volume_file.clone()
                 .files
                 .into_iter()
                 .map(|file| RoozVolumeFile {
@@ -251,7 +251,7 @@ impl<'a> VolumeApi<'a> {
                     data: file.content,
                 })
                 .collect::<Vec<_>>(),
-            Self::mount(&target_dir, &xxx),
+            Self::mount(&target_dir, &volume_file),
             uid,
         )
         .await
@@ -373,7 +373,7 @@ impl<'a> VolumeApi<'a> {
     async fn ensure_file(
         &self,
         volume_name: &str,
-        path: &str,
+        parent_dir: &str,
         files: &Vec<RoozVolumeFile>,
         mount: Mount,
         uid: Option<&str>,
@@ -381,12 +381,13 @@ impl<'a> VolumeApi<'a> {
         let mut cmd = files
             .iter()
             .map(|f| {
-                let p = Path::new(path)
+                let p = Path::new(parent_dir)
                     .join(&f.file_path)
                     .to_string_lossy()
                     .to_string();
                 format!(
-                    "echo '{}' | base64 -d > {}",
+                    "mkdir -p {} && echo '{}' | base64 -d > {}",
+                    parent_dir,
                     general_purpose::STANDARD.encode(f.data.trim()),
                     p,
                 )
@@ -395,7 +396,7 @@ impl<'a> VolumeApi<'a> {
             .join(" && ".into());
 
         if let Some(uid) = uid {
-            let chown = format!("chown -R {}:{} {}", uid, uid, path);
+            let chown = format!("chown -R {}:{} {}", uid, uid, parent_dir);
             cmd = format!(
                 "{}{}{}",
                 cmd,
