@@ -240,17 +240,9 @@ impl<'a> VolumeApi<'a> {
         volume_file: VolumeFilesSpec,
         uid: Option<&str>,
     ) -> Result<(), AnyError> {
-        self.ensure_file(
-            volume_file.volume_name.as_str(),
+        self.ensure_file_v2(
             target_dir.as_str(),
-            &volume_file.clone()
-                .files
-                .into_iter()
-                .map(|file| RoozVolumeFile {
-                    file_path: file.target_file.as_str().to_string(),
-                    data: file.content,
-                })
-                .collect::<Vec<_>>(),
+            &volume_file.clone(),
             Self::mount(&target_dir, &volume_file),
             uid,
         )
@@ -370,6 +362,55 @@ impl<'a> VolumeApi<'a> {
         Ok(mount)
     }
 
+    async fn ensure_file_v2(
+        &self,
+        root_dir: &str,
+        spec: &VolumeFilesSpec,
+        mount: Mount,
+        uid: Option<&str>,
+    ) -> Result<(), AnyError> {
+        let mut cmd = spec
+            .files
+            .iter()
+            .map(|f| {
+                let parent_dir = Path::new(f.target_file.as_str())
+                    .parent()
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned();
+
+                format!(
+                    "mkdir -p {} && echo '{}' | base64 -d > {}",
+                    parent_dir,
+                    general_purpose::STANDARD.encode(f.content.trim()),
+                    f.target_file.as_str(),
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(" && ".into());
+
+        if let Some(uid) = uid {
+            let chown = format!("chown -R {}:{} {}", uid, uid, root_dir);
+            cmd = format!(
+                "{}{}{}",
+                cmd,
+                if cmd.is_empty() { "" } else { " && " },
+                chown
+            )
+        }
+
+        self.container
+            .one_shot(
+                &format!("populate volume: {}", &spec.volume_name.as_str()),
+                cmd,
+                Some(vec![mount]),
+                None,
+                None,
+            )
+            .await?;
+
+        Ok(())
+    }
     async fn ensure_file(
         &self,
         volume_name: &str,
@@ -386,8 +427,7 @@ impl<'a> VolumeApi<'a> {
                     .to_string_lossy()
                     .to_string();
                 format!(
-                    "mkdir -p {} && echo '{}' | base64 -d > {}",
-                    parent_dir,
+                    "echo '{}' | base64 -d > {}",
                     general_purpose::STANDARD.encode(f.data.trim()),
                     p,
                 )
