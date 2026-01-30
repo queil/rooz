@@ -105,7 +105,15 @@ impl<'a> VolumeApi<'a> {
         mounts: &HashMap<String, String>,
     ) -> HashMap<TargetPath, DataEntryVolumeSpec> {
         let mut result = HashMap::new();
-        for (target, source_key) in mounts {
+
+        let mut mount_entries: HashMap<String, String> = HashMap::new();
+        mount_entries.extend(mounts.clone());
+
+        if !mounts.values().any(|key| key == "work") {
+            mount_entries.insert("/work".to_string(), "work".to_string());
+        }
+
+        for (target, source_key) in mount_entries {
             let source_key = DataEntryKey(source_key.to_string());
             let source_exists = volumes.contains_key(&source_key);
             if !source_exists {
@@ -132,6 +140,12 @@ impl<'a> VolumeApi<'a> {
     ) -> HashMap<DataEntryKey, DataEntryVolumeSpec> {
         let mut data_entries = vec![];
         data_entries.extend_from_slice(data.clone().into_entries().as_slice());
+
+        if !data.contains_key("work") {
+            data_entries.push(DataEntry::Dir {
+                name: "work".to_string(),
+            });
+        }
 
         let files_key = "files";
         let files_volume_spec = VolumeSpec {

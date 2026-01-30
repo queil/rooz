@@ -86,7 +86,7 @@ impl RoozVolume {
             RoozVolume {
                 sharing: RoozVolumeSharing::Exclusive { key },
                 ..
-            } => format!("rooz_{}_{}", sanitize(&key), &role_segment),
+            } => format!("rooz-{}-{}", sanitize(&key), &role_segment),
             RoozVolume { .. } => format!("rooz_{}", &role_segment),
         }
     }
