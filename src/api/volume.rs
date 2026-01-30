@@ -174,7 +174,6 @@ impl<'a> VolumeApi<'a> {
         mounts: HashMap<TargetPath, DataEntryVolumeSpec>,
         home_dir: Option<&str>,
     ) -> HashMap<TargetDir, VolumeFilesSpec> {
-
         const SHADOW_ROOT_DIR: &str = "/var/lib/rooz";
         mounts
             .iter()
@@ -182,7 +181,7 @@ impl<'a> VolumeApi<'a> {
                 let expanded_target = Self::expand_home(target.as_str().to_string(), home_dir);
                 let (real_target, maybe_file) = match source_entry.data.clone() {
                     DataEntry::File { content, .. } => {
-                        let real_file = Path::new(SHADOW_ROOT_DIR).join(
+                        let shadow_file = Path::new(SHADOW_ROOT_DIR).join(
                             Path::new(&expanded_target)
                                 .to_string_lossy()
                                 .trim_start_matches('/'),
@@ -191,7 +190,7 @@ impl<'a> VolumeApi<'a> {
                         (
                             SHADOW_ROOT_DIR.to_string(),
                             Some(FileSpec {
-                                target_file: TargetFile(real_file.to_string_lossy().into_owned()),
+                                target_file: TargetFile(shadow_file.to_string_lossy().into_owned()),
                                 user_file: UserFile(expanded_target),
                                 content: content.to_string(),
                             }),
@@ -222,16 +221,17 @@ impl<'a> VolumeApi<'a> {
     pub async fn ensure_volumes_v2(
         &self,
         data_entries: &HashMap<DataEntryKey, DataEntryVolumeSpec>,
-    ) -> Result<(), AnyError> {
-        for d in data_entries
+    ) -> Result<HashMap<VolumeName, VolumeResult>, AnyError> {
+        let mut result = HashMap::new();
+        for (k, v) in data_entries
             .iter()
             .map(|(_, v)| (v.volume.name.clone(), v.volume.clone()))
             .collect::<HashMap<_, _>>()
-            .into_values()
         {
-            self.ensure_volume_v2(&d).await?;
+            let volume_result = self.ensure_volume_v2(&v).await?;
+            result.insert(VolumeName(k), volume_result);
         }
-        Ok(())
+        Ok(result)
     }
 
     pub async fn populate_volume(

@@ -9,16 +9,16 @@ use bollard::{
 };
 use futures::{Stream, StreamExt};
 
-use std::{io::Read, time::Duration};
-use std::collections::HashMap;
+use crate::model::types::{TargetDir, VolumeFilesSpec};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
+use std::collections::HashMap;
+use std::{io::Read, time::Duration};
 use tokio::{
     io::{AsyncWriteExt, unix::AsyncFd},
     select, spawn,
     sync::broadcast,
     time::sleep,
 };
-use crate::model::types::{TargetDir, VolumeFilesSpec};
 
 async fn collect(stream: impl Stream<Item = Result<LogOutput, Error>>) -> Result<String, AnyError> {
     let out = stream
@@ -295,10 +295,10 @@ impl<'a> ExecApi<'a> {
         for (_, spec) in mounts {
             for file in &spec.files {
                 log::debug!(
-                "Creating symlink: {} -> {}",
-                &file.user_file.as_str(),
-                &file.target_file.as_str()
-            );
+                    "Creating symlink: {} -> {}",
+                    &file.user_file.as_str(),
+                    &file.target_file.as_str()
+                );
 
                 let cmd = format!(
                     "mkdir -p $(dirname {0}) && ln -sf {1} {0} && chown -h {2}:{2} {0}",

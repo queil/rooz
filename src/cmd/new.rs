@@ -1,4 +1,5 @@
 use crate::api::VolumeApi;
+use crate::model::types::VolumeResult;
 use crate::{
     api::WorkspaceApi,
     cli::WorkParams,
@@ -49,7 +50,7 @@ impl<'a> WorkspaceApi<'a> {
 
         let volumes_v2 = VolumeApi::create_volume_specs(workspace_key, &cfg.data);
 
-        self.api.volume.ensure_volumes_v2(&volumes_v2).await?;
+        let volume_results = self.api.volume.ensure_volumes_v2(&volumes_v2).await?;
 
         let home_dir = format!("/home/{}", &cfg.user);
         let mounts_config = self
@@ -64,14 +65,14 @@ impl<'a> WorkspaceApi<'a> {
             ..cfg
         };
 
-        // TODO: when volumes get created check if already existed, then skip the initial population
-        // THIS CAUSES wiping the volumes out on update
         let mounts_v2 = self.api.volume.mounts_v2(&real_mounts).await?;
         for (t, m) in real_mounts {
-            self.api
-                .volume
-                .populate_volume(t, m, Some(&work_spec.uid))
-                .await?;
+            if let VolumeResult::Created {} = volume_results[&m.volume_name] {
+                self.api
+                    .volume
+                    .populate_volume(t, m, Some(&work_spec.uid))
+                    .await?;
+            }
         }
 
         let network = self

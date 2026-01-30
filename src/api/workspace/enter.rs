@@ -101,8 +101,11 @@ impl<'a> WorkspaceApi<'a> {
                         .chown(&container_id, chown_uid, target.as_str())
                         .await?;
                 }
-                
-                self.api.exec.symlink_files(container_id, &config.real_mounts, chown_uid).await?;
+
+                self.api
+                    .exec
+                    .symlink_files(container_id, &config.real_mounts, chown_uid)
+                    .await?;
             }
 
             match self
