@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 
 use crate::api::VolumeApi;
+use crate::config::config::SidecarMount;
 use crate::model::types::{DataEntryKey, DataEntryVolumeSpec};
+use crate::model::volume::RoozVolume;
 use crate::{
     api::WorkspaceApi,
     config::config::{RoozCfg, RoozSidecar},
@@ -65,6 +67,38 @@ impl<'a> WorkspaceApi<'a> {
             mounts_v2.extend_from_slice(self.api.volume.mounts_v2(&real_mounts).await?.as_slice());
 
             let uid = s.user.as_deref().unwrap_or(&constants::ROOT_UID);
+
+            //TODO: remove LEGACY INLINE MOUNTS - v2 will handle that via implicit anonymous mounts
+
+            let legacy_rooz_vols = s.legacy_mounts.as_ref().map(|mounts| {
+                mounts
+                    .iter()
+                    .map(|mount| match mount {
+                        SidecarMount::Empty(mount) => {
+                            RoozVolume::config_data(workspace_key, mount, None, None, None)
+                        }
+                        SidecarMount::Files { mount, files } => RoozVolume::config_data(
+                            workspace_key,
+                            mount,
+                            Some(files.clone()),
+                            None,
+                            None,
+                        ),
+                    })
+                    .collect::<Vec<_>>()
+            });
+
+            if let Some(vols) = legacy_rooz_vols {
+                let ms = self
+                    .api
+                    .volume
+                    .ensure_mounts(&vols, None, Some(uid))
+                    .await?;
+
+                mounts_v2.extend_from_slice(ms.as_slice());
+            }
+            // END - LEGACY INLINE MOUNTS
+
             self.api
                 .container
                 .create(RunSpec {

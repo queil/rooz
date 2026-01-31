@@ -99,6 +99,15 @@ impl FileFormat {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(untagged)]
+pub enum SidecarMount {
+    Empty(String),
+    Files {
+        mount: String,
+        files: HashMap<String, String>,
+    },
+}
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct RoozSidecar {
     pub image: String,
@@ -110,6 +119,8 @@ pub struct RoozSidecar {
     pub args: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mounts: Option<LinkedHashMap<String, String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub legacy_mounts: Option<Vec<SidecarMount>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ports: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
