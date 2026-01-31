@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 
 use crate::api::VolumeApi;
-use crate::config::config::SidecarMount;
+use crate::config::config::{DataValue, MountSource, SidecarMount};
 use crate::model::types::{DataEntryKey, DataEntryVolumeSpec};
 use crate::model::volume::RoozVolume;
+use crate::util::id;
 use crate::{
     api::WorkspaceApi,
     config::config::{RoozCfg, RoozSidecar},
@@ -18,7 +19,7 @@ impl<'a> WorkspaceApi<'a> {
     pub async fn ensure_sidecars(
         &self,
         sidecars: &HashMap<String, RoozSidecar>,
-        volumes: &HashMap<DataEntryKey, DataEntryVolumeSpec>,
+        data: &HashMap<String, DataValue>,
         workspace_key: &str,
         force: bool,
         pull_image: bool,
@@ -55,12 +56,55 @@ impl<'a> WorkspaceApi<'a> {
             let mut ports = HashMap::<String, Option<String>>::new();
             RoozCfg::parse_ports(&mut ports, s.ports.clone());
 
-            let mut mounts_v2 = Vec::<Mount>::new();
+            let volumes_v2 = VolumeApi::create_volume_specs(
+                workspace_key,
+                &s.mounts
+                    .clone()
+                    .unwrap_or_default()
+                    .iter()
+                    .map(|(k, v)| match v {
+                        MountSource::DataEntryReference(data_key) => (
+                            data_key.as_str().to_string(),
+                            {
+                                let source_exists = data.contains_key(data_key.as_str());
+                                if !source_exists {
+                                    panic!(
+                                        "Key '{}' not found under 'data:' in workspace config. Keys: {:?}",
+                                        data_key.as_str(),
+                                        &data.keys(),
+                                    );
+                                }
 
-            let mounts_config = self.api.volume.mounts_with_sources(
-                volumes,
-                &s.mounts.clone().unwrap_or_default().into_iter().collect(),
+                                data[data_key.as_str()].clone()
+                            },
+                        ),
+                        MountSource::InlineDataValue(data_value) => {
+                            (id::sanitize(k), data_value.to_owned())
+                        }
+                    })
+                    .collect::<HashMap<String, DataValue>>(),
             );
+
+            let mut mounts_v2 = Vec::new();
+
+            let mounts_all = &s
+                .mounts
+                .clone()
+                .unwrap_or_default()
+                .clone()
+                .iter()
+                .map(|(k, v)| match v {
+                    MountSource::DataEntryReference(data_key) => {
+                        (k.to_string(), data_key.as_str().to_string())
+                    }
+                    MountSource::InlineDataValue(_) => (k.to_string(), id::sanitize(k)),
+                })
+                .collect::<HashMap<String, String>>();
+
+            let mounts_config = self
+                .api
+                .volume
+                .mounts_with_sources(&volumes_v2, &mounts_all);
 
             let real_mounts = VolumeApi::real_mounts_v2(mounts_config.clone(), None);
 

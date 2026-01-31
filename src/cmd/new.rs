@@ -1,5 +1,6 @@
 use crate::api::VolumeApi;
-use crate::model::types::VolumeResult;
+use crate::config::config::{DataValue, MountSource};
+use crate::model::types::{DataEntryKey, VolumeResult};
 use crate::{
     api::WorkspaceApi,
     cli::WorkParams,
@@ -15,6 +16,7 @@ use crate::{
         labels::{self, Labels},
     },
 };
+use std::collections::HashMap;
 use std::fs;
 
 impl<'a> WorkspaceApi<'a> {
@@ -48,15 +50,46 @@ impl<'a> WorkspaceApi<'a> {
             .ensure(&cfg.image, cli_params.pull_image)
             .await?;
 
-        let volumes_v2 = VolumeApi::create_volume_specs(workspace_key, &cfg.data);
+        // let mut volumes_v2 = VolumeApi::create_volume_specs(workspace_key, &cfg.data);
+
+        let volumes_v2 = VolumeApi::create_volume_specs(
+            workspace_key,
+            &cfg.mounts
+                .iter()
+                .map(|(k, v)| match v {
+                    MountSource::DataEntryReference(data_key) => (data_key.as_str().to_string(), {
+                        let source_exists = cfg.data.contains_key(data_key.as_str());
+                        if !source_exists {
+                            panic!(
+                                "Key '{}' not found under 'data:' in workspace config. Keys: {:?}",
+                                data_key.as_str(),
+                                &cfg.data.keys(),
+                            );
+                        }
+                        cfg.data[data_key.as_str()].clone()
+                    }),
+                    MountSource::InlineDataValue(data_value) => {
+                        (id::sanitize(k), data_value.to_owned())
+                    }
+                })
+                .collect::<HashMap<String, DataValue>>(),
+        );
+
+        let mounts_all = &cfg
+            .mounts
+            .iter()
+            .map(|(k, v)| match v {
+                MountSource::DataEntryReference(data_key) => {
+                    (k.to_string(), data_key.as_str().to_string())
+                }
+                MountSource::InlineDataValue(_) => (k.to_string(), id::sanitize(k)),
+            })
+            .collect::<HashMap<String, String>>();
 
         let volume_results = self.api.volume.ensure_volumes_v2(&volumes_v2).await?;
 
         let home_dir = format!("/home/{}", &cfg.user);
-        let mounts_config = self
-            .api
-            .volume
-            .mounts_with_sources(&volumes_v2, &cfg.mounts);
+        let mounts_config = self.api.volume.mounts_with_sources(&volumes_v2, mounts_all);
 
         let real_mounts = VolumeApi::real_mounts_v2(mounts_config.clone(), Some(&home_dir));
 
@@ -78,7 +111,7 @@ impl<'a> WorkspaceApi<'a> {
         let network = self
             .ensure_sidecars(
                 &cfg.sidecars,
-                &volumes_v2,
+                &cfg.data,
                 workspace_key,
                 force,
                 cli_params.pull_image,

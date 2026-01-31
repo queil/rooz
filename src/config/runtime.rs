@@ -1,4 +1,4 @@
-use super::config::{DataValue, RoozCfg, RoozSidecar};
+use super::config::{DataValue, MountSource, RoozCfg, RoozSidecar};
 use crate::AnyError;
 use crate::constants;
 use crate::model::types::{TargetDir, VolumeFilesSpec};
@@ -21,7 +21,7 @@ pub struct RuntimeConfig {
     pub env: HashMap<String, String>,
     pub sidecars: HashMap<String, RoozSidecar>,
     pub data: HashMap<String, DataValue>,
-    pub mounts: HashMap<String, String>,
+    pub mounts: HashMap<String, MountSource>,
     pub real_mounts: HashMap<TargetDir, VolumeFilesSpec>,
 }
 

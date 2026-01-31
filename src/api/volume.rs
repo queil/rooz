@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use crate::config::config::{DataEntry, DataExt, DataValue};
+use crate::config::config::{DataEntry, DataExt, DataValue, MountSource};
 use crate::model::types::{
     DataEntryKey, DataEntryVolumeSpec, FileSpec, TargetDir, TargetFile, TargetPath, UserFile,
     VolumeFilesSpec, VolumeName, VolumeSpec,
@@ -114,8 +114,7 @@ impl<'a> VolumeApi<'a> {
         }
 
         for (target, source_key) in mount_entries {
-            let source_key = DataEntryKey(source_key.to_string());
-            let source_exists = volumes.contains_key(&source_key);
+            let source_exists = &volumes.contains_key(&DataEntryKey(source_key.to_string()));
             if !source_exists {
                 panic!(
                     "Key '{}' not found under 'data:' in workspace config. Keys: {:?}",
@@ -123,7 +122,11 @@ impl<'a> VolumeApi<'a> {
                     &volumes.keys(),
                 );
             }
-            result.insert(TargetPath(target.clone()), volumes[&source_key].clone());
+
+            result.insert(
+                TargetPath(target.clone()),
+                volumes[&DataEntryKey(source_key)].clone(),
+            );
         }
         result
     }

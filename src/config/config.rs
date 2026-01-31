@@ -1,4 +1,4 @@
-use crate::model::types::AnyError;
+use crate::model::types::{AnyError, DataEntryKey};
 use crate::{cli::WorkParams, constants};
 use colored::Colorize;
 use handlebars::{Handlebars, no_escape};
@@ -118,7 +118,7 @@ pub struct RoozSidecar {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub args: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub mounts: Option<LinkedHashMap<String, String>>,
+    pub mounts: Option<LinkedHashMap<String, MountSource>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub legacy_mounts: Option<Vec<SidecarMount>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -169,7 +169,7 @@ pub struct RoozCfg {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub data: Option<LinkedHashMap<String, DataValue>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub mounts: Option<LinkedHashMap<String, String>>,
+    pub mounts: Option<LinkedHashMap<String, MountSource>>,
 }
 
 impl Default for RoozCfg {
@@ -385,7 +385,15 @@ impl SystemConfig {
 #[serde(deny_unknown_fields)]
 pub enum DataValue {
     Dir {},
-    InlineContent(String),
+    InlineContent{ content: String },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+#[serde(deny_unknown_fields)]
+pub enum MountSource {
+    DataEntryReference(DataEntryKey),
+    InlineDataValue(DataValue),
 }
 
 #[derive(Debug, Clone)]
@@ -407,7 +415,7 @@ pub enum DataEntry {
 impl DataValue {
     pub fn into_entry(self, name: String) -> DataEntry {
         match self {
-            DataValue::InlineContent(content) => DataEntry::File { name, content },
+            DataValue::InlineContent{ content } => DataEntry::File { name, content },
             DataValue::Dir {} => DataEntry::Dir { name },
         }
     }
