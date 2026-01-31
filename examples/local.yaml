@@ -1,0 +1,4 @@
+this:
+  is: |-
+    a component file
+    that can be mounted to a container

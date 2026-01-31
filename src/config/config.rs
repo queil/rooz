@@ -4,7 +4,9 @@ use colored::Colorize;
 use handlebars::{Handlebars, no_escape};
 use linked_hash_map::LinkedHashMap;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, ffi::OsStr, path::Path};
+use std::collections::HashMap;
+use std::ffi::OsStr;
+use std::path::Path;
 
 #[derive(Debug, Clone)]
 pub enum ConfigSource {
@@ -369,18 +371,13 @@ impl SystemConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
+#[serde(deny_unknown_fields)]
 pub enum DataValue {
-    InlineContent(String),
-    Source(Source),
     Dir {},
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Source {
-    Git(GitSource),
-    Image(ImageSource),
-    Path(String),
+    //TODO: Git { git: GitSource },
+    //TODO: Image { image: ImageSource },
+    //TODO: Path { path: String },
+    InlineContent(String),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -398,37 +395,24 @@ pub struct ImageSource {
 
 #[derive(Debug, Clone)]
 pub enum DataEntry {
-    Dir {
-        name: String,
-    },
-    File {
-        name: String,
-        content: String,
-    },
-    LocalPath {
-        name: String,
-        path: String,
-    },
-    GitRepo {
-        name: String,
-        repo: String,
-        path: Option<String>,
-    },
-    Image {
-        name: String,
-        image_ref: String,
-        path: String,
-    },
+    Dir { name: String },
+    File { name: String, content: String },
+    //TODO: GitRepo {
+    //     name: String,
+    //     repo: String,
+    //     path: Option<String>,
+    // },
+    //TODO: Image {
+    //     name: String,
+    //     image_ref: String,
+    //     path: String,
+    // },
 }
 
 impl DataEntry {
     pub fn name(&self) -> &str {
         match self {
-            DataEntry::Dir { name }
-            | DataEntry::File { name, .. }
-            | DataEntry::LocalPath { name, .. }
-            | DataEntry::GitRepo { name, .. }
-            | DataEntry::Image { name, .. } => name,
+            DataEntry::Dir { name } | DataEntry::File { name, .. } => name,
         }
     }
 }
@@ -438,17 +422,6 @@ impl DataValue {
         match self {
             DataValue::InlineContent(content) => DataEntry::File { name, content },
             DataValue::Dir {} => DataEntry::Dir { name },
-            DataValue::Source(Source::Git(g)) => DataEntry::GitRepo {
-                name,
-                repo: g.repo,
-                path: g.path,
-            },
-            DataValue::Source(Source::Image(i)) => DataEntry::Image {
-                name,
-                image_ref: i.image_ref,
-                path: i.path,
-            },
-            DataValue::Source(Source::Path(p)) => DataEntry::LocalPath { name, path: p },
         }
     }
 }
@@ -514,24 +487,19 @@ data:
                 }
                 DataEntry::File { name, content } => {
                     assert!(name == "inline-file" || name == "empty-file");
-                }
-                DataEntry::GitRepo { name, repo, path } => {
-                    assert!(name == "my-repo" || name == "my-repo-root");
-                    assert!(repo.contains("github.com"));
-                }
-                DataEntry::Image {
-                    name,
-                    image_ref,
-                    path,
-                } => {
-                    assert_eq!(name, "from-image");
-                    assert_eq!(image_ref, "nginx:latest");
-                    assert_eq!(path, "/etc/nginx/nginx.conf");
-                }
-                DataEntry::LocalPath { name, path } => {
-                    assert_eq!(name, "local-thing");
-                    assert_eq!(path, "./local/file.txt");
-                }
+                } // DataEntry::GitRepo { name, repo, path } => {
+                  //     assert!(name == "my-repo" || name == "my-repo-root");
+                  //     assert!(repo.contains("github.com"));
+                  // }
+                  // DataEntry::Image {
+                  //     name,
+                  //     image_ref,
+                  //     path,
+                  // } => {
+                  //     assert_eq!(name, "from-image");
+                  //     assert_eq!(image_ref, "nginx:latest");
+                  //     assert_eq!(path, "/etc/nginx/nginx.conf");
+                  // }
             }
         }
     }
