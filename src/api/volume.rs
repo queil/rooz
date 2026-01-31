@@ -179,7 +179,6 @@ impl<'a> VolumeApi<'a> {
                         volume: files_volume_spec.clone(),
                     },
                 )),
-                _ => panic!("Not implemented yet"),
             })
             .collect::<HashMap<_, _>>()
     }
@@ -292,9 +291,6 @@ impl<'a> VolumeApi<'a> {
         //TODO: initialize volumes according to the DataEntry type
 
         // TODO: NEXT STEPS
-        // TODO 2: implement symbolic linking (entrypoint wrapping)
-        // TODO 3: maybe include chowning in entrypoint wrapping
-
         //TODO: all built-in stuff must be included in v2 - caches, ssh, system-config, etc.
 
         //TODO caches and system shared volumes (ssh-key) shall maybe owned by a rooz group that need to be

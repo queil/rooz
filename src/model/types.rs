@@ -171,10 +171,6 @@ pub struct DataEntryVolumeSpec {
 pub struct TargetPath(pub String);
 
 impl TargetPath {
-    pub fn new(id: impl Into<String>) -> Self {
-        Self(id.into())
-    }
-
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -190,10 +186,6 @@ impl From<String> for TargetPath {
 pub struct TargetDir(pub String);
 
 impl TargetDir {
-    pub fn new(id: impl Into<String>) -> Self {
-        Self(id.into())
-    }
-
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -209,10 +201,6 @@ impl From<String> for TargetDir {
 pub struct TargetFile(pub String);
 
 impl TargetFile {
-    pub fn new(id: impl Into<String>) -> Self {
-        Self(id.into())
-    }
-
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -228,10 +216,6 @@ impl From<String> for TargetFile {
 pub struct UserFile(pub String);
 
 impl UserFile {
-    pub fn new(id: impl Into<String>) -> Self {
-        Self(id.into())
-    }
-
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -247,10 +231,6 @@ impl From<String> for UserFile {
 pub struct DataEntryKey(pub String);
 
 impl DataEntryKey {
-    pub fn new(id: impl Into<String>) -> Self {
-        Self(id.into())
-    }
-
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -266,10 +246,6 @@ impl From<String> for DataEntryKey {
 pub struct VolumeName(pub String);
 
 impl VolumeName {
-    pub fn new(id: impl Into<String>) -> Self {
-        Self(id.into())
-    }
-
     pub fn as_str(&self) -> &str {
         &self.0
     }

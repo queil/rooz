@@ -374,23 +374,7 @@ impl SystemConfig {
 #[serde(deny_unknown_fields)]
 pub enum DataValue {
     Dir {},
-    //TODO: Git { git: GitSource },
-    //TODO: Image { image: ImageSource },
-    //TODO: Path { path: String },
     InlineContent(String),
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GitSource {
-    pub repo: String,
-    pub path: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ImageSource {
-    #[serde(rename = "ref")]
-    pub image_ref: String,
-    pub path: String,
 }
 
 #[derive(Debug, Clone)]
@@ -407,14 +391,6 @@ pub enum DataEntry {
     //     image_ref: String,
     //     path: String,
     // },
-}
-
-impl DataEntry {
-    pub fn name(&self) -> &str {
-        match self {
-            DataEntry::Dir { name } | DataEntry::File { name, .. } => name,
-        }
-    }
 }
 
 impl DataValue {
@@ -485,21 +461,9 @@ data:
                 DataEntry::Dir { name } => {
                     assert_eq!(name, "some-dir");
                 }
-                DataEntry::File { name, content } => {
+                DataEntry::File { name, .. } => {
                     assert!(name == "inline-file" || name == "empty-file");
-                } // DataEntry::GitRepo { name, repo, path } => {
-                  //     assert!(name == "my-repo" || name == "my-repo-root");
-                  //     assert!(repo.contains("github.com"));
-                  // }
-                  // DataEntry::Image {
-                  //     name,
-                  //     image_ref,
-                  //     path,
-                  // } => {
-                  //     assert_eq!(name, "from-image");
-                  //     assert_eq!(image_ref, "nginx:latest");
-                  //     assert_eq!(path, "/etc/nginx/nginx.conf");
-                  // }
+                }
             }
         }
     }
