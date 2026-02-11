@@ -225,7 +225,7 @@ async fn main() -> Result<(), AnyError> {
             command: Start(StartParams { name }),
             ..
         } => {
-            workspace.start(&name, None).await?;
+            workspace.start(&name).await?;
         }
 
         Cli {

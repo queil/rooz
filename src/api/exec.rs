@@ -9,9 +9,7 @@ use bollard::{
 };
 use futures::{Stream, StreamExt};
 
-use crate::model::types::{TargetDir, VolumeFilesSpec};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
-use std::collections::HashMap;
 use std::{io::Read, time::Duration};
 use tokio::{
     io::{AsyncWriteExt, unix::AsyncFd},
@@ -283,55 +281,6 @@ impl<'a> ExecApi<'a> {
             .await?;
 
         log::debug!("{}", chown_response);
-        Ok(())
-    }
-
-    pub async fn symlink_files(
-        &self,
-        container_id: &str,
-        mounts: &HashMap<TargetDir, VolumeFilesSpec>,
-        uid: &str,
-    ) -> Result<(), AnyError> {
-        for (_, spec) in mounts {
-            for file in &spec.files {
-                log::debug!(
-                    "Creating symlink: {} -> {}",
-                    &file.user_file.as_str(),
-                    &file.target_file.as_str()
-                );
-
-                let cmd = format!(
-                    "mkdir -p $(dirname {0}) && ln -sf {1} {0} && chown -h {2}:{2} {0}",
-                    &file.user_file.as_str().replace("~", "${ROOZ_META_HOME}"),
-                    &file.target_file.as_str(),
-                    uid
-                );
-
-                let output = self
-                    .output(
-                        "symlink",
-                        container_id,
-                        Some(constants::ROOT_USER),
-                        Some(vec!["sh", "-c", &cmd]),
-                    )
-                    .await?;
-
-                log::debug!("{}", output);
-            }
-        }
-
-        self.run(
-            "release-gate",
-            container_id,
-            None,
-            Some(vec![
-                "sh",
-                "-c",
-                "[ -p /tmp/exec_start ] && echo start > /tmp/exec_start",
-            ]),
-        )
-        .await?;
-
         Ok(())
     }
 

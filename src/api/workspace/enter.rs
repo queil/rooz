@@ -76,7 +76,7 @@ impl<'a> WorkspaceApi<'a> {
         // the loop here is needed for auto-reconnecting the session
         loop {
             execute!(stdout(), Clear(ClearType::All))?;
-            match self.start(workspace_key, Some((&config, chown_uid))).await {
+            match self.start(workspace_key).await {
                 Ok(_) => (),
                 Err(e) => {
                     log::debug!("{}", e);

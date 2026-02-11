@@ -11,6 +11,7 @@ use crate::{
 use base64::{Engine as _, engine::general_purpose};
 
 use bollard::{
+    body_full,
     errors::Error::{self, DockerResponseServerError},
     models::{
         ContainerCreateBody, ContainerCreateResponse, ContainerInspectResponse, ContainerState,
@@ -24,6 +25,8 @@ use bollard::{
     },
 };
 
+use crate::model::types::{TargetDir, VolumeFilesSpec};
+use bollard_stubs::query_parameters::UploadToContainerOptions;
 use futures::{StreamExt, future};
 use std::{collections::HashMap, time::Duration};
 use tokio::time::{sleep, timeout};
@@ -413,6 +416,45 @@ impl<'a> ContainerApi<'a> {
             Err(err) => panic!("ERROR: {:?}", err),
         };
         Ok(container_id.clone())
+    }
+
+    pub async fn symlink_files(
+        &self,
+        container_id: &str,
+        mounts: &HashMap<TargetDir, VolumeFilesSpec>,
+    ) -> Result<(), AnyError> {
+        let mut archive = tar::Builder::new(Vec::new());
+        for (_, spec) in mounts {
+            for file in &spec.files {
+                log::debug!(
+                    "Creating symlink: {} -> {}",
+                    &file.user_file.as_str(),
+                    &file.target_file.as_str()
+                );
+                let mut header = tar::Header::new_gnu();
+                header.set_entry_type(tar::EntryType::Symlink);
+                header.set_size(0);
+                archive.append_link(
+                    &mut header,
+                    file.user_file.as_str().trim_start_matches("/"),
+                    file.target_file.as_str(),
+                )?;
+            }
+        }
+        let tar_bytes = archive.into_inner()?;
+
+        self.client
+            .upload_to_container(
+                &container_id,
+                Some(UploadToContainerOptions {
+                    path: "/".to_string(),
+                    ..Default::default()
+                }),
+                body_full(tar_bytes.into()),
+            )
+            .await?;
+
+        Ok(())
     }
 
     pub async fn start(&self, container_id: &str) -> Result<(), bollard::errors::Error> {

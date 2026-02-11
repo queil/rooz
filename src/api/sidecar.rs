@@ -1,15 +1,16 @@
-use std::collections::HashMap;
-
 use crate::api::VolumeApi;
 use crate::config::config::MountSource;
 use crate::config::runtime::RuntimeConfig;
+use crate::model::types::ContainerResult;
 use crate::{
     api::WorkspaceApi,
     config::config::RoozCfg,
     model::types::{AnyError, RunMode, RunSpec},
     util::labels::{self, Labels},
 };
+
 use bollard::models::NetworkCreateRequest;
+use std::collections::HashMap;
 
 impl<'a> WorkspaceApi<'a> {
     pub async fn ensure_sidecars(
@@ -74,7 +75,7 @@ impl<'a> WorkspaceApi<'a> {
 
             mounts_v2.extend_from_slice(self.api.volume.mounts_v2(&real_mounts).await?.as_slice());
 
-            for (t, m) in real_mounts {
+            for (t, m) in real_mounts.clone() {
                 s.real_mounts.insert(t.clone(), m.clone());
                 // The volume might already be created by the workspace-level volume creation
                 // but still may need files in the paths not covered by that process
@@ -84,7 +85,8 @@ impl<'a> WorkspaceApi<'a> {
             let uid = s.user.clone();
             let cmd = &s.command.iter().map(|x| x.as_str()).collect::<Vec<_>>();
             let args = &s.args.iter().map(|k| k.as_str()).collect::<Vec<_>>();
-            self.api
+            if let ContainerResult::Created { id: container_id } = self
+                .api
                 .container
                 .create(RunSpec {
                     reason: &container_name,
@@ -97,8 +99,16 @@ impl<'a> WorkspaceApi<'a> {
                     env: Some(s.env.clone()),
                     network,
                     network_aliases: Some(vec![name.into()]),
-                    command: Some(cmd.clone()),
-                    args: Some(args.clone()),
+                    command: if cmd.is_empty() {
+                        None
+                    } else {
+                        Some(cmd.clone())
+                    },
+                    args: if args.is_empty() {
+                        None
+                    } else {
+                        Some(args.clone())
+                    },
                     mounts: Some(mounts_v2),
                     ports: Some(ports),
                     work_dir: Some(s.work_dir.as_str()),
@@ -108,7 +118,13 @@ impl<'a> WorkspaceApi<'a> {
                     force_pull: pull_image,
                     ..Default::default()
                 })
-                .await?;
+                .await?
+            {
+                self.api
+                    .container
+                    .symlink_files(&container_id, &real_mounts)
+                    .await?;
+            }
         }
 
         Ok((

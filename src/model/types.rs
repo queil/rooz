@@ -1,5 +1,4 @@
 use crate::config::config::DataEntry;
-use crate::config::runtime::RuntimeConfig;
 use crate::{
     config::config::RoozCfg,
     util::{git::RootRepoCloneResult, labels::Labels},
@@ -33,8 +32,6 @@ pub enum VolumeResult {
 #[derive(Clone, Debug)]
 pub struct WorkSpec<'a> {
     pub image: &'a str,
-    //TODO: remove in v2
-    //pub home_from_image: Option<&'a str>,
     pub uid: &'a str,
     pub user: &'a str,
     pub container_working_dir: &'a str,
@@ -154,7 +151,6 @@ pub struct EnterSpec {
     pub workspace: WorkspaceResult,
     pub git_spec: Option<RootRepoCloneResult>,
     pub config: RoozCfg,
-    pub runtime_config: RuntimeConfig,
 }
 
 #[derive(Clone, Debug)]

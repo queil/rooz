@@ -72,7 +72,7 @@ impl<'a> WorkspaceApi<'a> {
         let mut cfg2 = cfg.clone();
 
         let mounts_v2 = self.api.volume.mounts_v2(&real_mounts).await?;
-        for (t, m) in real_mounts {
+        for (t, m) in real_mounts.clone() {
             if let VolumeResult::Created {} = volume_results[&m.volume_name] {
                 self.api
                     .volume
@@ -84,8 +84,6 @@ impl<'a> WorkspaceApi<'a> {
         let (cfg2, network) = self
             .ensure_sidecars(&mut cfg2, workspace_key, force, cli_params.pull_image)
             .await?;
-
-        let cfg3 = cfg2.clone();
 
         let mut labels = work_spec.labels.clone();
 
@@ -127,7 +125,7 @@ impl<'a> WorkspaceApi<'a> {
             ..*work_spec
         };
 
-        let ws = self.create(&work_spec).await?;
+        let ws = self.create(&work_spec, &real_mounts).await?;
         if !cfg2.extra_repos.is_empty() {
             self.git
                 .clone_extra_repos(clone_spec.clone(), cfg2.extra_repos)
@@ -137,7 +135,6 @@ impl<'a> WorkspaceApi<'a> {
             workspace: ws,
             git_spec: root_git_repo,
             config: cfg_builder.clone(),
-            runtime_config: cfg3,
         })
     }
 
@@ -291,11 +288,7 @@ impl<'a> WorkspaceApi<'a> {
             .await?;
 
         if let Some(true) = cli_params.start {
-            self.start(
-                &workspace_key,
-                Some((&enter_spec.runtime_config, &enter_spec.workspace.orig_uid)),
-            )
-            .await?;
+            self.start(&workspace_key).await?;
         }
         Ok(enter_spec)
     }

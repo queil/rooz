@@ -1,3 +1,4 @@
+use crate::model::types::{TargetDir, VolumeFilesSpec};
 use crate::{
     api::WorkspaceApi,
     model::{
@@ -6,10 +7,15 @@ use crate::{
     },
     util::ssh,
 };
+use std::collections::HashMap;
 use std::path::Path;
 
 impl<'a> WorkspaceApi<'a> {
-    pub async fn create(&self, spec: &WorkSpec<'a>) -> Result<WorkspaceResult, AnyError> {
+    pub async fn create(
+        &self,
+        spec: &WorkSpec<'a>,
+        real_mounts: &HashMap<TargetDir, VolumeFilesSpec>,
+    ) -> Result<WorkspaceResult, AnyError> {
         let mut volumes = vec![];
 
         if let Some(caches) = &spec.caches {
@@ -68,11 +74,18 @@ impl<'a> WorkspaceApi<'a> {
         };
 
         match self.api.container.create(run_spec).await? {
-            ContainerResult::Created { .. } => Ok(WorkspaceResult {
-                workspace_key: (&spec).workspace_key.to_string(),
-                working_dir: (&spec).container_working_dir.to_string(),
-                orig_uid: spec.uid.to_string(),
-            }),
+            ContainerResult::Created { id: container_id } => {
+                self.api
+                    .container
+                    .symlink_files(&container_id, &real_mounts)
+                    .await?;
+
+                Ok(WorkspaceResult {
+                    workspace_key: (&spec).workspace_key.to_string(),
+                    working_dir: (&spec).container_working_dir.to_string(),
+                    orig_uid: spec.uid.to_string(),
+                })
+            }
 
             ContainerResult::AlreadyExists { .. } => {
                 Err(format!("Workspace {} already exists.", spec.workspace_key).into())
