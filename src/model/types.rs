@@ -260,6 +260,7 @@ pub struct FileSpec {
     pub target_file: TargetFile,
     pub user_file: UserFile,
     pub content: String,
+    pub executable: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

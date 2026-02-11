@@ -376,6 +376,7 @@ impl SystemConfig {
 pub enum DataValue {
     Dir {},
     InlineContent { content: String },
+    InlineScript { script: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -397,15 +398,30 @@ impl MountSource {
 
 #[derive(Debug, Clone)]
 pub enum DataEntry {
-    Dir { name: String },
-    File { name: String, content: String },
+    Dir {
+        name: String,
+    },
+    File {
+        name: String,
+        content: String,
+        executable: bool,
+    },
 }
 
 impl DataValue {
     pub fn into_entry(self, name: String) -> DataEntry {
         match self {
-            DataValue::InlineContent { content } => DataEntry::File { name, content },
+            DataValue::InlineContent { content } => DataEntry::File {
+                name,
+                content,
+                executable: false,
+            },
             DataValue::Dir {} => DataEntry::Dir { name },
+            DataValue::InlineScript { script } => DataEntry::File {
+                name,
+                content: script,
+                executable: true,
+            },
         }
     }
 }

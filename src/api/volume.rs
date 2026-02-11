@@ -218,7 +218,7 @@ impl<'a> VolumeApi<'a> {
             .map(|(target, source_entry)| {
                 let expanded_target = Self::expand_home(target.as_str().to_string(), home_dir);
                 let (real_target, maybe_file) = match source_entry.data.clone() {
-                    DataEntry::File { content, .. } => {
+                    DataEntry::File { content, executable,.. } => {
                         let shadow_file = Path::new(SHADOW_ROOT_DIR).join(
                             Path::new(&expanded_target)
                                 .to_string_lossy()
@@ -231,6 +231,7 @@ impl<'a> VolumeApi<'a> {
                                 target_file: TargetFile(shadow_file.to_string_lossy().into_owned()),
                                 user_file: UserFile(expanded_target),
                                 content: content.to_string(),
+                                executable
                             }),
                         )
                     }
@@ -402,10 +403,11 @@ impl<'a> VolumeApi<'a> {
                     .into_owned();
 
                 format!(
-                    "mkdir -p {} && echo '{}' | base64 -d > {}",
+                    "mkdir -p {} && echo '{}' | base64 -d > {}{}",
                     parent_dir,
                     general_purpose::STANDARD.encode(f.content.trim()),
                     f.target_file.as_str(),
+                    if f.executable { format!(" && chmod +x {}", f.target_file.as_str()) } else { "".to_string() }
                 )
             })
             .collect::<Vec<_>>()
