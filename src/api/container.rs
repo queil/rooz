@@ -432,8 +432,11 @@ impl<'a> ContainerApi<'a> {
                     &file.target_file.as_str()
                 );
                 let mut header = tar::Header::new_gnu();
-                header.set_entry_type(tar::EntryType::Symlink);
                 header.set_size(0);
+                header.set_mode(0o777);
+                header.set_uid(0);
+                header.set_gid(0);
+                header.set_entry_type(tar::EntryType::Symlink);
                 archive.append_link(
                     &mut header,
                     file.user_file.as_str().trim_start_matches("/"),
