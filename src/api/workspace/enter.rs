@@ -20,6 +20,7 @@ use crate::{
 
 impl<'a> WorkspaceApi<'a> {
     pub async fn attach_vscode(&self, workspace_key: &str) -> Result<(), AnyError> {
+        self.start(workspace_key).await?;
         let hex = format!(r#"{{"containerName":"{}"}}"#, workspace_key)
             .as_bytes()
             .iter()
