@@ -73,6 +73,8 @@ impl<'a> WorkspaceApi<'a> {
 
         let mounts_v2 = self.api.volume.mounts_v2(&real_mounts).await?;
         for (t, m) in real_mounts.clone() {
+            //TODO: when initializing volumes both here in sidecars we should verify
+            // if each file exists and if not create them
             if let VolumeResult::Created {} = volume_results[&m.volume_name] {
                 self.api
                     .volume
