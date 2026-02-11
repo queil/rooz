@@ -1,4 +1,5 @@
 use crate::config::config::DataEntry;
+use crate::config::runtime::RuntimeConfig;
 use crate::{
     config::config::RoozCfg,
     util::{git::RootRepoCloneResult, labels::Labels},
@@ -153,6 +154,7 @@ pub struct EnterSpec {
     pub workspace: WorkspaceResult,
     pub git_spec: Option<RootRepoCloneResult>,
     pub config: RoozCfg,
+    pub runtime_config: RuntimeConfig,
 }
 
 #[derive(Clone, Debug)]

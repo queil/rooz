@@ -13,7 +13,7 @@ impl<'a> WorkspaceApi<'a> {
     ) -> Result<(), AnyError> {
         if let Some(true) = all_containers {
             self.stop(workspace_key).await?;
-            self.start(workspace_key).await?;
+            self.start(workspace_key, None).await?;
         } else {
             let labels = Labels::from(&[Labels::workspace(workspace_key), Labels::role(WORK_ROLE)]);
             if let Some(c) = self.api.container.get_single(&labels).await? {

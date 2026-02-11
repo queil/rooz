@@ -20,8 +20,6 @@ use crate::{
 
 impl<'a> WorkspaceApi<'a> {
     pub async fn attach_vscode(&self, workspace_key: &str) -> Result<(), AnyError> {
-        self.start(workspace_key).await?;
-
         let hex = format!(r#"{{"containerName":"{}"}}"#, workspace_key)
             .as_bytes()
             .iter()
@@ -67,7 +65,7 @@ impl<'a> WorkspaceApi<'a> {
                 .await?,
         )?;
 
-        let mut shell_value = config.shell;
+        let mut shell_value = config.shell.clone();
 
         if let Some(shell) = shell {
             shell_value = shell.iter().map(|v| v.to_string()).collect::<Vec<_>>();
@@ -78,7 +76,7 @@ impl<'a> WorkspaceApi<'a> {
         // the loop here is needed for auto-reconnecting the session
         loop {
             execute!(stdout(), Clear(ClearType::All))?;
-            match self.start(workspace_key).await {
+            match self.start(workspace_key, Some((&config, chown_uid))).await {
                 Ok(_) => (),
                 Err(e) => {
                     log::debug!("{}", e);
@@ -94,18 +92,12 @@ impl<'a> WorkspaceApi<'a> {
             if !root && container_name == constants::DEFAULT_CONTAINER_NAME {
                 self.api.exec.ensure_user(container_id).await?;
 
-                //TODO: v2 - not much of use in tmp without implicit /work
                 for (target, _) in &config.real_mounts {
                     self.api
                         .exec
                         .chown(&container_id, chown_uid, target.as_str())
                         .await?;
                 }
-
-                self.api
-                    .exec
-                    .symlink_files(container_id, &config.real_mounts, chown_uid)
-                    .await?;
             }
 
             match self

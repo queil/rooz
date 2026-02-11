@@ -1,32 +1,28 @@
 use std::collections::HashMap;
 
 use crate::api::VolumeApi;
-use crate::config::config::{DataValue, MountSource, SidecarMount};
-use crate::model::types::{DataEntryKey, DataEntryVolumeSpec};
-use crate::model::volume::RoozVolume;
-use crate::util::id;
+use crate::config::config::MountSource;
+use crate::config::runtime::RuntimeConfig;
 use crate::{
     api::WorkspaceApi,
-    config::config::{RoozCfg, RoozSidecar},
-    constants,
+    config::config::RoozCfg,
     model::types::{AnyError, RunMode, RunSpec},
     util::labels::{self, Labels},
 };
 use bollard::models::NetworkCreateRequest;
-use bollard_stubs::models::Mount;
 
 impl<'a> WorkspaceApi<'a> {
     pub async fn ensure_sidecars(
         &self,
-        sidecars: &HashMap<String, RoozSidecar>,
-        data: &HashMap<String, DataValue>,
+        config: &RuntimeConfig,
         workspace_key: &str,
         force: bool,
         pull_image: bool,
-    ) -> Result<Option<String>, AnyError> {
+    ) -> Result<(RuntimeConfig, Option<String>), AnyError> {
+        let mut cfg = config.clone();
         let labels = Labels::from(&[Labels::workspace(workspace_key)]);
 
-        let network = if !sidecars.is_empty() {
+        let network = if !cfg.sidecars.is_empty() {
             let network_options = NetworkCreateRequest {
                 name: workspace_key.into(),
                 labels: Some(labels.clone().into()),
@@ -48,7 +44,7 @@ impl<'a> WorkspaceApi<'a> {
             None
         };
 
-        for (name, s) in sidecars {
+        for (name, s) in &mut cfg.sidecars {
             log::debug!("Process sidecar: {}", name);
             let container_name = format!("{}-{}", workspace_key, name);
             let mut labels = labels.clone();
@@ -56,49 +52,17 @@ impl<'a> WorkspaceApi<'a> {
             let mut ports = HashMap::<String, Option<String>>::new();
             RoozCfg::parse_ports(&mut ports, s.ports.clone());
 
-            let volumes_v2 = VolumeApi::create_volume_specs(
-                workspace_key,
-                &s.mounts
-                    .clone()
-                    .unwrap_or_default()
-                    .iter()
-                    .map(|(k, v)| match v {
-                        MountSource::DataEntryReference(data_key) => (
-                            data_key.as_str().to_string(),
-                            {
-                                let source_exists = data.contains_key(data_key.as_str());
-                                if !source_exists {
-                                    panic!(
-                                        "Key '{}' not found under 'data:' in workspace config. Keys: {:?}",
-                                        data_key.as_str(),
-                                        &data.keys(),
-                                    );
-                                }
+            let mounts: HashMap<String, MountSource> = s.mounts.clone();
 
-                                data[data_key.as_str()].clone()
-                            },
-                        ),
-                        MountSource::InlineDataValue(data_value) => {
-                            (id::sanitize(k), data_value.to_owned())
-                        }
-                    })
-                    .collect::<HashMap<String, DataValue>>(),
-            );
+            let volumes_v2 = VolumeApi::create_volume_specs(workspace_key, &config.data, &mounts);
+
+            self.api.volume.ensure_volumes_v2(&volumes_v2).await?;
 
             let mut mounts_v2 = Vec::new();
 
-            let mounts_all = &s
-                .mounts
-                .clone()
-                .unwrap_or_default()
-                .clone()
+            let mounts_all = mounts
                 .iter()
-                .map(|(k, v)| match v {
-                    MountSource::DataEntryReference(data_key) => {
-                        (k.to_string(), data_key.as_str().to_string())
-                    }
-                    MountSource::InlineDataValue(_) => (k.to_string(), id::sanitize(k)),
-                })
+                .map(|(target, source)| (target.to_string(), source.resolve_key(target)))
                 .collect::<HashMap<String, String>>();
 
             let mounts_config = self
@@ -110,39 +74,16 @@ impl<'a> WorkspaceApi<'a> {
 
             mounts_v2.extend_from_slice(self.api.volume.mounts_v2(&real_mounts).await?.as_slice());
 
-            let uid = s.user.as_deref().unwrap_or(&constants::ROOT_UID);
-
-            //TODO: remove LEGACY INLINE MOUNTS - v2 will handle that via implicit anonymous mounts
-
-            let legacy_rooz_vols = s.legacy_mounts.as_ref().map(|mounts| {
-                mounts
-                    .iter()
-                    .map(|mount| match mount {
-                        SidecarMount::Empty(mount) => {
-                            RoozVolume::config_data(workspace_key, mount, None, None, None)
-                        }
-                        SidecarMount::Files { mount, files } => RoozVolume::config_data(
-                            workspace_key,
-                            mount,
-                            Some(files.clone()),
-                            None,
-                            None,
-                        ),
-                    })
-                    .collect::<Vec<_>>()
-            });
-
-            if let Some(vols) = legacy_rooz_vols {
-                let ms = self
-                    .api
-                    .volume
-                    .ensure_mounts(&vols, None, Some(uid))
-                    .await?;
-
-                mounts_v2.extend_from_slice(ms.as_slice());
+            for (t, m) in real_mounts {
+                s.real_mounts.insert(t.clone(), m.clone());
+                // The volume might already be created by the workspace-level volume creation
+                // but still may need files in the paths not covered by that process
+                self.api.volume.populate_volume(t, m, None).await?;
             }
-            // END - LEGACY INLINE MOUNTS
 
+            let uid = s.user.clone();
+            let cmd = &s.command.iter().map(|x| x.as_str()).collect::<Vec<_>>();
+            let args = &s.args.iter().map(|k| k.as_str()).collect::<Vec<_>>();
             self.api
                 .container
                 .create(RunSpec {
@@ -153,33 +94,26 @@ impl<'a> WorkspaceApi<'a> {
                     force_recreate: force,
                     workspace_key: &workspace_key,
                     labels,
-                    env: s.env.clone().map(|x| {
-                        x.iter()
-                            .map(|(k, v)| (k.clone(), v.clone()))
-                            .collect::<HashMap<_, _>>()
-                    }),
+                    env: Some(s.env.clone()),
                     network,
                     network_aliases: Some(vec![name.into()]),
-                    command: s
-                        .command
-                        .as_ref()
-                        .map(|x| x.iter().map(|z| z.as_ref()).collect()),
-                    args: s
-                        .args
-                        .as_ref()
-                        .map(|x| x.iter().map(|z| z.as_ref()).collect()),
+                    command: Some(cmd.clone()),
+                    args: Some(args.clone()),
                     mounts: Some(mounts_v2),
                     ports: Some(ports),
-                    work_dir: s.work_dir.as_deref(),
+                    work_dir: Some(s.work_dir.as_str()),
                     run_mode: RunMode::Sidecar,
-                    privileged: s.privileged.unwrap_or(false),
-                    init: s.init.unwrap_or(true),
+                    privileged: s.privileged,
+                    init: s.init,
                     force_pull: pull_image,
                     ..Default::default()
                 })
                 .await?;
         }
 
-        Ok(network.map(|n| n.to_string()))
+        Ok((
+            RuntimeConfig { ..cfg.clone() },
+            network.map(|n| n.to_string()),
+        ))
     }
 }

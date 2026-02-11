@@ -35,3 +35,6 @@ sidecars:
     mounts:
       /var/placeholder: empty-dir
       /root/.gitconfig: git-config
+      /var/inline:
+        content:
+          it shall fail

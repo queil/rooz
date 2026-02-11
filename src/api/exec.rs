@@ -319,6 +319,19 @@ impl<'a> ExecApi<'a> {
                 log::debug!("{}", output);
             }
         }
+
+        self.run(
+            "release-gate",
+            container_id,
+            None,
+            Some(vec![
+                "sh",
+                "-c",
+                "[ -p /tmp/exec_start ] && echo start > /tmp/exec_start",
+            ]),
+        )
+        .await?;
+
         Ok(())
     }
 

@@ -1,4 +1,5 @@
 use crate::model::types::{AnyError, DataEntryKey};
+use crate::util::id;
 use crate::{cli::WorkParams, constants};
 use colored::Colorize;
 use handlebars::{Handlebars, no_escape};
@@ -277,11 +278,11 @@ impl RoozCfg {
 
     pub fn parse_ports<'a>(
         map: &'a mut HashMap<String, Option<String>>,
-        ports: Option<Vec<String>>,
+        ports: Vec<String>,
     ) -> &'a HashMap<String, Option<String>> {
-        match ports {
-            None => map,
-            Some(ports) => {
+        match ports.as_slice() {
+            &[] => map,
+            ports => {
                 for (source, target) in ports.iter().map(RoozCfg::parse_port) {
                     map.insert(source.to_string(), target.map(|p| p.to_string()));
                 }
@@ -385,7 +386,7 @@ impl SystemConfig {
 #[serde(deny_unknown_fields)]
 pub enum DataValue {
     Dir {},
-    InlineContent{ content: String },
+    InlineContent { content: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -396,26 +397,25 @@ pub enum MountSource {
     InlineDataValue(DataValue),
 }
 
+impl MountSource {
+    pub fn resolve_key(&self, target: &str) -> String {
+        match self {
+            MountSource::DataEntryReference(data_key) => data_key.as_str().to_string(),
+            MountSource::InlineDataValue(_) => id::sanitize(target),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum DataEntry {
     Dir { name: String },
     File { name: String, content: String },
-    //TODO: GitRepo {
-    //     name: String,
-    //     repo: String,
-    //     path: Option<String>,
-    // },
-    //TODO: Image {
-    //     name: String,
-    //     image_ref: String,
-    //     path: String,
-    // },
 }
 
 impl DataValue {
     pub fn into_entry(self, name: String) -> DataEntry {
         match self {
-            DataValue::InlineContent{ content } => DataEntry::File { name, content },
+            DataValue::InlineContent { content } => DataEntry::File { name, content },
             DataValue::Dir {} => DataEntry::Dir { name },
         }
     }
@@ -446,34 +446,20 @@ mod tests {
 data:
   some-dir: {}
 
-  inline-file: |
-    some content
-    here
+  inline-file:
+    content: |
+      some content
+      here
 
-  empty-file: ""
+  empty-file:
+    content: ""
 
-  my-repo:
-    git:
-      repo: git@github.com:user/repo
-      path: /src
-
-  my-repo-root:
-    git:
-      repo: git@github.com:user/other
-
-  from-image:
-    image:
-      ref: nginx:latest
-      path: /etc/nginx/nginx.conf
-
-  local-thing:
-    path: ./local/file.txt
 "#;
 
         let config: RoozCfg = serde_yaml::from_str(yaml).unwrap();
         let entries = config.data.unwrap().into_entries();
 
-        assert_eq!(entries.len(), 7);
+        assert_eq!(entries.len(), 3);
 
         for entry in &entries {
             match entry {

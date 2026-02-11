@@ -10,6 +10,8 @@ use std::io::{Write, stdout};
 pub struct ImageInfo {
     pub id: String,
     pub platform: Option<String>,
+    pub entrypoint: Option<Vec<String>>,
+    pub cmd: Option<Vec<String>>,
 }
 
 impl<'a> ImageApi<'a> {
@@ -70,6 +72,8 @@ impl<'a> ImageApi<'a> {
                 response.os.unwrap(),
                 response.architecture.unwrap()
             )),
+            entrypoint: response.config.clone().unwrap_or_default().entrypoint,
+            cmd: response.config.clone().unwrap_or_default().cmd,
         })
     }
 
@@ -81,6 +85,7 @@ impl<'a> ImageApi<'a> {
                 id,
                 architecture,
                 os,
+                config,
                 ..
             }) => {
                 if always_pull {
@@ -89,6 +94,8 @@ impl<'a> ImageApi<'a> {
                     ImageInfo {
                         id: id.unwrap(),
                         platform: Some(format!("{}/{}", os.unwrap(), architecture.unwrap())),
+                        entrypoint: config.clone().unwrap_or_default().entrypoint,
+                        cmd: config.clone().unwrap_or_default().cmd,
                     }
                 }
             }

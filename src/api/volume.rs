@@ -140,7 +140,29 @@ impl<'a> VolumeApi<'a> {
     pub fn create_volume_specs(
         workspace_key: &str,
         data: &HashMap<String, DataValue>,
+        mounts: &HashMap<String, MountSource>,
     ) -> HashMap<DataEntryKey, DataEntryVolumeSpec> {
+        let data = &mounts
+            .iter()
+            .map(|(k, v)| match v {
+                MountSource::DataEntryReference(data_key) => (data_key.as_str().to_string(), {
+                    let source_exists = data.contains_key(data_key.as_str());
+                    if !source_exists {
+                        panic!(
+                            "Key '{}' not found under 'data:' in workspace config. Keys: {:?}",
+                            data_key.as_str(),
+                            &data.keys(),
+                        );
+                    }
+
+                    data[data_key.as_str()].clone()
+                }),
+                MountSource::InlineDataValue(data_value) => {
+                    (id::sanitize(k), data_value.to_owned())
+                }
+            })
+            .collect::<HashMap<String, DataValue>>();
+
         let mut data_entries = vec![];
         data_entries.extend_from_slice(data.clone().into_entries().as_slice());
 
@@ -290,19 +312,6 @@ impl<'a> VolumeApi<'a> {
             .collect::<Vec<_>>();
 
         Ok(mounts_v2)
-
-        //TODO: initialize volumes according to the DataEntry type
-
-        // TODO: NEXT STEPS
-        //TODO: all built-in stuff must be included in v2 - caches, ssh, system-config, etc.
-
-        //TODO caches and system shared volumes (ssh-key) shall maybe owned by a rooz group that need to be
-        // ensured in containers and the user would beed to be added to that group to read (and write as the group - caches)
-
-        // TODO: DESIGN CHANGES - BREAKING - it seems it breaks git clone
-        // /work is no longer backed by a volume by default
-        // In volumes-v2 it can be explicitly configured for workspaces with configuration files, but
-        // can't in tmp or simple persistent workspaces without config
     }
 
     pub async fn ensure_volume(
