@@ -460,7 +460,7 @@ impl<'a> ContainerApi<'a> {
         Ok(())
     }
 
-    pub async fn start(&self, container_id: &str) -> Result<(), bollard::errors::Error> {
+    pub async fn start(&self, container_id: &str) -> Result<(), Error> {
         self.client
             .start_container(&container_id, None::<StartContainerOptions>)
             .await
