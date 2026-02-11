@@ -21,8 +21,6 @@ pub enum RoozVolumeSharing {
 
 #[derive(Debug, Clone)]
 pub enum RoozVolumeRole {
-    //TODO: remove in v2
-    //Home,
     Work,
     Cache,
     Data,
@@ -34,8 +32,6 @@ pub enum RoozVolumeRole {
 impl RoozVolumeRole {
     pub fn as_str(&self) -> &str {
         match self {
-            //TODO: remove in v2
-            //RoozVolumeRole::Home => HOME_ROLE,
             RoozVolumeRole::Work => WORK_ROLE,
             RoozVolumeRole::Cache => CACHE_ROLE,
             RoozVolumeRole::Data => DATA_ROLE,
@@ -123,20 +119,6 @@ impl RoozVolume {
         }
     }
 
-    //TODO: remove once v2 is up
-    // pub fn home(key: &str, path: &str) -> RoozVolume {
-    //     RoozVolume {
-    //         path: path.into(),
-    //         sharing: RoozVolumeSharing::Exclusive { key: key.into() },
-    //         role: RoozVolumeRole::Home,
-    //         files: None,
-    //         labels: Some(Labels::from(&[
-    //             Labels::workspace(key),
-    //             Labels::role(RoozVolumeRole::Home.as_str()),
-    //         ])),
-    //     }
-    // }
-
     pub fn cache(path: &str) -> RoozVolume {
         RoozVolume {
             path: path.into(),
@@ -185,7 +167,7 @@ impl RoozVolume {
             },
             None => RoozVolume {
                 path: path.into(),
-                role: role,
+                role,
                 sharing: RoozVolumeSharing::Exclusive {
                     key: workspace_key.into(),
                 },

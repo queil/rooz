@@ -1,4 +1,4 @@
-use super::config::{DataValue, MountSource, RoozCfg, RoozSidecar, SidecarMount};
+use super::config::{DataValue, MountSource, RoozCfg, RoozSidecar};
 use crate::AnyError;
 use crate::constants;
 use crate::model::types::{TargetDir, VolumeFilesSpec};
@@ -14,7 +14,6 @@ pub struct RoozSidecarRuntime {
     pub args: Vec<String>,
     pub mounts: HashMap<String, MountSource>,
     pub real_mounts: HashMap<TargetDir, VolumeFilesSpec>,
-    pub legacy_mounts: Vec<SidecarMount>,
     pub ports: Vec<String>,
     pub privileged: bool,
     pub init: bool,
@@ -42,7 +41,6 @@ impl<'a> From<&'a RoozSidecar> for RoozSidecarRuntime {
                 .iter()
                 .map(|(k, v)| (k.to_string(), v.clone()))
                 .collect(),
-            legacy_mounts: value.legacy_mounts.clone().unwrap_or_default(),
             real_mounts: HashMap::new(),
             ports: value.ports.clone().unwrap_or_default(),
             privileged: value.privileged.clone().unwrap_or_default(),

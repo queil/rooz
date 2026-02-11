@@ -87,9 +87,6 @@ impl<'a> WorkspaceApi<'a> {
                 }
             };
 
-            //TODO: v2 chown is disabled for sidecars
-            // symlinking might be happening in wrapped entrypoints so maybe chowning could to
-            // Chowing as exec to work in non-root containers
             if !root && container_name == constants::DEFAULT_CONTAINER_NAME {
                 self.api.exec.ensure_user(container_id).await?;
 

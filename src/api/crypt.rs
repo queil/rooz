@@ -6,9 +6,7 @@ use std::str::FromStr;
 
 impl SystemConfig {
     pub fn age_identity(&self) -> Result<Identity, AnyError> {
-        Ok(age::x25519::Identity::from_str(
-            self.age_key.as_deref().unwrap(),
-        )?)
+        Ok(Identity::from_str(self.age_key.as_deref().unwrap())?)
     }
 }
 
