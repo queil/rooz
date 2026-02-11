@@ -318,63 +318,14 @@ impl<'a> ContainerApi<'a> {
 
         let env = KeyValue::to_vec_str(&env_kv);
 
-        let (entrypoint, cmd) = match spec.run_mode {
-            RunMode::Sidecar | RunMode::Workspace => {
-                log::debug!("Spec command: {:?}", &spec.command);
-                let image_entrypoint = image_info.entrypoint.clone().unwrap_or_default();
-                let entrypoint = if let Some(spec_command) = spec.command {
-                    match spec_command.as_slice() {
-                        &[] => image_entrypoint,
-                        c => c.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
-                    }
-                } else {
-                    image_entrypoint
-                };
-
-                let image_cmd = image_info.cmd.clone().unwrap_or_default();
-                let cmd = if let Some(spec_args) = spec.args {
-                    match spec_args.as_slice() {
-                        &[] => image_cmd,
-                        c => c.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
-                    }
-                } else {
-                    image_cmd
-                };
-
-                let original = entrypoint
-                    .into_iter()
-                    .chain(cmd)
-                    .collect::<Vec<_>>()
-                    .join(" ");
-
-                log::debug!("Original command + args: {}", original);
-
-                let wrapper = format!(
-                    r#"TIMEOUT=${{EXEC_TIMEOUT:-300}}
-mkfifo /tmp/exec_start
-echo "Waiting for exec session (timeout: ${{TIMEOUT}}s)..."
-timeout $TIMEOUT sh -c "read _ < /tmp/exec_start" || exit 1
-rm -f /tmp/exec_start
-echo "Exec session completed, starting entrypoint..."
-exec {original}"#
-                );
-
-                (Some(vec!["sh".into(), "-c".into(), wrapper]), None)
-            }
-            _ => (
-                spec.command
-                    .clone()
-                    .map(|v| v.iter().map(|&s| s.to_string()).collect()),
-                spec.args
-                    .clone()
-                    .map(|v| v.iter().map(|&s| s.to_string()).collect()),
-            ),
-        };
-
         let config = ContainerCreateBody {
             image: Some(spec.image.to_string()),
-            entrypoint,
-            cmd,
+            entrypoint: spec
+                .command
+                .map(|vec| vec.iter().map(|&s| s.to_string()).collect()),
+            cmd: spec
+                .args
+                .map(|vec| vec.iter().map(|&s| s.to_string()).collect()),
             working_dir: spec.work_dir.map(|s| s.to_string()),
             // THIS MUST BE spec.uid, NOT spec.user - otherwise file ownership will break
             user: Some(spec.uid.to_string()),
