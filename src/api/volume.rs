@@ -103,13 +103,14 @@ impl<'a> VolumeApi<'a> {
         &self,
         volumes: &HashMap<DataEntryKey, DataEntryVolumeSpec>,
         mounts: &HashMap<String, String>,
+        implicit_work: bool,
     ) -> HashMap<TargetPath, DataEntryVolumeSpec> {
         let mut result = HashMap::new();
 
         let mut mount_entries: HashMap<String, String> = HashMap::new();
         mount_entries.extend(mounts.clone());
 
-        if !mounts.values().any(|key| key == "work") {
+        if !mounts.values().any(|key| key == "work") && implicit_work {
             mount_entries.insert("/work".to_string(), "work".to_string());
         }
 
@@ -141,6 +142,7 @@ impl<'a> VolumeApi<'a> {
         workspace_key: &str,
         data: &HashMap<String, DataValue>,
         mounts: &HashMap<String, MountSource>,
+        implicit_work: bool
     ) -> HashMap<DataEntryKey, DataEntryVolumeSpec> {
         let data = &mounts
             .iter()
@@ -166,7 +168,7 @@ impl<'a> VolumeApi<'a> {
         let mut data_entries = vec![];
         data_entries.extend_from_slice(data.clone().into_entries().as_slice());
 
-        if !data.contains_key("work") {
+        if !data.contains_key("work") && implicit_work {
             data_entries.push(DataEntry::Dir {
                 name: "work".to_string(),
             });
