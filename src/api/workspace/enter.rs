@@ -104,7 +104,6 @@ impl<'a> WorkspaceApi<'a> {
                 .tty(
                     "work",
                     &container_id,
-                    true,
                     working_dir,
                     if root {
                         Some(constants::ROOT_USER)

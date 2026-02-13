@@ -226,7 +226,6 @@ impl<'a> GitApi<'a> {
                 .tty(
                     "git-clone",
                     &id,
-                    true,
                     None,
                     None,
                     Some(clone_cmd.iter().map(String::as_str).collect()),

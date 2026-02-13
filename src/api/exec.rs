@@ -59,7 +59,7 @@ async fn log(stream: impl Stream<Item = Result<LogOutput, Error>>) -> Result<(),
 impl<'a> ExecApi<'a> {
     async fn handle_output<S>(&self, mut output: S)
     where
-        S: Stream<Item = Result<LogOutput, bollard::errors::Error>> + Unpin,
+        S: Stream<Item = Result<LogOutput, Error>> + Unpin,
     {
         let mut stdout = tokio::io::stdout();
         while let Some(Ok(out)) = output.next().await {
@@ -75,21 +75,18 @@ impl<'a> ExecApi<'a> {
         }
     }
 
-    async fn start_tty(&self, exec_id: &str, interactive: bool) -> Result<(), AnyError> {
+    async fn start_tty(&self, exec_id: &str) -> Result<(), AnyError> {
         let (width, height) = crossterm::terminal::size()?;
         if let StartExecResults::Attached { output, mut input } =
             self.client.start_exec(exec_id, None).await?
         {
             let exec_state = self.client.inspect_exec(&exec_id).await?;
 
-            match (exec_state.clone(), interactive) {
-                (
-                    ExecInspectResponse {
-                        running: Some(true),
-                        ..
-                    },
-                    true,
-                ) => {
+            match exec_state.clone() {
+                ExecInspectResponse {
+                    running: Some(true),
+                    ..
+                } => {
                     enable_raw_mode()?;
 
                     let stdin_reader = std::io::stdin();
@@ -135,22 +132,11 @@ impl<'a> ExecApi<'a> {
                     // if this fails the calling code loops retrying to connect to the session
                     self.client.ping().await?;
                 }
-                (
-                    ExecInspectResponse {
-                        running: Some(true),
-                        ..
-                    },
-                    false,
-                ) => {
-                    self.handle_output(output).await;
-                }
-                (
-                    ExecInspectResponse {
-                        exit_code: Some(exit_code),
-                        ..
-                    },
-                    _,
-                ) => {
+
+                ExecInspectResponse {
+                    exit_code: Some(exit_code),
+                    ..
+                } => {
                     self.handle_output(output).await;
                     if exit_code != 0 {
                         panic!("Exec terminated with exit code: {}.", exit_code);
@@ -203,7 +189,6 @@ impl<'a> ExecApi<'a> {
         &self,
         reason: &str,
         container_id: &str,
-        interactive: bool,
         working_dir: Option<&str>,
         user: Option<&str>,
         cmd: Option<Vec<&str>>,
@@ -212,7 +197,7 @@ impl<'a> ExecApi<'a> {
             .create_exec(reason, container_id, working_dir, user, cmd)
             .await?;
 
-        self.start_tty(&exec_id, interactive).await
+        self.start_tty(&exec_id).await
     }
 
     pub async fn output(
