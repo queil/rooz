@@ -474,7 +474,7 @@ impl<'a> ContainerApi<'a> {
         image: Option<&str>,
     ) -> Result<String, AnyError> {
         let wait_for_exec = r#"#!/bin/sh
-TIMEOUT=${EXEC_TIMEOUT:-300}
+TIMEOUT=${EXEC_TIMEOUT:-30}
 mkfifo /tmp/exec_start /tmp/exec_end
 
 echo "Waiting for exec session (timeout: ${TIMEOUT}s)..."
