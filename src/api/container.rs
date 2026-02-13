@@ -31,23 +31,18 @@ use futures::{StreamExt, future};
 use std::{collections::HashMap, time::Duration};
 use tokio::time::{sleep, timeout};
 
-pub fn inject2(script: &str, name: &str, post_sleep: bool) -> Vec<String> {
+pub fn inject(script: &str, name: &str) -> Vec<String> {
     vec![
         "sh".to_string(),
         "-c".to_string(),
         format!(
-            "echo '{}' | base64 -d > /tmp/{} && chmod +x /tmp/{} && /tmp/{}{}",
+            "echo '{}' | base64 -d > /tmp/{} && chmod +x /tmp/{} && /tmp/{}",
             general_purpose::STANDARD.encode(script.trim()),
             name,
             name,
             name,
-            if post_sleep { " && sleep 0.5" } else { "" }
         ),
     ]
-}
-
-pub fn inject(script: &str, name: &str) -> Vec<String> {
-    inject2(&script, &name, false)
 }
 
 impl<'a> ContainerApi<'a> {
@@ -131,7 +126,7 @@ impl<'a> ContainerApi<'a> {
                 log::debug!("Removed container: {}{}", &container_id, &force_display);
                 Ok(())
             }
-            Err(Error::DockerResponseServerError {
+            Err(DockerResponseServerError {
                 status_code: 404, ..
             }) => {
                 log::debug!(
@@ -141,7 +136,7 @@ impl<'a> ContainerApi<'a> {
                 );
                 Ok(())
             }
-            Err(Error::DockerResponseServerError {
+            Err(DockerResponseServerError {
                 status_code,
                 message,
             }) => Err(format!(
@@ -190,12 +185,12 @@ impl<'a> ContainerApi<'a> {
                                     }
                                 }
                                 //Podman backend
-                                Err(Error::DockerResponseServerError {
+                                Err(DockerResponseServerError {
                                     status_code: 500,
                                     message,
                                 }) if message.ends_with("no such container") => return Ok(()),
                                 //Docker backend
-                                Err(Error::DockerResponseServerError {
+                                Err(DockerResponseServerError {
                                     status_code: 404, ..
                                 }) => return Ok(()),
                                 Err(e) => panic!("{}", e),
@@ -229,7 +224,7 @@ impl<'a> ContainerApi<'a> {
                 .client
                 .inspect_container(&container_id, None::<InspectContainerOptions>)
                 .await;
-            if let Err(Error::DockerResponseServerError {
+            if let Err(DockerResponseServerError {
                 status_code: 404, ..
             }) = r
             {
