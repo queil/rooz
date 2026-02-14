@@ -98,17 +98,17 @@ rooz tmp --image alpine --shell sh
 
 ## Configuration
 
-:information_source: Rooz supports both `toml` and `yaml` as configuration formats. The examples here are all in `toml`.
+:information_source: Rooz supports `yaml` as configuration formats.
 
 Most of the settings can be configured via:
 
 * environment variables
-* a config file in the cloned repository (if any)  (`.rooz.toml`, `.rooz.yaml`)
-* a config file specified via `--config` (on `rooz new`) (`toml/yaml`)
+* a config file in the cloned repository (if any)  (`.rooz.yaml`)
+* a config file specified via `--config` (on `rooz new`)
   :information_source: it can be a local file path or a remote git file like: `git@github.com/my/configs//path/in/repo/config.rooz.yaml`
 * cmd-line parameters
 
-The configuration file provides the most options: [example](examples/dotnet-nats.rooz.toml)
+The configuration file provides the most options: [example](examples/dotnet-nats.rooz.yaml)
 
 ### Images
 
@@ -117,11 +117,11 @@ The configuration file provides the most options: [example](examples/dotnet-nats
 There are a few ways of specifying images:
 * via the `ROOZ_IMAGE` env variable
 * via  the `--image` cmd-line parameter
-* if creating a workspace with a git repository via `.rooz.toml` in the root of that repository:
+* if creating a workspace with a git repository via `.rooz.yaml` in the root of that repository:
 
-  ```toml
-  image = "ghcr.io/queil/image:dotnet"
-  shell = "bash"
+  ```yaml
+  image: ghcr.io/queil/image:dotnet
+  shell: bash
   ```
 
 ### User
@@ -135,16 +135,15 @@ The default shell is `bash` but you can override it via:
 
 * `ROOZ_SHELL` env var
 * `--shell` cmd-line parameter (on `rooz enter`)
-* in `.rooz.toml` via `shell`
+* in `.rooz.yaml` via `shell`
 
 ### Caching
 
 `rooz` supports basic path-keyed shared caches. It can be set per-repo like:
 
-```toml
-caches = [
-  "~/.nuget"
-]
+```yaml
+caches: 
+- ~/.nuget
 ```
 
 All the repos specifying a cache path will share a container volume mounted at that path enabling cache reuse.
@@ -152,13 +151,12 @@ It also can be set globally via `ROOZ_CACHES` (comma-separated paths). The globa
 
 ### Port mappings
 
-Port mappings for the work container can be specified via `.rooz.toml` only:
+Port mappings for the work container can be specified via `.rooz.yaml` only:
 
-```toml
-ports = [
-  "80:8080",
-  "22:8022"
-]
+```yaml
+ports:
+- "80:8080"
+- "22:8022"
 ```
 
 ## Variables/templating
@@ -246,18 +244,19 @@ rooz enter secrets-test
 
 *It's similar to docker-compose but super simple and limited to bare minimum.*
 
-* `rooz` has a limited support for sidecars (containers running along). It is only available via `.rooz.toml` / `.rooz.yaml`:
+* `rooz` has a limited support for sidecars (containers running along). It is only available via the config file
 
-  ```toml
-  [sidecars.sql]
-  image = "my:sql"
-  command = ["--some"]
-
-  [sidecars.sql.env]
-  TEST="true"
-
-  [sidecars.tools]
-  image = "my:tools"
+  ```yaml
+  sidecars:
+    sql:
+      image: my:sql
+      command:
+      - --some
+      env:
+        TEST: "true"
+  
+    tools:
+      image: my:tools
   
   ```
   All containers within a workspace are connected to a workspace-wide network. They can *talk* to each other using sidecar names. In the above examples that would be `sql` and `tools`. Also the usual container ID and IP works too, but it is not as convenient.

@@ -55,7 +55,8 @@ impl<'a> WorkspaceApi<'a> {
 
             let mounts: HashMap<String, MountSource> = s.mounts.clone();
 
-            let volumes_v2 = VolumeApi::create_volume_specs(workspace_key, &config.data, &mounts, false);
+            let volumes_v2 =
+                VolumeApi::create_volume_specs(workspace_key, &config.data, &mounts, false);
 
             self.api.volume.ensure_volumes_v2(&volumes_v2).await?;
 
@@ -66,10 +67,10 @@ impl<'a> WorkspaceApi<'a> {
                 .map(|(target, source)| (target.to_string(), source.resolve_key(target)))
                 .collect::<HashMap<String, String>>();
 
-            let mounts_config = self
-                .api
-                .volume
-                .mounts_with_sources(&volumes_v2, &mounts_all, false);
+            let mounts_config =
+                self.api
+                    .volume
+                    .mounts_with_sources(&volumes_v2, &mounts_all, false);
 
             let real_mounts = VolumeApi::real_mounts_v2(mounts_config.clone(), None);
 

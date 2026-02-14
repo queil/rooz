@@ -49,7 +49,8 @@ impl<'a> WorkspaceApi<'a> {
             .ensure(&cfg.image, cli_params.pull_image)
             .await?;
 
-        let volumes_v2 = VolumeApi::create_volume_specs(workspace_key, &cfg.data, &cfg.mounts, true);
+        let volumes_v2 =
+            VolumeApi::create_volume_specs(workspace_key, &cfg.data, &cfg.mounts, true);
 
         let mounts_all = &cfg
             .mounts
@@ -60,7 +61,10 @@ impl<'a> WorkspaceApi<'a> {
         let volume_results = self.api.volume.ensure_volumes_v2(&volumes_v2).await?;
 
         let home_dir = format!("/home/{}", &cfg.user);
-        let mounts_config = self.api.volume.mounts_with_sources(&volumes_v2, mounts_all, true);
+        let mounts_config = self
+            .api
+            .volume
+            .mounts_with_sources(&volumes_v2, mounts_all, true);
 
         let real_mounts = VolumeApi::real_mounts_v2(mounts_config.clone(), Some(&home_dir));
 

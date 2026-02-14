@@ -47,7 +47,7 @@ impl<'a> ConfigPath {
 
     pub fn is_in_repo(&self) -> bool {
         if let ConfigPath::Git { file_path, .. } = self {
-            file_path == ".rooz.toml" || file_path == ".rooz.yaml"
+            file_path == ".rooz.yaml"
         } else {
             false
         }
@@ -77,14 +77,12 @@ impl ConfigType {
 
 #[derive(Debug, Clone, Copy)]
 pub enum FileFormat {
-    Toml,
     Yaml,
 }
 
 impl FileFormat {
     pub fn to_string(&self) -> String {
         match self {
-            FileFormat::Toml => "toml".into(),
             FileFormat::Yaml => "yaml".into(),
         }
     }
@@ -92,9 +90,8 @@ impl FileFormat {
     pub fn from_path(path: &str) -> FileFormat {
         match Path::new(path).extension().and_then(OsStr::to_str) {
             Some("yaml") => FileFormat::Yaml,
-            Some("toml") => FileFormat::Toml,
             Some(other) => panic!("Config file format: {} is not supported", other),
-            None => panic!("Only toml and yaml config file formats are supported."),
+            None => panic!("Only yaml config file format is supported."),
         }
     }
 }
@@ -190,14 +187,12 @@ impl RoozCfg {
     pub fn from_string(config: &str, file_format: FileFormat) -> Result<Self, AnyError> {
         Ok(match file_format {
             FileFormat::Yaml => serde_yaml::from_str(&config)?,
-            FileFormat::Toml => toml::from_str(&config)?,
         })
     }
 
     pub fn to_string(&self, file_format: FileFormat) -> Result<String, AnyError> {
         Ok(match file_format {
             FileFormat::Yaml => serde_yaml::to_string(&self)?,
-            FileFormat::Toml => toml::to_string(&self)?,
         })
     }
 

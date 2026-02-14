@@ -284,7 +284,6 @@ async fn main() -> Result<(), AnyError> {
             workspace
                 .config
                 .template(match format {
-                    cli::ConfigFormat::Toml => FileFormat::Toml,
                     cli::ConfigFormat::Yaml => FileFormat::Yaml,
                 })
                 .await?;

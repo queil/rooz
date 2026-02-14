@@ -38,7 +38,6 @@ impl<'a> ConfigApi<'a> {
             ),
             ConfigPart::Body => {
                 let new_format = output.map(|c| match c {
-                    ConfigFormat::Toml => FileFormat::Toml,
                     ConfigFormat::Yaml => FileFormat::Yaml,
                 });
 
