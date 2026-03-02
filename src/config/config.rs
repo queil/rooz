@@ -1,10 +1,13 @@
-use crate::model::types::AnyError;
+use crate::model::types::{AnyError, DataEntryKey};
+use crate::util::id;
 use crate::{cli::WorkParams, constants};
 use colored::Colorize;
 use handlebars::{Handlebars, no_escape};
 use linked_hash_map::LinkedHashMap;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, ffi::OsStr, path::Path};
+use std::collections::HashMap;
+use std::ffi::OsStr;
+use std::path::Path;
 
 #[derive(Debug, Clone)]
 pub enum ConfigSource {
@@ -44,7 +47,7 @@ impl<'a> ConfigPath {
 
     pub fn is_in_repo(&self) -> bool {
         if let ConfigPath::Git { file_path, .. } = self {
-            file_path == ".rooz.toml" || file_path == ".rooz.yaml"
+            file_path == ".rooz.yaml"
         } else {
             false
         }
@@ -74,14 +77,12 @@ impl ConfigType {
 
 #[derive(Debug, Clone, Copy)]
 pub enum FileFormat {
-    Toml,
     Yaml,
 }
 
 impl FileFormat {
     pub fn to_string(&self) -> String {
         match self {
-            FileFormat::Toml => "toml".into(),
             FileFormat::Yaml => "yaml".into(),
         }
     }
@@ -89,21 +90,10 @@ impl FileFormat {
     pub fn from_path(path: &str) -> FileFormat {
         match Path::new(path).extension().and_then(OsStr::to_str) {
             Some("yaml") => FileFormat::Yaml,
-            Some("toml") => FileFormat::Toml,
             Some(other) => panic!("Config file format: {} is not supported", other),
-            None => panic!("Only toml and yaml config file formats are supported."),
+            None => panic!("Only yaml config file format is supported."),
         }
     }
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(untagged)]
-pub enum SidecarMount {
-    Empty(String),
-    Files {
-        mount: String,
-        files: HashMap<String, String>,
-    },
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -117,15 +107,13 @@ pub struct RoozSidecar {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub args: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub mounts: Option<Vec<SidecarMount>>,
+    pub mounts: Option<LinkedHashMap<String, MountSource>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ports: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub privileged: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub init: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub mount_work: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub work_dir: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -146,8 +134,6 @@ pub struct RoozCfg {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub image: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub home_from_image: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub caches: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub shell: Option<Vec<String>>,
@@ -167,6 +153,10 @@ pub struct RoozCfg {
     pub env: Option<LinkedHashMap<String, String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sidecars: Option<LinkedHashMap<String, RoozSidecar>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<LinkedHashMap<String, DataValue>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mounts: Option<LinkedHashMap<String, MountSource>>,
 }
 
 impl Default for RoozCfg {
@@ -177,7 +167,6 @@ impl Default for RoozCfg {
             git_ssh_url: None,
             extra_repos: Some(Vec::new()),
             image: Some(constants::DEFAULT_IMAGE.into()),
-            home_from_image: None,
             caches: Some(Vec::new()),
             shell: Some(vec![constants::DEFAULT_SHELL.into()]),
             user: Some(constants::DEFAULT_USER.into()),
@@ -188,6 +177,8 @@ impl Default for RoozCfg {
             args: Some(Vec::new()),
             env: Some(LinkedHashMap::new()),
             sidecars: Some(LinkedHashMap::new()),
+            data: Some(LinkedHashMap::new()),
+            mounts: Some(LinkedHashMap::new()),
         }
     }
 }
@@ -196,14 +187,12 @@ impl RoozCfg {
     pub fn from_string(config: &str, file_format: FileFormat) -> Result<Self, AnyError> {
         Ok(match file_format {
             FileFormat::Yaml => serde_yaml::from_str(&config)?,
-            FileFormat::Toml => toml::from_str(&config)?,
         })
     }
 
     pub fn to_string(&self, file_format: FileFormat) -> Result<String, AnyError> {
         Ok(match file_format {
             FileFormat::Yaml => serde_yaml::to_string(&self)?,
-            FileFormat::Toml => toml::to_string(&self)?,
         })
     }
 
@@ -224,7 +213,6 @@ impl RoozCfg {
         *self = RoozCfg {
             shell: shell.map(|v| vec![v]).or(self.shell.clone()),
             image: cli.image.clone().or(self.image.clone()),
-            home_from_image: cli.home_from_image.clone().or(self.home_from_image.clone()),
             user: cli.user.clone().or(self.user.clone()),
             git_ssh_url: cli.git_ssh_url.clone().or(self.git_ssh_url.clone()),
             privileged: cli.privileged.or(self.privileged),
@@ -240,10 +228,6 @@ impl RoozCfg {
             git_ssh_url: config.git_ssh_url.clone().or(self.git_ssh_url.clone()),
             extra_repos: Self::extend_if_any(self.extra_repos.clone(), config.extra_repos.clone()),
             image: config.image.clone().or(self.image.clone()),
-            home_from_image: config
-                .home_from_image
-                .clone()
-                .or(self.home_from_image.clone()),
             caches: Self::extend_if_any(self.caches.clone(), config.caches.clone()),
             shell: config.shell.clone().or(self.shell.clone()),
             user: config.user.clone().or(self.user.clone()),
@@ -254,6 +238,8 @@ impl RoozCfg {
             args: Self::extend_if_any(self.args.clone(), config.args.clone()),
             env: Self::extend_if_any(self.env.clone(), config.env.clone()),
             sidecars: Self::extend_if_any(self.sidecars.clone(), config.sidecars.clone()),
+            data: Self::extend_if_any(self.data.clone(), config.data.clone()),
+            mounts: Self::extend_if_any(self.mounts.clone(), config.mounts.clone()),
         }
     }
 
@@ -276,11 +262,11 @@ impl RoozCfg {
 
     pub fn parse_ports<'a>(
         map: &'a mut HashMap<String, Option<String>>,
-        ports: Option<Vec<String>>,
+        ports: Vec<String>,
     ) -> &'a HashMap<String, Option<String>> {
-        match ports {
-            None => map,
-            Some(ports) => {
+        match ports.as_slice() {
+            &[] => map,
+            ports => {
                 for (source, target) in ports.iter().map(RoozCfg::parse_port) {
                     map.insert(source.to_string(), target.map(|p| p.to_string()));
                 }
@@ -374,5 +360,116 @@ impl SystemConfig {
 
     pub fn to_string(config: &Self) -> Result<String, AnyError> {
         Ok(serde_yaml::to_string(&config)?)
+    }
+}
+
+// VOLUMES v2 temporary placeholder
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+#[serde(deny_unknown_fields)]
+pub enum DataValue {
+    Dir {},
+    InlineContent { content: String },
+    InlineScript { script: String },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+#[serde(deny_unknown_fields)]
+pub enum MountSource {
+    DataEntryReference(DataEntryKey),
+    InlineDataValue(DataValue),
+}
+
+impl MountSource {
+    pub fn resolve_key(&self, target: &str) -> String {
+        match self {
+            MountSource::DataEntryReference(data_key) => data_key.as_str().to_string(),
+            MountSource::InlineDataValue(_) => id::sanitize(target),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum DataEntry {
+    Dir {
+        name: String,
+    },
+    File {
+        name: String,
+        content: String,
+        executable: bool,
+    },
+}
+
+impl DataValue {
+    pub fn into_entry(self, name: String) -> DataEntry {
+        match self {
+            DataValue::InlineContent { content } => DataEntry::File {
+                name,
+                content,
+                executable: false,
+            },
+            DataValue::Dir {} => DataEntry::Dir { name },
+            DataValue::InlineScript { script } => DataEntry::File {
+                name,
+                content: script,
+                executable: true,
+            },
+        }
+    }
+}
+
+pub trait DataExt {
+    fn into_entries(self) -> Vec<DataEntry>;
+}
+
+impl<T> DataExt for T
+where
+    T: IntoIterator<Item = (String, DataValue)>,
+{
+    fn into_entries(self) -> Vec<DataEntry> {
+        self.into_iter()
+            .map(|(name, value)| value.into_entry(name))
+            .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_all_variants() {
+        let yaml = r#"
+data:
+  some-dir: {}
+
+  inline-file:
+    content: |
+      some content
+      here
+
+  empty-file:
+    content: ""
+
+"#;
+
+        let config: RoozCfg = serde_yaml::from_str(yaml).unwrap();
+        let entries = config.data.unwrap().into_entries();
+
+        assert_eq!(entries.len(), 3);
+
+        for entry in &entries {
+            match entry {
+                DataEntry::Dir { name } => {
+                    assert_eq!(name, "some-dir");
+                }
+                DataEntry::File { name, .. } => {
+                    assert!(name == "inline-file" || name == "empty-file");
+                }
+            }
+        }
     }
 }

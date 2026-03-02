@@ -1,15 +1,63 @@
-use super::config::{RoozCfg, RoozSidecar};
+use super::config::{DataValue, MountSource, RoozCfg, RoozSidecar};
 use crate::AnyError;
 use crate::constants;
+use crate::model::types::{TargetDir, VolumeFilesSpec};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct RoozSidecarRuntime {
+    pub image: String,
+    pub env: HashMap<String, String>,
+    pub command: Vec<String>,
+    pub args: Vec<String>,
+    pub mounts: HashMap<String, MountSource>,
+    pub real_mounts: HashMap<TargetDir, VolumeFilesSpec>,
+    pub ports: Vec<String>,
+    pub privileged: bool,
+    pub init: bool,
+    pub work_dir: String,
+    pub user: String,
+}
+
+impl<'a> From<&'a RoozSidecar> for RoozSidecarRuntime {
+    fn from(value: &'a RoozSidecar) -> Self {
+        RoozSidecarRuntime {
+            image: value.image.clone(),
+            env: value
+                .env
+                .clone()
+                .unwrap_or_default()
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+            command: value.command.clone().unwrap_or_default(),
+            args: value.args.clone().unwrap_or_default(),
+            mounts: value
+                .mounts
+                .clone()
+                .unwrap_or_default()
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.clone()))
+                .collect(),
+            real_mounts: HashMap::new(),
+            ports: value.ports.clone().unwrap_or_default(),
+            privileged: value.privileged.clone().unwrap_or_default(),
+            init: value.init.clone().unwrap_or(true),
+            work_dir: value.work_dir.clone().unwrap_or_default(),
+            user: value
+                .user
+                .clone()
+                .unwrap_or(constants::ROOT_UID.to_string()),
+        }
+    }
+}
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct RuntimeConfig {
     pub git_ssh_url: Option<String>,
     pub extra_repos: Vec<String>,
     pub image: String,
-    pub home_from_image: Option<String>,
     pub caches: Vec<String>,
     pub shell: Vec<String>,
     pub user: String,
@@ -19,7 +67,10 @@ pub struct RuntimeConfig {
     pub command: Vec<String>,
     pub args: Vec<String>,
     pub env: HashMap<String, String>,
-    pub sidecars: HashMap<String, RoozSidecar>,
+    pub sidecars: HashMap<String, RoozSidecarRuntime>,
+    pub data: HashMap<String, DataValue>,
+    pub mounts: HashMap<String, MountSource>,
+    pub real_mounts: HashMap<TargetDir, VolumeFilesSpec>,
 }
 
 impl Default for RuntimeConfig {
@@ -28,7 +79,6 @@ impl Default for RuntimeConfig {
             git_ssh_url: None,
             extra_repos: Vec::new(),
             image: constants::DEFAULT_IMAGE.into(),
-            home_from_image: None,
             caches: Vec::new(),
             shell: vec![constants::DEFAULT_SHELL.into()],
             user: constants::DEFAULT_USER.into(),
@@ -39,6 +89,9 @@ impl Default for RuntimeConfig {
             args: Vec::new(),
             sidecars: HashMap::new(),
             env: HashMap::new(),
+            data: HashMap::new(),
+            mounts: HashMap::new(),
+            real_mounts: HashMap::new(),
         }
     }
 }
@@ -64,7 +117,7 @@ impl<'a> From<&'a RoozCfg> for RuntimeConfig {
         let default = RuntimeConfig::default();
 
         let mut ports = HashMap::<String, Option<String>>::new();
-        RoozCfg::parse_ports(&mut ports, value.clone().ports);
+        RoozCfg::parse_ports(&mut ports, value.clone().ports.unwrap_or_default());
 
         RuntimeConfig {
             git_ssh_url: value.git_ssh_url.clone(),
@@ -75,7 +128,6 @@ impl<'a> From<&'a RoozCfg> for RuntimeConfig {
                 .to_vec(),
             shell: value.shell.as_deref().unwrap_or(&default.shell).into(),
             image: value.image.as_deref().unwrap_or(&default.image).into(),
-            home_from_image: value.home_from_image.clone(),
             user: value.user.as_deref().unwrap_or(&default.user).into(),
             caches: {
                 let mut val = value.caches.as_deref().unwrap_or(&default.caches).to_vec();
@@ -84,18 +136,12 @@ impl<'a> From<&'a RoozCfg> for RuntimeConfig {
             },
             sidecars: value
                 .sidecars
-                .as_ref()
-                .unwrap()
-                .iter()
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect::<HashMap<_, _>>(),
-            env: value
-                .env
-                .as_ref()
-                .unwrap()
-                .iter()
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect::<HashMap<_, _>>(),
+                .clone()
+                .unwrap_or_default()
+                .into_iter()
+                .map(|(k, v)| (k, RoozSidecarRuntime::from(&v)))
+                .collect(),
+            env: value.env.clone().unwrap_or_default().into_iter().collect(),
             ports,
             privileged: value.privileged.unwrap_or(default.privileged),
             init: value.init.unwrap_or(default.init),
@@ -105,6 +151,13 @@ impl<'a> From<&'a RoozCfg> for RuntimeConfig {
                 .unwrap_or(&default.command)
                 .to_vec(),
             args: value.args.as_deref().unwrap_or(&default.args).to_vec(),
+            data: value.data.clone().unwrap_or_default().into_iter().collect(),
+            mounts: value
+                .mounts
+                .clone()
+                .unwrap_or_default()
+                .into_iter()
+                .collect(),
             ..default
         }
     }

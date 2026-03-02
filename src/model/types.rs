@@ -1,9 +1,10 @@
+use crate::config::config::DataEntry;
 use crate::{
     config::config::RoozCfg,
-    model::volume::RoozVolume,
     util::{git::RootRepoCloneResult, labels::Labels},
 };
 use bollard::service::Mount;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 pub type AnyError = Box<dyn std::error::Error + Send + Sync>;
@@ -31,7 +32,6 @@ pub enum VolumeResult {
 #[derive(Clone, Debug)]
 pub struct WorkSpec<'a> {
     pub image: &'a str,
-    pub home_from_image: Option<&'a str>,
     pub uid: &'a str,
     pub user: &'a str,
     pub container_working_dir: &'a str,
@@ -48,13 +48,13 @@ pub struct WorkSpec<'a> {
     pub ports: Option<HashMap<String, Option<String>>>,
     pub command: Option<Vec<&'a str>>,
     pub args: Option<Vec<&'a str>>,
+    pub mounts: Vec<Mount>,
 }
 
 impl Default for WorkSpec<'_> {
     fn default() -> Self {
         Self {
             image: Default::default(),
-            home_from_image: None,
             uid: Default::default(),
             user: Default::default(),
             container_working_dir: Default::default(),
@@ -71,6 +71,7 @@ impl Default for WorkSpec<'_> {
             ports: None,
             command: None,
             args: None,
+            mounts: Vec::new(),
         }
     }
 }
@@ -141,7 +142,6 @@ pub struct OneShotResult {
 }
 
 pub struct WorkspaceResult {
-    pub volumes: Vec<RoozVolume>,
     pub workspace_key: String,
     pub working_dir: String,
     pub orig_uid: String,
@@ -151,4 +151,120 @@ pub struct EnterSpec {
     pub workspace: WorkspaceResult,
     pub git_spec: Option<RootRepoCloneResult>,
     pub config: RoozCfg,
+}
+
+#[derive(Clone, Debug)]
+pub struct VolumeSpec {
+    pub name: String,
+    pub labels: Option<Labels>,
+}
+
+#[derive(Clone)]
+pub struct DataEntryVolumeSpec {
+    pub data: DataEntry,
+    pub volume: VolumeSpec,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct TargetPath(pub String);
+
+impl TargetPath {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl From<String> for TargetPath {
+    fn from(s: String) -> Self {
+        Self(s)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct TargetDir(pub String);
+
+impl TargetDir {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl From<String> for TargetDir {
+    fn from(s: String) -> Self {
+        Self(s)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct TargetFile(pub String);
+
+impl TargetFile {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl From<String> for TargetFile {
+    fn from(s: String) -> Self {
+        Self(s)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct UserFile(pub String);
+
+impl UserFile {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl From<String> for UserFile {
+    fn from(s: String) -> Self {
+        Self(s)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct DataEntryKey(pub String);
+
+impl DataEntryKey {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl From<String> for DataEntryKey {
+    fn from(s: String) -> Self {
+        Self(s)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct VolumeName(pub String);
+
+impl VolumeName {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl From<String> for VolumeName {
+    fn from(s: String) -> Self {
+        Self(s)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FileSpec {
+    pub target_file: TargetFile,
+    pub user_file: UserFile,
+    pub content: String,
+    pub executable: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VolumeFilesSpec {
+    pub volume_name: VolumeName,
+    pub files: Vec<FileSpec>,
 }

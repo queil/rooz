@@ -14,14 +14,13 @@ use crate::{
     api::WorkspaceApi,
     config::{config::ConfigType, runtime::RuntimeConfig},
     constants::{self},
-    model::{types::AnyError, volume::RoozVolume},
+    model::types::AnyError,
     util::labels::Labels,
 };
 
 impl<'a> WorkspaceApi<'a> {
     pub async fn attach_vscode(&self, workspace_key: &str) -> Result<(), AnyError> {
         self.start(workspace_key).await?;
-
         let hex = format!(r#"{{"containerName":"{}"}}"#, workspace_key)
             .as_bytes()
             .iter()
@@ -44,15 +43,14 @@ impl<'a> WorkspaceApi<'a> {
         workspace_key: &str,
         working_dir: Option<&str>,
         shell: Option<Vec<&str>>,
-        container_id: Option<&str>,
-        volumes: Vec<RoozVolume>,
+        container_name: Option<&str>,
         chown_uid: &str,
         root: bool,
-        ephemeral: bool,
-    ) -> Result<(), AnyError> {
+    ) -> Result<String, AnyError> {
+        let container_name = container_name.unwrap_or(constants::DEFAULT_CONTAINER_NAME);
         let enter_labels = Labels::from(&[
             Labels::workspace(workspace_key),
-            Labels::container(container_id.unwrap_or(constants::DEFAULT_CONTAINER_NAME)),
+            Labels::container(container_name),
         ]);
 
         let container = self
@@ -62,12 +60,13 @@ impl<'a> WorkspaceApi<'a> {
             .await?
             .ok_or(format!("Workspace not found: {}", &workspace_key))?;
 
-        let config = self
-            .config
-            .read(workspace_key, &ConfigType::Runtime)
-            .await?;
+        let config = RuntimeConfig::from_string(
+            self.config
+                .read(workspace_key, &ConfigType::Runtime)
+                .await?,
+        )?;
 
-        let mut shell_value = RuntimeConfig::from_string(config)?.shell;
+        let mut shell_value = config.shell.clone();
 
         if let Some(shell) = shell {
             shell_value = shell.iter().map(|v| v.to_string()).collect::<Vec<_>>();
@@ -88,12 +87,13 @@ impl<'a> WorkspaceApi<'a> {
                 }
             };
 
-            if !root {
+            if !root && container_name == constants::DEFAULT_CONTAINER_NAME {
                 self.api.exec.ensure_user(container_id).await?;
-                for v in &volumes {
+
+                for (target, _) in &config.real_mounts {
                     self.api
                         .exec
-                        .chown(&container_id, chown_uid, &v.path)
+                        .chown(&container_id, chown_uid, target.as_str())
                         .await?;
                 }
             }
@@ -104,7 +104,6 @@ impl<'a> WorkspaceApi<'a> {
                 .tty(
                     "work",
                     &container_id,
-                    true,
                     working_dir,
                     if root {
                         Some(constants::ROOT_USER)
@@ -121,15 +120,6 @@ impl<'a> WorkspaceApi<'a> {
                 }
             };
         }
-        if ephemeral {
-            self.api.container.kill(&container_id, true).await?;
-            for vol in volumes.iter().filter(|v| v.is_exclusive()) {
-                self.api
-                    .volume
-                    .remove_volume(&vol.safe_volume_name(), true)
-                    .await?;
-            }
-        }
-        Ok(())
+        Ok(container_id.to_string())
     }
 }

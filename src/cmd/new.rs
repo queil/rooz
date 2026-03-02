@@ -1,5 +1,5 @@
-use std::fs;
-
+use crate::api::VolumeApi;
+use crate::model::types::VolumeResult;
 use crate::{
     api::WorkspaceApi,
     cli::WorkParams,
@@ -15,6 +15,8 @@ use crate::{
         labels::{self, Labels},
     },
 };
+use std::collections::HashMap;
+use std::fs;
 
 impl<'a> WorkspaceApi<'a> {
     async fn new_core(
@@ -27,7 +29,6 @@ impl<'a> WorkspaceApi<'a> {
         root_git_repo: Option<RootRepoCloneResult>,
         workspace_key: &str,
         force: bool,
-        work_dir: &str,
     ) -> Result<EnterSpec, AnyError> {
         if let Some(c) = &cli_config {
             cfg_builder.from_config(c);
@@ -48,21 +49,46 @@ impl<'a> WorkspaceApi<'a> {
             .ensure(&cfg.image, cli_params.pull_image)
             .await?;
 
-        if let Some(home_from_image) = &cfg.home_from_image {
-            self.api
-                .image
-                .ensure(&home_from_image, cli_params.pull_image)
-                .await?;
+        let volumes_v2 =
+            VolumeApi::create_volume_specs(workspace_key, &cfg.data, &cfg.mounts, true);
+
+        let mounts_all = &cfg
+            .mounts
+            .iter()
+            .map(|(target, source)| (target.to_string(), source.resolve_key(target)))
+            .collect::<HashMap<String, String>>();
+
+        let volume_results = self.api.volume.ensure_volumes_v2(&volumes_v2).await?;
+
+        let home_dir = format!("/home/{}", &cfg.user);
+        let mounts_config = self
+            .api
+            .volume
+            .mounts_with_sources(&volumes_v2, mounts_all, true);
+
+        let real_mounts = VolumeApi::real_mounts_v2(mounts_config.clone(), Some(&home_dir));
+
+        let cfg = RuntimeConfig {
+            real_mounts: real_mounts.clone(),
+            ..cfg.clone()
+        };
+
+        let mut cfg2 = cfg.clone();
+
+        let mounts_v2 = self.api.volume.mounts_v2(&real_mounts).await?;
+        for (t, m) in real_mounts.clone() {
+            //TODO: when initializing volumes both here in sidecars we should verify
+            // if each file exists and if not create them
+            if let VolumeResult::Created {} = volume_results[&m.volume_name] {
+                self.api
+                    .volume
+                    .populate_volume(t, m, Some(&work_spec.uid))
+                    .await?;
+            }
         }
 
-        let network = self
-            .ensure_sidecars(
-                &cfg.sidecars,
-                workspace_key,
-                force,
-                cli_params.pull_image,
-                &work_dir,
-            )
+        let (cfg2, network) = self
+            .ensure_sidecars(&mut cfg2, workspace_key, force, cli_params.pull_image)
             .await?;
 
         let mut labels = work_spec.labels.clone();
@@ -70,45 +96,45 @@ impl<'a> WorkspaceApi<'a> {
         labels.extend(&[Labels::container(constants::DEFAULT_CONTAINER_NAME)]);
 
         self.config
-            .store_runtime(workspace_key, &cfg.clone().to_string()?)
+            .store_runtime(workspace_key, &cfg2.clone().to_string()?)
             .await?;
 
         let work_spec = WorkSpec {
-            image: &cfg.image,
-            home_from_image: cfg.home_from_image.as_deref(),
-            user: &cfg.user,
-            caches: Some(cfg.caches),
-            env_vars: Some(cfg.env),
-            ports: Some(cfg.ports),
+            image: &cfg2.image,
+            user: &cfg2.user,
+            caches: Some(cfg2.caches),
+            env_vars: Some(cfg2.env),
+            ports: Some(cfg2.ports),
             container_working_dir: &root_git_repo
                 .clone()
                 .map(|r| r.dir)
                 .unwrap_or(constants::WORK_DIR.to_string()),
             network: network.as_deref(),
             labels,
-            privileged: cfg.privileged,
-            init: cfg.init,
-            args: (if cfg.args.len() > 0 {
-                Some(&cfg.args)
+            privileged: cfg2.privileged,
+            init: cfg2.init,
+            args: (if cfg2.args.len() > 0 {
+                Some(&cfg2.args)
             } else {
                 None
             })
             .as_ref()
             .map(|x| x.iter().map(|z| z.as_ref()).collect()),
-            command: (if cfg.command.len() > 0 {
-                Some(&cfg.command)
+            command: (if cfg2.command.len() > 0 {
+                Some(&cfg2.command)
             } else {
                 None
             })
             .as_ref()
             .map(|x| x.iter().map(|z| z.as_ref()).collect()),
+            mounts: mounts_v2,
             ..*work_spec
         };
 
-        let ws = self.create(&work_spec).await?;
-        if !cfg.extra_repos.is_empty() {
+        let ws = self.create(&work_spec, &real_mounts).await?;
+        if !cfg2.extra_repos.is_empty() {
             self.git
-                .clone_extra_repos(clone_spec.clone(), cfg.extra_repos)
+                .clone_extra_repos(clone_spec.clone(), cfg2.extra_repos)
                 .await?;
         }
         Ok(EnterSpec {
@@ -264,14 +290,13 @@ impl<'a> WorkspaceApi<'a> {
                 root_repo_result,
                 &workspace_key,
                 false,
-                work_dir,
             )
-            .await;
+            .await?;
 
         if let Some(true) = cli_params.start {
             self.start(&workspace_key).await?;
         }
-        enter_spec
+        Ok(enter_spec)
     }
 
     pub async fn tmp(&self, spec: &WorkParams, root: bool, shell: &str) -> Result<(), AnyError> {
@@ -279,6 +304,7 @@ impl<'a> WorkspaceApi<'a> {
             workspace,
             git_spec,
             config,
+            ..
         } = self
             .new(&id::random_suffix("tmp"), spec, None, true)
             .await?;
@@ -292,16 +318,33 @@ impl<'a> WorkspaceApi<'a> {
             ..config
         });
 
-        self.enter(
-            &workspace.workspace_key,
-            working_dir.as_deref(),
-            Some(cfg.shell.iter().map(|v| v.as_str()).collect::<Vec<_>>()),
-            None,
-            workspace.volumes,
-            &workspace.orig_uid,
-            root,
-            true,
-        )
-        .await
+        let container_id = self
+            .enter(
+                &workspace.workspace_key,
+                working_dir.as_deref(),
+                Some(cfg.shell.iter().map(|v| v.as_str()).collect::<Vec<_>>()),
+                None,
+                &workspace.orig_uid,
+                root,
+            )
+            .await?;
+
+        let killed = self.api.container.kill(&container_id, true);
+        let volumes = self
+            .api
+            .volume
+            .get_all(&Labels::from(&[Labels::workspace(
+                &workspace.workspace_key,
+            )]))
+            .await?;
+        killed.await?;
+
+        let volume_api = self.api.volume;
+
+        let futures = volumes
+            .iter()
+            .filter_map(|v| Some(async move { volume_api.remove_volume(&v.name, true).await }));
+        futures::future::try_join_all(futures).await?;
+        Ok(())
     }
 }

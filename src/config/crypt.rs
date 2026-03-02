@@ -10,7 +10,11 @@ impl<'a> ConfigApi<'a> {
                 log::debug!("Decrypting secrets");
                 let mut ret = LinkedHashMap::<String, String>::new();
                 for (k, v) in secrets.iter() {
-                    ret.insert(k.to_string(), self.crypt.decrypt(identity, v)?);
+                    let decrypted = self.crypt.decrypt(identity, v).expect(&format!(
+                        "Cannot decrypt '{}'. It must have been encrypted with a different key",
+                        k
+                    ));
+                    ret.insert(k.to_string(), decrypted);
                 }
                 Some(ret)
             }

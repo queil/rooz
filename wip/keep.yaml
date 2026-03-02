@@ -1,21 +1,41 @@
-# draft - this is not an actual example
+# v2.1 --------------------------------------
+
+# OK actually maybe split the definition of objects from the usage (like docker compose) and have:
+
+data:
+
+  # keys in this map as used as a key that we reference in mounts and sidecar.mounts
+  some-dir: {} # empty map indicates a dir
+
+  inline-file: |
+    some content
+    here
+
+  empty-file: ""
+
+  my-repo:
+    git:
+      repo: git@github.com:user/repo
+      path: /src # <-- optional dir
+
+  my-repo-root:
+    git:
+      repo: git@github.com:user/other
+
+  from-image:
+    image:
+      ref: nginx:latest
+      path: /etc/nginx/nginx.conf # mandatory dir or file
+
+  local-thing:
+    path: ./local/file.txt # mandatory dir or file
+
+#workspace mounts
 mounts:
-  caches:                # backed by a volume per path (path is the key). Sharing: all workspaces defining a particular path. Mount: RW
-  - ~/.nuget
-  files:                 # backed by a volume, holds all the files defined. Sharing: a volume per workspace. Mount: RW
-                         # the volume mounted under /var/lib/rooz. That is the root the files are stored under,
-                         # then files get sym-linked to the actual locations
-  - ~/.bash_history      # an empty file
-  - path: ~/k8s.config   # an empty file shared with the dkr sidecar (that would mean the sym-linking logic must also run in the sidecar)
-    shared_with: [dkr]
-  - path: /etc/my.config # a file pre-populated with content - i.e. injected configuration
-    content: |-
-      {"some": "config"}
-  dirs:                  # I guess dirs can be also sym-linked to the actual locations
-  - /work                # system built-in - That wouldn't be defined here I reckon
-  - path: /done          # an example where the dir is shared with dkr
-    shared_with: [dkr]
+  ~/.kubeconfig: k8s-config
 
 sidecars:
-  dkr:
-    image: docker.io/dind
+  k3s:
+    # sidecar mounts
+    mounts:
+      /etc/k3s/kubeconfig: k8s-config

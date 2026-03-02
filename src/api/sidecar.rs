@@ -1,30 +1,29 @@
-use std::collections::HashMap;
-
-use bollard::models::NetworkCreateRequest;
-
+use crate::api::VolumeApi;
+use crate::config::config::MountSource;
+use crate::config::runtime::RuntimeConfig;
+use crate::model::types::ContainerResult;
 use crate::{
     api::WorkspaceApi,
-    config::config::{RoozCfg, RoozSidecar, SidecarMount},
-    constants,
-    model::{
-        types::{AnyError, RunMode, RunSpec},
-        volume::RoozVolume,
-    },
+    config::config::RoozCfg,
+    model::types::{AnyError, RunMode, RunSpec},
     util::labels::{self, Labels},
 };
+
+use bollard::models::NetworkCreateRequest;
+use std::collections::HashMap;
 
 impl<'a> WorkspaceApi<'a> {
     pub async fn ensure_sidecars(
         &self,
-        sidecars: &HashMap<String, RoozSidecar>,
+        config: &RuntimeConfig,
         workspace_key: &str,
         force: bool,
         pull_image: bool,
-        work_dir: &str,
-    ) -> Result<Option<String>, AnyError> {
+    ) -> Result<(RuntimeConfig, Option<String>), AnyError> {
+        let mut cfg = config.clone();
         let labels = Labels::from(&[Labels::workspace(workspace_key)]);
 
-        let network = if !sidecars.is_empty() {
+        let network = if !cfg.sidecars.is_empty() {
             let network_options = NetworkCreateRequest {
                 name: workspace_key.into(),
                 labels: Some(labels.clone().into()),
@@ -46,7 +45,7 @@ impl<'a> WorkspaceApi<'a> {
             None
         };
 
-        for (name, s) in sidecars {
+        for (name, s) in &mut cfg.sidecars {
             log::debug!("Process sidecar: {}", name);
             let container_name = format!("{}-{}", workspace_key, name);
             let mut labels = labels.clone();
@@ -54,42 +53,41 @@ impl<'a> WorkspaceApi<'a> {
             let mut ports = HashMap::<String, Option<String>>::new();
             RoozCfg::parse_ports(&mut ports, s.ports.clone());
 
-            let mut mounts = Vec::<RoozVolume>::new();
+            let mounts: HashMap<String, MountSource> = s.mounts.clone();
 
-            let auto_mounts = s.mounts.as_ref().map(|mounts| {
-                mounts
-                    .iter()
-                    .map(|mount| match mount {
-                        SidecarMount::Empty(mount) => {
-                            RoozVolume::config_data(workspace_key, mount, None, None, None)
-                        }
-                        SidecarMount::Files { mount, files } => RoozVolume::config_data(
-                            workspace_key,
-                            mount,
-                            Some(files.clone()),
-                            None,
-                            None,
-                        ),
-                    })
-                    .collect::<Vec<_>>()
-            });
+            let volumes_v2 =
+                VolumeApi::create_volume_specs(workspace_key, &config.data, &mounts, false);
 
-            if let Some(v) = auto_mounts {
-                mounts.extend_from_slice(&v.as_slice());
+            self.api.volume.ensure_volumes_v2(&volumes_v2).await?;
+
+            let mut mounts_v2 = Vec::new();
+
+            let mounts_all = mounts
+                .iter()
+                .map(|(target, source)| (target.to_string(), source.resolve_key(target)))
+                .collect::<HashMap<String, String>>();
+
+            let mounts_config =
+                self.api
+                    .volume
+                    .mounts_with_sources(&volumes_v2, &mounts_all, false);
+
+            let real_mounts = VolumeApi::real_mounts_v2(mounts_config.clone(), None);
+
+            mounts_v2.extend_from_slice(self.api.volume.mounts_v2(&real_mounts).await?.as_slice());
+
+            for (t, m) in real_mounts.clone() {
+                s.real_mounts.insert(t.clone(), m.clone());
+                // The volume might already be created by the workspace-level volume creation
+                // but still may need files in the paths not covered by that process
+                self.api.volume.populate_volume(t, m, None).await?;
             }
 
-            let work_mount = if let Some(true) = s.mount_work {
-                Some(vec![RoozVolume::work(workspace_key, work_dir)])
-            } else {
-                None
-            };
-
-            if let Some(v) = work_mount {
-                mounts.extend_from_slice(&v.as_slice());
-            }
-
-            let uid = s.user.as_deref().unwrap_or(&constants::ROOT_UID);
-            self.api
+            let uid = s.user.clone();
+            let cmd = &s.command.iter().map(|x| x.as_str()).collect::<Vec<_>>();
+            let args = &s.args.iter().map(|k| k.as_str()).collect::<Vec<_>>();
+            if let ContainerResult::Created { id: container_id } = self
+                .api
                 .container
                 .create(RunSpec {
                     reason: &container_name,
@@ -99,38 +97,40 @@ impl<'a> WorkspaceApi<'a> {
                     force_recreate: force,
                     workspace_key: &workspace_key,
                     labels,
-                    env: s.env.clone().map(|x| {
-                        x.iter()
-                            .map(|(k, v)| (k.clone(), v.clone()))
-                            .collect::<HashMap<_, _>>()
-                    }),
+                    env: Some(s.env.clone()),
                     network,
                     network_aliases: Some(vec![name.into()]),
-                    command: s
-                        .command
-                        .as_ref()
-                        .map(|x| x.iter().map(|z| z.as_ref()).collect()),
-                    args: s
-                        .args
-                        .as_ref()
-                        .map(|x| x.iter().map(|z| z.as_ref()).collect()),
-                    mounts: Some(
-                        self.api
-                            .volume
-                            .ensure_mounts(&mounts, None, Some(uid))
-                            .await?,
-                    ),
+                    command: if cmd.is_empty() {
+                        None
+                    } else {
+                        Some(cmd.clone())
+                    },
+                    args: if args.is_empty() {
+                        None
+                    } else {
+                        Some(args.clone())
+                    },
+                    mounts: Some(mounts_v2),
                     ports: Some(ports),
-                    work_dir: Some(s.work_dir.as_deref().unwrap_or(work_dir)),
+                    work_dir: Some(s.work_dir.as_str()),
                     run_mode: RunMode::Sidecar,
-                    privileged: s.privileged.unwrap_or(false),
-                    init: s.init.unwrap_or(true),
+                    privileged: s.privileged,
+                    init: s.init,
                     force_pull: pull_image,
                     ..Default::default()
                 })
-                .await?;
+                .await?
+            {
+                self.api
+                    .container
+                    .symlink_files(&container_id, &real_mounts)
+                    .await?;
+            }
         }
 
-        Ok(network.map(|n| n.to_string()))
+        Ok((
+            RuntimeConfig { ..cfg.clone() },
+            network.map(|n| n.to_string()),
+        ))
     }
 }

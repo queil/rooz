@@ -21,10 +21,10 @@ impl<'a> WorkspaceApi<'a> {
                 let cname = &c.names.unwrap().join(", ");
                 print!("Stopping container: {} ... ", cname);
                 self.api.container.stop(cid).await?;
-                println!("{}", format!("OK").green());
+                println!("{}", "OK".green());
                 print!("Starting container: {} ... ", cname);
                 self.api.container.start(cid).await?;
-                println!("{}", format!("OK").green())
+                println!("{}", "OK".green())
             } else {
                 eprintln!("Workspace not found {}", workspace_key);
             }

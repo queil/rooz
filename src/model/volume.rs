@@ -4,9 +4,9 @@ use crate::{
     config::config::SystemConfig,
     model::types::AnyError,
     util::{
-        id::to_safe_id,
+        id::sanitize,
         labels::{
-            CACHE_ROLE, DATA_ROLE, HOME_ROLE, Labels, SSH_KEY_ROLE, SYSTEM_CONFIG_ROLE, WORK_ROLE,
+            CACHE_ROLE, DATA_ROLE, Labels, SSH_KEY_ROLE, SYSTEM_CONFIG_ROLE, WORK_ROLE,
             WORKSPACE_CONFIG_ROLE,
         },
     },
@@ -21,7 +21,6 @@ pub enum RoozVolumeSharing {
 
 #[derive(Debug, Clone)]
 pub enum RoozVolumeRole {
-    Home,
     Work,
     Cache,
     Data,
@@ -33,7 +32,6 @@ pub enum RoozVolumeRole {
 impl RoozVolumeRole {
     pub fn as_str(&self) -> &str {
         match self {
-            RoozVolumeRole::Home => HOME_ROLE,
             RoozVolumeRole::Work => WORK_ROLE,
             RoozVolumeRole::Cache => CACHE_ROLE,
             RoozVolumeRole::Data => DATA_ROLE,
@@ -61,7 +59,7 @@ pub struct RoozVolume {
 
 impl RoozVolume {
     pub fn safe_volume_name(&self) -> String {
-        let role_segment = to_safe_id(self.role.as_str());
+        let role_segment = sanitize(self.role.as_str());
 
         match self {
             RoozVolume {
@@ -71,8 +69,8 @@ impl RoozVolume {
                 ..
             } => format!(
                 "rooz_{}_{}_{}",
-                to_safe_id(&key),
-                to_safe_id(&path),
+                sanitize(&key),
+                sanitize(&path),
                 &role_segment
             ),
             RoozVolume {
@@ -80,23 +78,16 @@ impl RoozVolume {
                 sharing: RoozVolumeSharing::Shared,
                 role: RoozVolumeRole::Cache,
                 ..
-            } => format!("rooz_{}_{}", &role_segment, to_safe_id(&path)),
+            } => format!("rooz_{}_{}", &role_segment, sanitize(&path)),
             RoozVolume {
                 sharing: RoozVolumeSharing::Exclusive { key },
                 ..
-            } => format!("rooz_{}_{}", to_safe_id(&key), &role_segment),
+            } => format!("rooz-{}-{}", sanitize(&key), &role_segment),
             RoozVolume { .. } => format!("rooz_{}", &role_segment),
         }
     }
 
-    pub fn is_exclusive(&self) -> bool {
-        match self.sharing {
-            RoozVolumeSharing::Exclusive { .. } => true,
-            _ => false,
-        }
-    }
-
-    fn expanded_path(&self, tilde_replacement: Option<&str>) -> String {
+    pub fn expanded_path(&self, tilde_replacement: Option<&str>) -> String {
         match tilde_replacement {
             Some(replacement) => self.path.replace("~", &replacement),
             None => self.path.to_string(),
@@ -124,19 +115,6 @@ impl RoozVolume {
             labels: Some(Labels::from(&[
                 Labels::workspace(key),
                 Labels::role(RoozVolumeRole::Work.as_str()),
-            ])),
-        }
-    }
-
-    pub fn home(key: &str, path: &str) -> RoozVolume {
-        RoozVolume {
-            path: path.into(),
-            sharing: RoozVolumeSharing::Exclusive { key: key.into() },
-            role: RoozVolumeRole::Home,
-            files: None,
-            labels: Some(Labels::from(&[
-                Labels::workspace(key),
-                Labels::role(RoozVolumeRole::Home.as_str()),
             ])),
         }
     }
@@ -189,7 +167,7 @@ impl RoozVolume {
             },
             None => RoozVolume {
                 path: path.into(),
-                role: role,
+                role,
                 sharing: RoozVolumeSharing::Exclusive {
                     key: workspace_key.into(),
                 },

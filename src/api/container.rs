@@ -11,6 +11,7 @@ use crate::{
 use base64::{Engine as _, engine::general_purpose};
 
 use bollard::{
+    body_full,
     errors::Error::{self, DockerResponseServerError},
     models::{
         ContainerCreateBody, ContainerCreateResponse, ContainerInspectResponse, ContainerState,
@@ -24,27 +25,24 @@ use bollard::{
     },
 };
 
+use crate::model::types::{TargetDir, VolumeFilesSpec};
+use bollard_stubs::query_parameters::UploadToContainerOptions;
 use futures::{StreamExt, future};
 use std::{collections::HashMap, time::Duration};
 use tokio::time::{sleep, timeout};
 
-pub fn inject2(script: &str, name: &str, post_sleep: bool) -> Vec<String> {
+pub fn inject(script: &str, name: &str) -> Vec<String> {
     vec![
         "sh".to_string(),
         "-c".to_string(),
         format!(
-            "echo '{}' | base64 -d > /tmp/{} && chmod +x /tmp/{} && /tmp/{}{}",
+            "echo '{}' | base64 -d > /tmp/{} && chmod +x /tmp/{} && /tmp/{}",
             general_purpose::STANDARD.encode(script.trim()),
             name,
             name,
             name,
-            if post_sleep { " && sleep 0.5" } else { "" }
         ),
     ]
-}
-
-pub fn inject(script: &str, name: &str) -> Vec<String> {
-    inject2(&script, &name, false)
 }
 
 impl<'a> ContainerApi<'a> {
@@ -128,7 +126,7 @@ impl<'a> ContainerApi<'a> {
                 log::debug!("Removed container: {}{}", &container_id, &force_display);
                 Ok(())
             }
-            Err(Error::DockerResponseServerError {
+            Err(DockerResponseServerError {
                 status_code: 404, ..
             }) => {
                 log::debug!(
@@ -138,7 +136,7 @@ impl<'a> ContainerApi<'a> {
                 );
                 Ok(())
             }
-            Err(Error::DockerResponseServerError {
+            Err(DockerResponseServerError {
                 status_code,
                 message,
             }) => Err(format!(
@@ -187,12 +185,12 @@ impl<'a> ContainerApi<'a> {
                                     }
                                 }
                                 //Podman backend
-                                Err(Error::DockerResponseServerError {
+                                Err(DockerResponseServerError {
                                     status_code: 500,
                                     message,
                                 }) if message.ends_with("no such container") => return Ok(()),
                                 //Docker backend
-                                Err(Error::DockerResponseServerError {
+                                Err(DockerResponseServerError {
                                     status_code: 404, ..
                                 }) => return Ok(()),
                                 Err(e) => panic!("{}", e),
@@ -226,7 +224,7 @@ impl<'a> ContainerApi<'a> {
                 .client
                 .inspect_container(&container_id, None::<InspectContainerOptions>)
                 .await;
-            if let Err(Error::DockerResponseServerError {
+            if let Err(DockerResponseServerError {
                 status_code: 404, ..
             }) = r
             {
@@ -415,7 +413,49 @@ impl<'a> ContainerApi<'a> {
         Ok(container_id.clone())
     }
 
-    pub async fn start(&self, container_id: &str) -> Result<(), bollard::errors::Error> {
+    pub async fn symlink_files(
+        &self,
+        container_id: &str,
+        mounts: &HashMap<TargetDir, VolumeFilesSpec>,
+    ) -> Result<(), AnyError> {
+        let mut archive = tar::Builder::new(Vec::new());
+        for (_, spec) in mounts {
+            for file in &spec.files {
+                log::debug!(
+                    "Creating symlink: {} -> {}",
+                    &file.user_file.as_str(),
+                    &file.target_file.as_str()
+                );
+                let mut header = tar::Header::new_gnu();
+                header.set_size(0);
+                header.set_mode(0o777);
+                header.set_uid(0);
+                header.set_gid(0);
+                header.set_entry_type(tar::EntryType::Symlink);
+                archive.append_link(
+                    &mut header,
+                    file.user_file.as_str().trim_start_matches("/"),
+                    file.target_file.as_str(),
+                )?;
+            }
+        }
+        let tar_bytes = archive.into_inner()?;
+
+        self.client
+            .upload_to_container(
+                &container_id,
+                Some(UploadToContainerOptions {
+                    path: "/".to_string(),
+                    ..Default::default()
+                }),
+                body_full(tar_bytes.into()),
+            )
+            .await?;
+
+        Ok(())
+    }
+
+    pub async fn start(&self, container_id: &str) -> Result<(), Error> {
         self.client
             .start_container(&container_id, None::<StartContainerOptions>)
             .await
@@ -429,7 +469,7 @@ impl<'a> ContainerApi<'a> {
         image: Option<&str>,
     ) -> Result<String, AnyError> {
         let wait_for_exec = r#"#!/bin/sh
-TIMEOUT=${EXEC_TIMEOUT:-300}
+TIMEOUT=${EXEC_TIMEOUT:-30}
 mkfifo /tmp/exec_start /tmp/exec_end
 
 echo "Waiting for exec session (timeout: ${TIMEOUT}s)..."

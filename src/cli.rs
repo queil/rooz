@@ -248,7 +248,6 @@ pub enum ConfigPart {
 
 #[derive(Parser, Debug, Clone, clap::ValueEnum)]
 pub enum ConfigFormat {
-    Toml,
     Yaml,
 }
 

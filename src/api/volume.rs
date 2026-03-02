@@ -1,5 +1,13 @@
+use std::collections::HashMap;
 use std::path::Path;
 
+use crate::config::config::{DataEntry, DataExt, DataValue, MountSource};
+use crate::model::types::{
+    DataEntryKey, DataEntryVolumeSpec, FileSpec, TargetDir, TargetFile, TargetPath, UserFile,
+    VolumeFilesSpec, VolumeName, VolumeSpec,
+};
+use crate::util::id;
+use crate::util::labels::DATA_ROLE;
 use crate::{
     api::VolumeApi,
     model::{
@@ -15,6 +23,7 @@ use bollard::{
     query_parameters::{ListVolumesOptions, RemoveVolumeOptions},
     service::Mount,
 };
+use bollard_stubs::models::MountTypeEnum::VOLUME;
 
 impl<'a> VolumeApi<'a> {
     pub async fn get_all(&self, labels: &Labels) -> Result<Vec<Volume>, AnyError> {
@@ -43,7 +52,7 @@ impl<'a> VolumeApi<'a> {
         match &self.client.create_volume(options).await {
             Ok(v) => {
                 log::debug!("Volume created: {:?}", v.name);
-                return Ok(VolumeResult::Created);
+                Ok(VolumeResult::Created)
             }
             Err(e) => panic!("{}", e),
         }
@@ -55,10 +64,261 @@ impl<'a> VolumeApi<'a> {
             Ok(_) => {
                 let force_display = if force { " (force)" } else { "" };
                 log::debug!("Volume removed: {} {}", &name, &force_display);
-                return Ok(());
+                Ok(())
             }
             Err(e) => panic!("{}", e),
         }
+    }
+
+    pub async fn ensure_volume_v2(&self, spec: &VolumeSpec) -> Result<VolumeResult, AnyError> {
+        match self.client.inspect_volume(&spec.name).await {
+            Ok(_) => {
+                log::debug!("Reusing an existing {} volume", &spec.name);
+                Ok(VolumeResult::AlreadyExists)
+            }
+            Err(DockerResponseServerError {
+                status_code: 404,
+                message: _,
+            }) => {
+                self.create_volume(VolumeCreateOptions {
+                    name: Some(spec.name.to_string()),
+                    labels: spec.labels.clone().map(|x| x.into()),
+                    ..Default::default()
+                })
+                .await
+            }
+            Err(e) => panic!("{}", e),
+        }
+    }
+
+    fn expand_home(path: String, home: Option<&str>) -> String {
+        match (home, path.strip_prefix("~/")) {
+            (Some(h), Some(rest)) => format!("{}/{}", h, rest),
+            (Some(h), None) if path == "~" => h.to_string(),
+            _ => path.clone(),
+        }
+    }
+
+    pub fn mounts_with_sources(
+        &self,
+        volumes: &HashMap<DataEntryKey, DataEntryVolumeSpec>,
+        mounts: &HashMap<String, String>,
+        implicit_work: bool,
+    ) -> HashMap<TargetPath, DataEntryVolumeSpec> {
+        let mut result = HashMap::new();
+
+        let mut mount_entries: HashMap<String, String> = HashMap::new();
+        mount_entries.extend(mounts.clone());
+
+        if !mounts.values().any(|key| key == "work") && implicit_work {
+            mount_entries.insert("/work".to_string(), "work".to_string());
+        }
+
+        for (target, source_key) in mount_entries {
+            let source_exists = &volumes.contains_key(&DataEntryKey(source_key.to_string()));
+            if !source_exists {
+                panic!(
+                    "Key '{}' not found under 'data:' in workspace config. Keys: {:?}",
+                    source_key.as_str(),
+                    &volumes.keys(),
+                );
+            }
+
+            result.insert(
+                TargetPath(target.clone()),
+                volumes[&DataEntryKey(source_key)].clone(),
+            );
+        }
+        result
+    }
+    fn volume_name(workspace_key: &str, data_entry_name: &str) -> String {
+        format!(
+            "rooz-{}-{}",
+            id::sanitize(workspace_key),
+            id::sanitize(data_entry_name)
+        )
+    }
+    pub fn create_volume_specs(
+        workspace_key: &str,
+        data: &HashMap<String, DataValue>,
+        mounts: &HashMap<String, MountSource>,
+        implicit_work: bool,
+    ) -> HashMap<DataEntryKey, DataEntryVolumeSpec> {
+        let data = &mounts
+            .iter()
+            .map(|(k, v)| match v {
+                MountSource::DataEntryReference(data_key) => (data_key.as_str().to_string(), {
+                    let source_exists = data.contains_key(data_key.as_str());
+                    if !source_exists {
+                        panic!(
+                            "Key '{}' not found under 'data:' in workspace config. Keys: {:?}",
+                            data_key.as_str(),
+                            &data.keys(),
+                        );
+                    }
+
+                    data[data_key.as_str()].clone()
+                }),
+                MountSource::InlineDataValue(data_value) => {
+                    (id::sanitize(k), data_value.to_owned())
+                }
+            })
+            .collect::<HashMap<String, DataValue>>();
+
+        let mut data_entries = vec![];
+        data_entries.extend_from_slice(data.clone().into_entries().as_slice());
+
+        if !data.contains_key("work") && implicit_work {
+            data_entries.push(DataEntry::Dir {
+                name: "work".to_string(),
+            });
+        }
+
+        let files_key = "files";
+        let files_volume_spec = VolumeSpec {
+            name: Self::volume_name(workspace_key, files_key),
+            labels: Some(Labels::from(&[
+                Labels::workspace(workspace_key),
+                Labels::role(DATA_ROLE),
+            ])),
+        };
+
+        data_entries
+            .iter()
+            .filter_map(|d| match d {
+                DataEntry::Dir { name } => Some((
+                    DataEntryKey(name.to_string()),
+                    DataEntryVolumeSpec {
+                        data: d.clone(),
+                        volume: VolumeSpec {
+                            name: Self::volume_name(workspace_key, name),
+                            labels: Some(Labels::from(&[
+                                Labels::workspace(workspace_key),
+                                Labels::role(DATA_ROLE),
+                            ])),
+                        },
+                    },
+                )),
+                DataEntry::File { name, .. } => Some((
+                    DataEntryKey(name.to_string()),
+                    DataEntryVolumeSpec {
+                        data: d.clone(),
+                        volume: files_volume_spec.clone(),
+                    },
+                )),
+            })
+            .collect::<HashMap<_, _>>()
+    }
+
+    pub fn real_mounts_v2(
+        mounts: HashMap<TargetPath, DataEntryVolumeSpec>,
+        home_dir: Option<&str>,
+    ) -> HashMap<TargetDir, VolumeFilesSpec> {
+        const SHADOW_ROOT_DIR: &str = "/var/lib/rooz";
+        mounts
+            .iter()
+            .map(|(target, source_entry)| {
+                let expanded_target = Self::expand_home(target.as_str().to_string(), home_dir);
+                let (real_target, maybe_file) = match source_entry.data.clone() {
+                    DataEntry::File {
+                        content,
+                        executable,
+                        ..
+                    } => {
+                        let shadow_file = Path::new(SHADOW_ROOT_DIR).join(
+                            Path::new(&expanded_target)
+                                .to_string_lossy()
+                                .trim_start_matches('/'),
+                        );
+
+                        (
+                            SHADOW_ROOT_DIR.to_string(),
+                            Some(FileSpec {
+                                target_file: TargetFile(shadow_file.to_string_lossy().into_owned()),
+                                user_file: UserFile(expanded_target),
+                                content: content.to_string(),
+                                executable,
+                            }),
+                        )
+                    }
+                    _ => (expanded_target, None),
+                };
+                (
+                    TargetDir(real_target),
+                    VolumeName(source_entry.volume.name.to_string()),
+                    maybe_file,
+                )
+            })
+            .fold(
+                HashMap::new(),
+                |mut acc, (target_dir, volume_name, maybe_file)| {
+                    acc.entry(target_dir)
+                        .or_insert_with(|| VolumeFilesSpec {
+                            volume_name,
+                            files: Vec::new(),
+                        })
+                        .files
+                        .extend(maybe_file);
+                    acc
+                },
+            )
+    }
+    pub async fn ensure_volumes_v2(
+        &self,
+        data_entries: &HashMap<DataEntryKey, DataEntryVolumeSpec>,
+    ) -> Result<HashMap<VolumeName, VolumeResult>, AnyError> {
+        let mut result = HashMap::new();
+        for (k, v) in data_entries
+            .iter()
+            .map(|(_, v)| (v.volume.name.clone(), v.volume.clone()))
+            .collect::<HashMap<_, _>>()
+        {
+            let volume_result = self.ensure_volume_v2(&v).await?;
+            result.insert(VolumeName(k), volume_result);
+        }
+        Ok(result)
+    }
+
+    pub async fn populate_volume(
+        &self,
+        target_dir: TargetDir,
+        volume_file: VolumeFilesSpec,
+        uid: Option<&str>,
+    ) -> Result<(), AnyError> {
+        self.ensure_file_v2(
+            target_dir.as_str(),
+            &volume_file.clone(),
+            Self::mount(&target_dir, &volume_file),
+            uid,
+        )
+        .await
+    }
+
+    pub fn mount(target: &TargetDir, source: &VolumeFilesSpec) -> Mount {
+        Mount {
+            target: Some(target.as_str().to_string()),
+            source: Some(source.volume_name.as_str().to_string()),
+            typ: Some(VOLUME),
+            read_only: Some(false),
+            ..Mount::default()
+        }
+    }
+    pub async fn mounts_v2(
+        &self,
+        real_mounts: &HashMap<TargetDir, VolumeFilesSpec>,
+    ) -> Result<Vec<Mount>, AnyError> {
+        let mut mount_entries = HashMap::new();
+        mount_entries.extend(real_mounts.clone());
+
+        let mounts_v2 = mount_entries
+            .into_iter()
+            .map(|(target, source)| Self::mount(&target, &source))
+            .map(|v| (v.target.clone().unwrap().to_string(), v.clone()))
+            .collect::<HashMap<_, _>>() //dedupe entries to avoid duplicate mounts
+            .into_values()
+            .collect::<Vec<_>>();
+
+        Ok(mounts_v2)
     }
 
     pub async fn ensure_volume(
@@ -77,16 +337,16 @@ impl<'a> VolumeApi<'a> {
             Ok(_) if force_recreate => {
                 let options = RemoveVolumeOptions { force: true };
                 self.client.remove_volume(&name, Some(options)).await?;
-                return self.create_volume(create_vol_options).await;
+                self.create_volume(create_vol_options).await
             }
             Ok(_) => {
                 log::debug!("Reusing an existing {} volume", &name);
-                return Ok(VolumeResult::AlreadyExists);
+                Ok(VolumeResult::AlreadyExists)
             }
             Err(DockerResponseServerError {
                 status_code: 404,
                 message: _,
-            }) => return self.create_volume(create_vol_options).await,
+            }) => self.create_volume(create_vol_options).await,
             Err(e) => panic!("{}", e),
         }
     }
@@ -131,10 +391,64 @@ impl<'a> VolumeApi<'a> {
         Ok(mount)
     }
 
+    async fn ensure_file_v2(
+        &self,
+        root_dir: &str,
+        spec: &VolumeFilesSpec,
+        mount: Mount,
+        uid: Option<&str>,
+    ) -> Result<(), AnyError> {
+        let mut cmd = spec
+            .files
+            .iter()
+            .map(|f| {
+                let parent_dir = Path::new(f.target_file.as_str())
+                    .parent()
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned();
+
+                format!(
+                    "mkdir -p {} && echo '{}' | base64 -d > {}{}",
+                    parent_dir,
+                    general_purpose::STANDARD.encode(f.content.trim()),
+                    f.target_file.as_str(),
+                    if f.executable {
+                        format!(" && chmod +x {}", f.target_file.as_str())
+                    } else {
+                        "".to_string()
+                    }
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(" && ".into());
+
+        if let Some(uid) = uid {
+            let chown = format!("chown -R {}:{} {}", uid, uid, root_dir);
+            cmd = format!(
+                "{}{}{}",
+                cmd,
+                if cmd.is_empty() { "" } else { " && " },
+                chown
+            )
+        }
+
+        self.container
+            .one_shot(
+                &format!("populate volume: {}", &spec.volume_name.as_str()),
+                cmd,
+                Some(vec![mount]),
+                None,
+                None,
+            )
+            .await?;
+
+        Ok(())
+    }
     async fn ensure_file(
         &self,
         volume_name: &str,
-        path: &str,
+        parent_dir: &str,
         files: &Vec<RoozVolumeFile>,
         mount: Mount,
         uid: Option<&str>,
@@ -142,7 +456,7 @@ impl<'a> VolumeApi<'a> {
         let mut cmd = files
             .iter()
             .map(|f| {
-                let p = Path::new(path)
+                let p = Path::new(parent_dir)
                     .join(&f.file_path)
                     .to_string_lossy()
                     .to_string();
@@ -156,8 +470,13 @@ impl<'a> VolumeApi<'a> {
             .join(" && ".into());
 
         if let Some(uid) = uid {
-            let chown = format!("chown -R {}:{} {} && ", uid, uid, path);
-            cmd = format!("{}{}", chown, cmd)
+            let chown = format!("chown -R {}:{} {}", uid, uid, parent_dir);
+            cmd = format!(
+                "{}{}{}",
+                cmd,
+                if cmd.is_empty() { "" } else { " && " },
+                chown
+            )
         }
 
         self.container

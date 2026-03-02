@@ -1,0 +1,40 @@
+data:
+  empty-dir: {}
+  work: {}
+
+  git-config:
+    content: |-
+      [url "git@github.com:"]
+      insteadOf = gh:
+
+  # files included from paths are non-trivial at the moment for config originating from git
+  # rather trivial for local files, but I'd rather provide a consistent implementation
+  #local-file:
+  #  path: ./local.yaml
+
+mounts:
+  ~/placeholder: empty-dir
+  /work: work
+  ~/.gitconfig: git-config
+  ~/.bash_history:
+    content: ""
+  # TODO: KNOWN ISSUE - backing different mount paths by the same data entry crashes when trying to cat/edit such
+  # a file
+
+sidecars:
+  dkr:
+    image: docker.io/docker:28-dind-rootless
+    env:
+      DOCKER_TLS_CERTDIR: ''
+      DOCKER_TLS_VERIFY: ''
+    args:
+      - --tls=false
+      - --host=tcp://0.0.0.0:2375
+    privileged: true
+    init: false
+    mounts:
+      /var/placeholder: empty-dir
+      /root/.gitconfig: git-config
+      /var/inline:
+        content:
+          it shall fail

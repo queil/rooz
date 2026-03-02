@@ -1,34 +1,22 @@
-use std::path::Path;
-
+use crate::model::types::{TargetDir, VolumeFilesSpec};
 use crate::{
     api::WorkspaceApi,
-    constants,
     model::{
         types::{AnyError, ContainerResult, RunMode, RunSpec, WorkSpec, WorkspaceResult},
         volume::RoozVolume,
     },
     util::ssh,
 };
+use std::collections::HashMap;
+use std::path::Path;
 
 impl<'a> WorkspaceApi<'a> {
-    pub async fn create(&self, spec: &WorkSpec<'a>) -> Result<WorkspaceResult, AnyError> {
-        let mut volumes = vec![RoozVolume::work(spec.container_name, constants::WORK_DIR)];
-
-        let home_dir = format!("/home/{}", &spec.user);
-        if let Some(home_from_image) = spec.home_from_image {
-            let home_vol = RoozVolume::home(spec.container_name.into(), &home_dir);
-            volumes.push(home_vol.clone());
-            self.api
-                .container
-                .one_shot(
-                    "populate-home",
-                    "exit 0".into(),
-                    Some(vec![home_vol.to_mount(None)]),
-                    Some(spec.uid),
-                    Some(home_from_image),
-                )
-                .await?;
-        }
+    pub async fn create(
+        &self,
+        spec: &WorkSpec<'a>,
+        real_mounts: &HashMap<TargetDir, VolumeFilesSpec>,
+    ) -> Result<WorkspaceResult, AnyError> {
+        let mut volumes = vec![];
 
         if let Some(caches) = &spec.caches {
             log::debug!("Processing caches");
@@ -45,7 +33,7 @@ impl<'a> WorkspaceApi<'a> {
         } else {
             log::debug!("No caches configured. Skipping");
         }
-
+        let home_dir = format!("/home/{}", &spec.user);
         let mut mounts = self
             .api
             .volume
@@ -55,6 +43,8 @@ impl<'a> WorkspaceApi<'a> {
         mounts.push(ssh::mount(
             Path::new(&home_dir).join(".ssh").to_string_lossy().as_ref(),
         ));
+
+        mounts.extend(spec.mounts.clone());
 
         let run_spec = RunSpec {
             reason: "work",
@@ -84,18 +74,22 @@ impl<'a> WorkspaceApi<'a> {
         };
 
         match self.api.container.create(run_spec).await? {
-        ContainerResult::Created { .. } =>
+            ContainerResult::Created { id: container_id } => {
+                self.api
+                    .container
+                    .symlink_files(&container_id, &real_mounts)
+                    .await?;
 
-            Ok(
-                WorkspaceResult {
+                Ok(WorkspaceResult {
                     workspace_key: (&spec).workspace_key.to_string(),
                     working_dir: (&spec).container_working_dir.to_string(),
                     orig_uid: spec.uid.to_string(),
-                    volumes: volumes.iter().map(|v|v.clone()).collect::<Vec<_>>() }),
+                })
+            }
 
-        ContainerResult::AlreadyExists { .. } => {
-            Err(format!("Workspace {} already exists.", spec.workspace_key).into())
+            ContainerResult::AlreadyExists { .. } => {
+                Err(format!("Workspace {} already exists.", spec.workspace_key).into())
+            }
         }
-    }
     }
 }

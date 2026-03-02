@@ -226,7 +226,6 @@ impl<'a> GitApi<'a> {
                 .tty(
                     "git-clone",
                     &id,
-                    true,
                     None,
                     None,
                     Some(clone_cmd.iter().map(String::as_str).collect()),
@@ -246,12 +245,6 @@ impl<'a> GitApi<'a> {
         let exec = self.api.exec;
 
         let rooz_cfg = if let Some(cfg) = exec
-            .read_config_body(&container_id, &clone_dir, FileFormat::Toml, None)
-            .await?
-        {
-            log::debug!("Config file found (TOML)");
-            Some((cfg, FileFormat::Toml))
-        } else if let Some(cfg) = exec
             .read_config_body(&container_id, &clone_dir, FileFormat::Yaml, None)
             .await?
         {
