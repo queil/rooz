@@ -67,7 +67,8 @@ impl<'a> WorkspaceApi<'a> {
                 RunMode::Workspace
             },
             labels: spec.labels.clone(),
-            network: spec.network,
+            networks: spec.network.clone(),
+            internet_access: true,
             env: spec.env_vars.clone(),
             ports: spec.ports.clone(),
             ..Default::default()

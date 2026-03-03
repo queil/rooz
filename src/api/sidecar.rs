@@ -19,28 +19,42 @@ impl<'a> WorkspaceApi<'a> {
         workspace_key: &str,
         force: bool,
         pull_image: bool,
-    ) -> Result<(RuntimeConfig, Option<String>), AnyError> {
+    ) -> Result<(RuntimeConfig, Option<Vec<String>>), AnyError> {
         let mut cfg = config.clone();
         let labels = Labels::from(&[Labels::workspace(workspace_key)]);
 
         let network = if !cfg.sidecars.is_empty() {
-            let network_options = NetworkCreateRequest {
-                name: workspace_key.into(),
-                labels: Some(labels.clone().into()),
-                ..Default::default()
-            };
-
-            match self.api.client.create_network(network_options).await {
-                Ok(_) => (),
-                Err(bollard::errors::Error::DockerResponseServerError {
-                    status_code: 409,
-                    message,
-                }) => {
-                    log::debug!("Could not create network: {}", message);
-                }
-                e => panic!("{:?}", e),
-            };
-            Some(workspace_key.as_ref())
+            let opts = vec![
+                NetworkCreateRequest {
+                    name: workspace_key.into(),
+                    labels: Some(labels.clone().into()),
+                    internal: Some(true),
+                    ..Default::default()
+                },
+                NetworkCreateRequest {
+                    name: format!("{}-inet", workspace_key),
+                    labels: Some(labels.clone().into()),
+                    ..Default::default()
+                },
+            ];
+            for o in opts.clone() {
+                match self.api.client.create_network(o).await {
+                    Ok(_) => (),
+                    Err(bollard::errors::Error::DockerResponseServerError {
+                        status_code: 409,
+                        message,
+                    }) => {
+                        log::debug!("Could not create network: {}", message);
+                    }
+                    e => panic!("{:?}", e),
+                };
+            }
+            Some(
+                opts.clone()
+                    .into_iter()
+                    .map(|f| f.name.to_string())
+                    .collect::<Vec<_>>(),
+            )
         } else {
             None
         };
@@ -98,7 +112,9 @@ impl<'a> WorkspaceApi<'a> {
                     workspace_key: &workspace_key,
                     labels,
                     env: Some(s.env.clone()),
-                    network,
+                    networks: network
+                        .as_ref()
+                        .map(|v| v.iter().map(|s| s.as_str()).collect::<Vec<_>>()),
                     network_aliases: Some(vec![name.into()]),
                     command: if cmd.is_empty() {
                         None
@@ -117,6 +133,7 @@ impl<'a> WorkspaceApi<'a> {
                     privileged: s.privileged,
                     init: s.init,
                     force_pull: pull_image,
+                    internet_access: s.internet_access,
                     ..Default::default()
                 })
                 .await?
@@ -128,9 +145,6 @@ impl<'a> WorkspaceApi<'a> {
             }
         }
 
-        Ok((
-            RuntimeConfig { ..cfg.clone() },
-            network.map(|n| n.to_string()),
-        ))
+        Ok((RuntimeConfig { ..cfg.clone() }, network.clone()))
     }
 }

@@ -19,6 +19,7 @@ pub struct RoozSidecarRuntime {
     pub init: bool,
     pub work_dir: String,
     pub user: String,
+    pub internet_access: bool,
 }
 
 impl<'a> From<&'a RoozSidecar> for RoozSidecarRuntime {
@@ -50,6 +51,7 @@ impl<'a> From<&'a RoozSidecar> for RoozSidecarRuntime {
                 .user
                 .clone()
                 .unwrap_or(constants::ROOT_UID.to_string()),
+            internet_access: value.internet_access.clone().unwrap_or(false),
         }
     }
 }
