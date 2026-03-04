@@ -73,6 +73,13 @@ impl<'a> ImageApi<'a> {
         })
     }
 
+    pub async fn exists(&self, image: &str) -> Result<bool, AnyError> {
+        Ok(match self.client.inspect_image(&image).await{
+            Ok(_) => true,
+            Err(_) => false
+        })
+    }
+
     pub async fn ensure(&self, image: &str, always_pull: bool) -> Result<ImageInfo, AnyError> {
         log::debug!("Ensuring image: {}", &image);
 

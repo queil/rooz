@@ -80,6 +80,10 @@ impl<'a> WorkspaceApi<'a> {
                     .container
                     .symlink_files(&container_id, &real_mounts)
                     .await?;
+                if let Some(install) = spec.install.clone() {
+                    self.api.container.start(&container_id).await?;
+                    self.api.exec.install(spec.container_name, &container_id, install).await?;
+                }
 
                 Ok(WorkspaceResult {
                     workspace_key: (&spec).workspace_key.to_string(),

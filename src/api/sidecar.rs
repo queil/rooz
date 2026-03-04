@@ -10,6 +10,8 @@ use crate::{
 };
 
 use bollard::models::NetworkCreateRequest;
+use bollard_stubs::models::ContainerConfig;
+use bollard_stubs::query_parameters::CommitContainerOptions;
 use std::collections::HashMap;
 
 impl<'a> WorkspaceApi<'a> {
@@ -100,48 +102,115 @@ impl<'a> WorkspaceApi<'a> {
             let uid = s.user.clone();
             let cmd = &s.command.iter().map(|x| x.as_str()).collect::<Vec<_>>();
             let args = &s.args.iter().map(|k| k.as_str()).collect::<Vec<_>>();
-            if let ContainerResult::Created { id: container_id } = self
-                .api
-                .container
-                .create(RunSpec {
-                    reason: &container_name,
-                    container_name: &container_name,
-                    uid: &uid,
-                    image: &s.image,
-                    force_recreate: force,
-                    workspace_key: &workspace_key,
-                    labels,
-                    env: Some(s.env.clone()),
-                    networks: network
-                        .as_ref()
-                        .map(|v| v.iter().map(|s| s.as_str()).collect::<Vec<_>>()),
-                    network_aliases: Some(vec![name.into()]),
-                    command: if cmd.is_empty() {
-                        None
-                    } else {
-                        Some(cmd.clone())
-                    },
-                    args: if args.is_empty() {
-                        None
-                    } else {
-                        Some(args.clone())
-                    },
-                    mounts: Some(mounts_v2),
-                    ports: Some(ports),
-                    work_dir: Some(s.work_dir.as_str()),
-                    run_mode: RunMode::Sidecar,
-                    privileged: s.privileged,
-                    init: s.init,
-                    force_pull: pull_image,
-                    internet_access: s.internet_access,
-                    ..Default::default()
-                })
-                .await?
-            {
-                self.api
+
+            let run_spec = RunSpec {
+                reason: &container_name,
+                container_name: &container_name,
+                uid: &uid,
+                image: &s.image,
+                force_recreate: force,
+                workspace_key: &workspace_key,
+                labels,
+                env: Some(s.env.clone()),
+                networks: network
+                    .as_ref()
+                    .map(|v| v.iter().map(|s| s.as_str()).collect::<Vec<_>>()),
+                network_aliases: Some(vec![name.into()]),
+                command: if cmd.is_empty() {
+                    None
+                } else {
+                    Some(cmd.clone())
+                },
+                args: if args.is_empty() {
+                    None
+                } else {
+                    Some(args.clone())
+                },
+                mounts: Some(mounts_v2),
+                ports: Some(ports),
+                work_dir: Some(s.work_dir.as_str()),
+                run_mode: RunMode::Sidecar,
+                privileged: s.privileged,
+                init: s.init,
+                force_pull: pull_image,
+                internet_access: s.internet_access,
+                ..Default::default()
+            };
+
+            if let Some(install) = s.install.clone() {
+                let repo = format!("localhost/rooz/{}/{}", &workspace_key, &name);
+
+                if !self.api.image.exists(&repo).await? {
+                    if let ContainerResult::Created { id: container_id } = self
+                        .api
+                        .container
+                        .create(RunSpec {
+                            command: Some(vec!["sleep"]),
+                            args: Some(vec!["infinity"]),
+                            ..run_spec.clone()
+                        })
+                        .await?
+                    {
+                        self.api.container.start(&container_id).await?;
+                        self.api
+                            .exec
+                            .install(&container_name, &container_id, install)
+                            .await?;
+                        self.api
+                            .container
+                            .client
+                            .commit_container(
+                                CommitContainerOptions {
+                                    container: Some(container_id.clone()),
+                                    repo: Some(repo.to_string()),
+                                    tag: Some("latest".to_string()),
+                                    pause: false,
+                                    ..Default::default()
+                                },
+                                ContainerConfig {
+                                    cmd: if s.args.is_empty() {
+                                        None
+                                    } else {
+                                        Some(s.args.clone())
+                                    },
+                                    entrypoint: if s.command.is_empty() {
+                                        None
+                                    } else {
+                                        Some(s.command.clone())
+                                    },
+                                    ..Default::default()
+                                },
+                            )
+                            .await?;
+                        self.api.container.stop(&container_id).await?;
+                        self.api.container.remove(&container_id, true).await?;
+                    }
+                }
+
+                let repo_image = format!("{}:latest", repo);
+                if let ContainerResult::Created { id: container_id } = self
+                    .api
                     .container
-                    .symlink_files(&container_id, &real_mounts)
-                    .await?;
+                    .create(RunSpec {
+                        image: &repo_image,
+                        ..run_spec.clone()
+                    })
+                    .await?
+                {
+                    self.api
+                        .container
+                        .symlink_files(&container_id, &real_mounts)
+                        .await?;
+                }
+            } else {
+                if let ContainerResult::Created { id: container_id } =
+                    self.api.container.create(run_spec).await?
+                {
+                    self.api
+                        .container
+                        .symlink_files(&container_id, &real_mounts)
+                        .await?;
+                }
             }
         }
 

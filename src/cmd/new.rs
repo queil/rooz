@@ -130,6 +130,7 @@ impl<'a> WorkspaceApi<'a> {
             .as_ref()
             .map(|x| x.iter().map(|z| z.as_ref()).collect()),
             mounts: mounts_v2,
+            install: cfg2.install,
             ..*work_spec
         };
 

@@ -49,6 +49,7 @@ pub struct WorkSpec<'a> {
     pub command: Option<Vec<&'a str>>,
     pub args: Option<Vec<&'a str>>,
     pub mounts: Vec<Mount>,
+    pub install: Option<String>,
 }
 
 impl Default for WorkSpec<'_> {
@@ -72,11 +73,12 @@ impl Default for WorkSpec<'_> {
             command: None,
             args: None,
             mounts: Vec::new(),
+            install: None,
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum RunMode {
     Workspace,
     Tmp,
@@ -85,6 +87,7 @@ pub enum RunMode {
     Sidecar,
 }
 
+#[derive(Clone)]
 pub struct RunSpec<'a> {
     pub reason: &'a str,
     pub image: &'a str,
