@@ -18,7 +18,7 @@ pub struct RoozSidecarRuntime {
     pub privileged: bool,
     pub init: bool,
     pub work_dir: String,
-    pub user: String,
+    pub user: Option<String>,
     pub internet_access: bool,
     pub install: Option<String>,
 }
@@ -50,8 +50,7 @@ impl<'a> From<&'a RoozSidecar> for RoozSidecarRuntime {
             work_dir: value.work_dir.clone().unwrap_or_default(),
             user: value
                 .user
-                .clone()
-                .unwrap_or(constants::ROOT_UID.to_string()),
+                .clone(),
             internet_access: value.internet_access.clone().unwrap_or(false),
             install: value.install.clone(),
         }

@@ -78,7 +78,7 @@ impl<'a> WorkspaceApi<'a> {
             ContainerResult::Created { id: container_id } => {
                 self.api
                     .container
-                    .symlink_files(&container_id, &real_mounts)
+                    .symlink_files(&container_id, &real_mounts, Some(spec.uid))
                     .await?;
                 if let Some(install) = spec.install.clone() {
                     self.api.container.start(&container_id).await?;

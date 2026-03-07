@@ -422,6 +422,7 @@ impl<'a> ContainerApi<'a> {
         &self,
         container_id: &str,
         mounts: &HashMap<TargetDir, VolumeFilesSpec>,
+        uid: Option<&str>,
     ) -> Result<(), AnyError> {
         let mut archive = tar::Builder::new(Vec::new());
         for (_, spec) in mounts {
@@ -434,8 +435,8 @@ impl<'a> ContainerApi<'a> {
                 let mut header = tar::Header::new_gnu();
                 header.set_size(0);
                 header.set_mode(0o777);
-                header.set_uid(0);
-                header.set_gid(0);
+                header.set_uid(uid.unwrap_or(constants::ROOT_UID).parse()?);
+                header.set_gid(uid.unwrap_or(constants::ROOT_UID).parse()?);
                 header.set_entry_type(tar::EntryType::Symlink);
                 archive.append_link(
                     &mut header,
