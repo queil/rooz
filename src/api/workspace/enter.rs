@@ -87,6 +87,7 @@ impl<'a> WorkspaceApi<'a> {
                 }
             };
 
+            // skipped for sidecars. They often will be distro-less so that would fail anyway
             if !root && container_name == constants::DEFAULT_CONTAINER_NAME {
                 self.api.exec.ensure_user(container_id).await?;
 

@@ -1,0 +1,11 @@
+image: docker.io/alpine:latest
+
+
+sidecars:
+  test:
+    image: docker.io/alpine:latest
+    command: ["/usr/bin/tinyproxy"]
+    args: ["-d"]
+    user: 1000
+    install: |-
+      apk add tinyproxy

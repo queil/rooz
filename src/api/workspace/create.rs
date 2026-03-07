@@ -67,7 +67,8 @@ impl<'a> WorkspaceApi<'a> {
                 RunMode::Workspace
             },
             labels: spec.labels.clone(),
-            network: spec.network,
+            networks: spec.network.clone(),
+            internet_access: true,
             env: spec.env_vars.clone(),
             ports: spec.ports.clone(),
             ..Default::default()
@@ -77,8 +78,15 @@ impl<'a> WorkspaceApi<'a> {
             ContainerResult::Created { id: container_id } => {
                 self.api
                     .container
-                    .symlink_files(&container_id, &real_mounts)
+                    .symlink_files(&container_id, &real_mounts, Some(spec.uid))
                     .await?;
+                if let Some(install) = spec.install.clone() {
+                    self.api.container.start(&container_id).await?;
+                    self.api
+                        .exec
+                        .install(spec.container_name, &container_id, install)
+                        .await?;
+                }
 
                 Ok(WorkspaceResult {
                     workspace_key: (&spec).workspace_key.to_string(),

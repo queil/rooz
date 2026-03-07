@@ -282,12 +282,13 @@ impl<'a> ContainerApi<'a> {
             }
         }
 
-        let (attach_stdin, tty, open_stdin, auto_remove) = match spec.run_mode {
-            RunMode::Workspace => (Some(true), Some(true), None, None),
-            RunMode::Tmp => (Some(true), Some(true), None, Some(true)),
-            RunMode::Git => (None, None, Some(true), Some(true)),
-            RunMode::OneShot => (None, None, None, Some(true)),
-            RunMode::Sidecar => (None, None, None, None),
+        let (attach_stdin, tty, open_stdin, auto_remove, readonly_rootfs) = match spec.run_mode {
+            RunMode::Workspace => (Some(true), Some(true), None, None, None),
+            RunMode::Tmp => (Some(true), Some(true), None, Some(true), None),
+            RunMode::Git => (None, None, Some(true), Some(true), Some(true)),
+            RunMode::OneShot => (None, None, None, Some(true), Some(true)),
+            RunMode::Sidecar => (None, None, None, None, Some(true)),
+            RunMode::SidecarInstall => (None, None, None, None, None),
         };
 
         let host_config = HostConfig {
@@ -297,6 +298,7 @@ impl<'a> ContainerApi<'a> {
             oom_score_adj,
             privileged: Some(spec.privileged),
             init: Some(spec.init),
+            readonly_rootfs,
             port_bindings,
             ..Default::default()
         };
@@ -347,18 +349,23 @@ impl<'a> ContainerApi<'a> {
             Err(err) => panic!("ERROR: {:?}", err),
         };
 
-        if let Some(network) = &spec.network {
-            let connect_network_options = NetworkConnectRequest {
-                container: Some(response.id.to_string()),
-                endpoint_config: Some(EndpointSettings {
-                    aliases: spec.network_aliases,
-                    ..Default::default()
-                }),
-            };
-            self.client
-                .connect_network(network, connect_network_options)
-                .await?;
+        if let Some(networks) = &spec.networks {
+            for n in networks {
+                if !n.ends_with("-inet") || spec.internet_access {
+                    let connect_network_options = NetworkConnectRequest {
+                        container: Some(response.id.to_string()),
+                        endpoint_config: Some(EndpointSettings {
+                            aliases: spec.network_aliases.clone(),
+                            ..Default::default()
+                        }),
+                    };
+                    self.client
+                        .connect_network(n, connect_network_options.clone())
+                        .await?;
+                }
+            }
         }
+
         log::debug!(
             "Created container: {} ({})",
             spec.container_name,
@@ -417,6 +424,7 @@ impl<'a> ContainerApi<'a> {
         &self,
         container_id: &str,
         mounts: &HashMap<TargetDir, VolumeFilesSpec>,
+        uid: Option<&str>,
     ) -> Result<(), AnyError> {
         let mut archive = tar::Builder::new(Vec::new());
         for (_, spec) in mounts {
@@ -429,8 +437,8 @@ impl<'a> ContainerApi<'a> {
                 let mut header = tar::Header::new_gnu();
                 header.set_size(0);
                 header.set_mode(0o777);
-                header.set_uid(0);
-                header.set_gid(0);
+                header.set_uid(uid.unwrap_or(constants::ROOT_UID).parse()?);
+                header.set_gid(uid.unwrap_or(constants::ROOT_UID).parse()?);
                 header.set_entry_type(tar::EntryType::Symlink);
                 archive.append_link(
                     &mut header,

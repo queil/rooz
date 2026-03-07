@@ -18,7 +18,9 @@ pub struct RoozSidecarRuntime {
     pub privileged: bool,
     pub init: bool,
     pub work_dir: String,
-    pub user: String,
+    pub user: Option<String>,
+    pub internet_access: bool,
+    pub install: Option<String>,
 }
 
 impl<'a> From<&'a RoozSidecar> for RoozSidecarRuntime {
@@ -46,10 +48,9 @@ impl<'a> From<&'a RoozSidecar> for RoozSidecarRuntime {
             privileged: value.privileged.clone().unwrap_or_default(),
             init: value.init.clone().unwrap_or(true),
             work_dir: value.work_dir.clone().unwrap_or_default(),
-            user: value
-                .user
-                .clone()
-                .unwrap_or(constants::ROOT_UID.to_string()),
+            user: value.user.clone(),
+            internet_access: value.internet_access.clone().unwrap_or(false),
+            install: value.install.clone(),
         }
     }
 }
@@ -71,6 +72,7 @@ pub struct RuntimeConfig {
     pub data: HashMap<String, DataValue>,
     pub mounts: HashMap<String, MountSource>,
     pub real_mounts: HashMap<TargetDir, VolumeFilesSpec>,
+    pub install: Option<String>,
 }
 
 impl Default for RuntimeConfig {
@@ -92,6 +94,7 @@ impl Default for RuntimeConfig {
             data: HashMap::new(),
             mounts: HashMap::new(),
             real_mounts: HashMap::new(),
+            install: None,
         }
     }
 }
@@ -158,6 +161,7 @@ impl<'a> From<&'a RoozCfg> for RuntimeConfig {
                 .unwrap_or_default()
                 .into_iter()
                 .collect(),
+            install: value.install.clone(),
             ..default
         }
     }

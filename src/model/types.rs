@@ -43,12 +43,13 @@ pub struct WorkSpec<'a> {
     pub privileged: bool,
     pub init: bool,
     pub force_recreate: bool,
-    pub network: Option<&'a str>,
+    pub network: Option<Vec<&'a str>>,
     pub env_vars: Option<HashMap<String, String>>,
     pub ports: Option<HashMap<String, Option<String>>>,
     pub command: Option<Vec<&'a str>>,
     pub args: Option<Vec<&'a str>>,
     pub mounts: Vec<Mount>,
+    pub install: Option<String>,
 }
 
 impl Default for WorkSpec<'_> {
@@ -72,19 +73,22 @@ impl Default for WorkSpec<'_> {
             command: None,
             args: None,
             mounts: Vec::new(),
+            install: None,
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum RunMode {
     Workspace,
     Tmp,
     Git,
     OneShot,
     Sidecar,
+    SidecarInstall,
 }
 
+#[derive(Clone)]
 pub struct RunSpec<'a> {
     pub reason: &'a str,
     pub image: &'a str,
@@ -104,7 +108,8 @@ pub struct RunSpec<'a> {
     pub labels: Labels,
     pub env: Option<HashMap<String, String>>,
     pub ports: Option<HashMap<String, Option<String>>>,
-    pub network: Option<&'a str>,
+    pub networks: Option<Vec<&'a str>>,
+    pub internet_access: bool,
     pub network_aliases: Option<Vec<String>>,
     pub run_mode: RunMode,
 }
@@ -129,7 +134,8 @@ impl Default for RunSpec<'_> {
             force_pull: false,
             labels: Default::default(),
             env: Default::default(),
-            network: None,
+            networks: None,
+            internet_access: false,
             network_aliases: None,
             ports: None,
             run_mode: RunMode::OneShot,

@@ -10,6 +10,7 @@ use crate::util::id;
 use crate::util::labels::DATA_ROLE;
 use crate::{
     api::VolumeApi,
+    constants,
     model::{
         types::{AnyError, VolumeResult},
         volume::{RoozVolume, RoozVolumeFile},
@@ -423,7 +424,9 @@ impl<'a> VolumeApi<'a> {
             .collect::<Vec<_>>()
             .join(" && ".into());
 
-        if let Some(uid) = uid {
+        if let Some(uid) = uid
+            && uid != constants::ROOT_UID
+        {
             let chown = format!("chown -R {}:{} {}", uid, uid, root_dir);
             cmd = format!(
                 "{}{}{}",

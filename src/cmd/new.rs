@@ -109,7 +109,9 @@ impl<'a> WorkspaceApi<'a> {
                 .clone()
                 .map(|r| r.dir)
                 .unwrap_or(constants::WORK_DIR.to_string()),
-            network: network.as_deref(),
+            network: network
+                .as_ref()
+                .map(|v| v.iter().map(|s| s.as_str()).collect::<Vec<_>>()),
             labels,
             privileged: cfg2.privileged,
             init: cfg2.init,
@@ -128,6 +130,7 @@ impl<'a> WorkspaceApi<'a> {
             .as_ref()
             .map(|x| x.iter().map(|z| z.as_ref()).collect()),
             mounts: mounts_v2,
+            install: cfg2.install,
             ..*work_spec
         };
 

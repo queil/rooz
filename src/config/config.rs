@@ -115,9 +115,13 @@ pub struct RoozSidecar {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub init: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub install: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub work_dir: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub user: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub internet_access: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -145,6 +149,8 @@ pub struct RoozCfg {
     pub privileged: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub init: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub install: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub command: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -179,6 +185,7 @@ impl Default for RoozCfg {
             sidecars: Some(LinkedHashMap::new()),
             data: Some(LinkedHashMap::new()),
             mounts: Some(LinkedHashMap::new()),
+            install: None,
         }
     }
 }
@@ -240,6 +247,7 @@ impl RoozCfg {
             sidecars: Self::extend_if_any(self.sidecars.clone(), config.sidecars.clone()),
             data: Self::extend_if_any(self.data.clone(), config.data.clone()),
             mounts: Self::extend_if_any(self.mounts.clone(), config.mounts.clone()),
+            install: config.install.clone().or(self.install.clone()),
         }
     }
 

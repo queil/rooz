@@ -1,6 +1,4 @@
-use crate::{
-    api::ExecApi, api::container, constants, model::types::AnyError, util::backend::ContainerEngine,
-};
+use crate::{api::ExecApi, constants, model::types::AnyError, util::backend::ContainerEngine};
 use bollard::{
     container::LogOutput,
     errors::Error,
@@ -9,6 +7,7 @@ use bollard::{
 };
 use futures::{Stream, StreamExt};
 
+use crate::api::container::inject;
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use std::{io::Read, time::Duration};
 use tokio::{
@@ -239,6 +238,23 @@ impl<'a> ExecApi<'a> {
         }
     }
 
+    pub async fn install(
+        &self,
+        container_name: &str,
+        container_id: &str,
+        cmd: String,
+    ) -> Result<(), AnyError> {
+        let cmd = format!(
+            r#"echo '[install] {}'
+{}"#,
+            container_name, cmd
+        );
+        let install_cmd = inject(cmd.as_str(), "install.sh");
+        let v = install_cmd.iter().map(|x| x.as_str()).collect::<Vec<_>>();
+        self.run("install", container_id, Some(constants::ROOT_UID), Some(v))
+            .await
+    }
+
     pub async fn chown(&self, container_id: &str, uid: &str, dir: &str) -> Result<(), AnyError> {
         if let ContainerEngine::Podman = self.backend.engine {
             log::debug!("Podman won't need chown. Skipping");
@@ -270,7 +286,7 @@ impl<'a> ExecApi<'a> {
     }
 
     pub async fn ensure_user(&self, container_id: &str) -> Result<(), AnyError> {
-        let ensure_user_cmd = container::inject(
+        let ensure_user_cmd = inject(
             format!(
                     r#"grep -q "^$ROOZ_META_USER:x:$ROOZ_META_UID" /etc/passwd && exit 0
                        sed -i "/:x:${{ROOZ_META_UID}}/d" /etc/passwd && \
