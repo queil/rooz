@@ -349,8 +349,8 @@ impl<'a> ContainerApi<'a> {
             Err(err) => panic!("ERROR: {:?}", err),
         };
 
-        if let Some(network) = &spec.networks {
-            for n in network {
+        if let Some(networks) = &spec.networks {
+            for n in networks {
                 if !n.ends_with("-inet") || spec.internet_access {
                     let connect_network_options = NetworkConnectRequest {
                         container: Some(response.id.to_string()),

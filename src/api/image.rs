@@ -90,7 +90,7 @@ impl<'a> ImageApi<'a> {
                 os,
                 ..
             }) => {
-                if always_pull {
+                if always_pull && !image.starts_with("localhost/") {
                     self.pull(image).await?
                 } else {
                     ImageInfo {

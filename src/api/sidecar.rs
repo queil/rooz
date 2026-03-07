@@ -153,6 +153,7 @@ impl<'a> WorkspaceApi<'a> {
                             command: Some(vec!["sleep"]),
                             args: Some(vec!["infinity"]),
                             run_mode: RunMode::SidecarInstall,
+                            internet_access: true,
                             ..run_spec.clone()
                         })
                         .await?
