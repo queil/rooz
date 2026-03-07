@@ -82,7 +82,10 @@ impl<'a> WorkspaceApi<'a> {
                     .await?;
                 if let Some(install) = spec.install.clone() {
                     self.api.container.start(&container_id).await?;
-                    self.api.exec.install(spec.container_name, &container_id, install).await?;
+                    self.api
+                        .exec
+                        .install(spec.container_name, &container_id, install)
+                        .await?;
                 }
 
                 Ok(WorkspaceResult {

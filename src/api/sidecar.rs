@@ -2,7 +2,13 @@ use crate::api::VolumeApi;
 use crate::config::config::MountSource;
 use crate::config::runtime::RuntimeConfig;
 use crate::model::types::ContainerResult;
-use crate::{api::WorkspaceApi, config::config::RoozCfg, constants, model::types::{AnyError, RunMode, RunSpec}, util::labels::{self, Labels}};
+use crate::{
+    api::WorkspaceApi,
+    config::config::RoozCfg,
+    constants,
+    model::types::{AnyError, RunMode, RunSpec},
+    util::labels::{self, Labels},
+};
 
 use bollard::models::NetworkCreateRequest;
 use bollard_stubs::models::ContainerConfig;
@@ -83,8 +89,8 @@ impl<'a> WorkspaceApi<'a> {
                     .volume
                     .mounts_with_sources(&volumes_v2, &mounts_all, false);
 
-            //TODO: not setting home dir as it depends on the user. When using uid the user might not 
-            // exist so it hard to make it work predictably. Consider marking as not supported by design 
+            //TODO: not setting home dir as it depends on the user. When using uid the user might not
+            // exist so it hard to make it work predictably. Consider marking as not supported by design
             let real_mounts = VolumeApi::real_mounts_v2(mounts_config.clone(), None);
 
             mounts_v2.extend_from_slice(self.api.volume.mounts_v2(&real_mounts).await?.as_slice());
@@ -93,9 +99,11 @@ impl<'a> WorkspaceApi<'a> {
                 s.real_mounts.insert(t.clone(), m.clone());
                 // The volume might already be created by the workspace-level volume creation
                 // but still may need files in the paths not covered by that process
-                self.api.volume.populate_volume(t, m, uid.as_deref()).await?;
+                self.api
+                    .volume
+                    .populate_volume(t, m, uid.as_deref())
+                    .await?;
             }
-
 
             let cmd = &s.command.iter().map(|x| x.as_str()).collect::<Vec<_>>();
             let args = &s.args.iter().map(|k| k.as_str()).collect::<Vec<_>>();
@@ -144,6 +152,7 @@ impl<'a> WorkspaceApi<'a> {
                         .create(RunSpec {
                             command: Some(vec!["sleep"]),
                             args: Some(vec!["infinity"]),
+                            run_mode: RunMode::SidecarInstall,
                             ..run_spec.clone()
                         })
                         .await?

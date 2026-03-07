@@ -48,9 +48,7 @@ impl<'a> From<&'a RoozSidecar> for RoozSidecarRuntime {
             privileged: value.privileged.clone().unwrap_or_default(),
             init: value.init.clone().unwrap_or(true),
             work_dir: value.work_dir.clone().unwrap_or_default(),
-            user: value
-                .user
-                .clone(),
+            user: value.user.clone(),
             internet_access: value.internet_access.clone().unwrap_or(false),
             install: value.install.clone(),
         }

@@ -8,10 +8,15 @@ use crate::model::types::{
 };
 use crate::util::id;
 use crate::util::labels::DATA_ROLE;
-use crate::{api::VolumeApi, constants, model::{
-    types::{AnyError, VolumeResult},
-    volume::{RoozVolume, RoozVolumeFile},
-}, util::labels::Labels};
+use crate::{
+    api::VolumeApi,
+    constants,
+    model::{
+        types::{AnyError, VolumeResult},
+        volume::{RoozVolume, RoozVolumeFile},
+    },
+    util::labels::Labels,
+};
 use base64::{Engine as _, engine::general_purpose};
 use bollard::{
     errors::Error::DockerResponseServerError,
@@ -419,7 +424,9 @@ impl<'a> VolumeApi<'a> {
             .collect::<Vec<_>>()
             .join(" && ".into());
 
-        if let Some(uid) = uid && uid != constants::ROOT_UID {
+        if let Some(uid) = uid
+            && uid != constants::ROOT_UID
+        {
             let chown = format!("chown -R {}:{} {}", uid, uid, root_dir);
             cmd = format!(
                 "{}{}{}",

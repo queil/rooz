@@ -1,6 +1,4 @@
-use crate::{
-    api::ExecApi, constants, model::types::AnyError, util::backend::ContainerEngine,
-};
+use crate::{api::ExecApi, constants, model::types::AnyError, util::backend::ContainerEngine};
 use bollard::{
     container::LogOutput,
     errors::Error,
@@ -240,10 +238,17 @@ impl<'a> ExecApi<'a> {
         }
     }
 
-    pub async fn install(&self, container_name: &str, container_id: &str, cmd: String) -> Result<(), AnyError> {
-        let cmd = format!(r#"echo '[install] {}'
+    pub async fn install(
+        &self,
+        container_name: &str,
+        container_id: &str,
+        cmd: String,
+    ) -> Result<(), AnyError> {
+        let cmd = format!(
+            r#"echo '[install] {}'
 {}"#,
-                          container_name, cmd);
+            container_name, cmd
+        );
         let install_cmd = inject(cmd.as_str(), "install.sh");
         let v = install_cmd.iter().map(|x| x.as_str()).collect::<Vec<_>>();
         self.run("install", container_id, Some(constants::ROOT_UID), Some(v))

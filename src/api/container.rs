@@ -282,12 +282,13 @@ impl<'a> ContainerApi<'a> {
             }
         }
 
-        let (attach_stdin, tty, open_stdin, auto_remove) = match spec.run_mode {
-            RunMode::Workspace => (Some(true), Some(true), None, None),
-            RunMode::Tmp => (Some(true), Some(true), None, Some(true)),
-            RunMode::Git => (None, None, Some(true), Some(true)),
-            RunMode::OneShot => (None, None, None, Some(true)),
-            RunMode::Sidecar => (None, None, None, None),
+        let (attach_stdin, tty, open_stdin, auto_remove, readonly_rootfs) = match spec.run_mode {
+            RunMode::Workspace => (Some(true), Some(true), None, None, None),
+            RunMode::Tmp => (Some(true), Some(true), None, Some(true), None),
+            RunMode::Git => (None, None, Some(true), Some(true), Some(true)),
+            RunMode::OneShot => (None, None, None, Some(true), Some(true)),
+            RunMode::Sidecar => (None, None, None, None, Some(true)),
+            RunMode::SidecarInstall => (None, None, None, None, None),
         };
 
         let host_config = HostConfig {
@@ -297,6 +298,7 @@ impl<'a> ContainerApi<'a> {
             oom_score_adj,
             privileged: Some(spec.privileged),
             init: Some(spec.init),
+            readonly_rootfs,
             port_bindings,
             ..Default::default()
         };

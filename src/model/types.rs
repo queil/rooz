@@ -85,6 +85,7 @@ pub enum RunMode {
     Git,
     OneShot,
     Sidecar,
+    SidecarInstall,
 }
 
 #[derive(Clone)]
