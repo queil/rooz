@@ -218,7 +218,7 @@ impl<'a> GitApi<'a> {
             self.api.exec.ensure_user(&id).await?;
             self.api
                 .exec
-                .chown(&id, &spec.uid, &spec.working_dir)
+                .chown(&id, &spec.uid.parse::<i32>()?, &spec.working_dir)
                 .await?;
 
             self.api

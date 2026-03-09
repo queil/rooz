@@ -69,11 +69,18 @@ impl<'a> WorkspaceApi<'a> {
             labels.extend(&[Labels::container(&name), Labels::role(labels::SIDECAR_ROLE)]);
             let mut ports = HashMap::<String, Option<String>>::new();
             RoozCfg::parse_ports(&mut ports, s.ports.clone());
-            let uid = s.user.clone();
+
+            //TODO: read the uid from the sidecar image if not overridden by the user
+            let uid = s.uid.clone();
+
             let mounts: HashMap<String, MountSource> = s.mounts.clone();
 
-            let volumes_v2 =
-                VolumeApi::create_volume_specs(workspace_key, &config.data, &mounts, false);
+            let volumes_v2 = VolumeApi::create_volume_specs(
+                workspace_key,
+                &config.data,
+                &config.all_mounts(),
+                false,
+            );
 
             self.api.volume.ensure_volumes_v2(&volumes_v2).await?;
 
@@ -99,19 +106,20 @@ impl<'a> WorkspaceApi<'a> {
                 s.real_mounts.insert(t.clone(), m.clone());
                 // The volume might already be created by the workspace-level volume creation
                 // but still may need files in the paths not covered by that process
-                self.api
-                    .volume
-                    .populate_volume(t, m, uid.as_deref())
-                    .await?;
+                self.api.volume.populate_volume(t, m, uid).await?;
             }
 
             let cmd = &s.command.iter().map(|x| x.as_str()).collect::<Vec<_>>();
             let args = &s.args.iter().map(|k| k.as_str()).collect::<Vec<_>>();
 
+            let uid_string = uid
+                .map(|x| x.to_string())
+                .unwrap_or(constants::ROOT_UID.to_string());
+
             let run_spec = RunSpec {
                 reason: &container_name,
                 container_name: &container_name,
-                uid: uid.as_deref().unwrap_or(constants::ROOT_UID),
+                uid: &uid_string,
                 image: &s.image,
                 force_recreate: force,
                 workspace_key: &workspace_key,
@@ -206,7 +214,7 @@ impl<'a> WorkspaceApi<'a> {
                 {
                     self.api
                         .container
-                        .symlink_files(&container_id, &real_mounts, uid.as_deref())
+                        .symlink_files(&container_id, &real_mounts, uid)
                         .await?;
                 }
             } else {
@@ -215,7 +223,7 @@ impl<'a> WorkspaceApi<'a> {
                 {
                     self.api
                         .container
-                        .symlink_files(&container_id, &real_mounts, uid.as_deref())
+                        .symlink_files(&container_id, &real_mounts, uid)
                         .await?;
                 }
             }

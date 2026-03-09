@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use crate::config::config::{DataEntry, DataExt, DataValue, MountSource};
@@ -139,15 +139,16 @@ impl<'a> VolumeApi<'a> {
             id::sanitize(data_entry_name)
         )
     }
+
     pub fn create_volume_specs(
         workspace_key: &str,
         data: &HashMap<String, DataValue>,
-        mounts: &HashMap<String, MountSource>,
+        mounts: &HashMap<(String, String), MountSource>,
         implicit_work: bool,
     ) -> HashMap<DataEntryKey, DataEntryVolumeSpec> {
         let data = &mounts
             .iter()
-            .map(|(k, v)| match v {
+            .map(|((_, target_path), v)| match v {
                 MountSource::DataEntryReference(data_key) => (data_key.as_str().to_string(), {
                     let source_exists = data.contains_key(data_key.as_str());
                     if !source_exists {
@@ -161,7 +162,7 @@ impl<'a> VolumeApi<'a> {
                     data[data_key.as_str()].clone()
                 }),
                 MountSource::InlineDataValue(data_value) => {
-                    (id::sanitize(k), data_value.to_owned())
+                    (id::sanitize(target_path), data_value.to_owned())
                 }
             })
             .collect::<HashMap<String, DataValue>>();
@@ -175,14 +176,33 @@ impl<'a> VolumeApi<'a> {
             });
         }
 
-        let files_key = "files";
-        let files_volume_spec = VolumeSpec {
-            name: Self::volume_name(workspace_key, files_key),
-            labels: Some(Labels::from(&[
-                Labels::workspace(workspace_key),
-                Labels::role(DATA_ROLE),
-            ])),
-        };
+        let ref_mounts = mounts
+            .into_iter()
+            .filter_map(|((container_name, _), v)| match v {
+                MountSource::DataEntryReference(data_key) => Some((data_key, container_name)),
+                MountSource::InlineDataValue(_) => None,
+            })
+            .fold(
+                HashMap::<&DataEntryKey, HashSet<&String>>::new(),
+                |mut acc, (data_key, container_name)| {
+                    acc.entry(data_key).or_default().insert(container_name);
+                    acc
+                },
+            )
+            .iter()
+            .map(|(data_key, _)| {
+                (
+                    *data_key,
+                    VolumeSpec {
+                        name: Self::volume_name(workspace_key, data_key.as_str()),
+                        labels: Some(Labels::from(&[
+                            Labels::workspace(workspace_key),
+                            Labels::role(DATA_ROLE),
+                        ])),
+                    },
+                )
+            })
+            .collect::<HashMap<_, _>>();
 
         data_entries
             .iter()
@@ -200,13 +220,26 @@ impl<'a> VolumeApi<'a> {
                         },
                     },
                 )),
-                DataEntry::File { name, .. } => Some((
-                    DataEntryKey(name.to_string()),
-                    DataEntryVolumeSpec {
-                        data: d.clone(),
-                        volume: files_volume_spec.clone(),
-                    },
-                )),
+                DataEntry::File { name, .. } => {
+                    let volume_spec = ref_mounts
+                        .get(&DataEntryKey(name.to_string()))
+                        .map(|z| z.clone())
+                        .unwrap_or(VolumeSpec {
+                            name: Self::volume_name(workspace_key, "inline"),
+                            labels: Some(Labels::from(&[
+                                Labels::workspace(workspace_key),
+                                Labels::role(DATA_ROLE),
+                            ])),
+                        });
+
+                    Some((
+                        DataEntryKey(name.to_string()),
+                        DataEntryVolumeSpec {
+                            data: d.clone(),
+                            volume: volume_spec,
+                        },
+                    ))
+                }
             })
             .collect::<HashMap<_, _>>()
     }
@@ -226,14 +259,17 @@ impl<'a> VolumeApi<'a> {
                         executable,
                         ..
                     } => {
-                        let shadow_file = Path::new(SHADOW_ROOT_DIR).join(
+                        let shadow_subpath = &source_entry.clone().data.name();
+                        let shadow_file = Path::new(SHADOW_ROOT_DIR).join(shadow_subpath).join(
                             Path::new(&expanded_target)
+                                .with_file_name(shadow_subpath)
+                                .with_extension("data")
                                 .to_string_lossy()
                                 .trim_start_matches('/'),
                         );
 
                         (
-                            SHADOW_ROOT_DIR.to_string(),
+                            format!("{}/{}", SHADOW_ROOT_DIR.to_string(), shadow_subpath),
                             Some(FileSpec {
                                 target_file: TargetFile(shadow_file.to_string_lossy().into_owned()),
                                 user_file: UserFile(expanded_target),
@@ -284,7 +320,7 @@ impl<'a> VolumeApi<'a> {
         &self,
         target_dir: TargetDir,
         volume_file: VolumeFilesSpec,
-        uid: Option<&str>,
+        uid: Option<i32>,
     ) -> Result<(), AnyError> {
         self.ensure_file_v2(
             target_dir.as_str(),
@@ -397,7 +433,7 @@ impl<'a> VolumeApi<'a> {
         root_dir: &str,
         spec: &VolumeFilesSpec,
         mount: Mount,
-        uid: Option<&str>,
+        uid: Option<i32>,
     ) -> Result<(), AnyError> {
         let mut cmd = spec
             .files
@@ -425,7 +461,7 @@ impl<'a> VolumeApi<'a> {
             .join(" && ".into());
 
         if let Some(uid) = uid
-            && uid != constants::ROOT_UID
+            && uid != constants::ROOT_UID_INT
         {
             let chown = format!("chown -R {}:{} {}", uid, uid, root_dir);
             cmd = format!(

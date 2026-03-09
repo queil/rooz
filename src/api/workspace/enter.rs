@@ -44,7 +44,6 @@ impl<'a> WorkspaceApi<'a> {
         working_dir: Option<&str>,
         shell: Option<Vec<&str>>,
         container_name: Option<&str>,
-        chown_uid: &str,
         root: bool,
     ) -> Result<String, AnyError> {
         let container_name = container_name.unwrap_or(constants::DEFAULT_CONTAINER_NAME);
@@ -88,10 +87,30 @@ impl<'a> WorkspaceApi<'a> {
             };
 
             // skipped for sidecars. They often will be distro-less so that would fail anyway
-            if !root && container_name == constants::DEFAULT_CONTAINER_NAME {
-                self.api.exec.ensure_user(container_id).await?;
+            /* && container_name == constants::DEFAULT_CONTAINER_NAME */
+            if !root {
+                let is_work_container = container_name == constants::DEFAULT_CONTAINER_NAME;
 
-                for (target, _) in &config.real_mounts {
+                if is_work_container {
+                    // only for work containers: sidecars have a readonly rootfs so it would fail
+                    self.api.exec.ensure_user(container_id).await?;
+                }
+
+                let real_mounts = if is_work_container {
+                    &config.real_mounts
+                } else {
+                    &config.sidecars[container_name].real_mounts
+                };
+
+                let chown_uid = if is_work_container {
+                    &config.uid
+                } else {
+                    &config.sidecars[container_name]
+                        .uid
+                        .unwrap_or_else(|| panic!("TODO: read default uid from the image"))
+                };
+
+                for (target, _) in real_mounts {
                     self.api
                         .exec
                         .chown(&container_id, chown_uid, target.as_str())
@@ -111,7 +130,12 @@ impl<'a> WorkspaceApi<'a> {
                     } else {
                         None
                     },
-                    Some(shell_value.iter().map(|v| v.as_str()).collect::<Vec<_>>()),
+                    if container_name == constants::DEFAULT_CONTAINER_NAME {
+                        Some(shell_value.iter().map(|v| v.as_str()).collect::<Vec<_>>())
+                    } else {
+                        //TODO: use the default shell defined in a sidecar's image. Distro-less shall fail regardless.
+                        Some(vec!["sh"])
+                    },
                 )
                 .await
             {

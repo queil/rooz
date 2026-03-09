@@ -121,6 +121,8 @@ pub struct RoozSidecar {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub user: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub uid: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub internet_access: Option<bool>,
 }
 
@@ -371,8 +373,6 @@ impl SystemConfig {
     }
 }
 
-// VOLUMES v2 temporary placeholder
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 #[serde(deny_unknown_fields)]
@@ -380,6 +380,24 @@ pub enum DataValue {
     Dir {},
     InlineContent { content: String },
     InlineScript { script: String },
+}
+
+impl DataValue {
+    pub fn into_entry(self, name: String) -> DataEntry {
+        match self {
+            DataValue::InlineContent { content } => DataEntry::File {
+                name,
+                content,
+                executable: false,
+            },
+            DataValue::Dir {} => DataEntry::Dir { name },
+            DataValue::InlineScript { script } => DataEntry::File {
+                name,
+                content: script,
+                executable: true,
+            },
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -411,20 +429,11 @@ pub enum DataEntry {
     },
 }
 
-impl DataValue {
-    pub fn into_entry(self, name: String) -> DataEntry {
+impl DataEntry {
+    pub fn name(self) -> String {
         match self {
-            DataValue::InlineContent { content } => DataEntry::File {
-                name,
-                content,
-                executable: false,
-            },
-            DataValue::Dir {} => DataEntry::Dir { name },
-            DataValue::InlineScript { script } => DataEntry::File {
-                name,
-                content: script,
-                executable: true,
-            },
+            DataEntry::Dir { name } => name,
+            DataEntry::File { name, .. } => name,
         }
     }
 }

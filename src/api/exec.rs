@@ -255,11 +255,15 @@ impl<'a> ExecApi<'a> {
             .await
     }
 
-    pub async fn chown(&self, container_id: &str, uid: &str, dir: &str) -> Result<(), AnyError> {
-        if let ContainerEngine::Podman = self.backend.engine {
-            log::debug!("Podman won't need chown. Skipping");
-            return Ok(());
-        };
+    pub async fn chown(&self, container_id: &str, uid: &i32, dir: &str) -> Result<(), AnyError> {
+        // TODO: this is true if the volume was first mounted as the right user
+        // otherwise chown is still needed. I could probably check if a setup container had run first
+        // because this is the main reason the volumes would be owned by root
+
+        // if let ContainerEngine::Podman = self.backend.engine {
+        //    log::debug!("Podman won't need chown. Skipping");
+        //    return Ok(());
+        //};
 
         log::debug!("Changing ownership... ({} {})", &uid, &dir);
 

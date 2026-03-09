@@ -28,6 +28,7 @@ use bollard::{
 use crate::model::types::{TargetDir, VolumeFilesSpec};
 use bollard_stubs::query_parameters::UploadToContainerOptions;
 use futures::{StreamExt, future};
+use std::time::{SystemTime, UNIX_EPOCH};
 use std::{collections::HashMap, time::Duration};
 use tokio::time::{sleep, timeout};
 
@@ -424,7 +425,7 @@ impl<'a> ContainerApi<'a> {
         &self,
         container_id: &str,
         mounts: &HashMap<TargetDir, VolumeFilesSpec>,
-        uid: Option<&str>,
+        uid: Option<i32>,
     ) -> Result<(), AnyError> {
         let mut archive = tar::Builder::new(Vec::new());
         for (_, spec) in mounts {
@@ -437,9 +438,10 @@ impl<'a> ContainerApi<'a> {
                 let mut header = tar::Header::new_gnu();
                 header.set_size(0);
                 header.set_mode(0o777);
-                header.set_uid(uid.unwrap_or(constants::ROOT_UID).parse()?);
-                header.set_gid(uid.unwrap_or(constants::ROOT_UID).parse()?);
+                header.set_uid(uid.unwrap_or(constants::ROOT_UID_INT) as u64);
+                header.set_gid(uid.unwrap_or(constants::ROOT_UID_INT) as u64);
                 header.set_entry_type(tar::EntryType::Symlink);
+                header.set_mtime(SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs());
                 archive.append_link(
                     &mut header,
                     file.user_file.as_str().trim_start_matches("/"),

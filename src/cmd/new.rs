@@ -50,7 +50,7 @@ impl<'a> WorkspaceApi<'a> {
             .await?;
 
         let volumes_v2 =
-            VolumeApi::create_volume_specs(workspace_key, &cfg.data, &cfg.mounts, true);
+            VolumeApi::create_volume_specs(workspace_key, &cfg.data, &cfg.all_mounts(), true);
 
         let mounts_all = &cfg
             .mounts
@@ -82,7 +82,7 @@ impl<'a> WorkspaceApi<'a> {
             if let VolumeResult::Created {} = volume_results[&m.volume_name] {
                 self.api
                     .volume
-                    .populate_volume(t, m, Some(&work_spec.uid))
+                    .populate_volume(t, m, Some(work_spec.uid.to_string().parse::<i32>()?))
                     .await?;
             }
         }
@@ -327,7 +327,6 @@ impl<'a> WorkspaceApi<'a> {
                 working_dir.as_deref(),
                 Some(cfg.shell.iter().map(|v| v.as_str()).collect::<Vec<_>>()),
                 None,
-                &workspace.orig_uid,
                 root,
             )
             .await?;

@@ -19,6 +19,7 @@ pub struct RoozSidecarRuntime {
     pub init: bool,
     pub work_dir: String,
     pub user: Option<String>,
+    pub uid: Option<i32>,
     pub internet_access: bool,
     pub install: Option<String>,
 }
@@ -51,6 +52,7 @@ impl<'a> From<&'a RoozSidecar> for RoozSidecarRuntime {
             user: value.user.clone(),
             internet_access: value.internet_access.clone().unwrap_or(false),
             install: value.install.clone(),
+            uid: value.uid.clone(),
         }
     }
 }
@@ -62,6 +64,7 @@ pub struct RuntimeConfig {
     pub caches: Vec<String>,
     pub shell: Vec<String>,
     pub user: String,
+    pub uid: i32,
     pub ports: HashMap<String, Option<String>>,
     pub privileged: bool,
     pub init: bool,
@@ -84,6 +87,7 @@ impl Default for RuntimeConfig {
             caches: Vec::new(),
             shell: vec![constants::DEFAULT_SHELL.into()],
             user: constants::DEFAULT_USER.into(),
+            uid: constants::DEFAULT_UID.parse().unwrap(),
             ports: HashMap::new(),
             privileged: false,
             init: true,
@@ -112,6 +116,18 @@ impl RuntimeConfig {
             Ok(val) => Ok(val),
             Err(e) => Err(Box::new(e)),
         }
+    }
+
+    pub fn all_mounts(&self) -> HashMap<(String, String), MountSource> {
+        self.mounts
+            .iter()
+            .map(|(target, source)| (("main".to_string(), target.clone()), source.clone()))
+            .chain(self.sidecars.iter().flat_map(|(sidecar_name, sidecar)| {
+                sidecar.mounts.iter().map(|(target, source)| {
+                    ((sidecar_name.clone(), target.clone()), source.clone())
+                })
+            }))
+            .collect()
     }
 }
 
