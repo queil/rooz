@@ -303,7 +303,7 @@ impl<'a> GitApi<'a> {
         let container_id = self
             .clone_from_spec(
                 &CloneEnv {
-                    use_volume: false,
+                    use_volume: true,
                     depth_override: Some(1),
                     ..spec.clone()
                 },
