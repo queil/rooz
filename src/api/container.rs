@@ -289,7 +289,7 @@ impl<'a> ContainerApi<'a> {
             RunMode::Git => (None, None, Some(true), Some(true), Some(true)),
             RunMode::OneShot => (None, None, None, Some(true), Some(true)),
             RunMode::Sidecar => (None, None, None, None, Some(true)),
-            RunMode::SidecarInstall => (None, None, None, None, None),
+            RunMode::SidecarInstall => (None, None, Some(true), None, None),
         };
 
         let host_config = HostConfig {
