@@ -1,8 +1,11 @@
+use crate::util::labels::Labels;
 use crate::{api::ImageApi, model::types::AnyError};
 use bollard::errors::Error::DockerResponseServerError;
 use bollard::models::CreateImageInfo;
 use bollard::service::ImageInspect;
 use bollard::{errors::Error, query_parameters::CreateImageOptions};
+use bollard_stubs::models::ImageSummary;
+use bollard_stubs::query_parameters::{ListImagesOptions, RemoveImageOptions};
 use futures::StreamExt;
 use std::io::{Write, stdout};
 
@@ -44,7 +47,7 @@ impl<'a> ImageApi<'a> {
                     if let Some(id) = id {
                         stdout().write_all(&id.as_bytes())?;
                     } else {
-                        println!("");
+                        println!();
                     }
                     print!(" ");
                     stdout().write_all(&m.as_bytes())?;
@@ -59,7 +62,7 @@ impl<'a> ImageApi<'a> {
                 e => panic!("{:?}", e),
             };
         }
-        println!("");
+        println!();
 
         let response = self.client.inspect_image(&image).await?;
 
@@ -107,5 +110,52 @@ impl<'a> ImageApi<'a> {
 
         log::debug!("Image ID: {:?}", info);
         Ok(info)
+    }
+
+    pub async fn get_all(&self, labels: &Labels) -> Result<Vec<ImageSummary>, AnyError> {
+        let list_options = ListImagesOptions {
+            filters: Some(labels.clone().into()),
+            all: true,
+            ..Default::default()
+        };
+
+        Ok(self.client.list_images(Some(list_options)).await?)
+    }
+
+    pub async fn remove_local(&self, image_name: &str, force: bool) -> Result<(), AnyError> {
+        let force_display = if force { " (force)" } else { "" };
+        match self
+            .client
+            .remove_image(
+                &image_name,
+                Some(RemoveImageOptions {
+                    force,
+                    ..Default::default()
+                }),
+                None,
+            )
+            .await
+        {
+            Ok(_) => {
+                log::debug!("Removed image: {}{}", &image_name, &force_display);
+                Ok(())
+            }
+            Err(DockerResponseServerError {
+                status_code: 404, ..
+            }) => {
+                log::debug!("No such image. Skipping: {}{}", &image_name, &force_display);
+                Ok(())
+            }
+            Err(DockerResponseServerError {
+                status_code,
+                message,
+            }) => Err(format!(
+                "{} (Error code: {})",
+                message.replace("\"", ""),
+                status_code
+            )
+            .into()),
+            Err(e) => panic!("{}", e),
+        }
     }
 }
