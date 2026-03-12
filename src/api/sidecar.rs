@@ -206,12 +206,12 @@ impl<'a> WorkspaceApi<'a> {
                     }
                 }
 
-                let repo_image = format!("{}:latest", runtime_image);
+                let latest_runtime_image = format!("{}:latest", runtime_image);
                 if let ContainerResult::Created { id: container_id } = self
                     .api
                     .container
                     .create(RunSpec {
-                        image: &repo_image,
+                        image: &latest_runtime_image,
                         ..run_spec.clone()
                     })
                     .await?
