@@ -218,7 +218,7 @@ impl<'a> GitApi<'a> {
             self.api.exec.ensure_user(&id).await?;
             self.api
                 .exec
-                .chown(&id, &spec.uid, &spec.working_dir)
+                .chown(&id, &spec.uid.parse::<i32>()?, &spec.working_dir)
                 .await?;
 
             self.api
@@ -303,7 +303,7 @@ impl<'a> GitApi<'a> {
         let container_id = self
             .clone_from_spec(
                 &CloneEnv {
-                    use_volume: false,
+                    use_volume: true,
                     depth_override: Some(1),
                     ..spec.clone()
                 },

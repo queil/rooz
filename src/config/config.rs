@@ -115,9 +115,15 @@ pub struct RoozSidecar {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub init: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub install: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub work_dir: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub user: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub uid: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub internet_access: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -145,6 +151,8 @@ pub struct RoozCfg {
     pub privileged: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub init: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub install: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub command: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -179,6 +187,7 @@ impl Default for RoozCfg {
             sidecars: Some(LinkedHashMap::new()),
             data: Some(LinkedHashMap::new()),
             mounts: Some(LinkedHashMap::new()),
+            install: None,
         }
     }
 }
@@ -240,6 +249,7 @@ impl RoozCfg {
             sidecars: Self::extend_if_any(self.sidecars.clone(), config.sidecars.clone()),
             data: Self::extend_if_any(self.data.clone(), config.data.clone()),
             mounts: Self::extend_if_any(self.mounts.clone(), config.mounts.clone()),
+            install: config.install.clone().or(self.install.clone()),
         }
     }
 
@@ -363,8 +373,6 @@ impl SystemConfig {
     }
 }
 
-// VOLUMES v2 temporary placeholder
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 #[serde(deny_unknown_fields)]
@@ -372,6 +380,24 @@ pub enum DataValue {
     Dir {},
     InlineContent { content: String },
     InlineScript { script: String },
+}
+
+impl DataValue {
+    pub fn into_entry(self, name: String) -> DataEntry {
+        match self {
+            DataValue::InlineContent { content } => DataEntry::File {
+                name,
+                content,
+                executable: false,
+            },
+            DataValue::Dir {} => DataEntry::Dir { name },
+            DataValue::InlineScript { script } => DataEntry::File {
+                name,
+                content: script,
+                executable: true,
+            },
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -403,20 +429,11 @@ pub enum DataEntry {
     },
 }
 
-impl DataValue {
-    pub fn into_entry(self, name: String) -> DataEntry {
+impl DataEntry {
+    pub fn name(self) -> String {
         match self {
-            DataValue::InlineContent { content } => DataEntry::File {
-                name,
-                content,
-                executable: false,
-            },
-            DataValue::Dir {} => DataEntry::Dir { name },
-            DataValue::InlineScript { script } => DataEntry::File {
-                name,
-                content: script,
-                executable: true,
-            },
+            DataEntry::Dir { name } => name,
+            DataEntry::File { name, .. } => name,
         }
     }
 }
