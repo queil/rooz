@@ -251,8 +251,14 @@ impl<'a> ExecApi<'a> {
         );
         let install_cmd = inject(cmd.as_str(), "install.sh");
         let v = install_cmd.iter().map(|x| x.as_str()).collect::<Vec<_>>();
-        self.run("install", container_id, Some(constants::ROOT_UID), Some(v))
-            .await
+        self.tty(
+            "install",
+            container_id,
+            None,
+            Some(constants::ROOT_UID),
+            Some(v),
+        )
+        .await
     }
 
     pub async fn chown(&self, container_id: &str, uid: &i32, dir: &str) -> Result<(), AnyError> {
