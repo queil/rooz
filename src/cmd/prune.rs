@@ -1,9 +1,9 @@
+use crate::{api::Api, model::types::AnyError, util::labels::Labels};
 use bollard::{
     query_parameters::{ListContainersOptions, ListVolumesOptions, RemoveVolumeOptions},
     service::ContainerSummary,
 };
-
-use crate::{api::Api, model::types::AnyError, util::labels::Labels};
+use bollard_stubs::query_parameters::ListImagesOptions;
 
 impl<'a> Api<'a> {
     async fn prune(&self, filters: Labels, force: bool) -> Result<(), AnyError> {
@@ -18,9 +18,20 @@ impl<'a> Api<'a> {
             .await?
         {
             if let ContainerSummary { id: Some(id), .. } = cs {
-                log::debug!("Force remove container: {}", &id);
+                log::debug!("Remove container: {}", &id);
                 self.container.remove(&id, force).await?
             }
+        }
+
+        let ls_images_options = ListImagesOptions {
+            all: true,
+            filters: Some(filters.clone().into()),
+            ..Default::default()
+        };
+
+        for img in self.client.list_images(Some(ls_images_options)).await? {
+            log::debug!("Remove image: {}", &img.id);
+            self.image.remove_local(&img.id, force).await?
         }
 
         let ls_vol_options = ListVolumesOptions {
@@ -40,7 +51,7 @@ impl<'a> Api<'a> {
             };
 
             for v in volumes {
-                log::debug!("Force remove volume: {}", &v.name);
+                log::debug!("Remove volume: {}", &v.name);
                 self.client
                     .remove_volume(&v.name, Some(rm_vol_options.clone()))
                     .await?
