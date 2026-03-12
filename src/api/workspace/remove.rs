@@ -1,12 +1,11 @@
-use bollard::{
-    query_parameters::{ListNetworksOptions, ListVolumesOptions},
-    service::{ContainerSummary, Volume},
-};
-
 use crate::{
     api::WorkspaceApi,
     model::types::AnyError,
     util::labels::{Labels, ROLE, WORKSPACE_CONFIG_ROLE},
+};
+use bollard::{
+    query_parameters::{ListNetworksOptions, ListVolumesOptions},
+    service::{ContainerSummary, Volume},
 };
 
 impl<'a> WorkspaceApi<'a> {
@@ -21,6 +20,19 @@ impl<'a> WorkspaceApi<'a> {
                 None
             }
         });
+
+        futures::future::try_join_all(futures).await?;
+        self.remove_images(labels, force).await?;
+        Ok(())
+    }
+
+    async fn remove_images(&self, labels: &Labels, force: bool) -> Result<(), AnyError> {
+        let images = self.api.image.get_all(labels).await?;
+        let image_api = self.api.image;
+
+        let futures = images
+            .into_iter()
+            .filter_map(|img| Some(async move { image_api.remove_local(&img.id, force).await }));
 
         futures::future::try_join_all(futures).await?;
         Ok(())
