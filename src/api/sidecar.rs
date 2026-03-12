@@ -151,17 +151,21 @@ impl<'a> WorkspaceApi<'a> {
             };
 
             if let Some(install) = s.install.clone() {
-                let repo = format!("localhost/rooz/{}/{}", &workspace_key, &name);
+                let runtime_image = format!("localhost/rooz/{}/{}", &workspace_key, &name);
 
-                if !self.api.image.exists(&repo).await? {
+                if !self.api.image.exists(&runtime_image).await? {
                     if let ContainerResult::Created { id: container_id } = self
                         .api
                         .container
                         .create(RunSpec {
-                            command: Some(vec!["sleep"]),
-                            args: Some(vec!["infinity"]),
                             run_mode: RunMode::SidecarInstall,
                             internet_access: true,
+                            // IMPORTANT: do not inject the sidecar env so it doesn't get baked into
+                            // the runtime image. It also ensures unaltered behavior of the base image
+                            // during the installation stage
+                            env: None,
+                            command: Some(vec!["sleep"]),
+                            args: Some(vec!["infinity"]),
                             ..run_spec.clone()
                         })
                         .await?
@@ -177,7 +181,7 @@ impl<'a> WorkspaceApi<'a> {
                             .commit_container(
                                 CommitContainerOptions {
                                     container: Some(container_id.clone()),
-                                    repo: Some(repo.to_string()),
+                                    repo: Some(runtime_image.to_string()),
                                     tag: Some("latest".to_string()),
                                     pause: false,
                                     ..Default::default()
@@ -202,12 +206,12 @@ impl<'a> WorkspaceApi<'a> {
                     }
                 }
 
-                let repo_image = format!("{}:latest", repo);
+                let latest_runtime_image = format!("{}:latest", runtime_image);
                 if let ContainerResult::Created { id: container_id } = self
                     .api
                     .container
                     .create(RunSpec {
-                        image: &repo_image,
+                        image: &latest_runtime_image,
                         ..run_spec.clone()
                     })
                     .await?
