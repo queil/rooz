@@ -60,6 +60,7 @@ impl<'a> ConfigApi<'a> {
                     RoozVolume::workspace_config_read(workspace_key, "/etc/rooz").to_mount(None),
                 ]),
                 None,
+                None,
             )
             .await?;
         Ok(result.data.to_string())

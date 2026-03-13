@@ -26,8 +26,9 @@ use bollard::{
 };
 
 use crate::model::types::{TargetDir, VolumeFilesSpec};
-use bollard_stubs::query_parameters::UploadToContainerOptions;
-use futures::{StreamExt, future};
+use bollard_stubs::models::MountTypeEnum;
+use bollard_stubs::query_parameters::{UploadToContainerOptions, WaitContainerOptions};
+use futures::{StreamExt, TryStreamExt, future};
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{collections::HashMap, time::Duration};
 use tokio::time::{sleep, timeout};
@@ -487,19 +488,29 @@ timeout $TIMEOUT sh -c 'read _ < /tmp/exec_start' || exit 1
 
 echo "Exec session started"
 read _ < /tmp/exec_end
-echo "Exec session ended"
-exit 0"#;
+EXEC_EXIT_CODE=$(cat /tmp/exec_exit)
+echo "Exec session ended: $EXEC_EXIT_CODE"
+exit $EXEC_EXIT_CODE"#;
 
         let epv = inject(&wait_for_exec, "entrypoint.sh");
         let entrypoint = epv.iter().map(String::as_str).collect();
+        let work_dir = "/tmp/one-shot";
         let id = self
             .create(RunSpec {
                 reason: name,
                 image: image.unwrap_or(constants::DEFAULT_IMAGE),
                 container_name: &id::random_suffix("one-shot"),
                 command: Some(entrypoint),
-                mounts,
+                mounts: mounts.map(|mut x| {
+                    x.extend_from_slice(&[Mount {
+                        target: Some(work_dir.into()),
+                        typ: Some(MountTypeEnum::TMPFS),
+                        ..Default::default()
+                    }]);
+                    x
+                }),
                 uid: uid.unwrap_or(constants::ROOT_UID),
+                work_dir: Some(work_dir),
                 ..Default::default()
             })
             .await
@@ -540,14 +551,13 @@ exit 0"#;
                     .await;
             });
         }
-
         Ok(id)
     }
 
     fn format_cmd(command: String) -> Vec<String> {
         let cmd = format!(
             r#"#!/bin/sh
-trap 'echo end > /tmp/exec_end' EXIT
+trap 'echo $? > /tmp/exec_exit; echo end > /tmp/exec_end' EXIT
 echo start > /tmp/exec_start
 {}
         "#,
@@ -562,11 +572,30 @@ echo start > /tmp/exec_start
         command: String,
         mounts: Option<Vec<Mount>>,
         uid: Option<&str>,
+        image: Option<&str>,
     ) -> Result<OneShotResult, AnyError> {
-        let id = self.make_one_shot(name, mounts, uid, None).await?;
+        let id = self.make_one_shot(name, mounts, uid, image).await?;
         let cmd = Self::format_cmd(command);
         let cmd = cmd.iter().map(|x| x.as_str()).collect::<Vec<_>>();
-        let data = self.exec.output(name, &id.clone(), uid, Some(cmd)).await?;
+
+        let id_clone = id.clone();
+        let client = self.client.clone();
+
+        let wait_handle = tokio::spawn(async move {
+            client
+                .wait_container(&id_clone, None::<WaitContainerOptions>)
+                .try_collect::<Vec<_>>()
+                .await
+        });
+
+        let data = self.exec.output(name, &id, uid, Some(cmd)).await?;
+        let _ = match wait_handle.await? {
+            Ok(r) => r,
+            Err(Error::DockerContainerWaitError { code, .. }) => {
+                return Err(format!("One-shot cmd failed (exit {}): \n{}", code, data).into());
+            }
+            Err(e) => return Err(e.into()),
+        };
 
         Ok(OneShotResult { data })
     }

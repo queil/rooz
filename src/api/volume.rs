@@ -3,8 +3,8 @@ use std::path::Path;
 
 use crate::config::config::{DataEntry, DataExt, DataValue, MountSource};
 use crate::model::types::{
-    DataEntryKey, DataEntryVolumeSpec, FileSpec, TargetDir, TargetFile, TargetPath, UserFile,
-    VolumeFilesSpec, VolumeName, VolumeSpec,
+    ContentGenerator, DataEntryKey, DataEntryVolumeSpec, FileSpec, OneShotResult, TargetDir,
+    TargetFile, TargetPath, UserFile, VolumeFilesSpec, VolumeName, VolumeSpec,
 };
 use crate::util::id;
 use crate::util::labels::DATA_ROLE;
@@ -255,7 +255,7 @@ impl<'a> VolumeApi<'a> {
                 let expanded_target = Self::expand_home(target.as_str().to_string(), home_dir);
                 let (real_target, maybe_file) = match source_entry.data.clone() {
                     DataEntry::File {
-                        content,
+                        generator,
                         executable,
                         ..
                     } => {
@@ -273,7 +273,7 @@ impl<'a> VolumeApi<'a> {
                             Some(FileSpec {
                                 target_file: TargetFile(shadow_file.to_string_lossy().into_owned()),
                                 user_file: UserFile(expanded_target),
-                                content: content.to_string(),
+                                generator,
                                 executable,
                             }),
                         )
@@ -435,30 +435,55 @@ impl<'a> VolumeApi<'a> {
         mount: Mount,
         uid: Option<i32>,
     ) -> Result<(), AnyError> {
-        let mut cmd = spec
-            .files
-            .iter()
-            .map(|f| {
-                let parent_dir = Path::new(f.target_file.as_str())
-                    .parent()
-                    .unwrap()
-                    .to_string_lossy()
-                    .into_owned();
+        let mut cmds = Vec::new();
+        for f in &spec.files {
+            let parent_dir = Path::new(f.target_file.as_str())
+                .parent()
+                .unwrap()
+                .to_string_lossy()
+                .into_owned();
 
-                format!(
-                    "mkdir -p {} && echo '{}' | base64 -d > {}{}",
-                    parent_dir,
-                    general_purpose::STANDARD.encode(f.content.trim()),
-                    f.target_file.as_str(),
-                    if f.executable {
-                        format!(" && chmod +x {}", f.target_file.as_str())
-                    } else {
-                        "".to_string()
+            let content = match &f.generator {
+                ContentGenerator::Inline(content) => content.to_string(),
+                ContentGenerator::Script { script, image } => {
+                    match self
+                        .container
+                        .one_shot_output(
+                            &format!("generate file: {}", f.user_file.as_str()),
+                            script.to_string(),
+                            None,
+                            None,
+                            image.as_deref(),
+                        )
+                        .await
+                    {
+                        Ok(OneShotResult { data }) => data,
+                        Err(e) => {
+                            return Err(format!(
+                                "Failed generating file: {}\n{}",
+                                f.user_file.as_str(),
+                                e
+                            )
+                            .into());
+                        }
                     }
-                )
-            })
-            .collect::<Vec<_>>()
-            .join(" && ".into());
+                }
+            };
+
+            cmds.push(format!(
+                "mkdir -p {} && echo '{}' | base64 -d > {}{}",
+                parent_dir,
+                general_purpose::STANDARD.encode(content.trim()),
+                f.target_file.as_str(),
+                if f.executable {
+                    format!(" && chmod +x {}", f.target_file.as_str())
+                } else {
+                    "".to_string()
+                }
+            ));
+        }
+
+        let mut cmd = cmds.join(" && ".into());
 
         if let Some(uid) = uid
             && uid != constants::ROOT_UID_INT
