@@ -502,7 +502,7 @@ data:
         let config: RoozCfg = serde_yaml::from_str(yaml).unwrap();
         let entries = config.data.unwrap().into_entries();
 
-        assert_eq!(entries.len(), 3);
+        assert_eq!(entries.len(), 4);
 
         for entry in &entries {
             match entry {
