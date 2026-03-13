@@ -509,8 +509,19 @@ data:
                 DataEntry::Dir { name } => {
                     assert_eq!(name, "some-dir");
                 }
-                DataEntry::File { name, .. } => {
+                DataEntry::File {
+                    name,
+                    generator: Inline(_),
+                    ..
+                } => {
                     assert!(name == "inline-file" || name == "empty-file");
+                }
+                DataEntry::File {
+                    name,
+                    generator: Script { script: _, .. },
+                    ..
+                } => {
+                    assert_eq!(name, "generated-file");
                 }
             }
         }
