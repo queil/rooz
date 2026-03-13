@@ -262,10 +262,19 @@ impl From<String> for VolumeName {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ContentGenerator {
+    Inline(String),
+    Script {
+        script: String,
+        image: Option<String>,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileSpec {
     pub target_file: TargetFile,
     pub user_file: UserFile,
-    pub content: String,
+    pub generator: ContentGenerator,
     pub executable: bool,
 }
 

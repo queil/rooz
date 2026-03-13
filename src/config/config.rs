@@ -1,4 +1,5 @@
-use crate::model::types::{AnyError, DataEntryKey};
+use crate::model::types::ContentGenerator::{Inline, Script};
+use crate::model::types::{AnyError, ContentGenerator, DataEntryKey};
 use crate::util::id;
 use crate::{cli::WorkParams, constants};
 use colored::Colorize;
@@ -378,24 +379,44 @@ impl SystemConfig {
 #[serde(deny_unknown_fields)]
 pub enum DataValue {
     Dir {},
-    InlineContent { content: String },
-    InlineScript { script: String },
+    InlineContent {
+        content: String,
+        #[serde(default)]
+        executable: bool,
+    },
+    GeneratedContent {
+        generate: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        image: Option<String>,
+        #[serde(default)]
+        executable: bool,
+    },
 }
 
 impl DataValue {
     pub fn into_entry(self, name: String) -> DataEntry {
         match self {
-            DataValue::InlineContent { content } => DataEntry::File {
-                name,
+            DataValue::InlineContent {
                 content,
-                executable: false,
+                executable,
+            } => DataEntry::File {
+                name,
+                generator: Inline(content),
+                executable,
+            },
+            DataValue::GeneratedContent {
+                generate,
+                image,
+                executable,
+            } => DataEntry::File {
+                name,
+                generator: Script {
+                    script: generate,
+                    image,
+                },
+                executable,
             },
             DataValue::Dir {} => DataEntry::Dir { name },
-            DataValue::InlineScript { script } => DataEntry::File {
-                name,
-                content: script,
-                executable: true,
-            },
         }
     }
 }
@@ -424,7 +445,7 @@ pub enum DataEntry {
     },
     File {
         name: String,
-        content: String,
+        generator: ContentGenerator,
         executable: bool,
     },
 }
@@ -471,20 +492,36 @@ data:
   empty-file:
     content: ""
 
+  generated-file:
+    generate: |
+      echo -n "new content"
+
+
 "#;
 
         let config: RoozCfg = serde_yaml::from_str(yaml).unwrap();
         let entries = config.data.unwrap().into_entries();
 
-        assert_eq!(entries.len(), 3);
+        assert_eq!(entries.len(), 4);
 
         for entry in &entries {
             match entry {
                 DataEntry::Dir { name } => {
                     assert_eq!(name, "some-dir");
                 }
-                DataEntry::File { name, .. } => {
+                DataEntry::File {
+                    name,
+                    generator: Inline(_),
+                    ..
+                } => {
                     assert!(name == "inline-file" || name == "empty-file");
+                }
+                DataEntry::File {
+                    name,
+                    generator: Script { script: _, .. },
+                    ..
+                } => {
+                    assert_eq!(name, "generated-file");
                 }
             }
         }

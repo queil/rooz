@@ -37,9 +37,15 @@ use config::config::{ConfigPath, ConfigSource, FileFormat};
 use util::labels::{self, Labels};
 
 #[tokio::main]
-async fn main() -> Result<(), AnyError> {
+async fn main() {
     env_logger::init();
+    if let Err(e) = run().await {
+        eprintln!("Error: {}", e);
+        std::process::exit(1);
+    }
+}
 
+async fn run() -> Result<(), AnyError> {
     log::debug!("Started");
 
     let args = Cli::parse();

@@ -7,12 +7,22 @@ data:
       [url "git@github.com:"]
       insteadOf = gh:
 
+
+  cert:
+# generate runs the command in an isolated one-shot container and captures output
+    generate: |
+      openssl genrsa -out cert.key 2048
+      cat cert.key
+    image: docker.io/alpine/openssl
+
+
   # files included from paths are non-trivial at the moment for config originating from git
   # rather trivial for local files, but I'd rather provide a consistent implementation
   #local-file:
   #  path: ./local.yaml
 
 mounts:
+  ~/certs/my.key: cert
   ~/placeholder: empty-dir
   /work: work
   ~/.gitconfig: git-config
