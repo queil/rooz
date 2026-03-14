@@ -170,6 +170,12 @@ impl<'a> WorkspaceApi<'a> {
                         })
                         .await?
                     {
+                        // IMPORTANT: make symlinks to the mounted volumes before install so the
+                        // mounted files/dirs are available
+                        self.api
+                            .container
+                            .symlink_files(&container_id, &real_mounts, uid)
+                            .await?;
                         self.api.container.start(&container_id).await?;
                         self.api
                             .exec

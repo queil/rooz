@@ -166,7 +166,7 @@ Rooz supports basic variable replacement/templating:
 * variables are declared via `vars`
 * secrets are declared via `secrets`
 * secrets are decrypted before expanding
-* handlebars can be used everywhere in the file as long as it results in a valid syntax of a given format
+* handlebars can be used in the most of the config values but not in YAML keys
 * vars/secrets replacement works within `vars` themselves too. However, only if the var usage is 
 below the var definition (in the document order).
 * the secret section does not support var/secrets replacement

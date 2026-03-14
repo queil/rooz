@@ -127,6 +127,38 @@ pub struct RoozSidecar {
     pub internet_access: Option<bool>,
 }
 
+impl RoozSidecar {
+    pub fn expand_vars(
+        &self,
+        reg: &Handlebars,
+        vars: &LinkedHashMap<String, String>,
+    ) -> Result<Self, AnyError> {
+        Ok(Self {
+            image: render_str(reg, &self.image, vars)?,
+            env: render_map(reg, &self.env, vars)?,
+            command: render_vec(reg, &self.command, vars)?,
+            args: render_vec(reg, &self.args, vars)?,
+            ports: render_vec(reg, &self.ports, vars)?,
+            install: render_opt(reg, &self.install, vars)?,
+            work_dir: render_opt(reg, &self.work_dir, vars)?,
+            user: render_opt(reg, &self.user, vars)?,
+            mounts: self
+                .mounts
+                .as_ref()
+                .map(|m| {
+                    m.iter()
+                        .map(|(k, v)| Ok((k.clone(), v.expand_vars(reg, vars)?)))
+                        .collect::<Result<LinkedHashMap<_, _>, AnyError>>()
+                })
+                .transpose()?,
+            privileged: self.privileged,
+            init: self.init,
+            uid: self.uid,
+            internet_access: self.internet_access,
+        })
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct RoozCfg {
@@ -308,14 +340,12 @@ impl RoozCfg {
                         &duplicate_key.to_string()
                     )
                 }
-
                 let mut secrets = secrets.clone();
                 secrets.extend(vars.clone());
                 secrets
             }
         };
 
-        let cfg_string = &self.to_string(FileFormat::Yaml)?;
         let mut reg = Handlebars::new();
         reg.register_escape_fn(no_escape);
         let mut built_vars = LinkedHashMap::<String, String>::new();
@@ -324,9 +354,45 @@ impl RoozCfg {
             built_vars.insert(k.to_string(), reg.render_template(&v, &built_vars)?);
         }
 
-        let rendered = reg.render_template(&cfg_string, &built_vars)?;
-        let s = RoozCfg::from_string(&rendered, FileFormat::Yaml)?;
-        *self = s;
+        self.vars = render_map(&reg, &self.vars, &built_vars)?;
+        self.git_ssh_url = render_opt(&reg, &self.git_ssh_url, &built_vars)?;
+        self.image = render_opt(&reg, &self.image, &built_vars)?;
+        self.user = render_opt(&reg, &self.user, &built_vars)?;
+        self.install = render_opt(&reg, &self.install, &built_vars)?;
+        self.shell = render_vec(&reg, &self.shell, &built_vars)?;
+        self.command = render_vec(&reg, &self.command, &built_vars)?;
+        self.args = render_vec(&reg, &self.args, &built_vars)?;
+        self.caches = render_vec(&reg, &self.caches, &built_vars)?;
+        self.ports = render_vec(&reg, &self.ports, &built_vars)?;
+        self.extra_repos = render_vec(&reg, &self.extra_repos, &built_vars)?;
+        self.env = render_map(&reg, &self.env, &built_vars)?;
+        self.sidecars = self
+            .sidecars
+            .as_ref()
+            .map(|m| {
+                m.iter()
+                    .map(|(k, s)| Ok((k.clone(), s.expand_vars(&reg, &built_vars)?)))
+                    .collect::<Result<LinkedHashMap<_, _>, AnyError>>()
+            })
+            .transpose()?;
+        self.data = self
+            .data
+            .as_ref()
+            .map(|m| {
+                m.iter()
+                    .map(|(k, v)| Ok((k.clone(), v.expand_vars(&reg, &built_vars)?)))
+                    .collect::<Result<LinkedHashMap<_, _>, AnyError>>()
+            })
+            .transpose()?;
+        self.mounts = self
+            .mounts
+            .as_ref()
+            .map(|m| {
+                m.iter()
+                    .map(|(k, v)| Ok((k.clone(), v.expand_vars(&reg, &built_vars)?)))
+                    .collect::<Result<LinkedHashMap<_, _>, AnyError>>()
+            })
+            .transpose()?;
 
         Ok(())
     }
@@ -352,6 +418,45 @@ impl RoozCfg {
             }
         }
     }
+}
+fn render_str(
+    reg: &Handlebars,
+    val: &str,
+    vars: &LinkedHashMap<String, String>,
+) -> Result<String, AnyError> {
+    Ok(reg.render_template(val, vars)?)
+}
+
+fn render_opt(
+    reg: &Handlebars,
+    val: &Option<String>,
+    vars: &LinkedHashMap<String, String>,
+) -> Result<Option<String>, AnyError> {
+    val.as_ref().map(|s| render_str(reg, s, vars)).transpose()
+}
+
+fn render_map(
+    reg: &Handlebars,
+    val: &Option<LinkedHashMap<String, String>>,
+    vars: &LinkedHashMap<String, String>,
+) -> Result<Option<LinkedHashMap<String, String>>, AnyError> {
+    val.as_ref()
+        .map(|m| {
+            m.iter()
+                .map(|(k, v)| Ok((k.clone(), render_str(reg, v, vars)?)))
+                .collect()
+        })
+        .transpose()
+}
+
+fn render_vec(
+    reg: &Handlebars,
+    val: &Option<Vec<String>>,
+    vars: &LinkedHashMap<String, String>,
+) -> Result<Option<Vec<String>>, AnyError> {
+    val.as_ref()
+        .map(|v| v.iter().map(|s| render_str(reg, s, vars)).collect())
+        .transpose()
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -419,6 +524,32 @@ impl DataValue {
             DataValue::Dir {} => DataEntry::Dir { name },
         }
     }
+
+    pub fn expand_vars(
+        &self,
+        reg: &Handlebars,
+        vars: &LinkedHashMap<String, String>,
+    ) -> Result<Self, AnyError> {
+        Ok(match self {
+            DataValue::Dir {} => DataValue::Dir {},
+            DataValue::InlineContent {
+                content,
+                executable,
+            } => DataValue::InlineContent {
+                content: render_str(reg, content, vars)?,
+                executable: *executable,
+            },
+            DataValue::GeneratedContent {
+                generate,
+                image,
+                executable,
+            } => DataValue::GeneratedContent {
+                generate: render_str(reg, generate, vars)?,
+                image: render_opt(reg, image, vars)?,
+                executable: *executable,
+            },
+        })
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -435,6 +566,19 @@ impl MountSource {
             MountSource::DataEntryReference(data_key) => data_key.as_str().to_string(),
             MountSource::InlineDataValue(_) => id::sanitize(target),
         }
+    }
+
+    pub fn expand_vars(
+        &self,
+        reg: &Handlebars,
+        vars: &LinkedHashMap<String, String>,
+    ) -> Result<Self, AnyError> {
+        Ok(match self {
+            MountSource::DataEntryReference(k) => MountSource::DataEntryReference(k.clone()),
+            MountSource::InlineDataValue(dv) => {
+                MountSource::InlineDataValue(dv.expand_vars(reg, vars)?)
+            }
+        })
     }
 }
 

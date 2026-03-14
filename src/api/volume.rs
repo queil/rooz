@@ -474,7 +474,9 @@ impl<'a> VolumeApi<'a> {
             cmds.push(format!(
                 "mkdir -p {} && echo '{}' | base64 -d > {}{}",
                 parent_dir,
-                general_purpose::STANDARD.encode(content.trim()),
+                // IMPORTANT: never trim content so YAML multi-line strings are respected and can 
+                // control whitespace and most importantly EOLs
+                general_purpose::STANDARD.encode(content),
                 f.target_file.as_str(),
                 if f.executable {
                     format!(" && chmod +x {}", f.target_file.as_str())
