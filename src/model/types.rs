@@ -150,7 +150,6 @@ pub struct OneShotResult {
 pub struct WorkspaceResult {
     pub workspace_key: String,
     pub working_dir: String,
-    pub orig_uid: String,
 }
 
 pub struct EnterSpec {

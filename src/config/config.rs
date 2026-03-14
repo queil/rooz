@@ -381,15 +381,15 @@ pub enum DataValue {
     Dir {},
     InlineContent {
         content: String,
-        #[serde(default)]
-        executable: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        executable: Option<bool>,
     },
     GeneratedContent {
         generate: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         image: Option<String>,
-        #[serde(default)]
-        executable: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        executable: Option<bool>,
     },
 }
 
@@ -402,7 +402,7 @@ impl DataValue {
             } => DataEntry::File {
                 name,
                 generator: Inline(content),
-                executable,
+                executable: executable.unwrap_or_default(),
             },
             DataValue::GeneratedContent {
                 generate,
@@ -414,7 +414,7 @@ impl DataValue {
                     script: generate,
                     image,
                 },
-                executable,
+                executable: executable.unwrap_or_default(),
             },
             DataValue::Dir {} => DataEntry::Dir { name },
         }

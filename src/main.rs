@@ -37,15 +37,9 @@ use config::config::{ConfigPath, ConfigSource, FileFormat};
 use util::labels::{self, Labels};
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<(), AnyError> {
     env_logger::init();
-    if let Err(e) = run().await {
-        eprintln!("Error: {}", e);
-        std::process::exit(1);
-    }
-}
 
-async fn run() -> Result<(), AnyError> {
     log::debug!("Started");
 
     let args = Cli::parse();
@@ -82,10 +76,7 @@ async fn run() -> Result<(), AnyError> {
         }
     }
 
-    let exec_api = ExecApi {
-        client: &docker,
-        backend: &backend,
-    };
+    let exec_api = ExecApi { client: &docker };
     let image_api = ImageApi {
         client: &docker,
         backend: &backend,

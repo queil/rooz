@@ -1,4 +1,4 @@
-use crate::{api::ExecApi, constants, model::types::AnyError, util::backend::ContainerEngine};
+use crate::{api::ExecApi, constants, model::types::AnyError};
 use bollard::{
     container::LogOutput,
     errors::Error,

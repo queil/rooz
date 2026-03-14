@@ -20,11 +20,12 @@ use crate::{
 use base64::{Engine as _, engine::general_purpose};
 use bollard::{
     errors::Error::DockerResponseServerError,
-    models::{Volume, VolumeCreateOptions},
+    models::Volume,
     query_parameters::{ListVolumesOptions, RemoveVolumeOptions},
     service::Mount,
 };
 use bollard_stubs::models::MountTypeEnum::VOLUME;
+use bollard_stubs::models::VolumeCreateRequest;
 
 impl<'a> VolumeApi<'a> {
     pub async fn get_all(&self, labels: &Labels) -> Result<Vec<Volume>, AnyError> {
@@ -49,7 +50,7 @@ impl<'a> VolumeApi<'a> {
         }
     }
 
-    async fn create_volume(&self, options: VolumeCreateOptions) -> Result<VolumeResult, AnyError> {
+    async fn create_volume(&self, options: VolumeCreateRequest) -> Result<VolumeResult, AnyError> {
         match &self.client.create_volume(options).await {
             Ok(v) => {
                 log::debug!("Volume created: {:?}", v.name);
@@ -81,7 +82,7 @@ impl<'a> VolumeApi<'a> {
                 status_code: 404,
                 message: _,
             }) => {
-                self.create_volume(VolumeCreateOptions {
+                self.create_volume(VolumeCreateRequest {
                     name: Some(spec.name.to_string()),
                     labels: spec.labels.clone().map(|x| x.into()),
                     ..Default::default()
@@ -364,7 +365,7 @@ impl<'a> VolumeApi<'a> {
         force_recreate: bool,
         labels: Option<Labels>,
     ) -> Result<VolumeResult, AnyError> {
-        let create_vol_options = VolumeCreateOptions {
+        let create_vol_options = VolumeCreateRequest {
             name: Some(name.into()),
             labels: labels.map(|x| x.into()),
             ..Default::default()

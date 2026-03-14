@@ -1,5 +1,5 @@
 use lazy_static::lazy_static;
-use rand::{Rng, distr::Alphanumeric, rng};
+use rand::{RngExt, distr::Alphanumeric, rng};
 use regex::Regex;
 
 lazy_static! {

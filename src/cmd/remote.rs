@@ -1,5 +1,6 @@
-use bollard::{Docker, models::Port, query_parameters::ListContainersOptions};
+use bollard::{Docker, query_parameters::ListContainersOptions};
 
+use bollard_stubs::models::PortSummary;
 use openssh::{ForwardType, KnownHosts, Session, SessionBuilder};
 use regex::Regex;
 use std::{
@@ -14,7 +15,6 @@ use std::{
     },
     time::Duration,
 };
-
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
@@ -222,9 +222,9 @@ async fn get_docker_ports(docker: &Docker) -> Result<HashMap<u16, Tunnel>, AnyEr
 
             ports
                 .iter()
-                .filter(|Port { private_port, .. }| forward_ports.contains(private_port))
+                .filter(|PortSummary { private_port, .. }| forward_ports.contains(private_port))
                 .map(
-                    |Port {
+                    |PortSummary {
                          private_port,
                          public_port,
                          ..

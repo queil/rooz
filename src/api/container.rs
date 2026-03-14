@@ -355,7 +355,7 @@ impl<'a> ContainerApi<'a> {
             for n in networks {
                 if !n.ends_with("-inet") || spec.internet_access {
                     let connect_network_options = NetworkConnectRequest {
-                        container: Some(response.id.to_string()),
+                        container: response.id.to_string(),
                         endpoint_config: Some(EndpointSettings {
                             aliases: spec.network_aliases.clone(),
                             ..Default::default()
