@@ -15,6 +15,7 @@ use crate::{
         labels::{self, Labels},
     },
 };
+use bollard::errors::Error;
 use bollard_stubs::models::NetworkCreateRequest;
 use std::collections::HashMap;
 use std::fs;
@@ -93,17 +94,28 @@ impl<'a> WorkspaceApi<'a> {
         let internal_network = &constants::internal_network(workspace_key);
         let egress_network = &constants::egress_network(workspace_key);
 
-        self.api
+        match self
+            .api
             .client
             .create_network(NetworkCreateRequest {
                 name: egress_network.to_string(),
                 labels: Some(labels.clone().into()),
                 ..Default::default()
             })
-            .await?;
+            .await
+        {
+            Ok(_) => {}
+            Err(Error::DockerResponseServerError {
+                status_code: 409, ..
+            }) => {
+                log::debug!("Network already exists: {}. Skipping", egress_network);
+            }
+            Err(e) => return Err(e.into()),
+        };
 
         if !cfg2.sidecars.is_empty() {
-            self.api
+            match self
+                .api
                 .client
                 .create_network(NetworkCreateRequest {
                     name: internal_network.to_string(),
@@ -111,7 +123,16 @@ impl<'a> WorkspaceApi<'a> {
                     labels: Some(labels.clone().into()),
                     ..Default::default()
                 })
-                .await?;
+                .await
+            {
+                Ok(_) => {}
+                Err(Error::DockerResponseServerError {
+                    status_code: 409, ..
+                }) => {
+                    log::debug!("Network already exists: {}. Skipping", internal_network);
+                }
+                Err(e) => return Err(e.into()),
+            };
         }
 
         let cfg2 = self
