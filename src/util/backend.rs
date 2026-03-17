@@ -1,5 +1,6 @@
 use crate::model::types::AnyError;
-use bollard::{secret::SystemVersion, service::SystemInfo};
+use bollard::service::SystemInfo;
+use bollard_stubs::models::SystemVersion;
 
 #[derive(Debug, Clone)]
 pub enum ContainerEngine {

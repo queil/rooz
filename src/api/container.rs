@@ -26,7 +26,7 @@ use bollard::{
 };
 
 use crate::model::types::{TargetDir, VolumeFilesSpec};
-use bollard_stubs::models::{MountTypeEnum, NetworkCreateRequest, NetworkingConfig};
+use bollard_stubs::models::{MountTypeEnum, NetworkingConfig};
 use bollard_stubs::query_parameters::{UploadToContainerOptions, WaitContainerOptions};
 use futures::{StreamExt, TryStreamExt, future};
 use std::time::{SystemTime, UNIX_EPOCH};

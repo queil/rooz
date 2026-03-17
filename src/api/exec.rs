@@ -3,8 +3,8 @@ use bollard::{
     container::LogOutput,
     errors::Error,
     exec::{CreateExecOptions, ResizeExecOptions, StartExecResults},
-    secret::ExecInspectResponse,
 };
+use bollard_stubs::models::ExecInspectResponse;
 use futures::{Stream, StreamExt};
 
 use crate::api::container::inject;

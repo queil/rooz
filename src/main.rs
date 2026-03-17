@@ -25,7 +25,8 @@ use crate::{
 };
 
 use api::{ConfigApi, CryptApi};
-use bollard::{Docker, secret::SystemVersion};
+pub use bollard::Docker;
+use bollard_stubs::models::SystemVersion;
 use clap::{CommandFactory, Parser};
 use clap_complete::generate;
 use cli::{
