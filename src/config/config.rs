@@ -4,7 +4,7 @@ use crate::util::id;
 use crate::{cli::WorkParams, constants};
 use colored::Colorize;
 use handlebars::{Handlebars, no_escape};
-use linked_hash_map::LinkedHashMap;
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::ffi::OsStr;
@@ -99,45 +99,36 @@ impl FileFormat {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
+#[serde_with::skip_serializing_none]
 pub struct RoozSidecar {
     pub image: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub env: Option<LinkedHashMap<String, String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    pub env: Option<IndexMap<String, String>>,
     pub command: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub args: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub mounts: Option<LinkedHashMap<String, MountSource>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mounts: Option<IndexMap<String, MountSource>>,
     pub ports: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub privileged: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub init: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub install: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub work_dir: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub user: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub uid: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub internet_access: Option<bool>,
+    pub shell: Option<Vec<String>>,
 }
 
 impl RoozSidecar {
     pub fn expand_vars(
         &self,
         reg: &Handlebars,
-        vars: &LinkedHashMap<String, String>,
+        vars: &IndexMap<String, String>,
     ) -> Result<Self, AnyError> {
         Ok(Self {
             image: render_str(reg, &self.image, vars)?,
             env: render_map(reg, &self.env, vars)?,
             command: render_vec(reg, &self.command, vars)?,
             args: render_vec(reg, &self.args, vars)?,
+            shell: render_vec(reg, &self.shell, vars)?,
             ports: render_vec(reg, &self.ports, vars)?,
             install: render_opt(reg, &self.install, vars)?,
             work_dir: render_opt(reg, &self.work_dir, vars)?,
@@ -148,7 +139,7 @@ impl RoozSidecar {
                 .map(|m| {
                     m.iter()
                         .map(|(k, v)| Ok((k.clone(), v.expand_vars(reg, vars)?)))
-                        .collect::<Result<LinkedHashMap<_, _>, AnyError>>()
+                        .collect::<Result<IndexMap<_, _>, AnyError>>()
                 })
                 .transpose()?,
             privileged: self.privileged,
@@ -161,50 +152,33 @@ impl RoozSidecar {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
+#[serde_with::skip_serializing_none]
 pub struct RoozCfg {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub vars: Option<LinkedHashMap<String, String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub secrets: Option<LinkedHashMap<String, String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vars: Option<IndexMap<String, String>>,
+    pub secrets: Option<IndexMap<String, String>>,
     pub git_ssh_url: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub extra_repos: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub image: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub caches: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub shell: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub user: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub ports: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub privileged: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub init: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub install: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub command: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub args: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub env: Option<LinkedHashMap<String, String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub sidecars: Option<LinkedHashMap<String, RoozSidecar>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub data: Option<LinkedHashMap<String, DataValue>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub mounts: Option<LinkedHashMap<String, MountSource>>,
+    pub env: Option<IndexMap<String, String>>,
+    pub sidecars: Option<IndexMap<String, RoozSidecar>>,
+    pub data: Option<IndexMap<String, DataValue>>,
+    pub mounts: Option<IndexMap<String, MountSource>>,
 }
 
 impl Default for RoozCfg {
     fn default() -> Self {
         Self {
-            vars: Some(LinkedHashMap::new()),
-            secrets: Some(LinkedHashMap::new()),
+            vars: Some(IndexMap::new()),
+            secrets: Some(IndexMap::new()),
             git_ssh_url: None,
             extra_repos: Some(Vec::new()),
             image: Some(constants::DEFAULT_IMAGE.into()),
@@ -216,10 +190,10 @@ impl Default for RoozCfg {
             init: None,
             command: Some(Vec::new()),
             args: Some(Vec::new()),
-            env: Some(LinkedHashMap::new()),
-            sidecars: Some(LinkedHashMap::new()),
-            data: Some(LinkedHashMap::new()),
-            mounts: Some(LinkedHashMap::new()),
+            env: Some(IndexMap::new()),
+            sidecars: Some(IndexMap::new()),
+            data: Some(IndexMap::new()),
+            mounts: Some(IndexMap::new()),
             install: None,
         }
     }
@@ -328,7 +302,7 @@ impl RoozCfg {
 
     pub fn expand_vars(&mut self) -> Result<(), AnyError> {
         let vars_and_secrets = match (&self.vars, &self.secrets) {
-            (None, None) => LinkedHashMap::<String, String>::new(),
+            (None, None) => IndexMap::<String, String>::new(),
             (None, Some(secrets)) => secrets.clone(),
             (Some(vars), None) => vars.clone(),
             (Some(vars), Some(secrets)) => {
@@ -348,7 +322,7 @@ impl RoozCfg {
 
         let mut reg = Handlebars::new();
         reg.register_escape_fn(no_escape);
-        let mut built_vars = LinkedHashMap::<String, String>::new();
+        let mut built_vars = IndexMap::<String, String>::new();
 
         for (k, v) in vars_and_secrets {
             built_vars.insert(k.to_string(), reg.render_template(&v, &built_vars)?);
@@ -372,7 +346,7 @@ impl RoozCfg {
             .map(|m| {
                 m.iter()
                     .map(|(k, s)| Ok((k.clone(), s.expand_vars(&reg, &built_vars)?)))
-                    .collect::<Result<LinkedHashMap<_, _>, AnyError>>()
+                    .collect::<Result<IndexMap<_, _>, AnyError>>()
             })
             .transpose()?;
         self.data = self
@@ -381,7 +355,7 @@ impl RoozCfg {
             .map(|m| {
                 m.iter()
                     .map(|(k, v)| Ok((k.clone(), v.expand_vars(&reg, &built_vars)?)))
-                    .collect::<Result<LinkedHashMap<_, _>, AnyError>>()
+                    .collect::<Result<IndexMap<_, _>, AnyError>>()
             })
             .transpose()?;
         self.mounts = self
@@ -390,7 +364,7 @@ impl RoozCfg {
             .map(|m| {
                 m.iter()
                     .map(|(k, v)| Ok((k.clone(), v.expand_vars(&reg, &built_vars)?)))
-                    .collect::<Result<LinkedHashMap<_, _>, AnyError>>()
+                    .collect::<Result<IndexMap<_, _>, AnyError>>()
             })
             .transpose()?;
 
@@ -422,7 +396,7 @@ impl RoozCfg {
 fn render_str(
     reg: &Handlebars,
     val: &str,
-    vars: &LinkedHashMap<String, String>,
+    vars: &IndexMap<String, String>,
 ) -> Result<String, AnyError> {
     Ok(reg.render_template(val, vars)?)
 }
@@ -430,16 +404,16 @@ fn render_str(
 fn render_opt(
     reg: &Handlebars,
     val: &Option<String>,
-    vars: &LinkedHashMap<String, String>,
+    vars: &IndexMap<String, String>,
 ) -> Result<Option<String>, AnyError> {
     val.as_ref().map(|s| render_str(reg, s, vars)).transpose()
 }
 
 fn render_map(
     reg: &Handlebars,
-    val: &Option<LinkedHashMap<String, String>>,
-    vars: &LinkedHashMap<String, String>,
-) -> Result<Option<LinkedHashMap<String, String>>, AnyError> {
+    val: &Option<IndexMap<String, String>>,
+    vars: &IndexMap<String, String>,
+) -> Result<Option<IndexMap<String, String>>, AnyError> {
     val.as_ref()
         .map(|m| {
             m.iter()
@@ -452,7 +426,7 @@ fn render_map(
 fn render_vec(
     reg: &Handlebars,
     val: &Option<Vec<String>>,
-    vars: &LinkedHashMap<String, String>,
+    vars: &IndexMap<String, String>,
 ) -> Result<Option<Vec<String>>, AnyError> {
     val.as_ref()
         .map(|v| v.iter().map(|s| render_str(reg, s, vars)).collect())
@@ -528,7 +502,7 @@ impl DataValue {
     pub fn expand_vars(
         &self,
         reg: &Handlebars,
-        vars: &LinkedHashMap<String, String>,
+        vars: &IndexMap<String, String>,
     ) -> Result<Self, AnyError> {
         Ok(match self {
             DataValue::Dir {} => DataValue::Dir {},
@@ -571,7 +545,7 @@ impl MountSource {
     pub fn expand_vars(
         &self,
         reg: &Handlebars,
-        vars: &LinkedHashMap<String, String>,
+        vars: &IndexMap<String, String>,
     ) -> Result<Self, AnyError> {
         Ok(match self {
             MountSource::DataEntryReference(k) => MountSource::DataEntryReference(k.clone()),

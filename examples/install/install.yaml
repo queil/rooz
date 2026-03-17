@@ -7,5 +7,9 @@ sidecars:
     command: ["/usr/bin/tinyproxy"]
     args: ["-d"]
     user: 1000
+    internet_access: true
     install: |-
       apk add tinyproxy
+
+  other:
+    image: docker.io/alpine:latest

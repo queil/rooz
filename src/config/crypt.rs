@@ -1,14 +1,14 @@
 use super::config::RoozCfg;
 use crate::{api::ConfigApi, model::types::AnyError};
 use age::x25519::Identity;
-use linked_hash_map::LinkedHashMap;
+use indexmap::IndexMap;
 
 impl<'a> ConfigApi<'a> {
     pub async fn decrypt(&self, config: &mut RoozCfg, identity: &Identity) -> Result<(), AnyError> {
         config.secrets = match config.secrets.clone() {
             Some(secrets) if secrets.len() > 0 => {
                 log::debug!("Decrypting secrets");
-                let mut ret = LinkedHashMap::<String, String>::new();
+                let mut ret = IndexMap::<String, String>::new();
                 for (k, v) in secrets.iter() {
                     let decrypted = self.crypt.decrypt(identity, v).expect(&format!(
                         "Cannot decrypt '{}'. It must have been encrypted with a different key",
@@ -25,7 +25,7 @@ impl<'a> ConfigApi<'a> {
     }
 
     pub async fn encrypt(&self, config: &mut RoozCfg, identity: &Identity) -> Result<(), AnyError> {
-        let mut encrypted_secrets = LinkedHashMap::<String, String>::new();
+        let mut encrypted_secrets = IndexMap::<String, String>::new();
         if let Some(edited_secrets) = config.clone().secrets {
             for (k, v) in edited_secrets {
                 encrypted_secrets.insert(

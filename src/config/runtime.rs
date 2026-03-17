@@ -7,11 +7,13 @@ use std::collections::HashMap;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
+#[serde_with::skip_serializing_none]
 pub struct RoozSidecarRuntime {
     pub image: String,
     pub env: HashMap<String, String>,
     pub command: Vec<String>,
     pub args: Vec<String>,
+    pub shell: Option<Vec<String>>,
     pub mounts: HashMap<String, MountSource>,
     pub real_mounts: HashMap<TargetDir, VolumeFilesSpec>,
     pub ports: Vec<String>,
@@ -37,6 +39,7 @@ impl<'a> From<&'a RoozSidecar> for RoozSidecarRuntime {
                 .collect(),
             command: value.command.clone().unwrap_or_default(),
             args: value.args.clone().unwrap_or_default(),
+            shell: value.shell.clone(),
             mounts: value
                 .mounts
                 .clone()
@@ -57,6 +60,7 @@ impl<'a> From<&'a RoozSidecar> for RoozSidecarRuntime {
     }
 }
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde_with::skip_serializing_none]
 pub struct RuntimeConfig {
     pub git_ssh_url: Option<String>,
     pub extra_repos: Vec<String>,
@@ -76,6 +80,7 @@ pub struct RuntimeConfig {
     pub mounts: HashMap<String, MountSource>,
     pub real_mounts: HashMap<TargetDir, VolumeFilesSpec>,
     pub install: Option<String>,
+    pub internet_access: bool,
 }
 
 impl Default for RuntimeConfig {
@@ -99,6 +104,7 @@ impl Default for RuntimeConfig {
             mounts: HashMap::new(),
             real_mounts: HashMap::new(),
             install: None,
+            internet_access: true,
         }
     }
 }

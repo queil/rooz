@@ -10,7 +10,6 @@ use crate::{
     util::labels::{self, Labels},
 };
 
-use bollard::models::NetworkCreateRequest;
 use bollard_stubs::models::ContainerConfig;
 use bollard_stubs::query_parameters::CommitContainerOptions;
 use std::collections::HashMap;
@@ -22,45 +21,9 @@ impl<'a> WorkspaceApi<'a> {
         workspace_key: &str,
         force: bool,
         pull_image: bool,
-    ) -> Result<(RuntimeConfig, Option<Vec<String>>), AnyError> {
+    ) -> Result<RuntimeConfig, AnyError> {
         let mut cfg = config.clone();
         let labels = Labels::from(&[Labels::workspace(workspace_key)]);
-
-        let network = if !cfg.sidecars.is_empty() {
-            let opts = vec![
-                NetworkCreateRequest {
-                    name: workspace_key.into(),
-                    labels: Some(labels.clone().into()),
-                    internal: Some(true),
-                    ..Default::default()
-                },
-                NetworkCreateRequest {
-                    name: format!("{}-inet", workspace_key),
-                    labels: Some(labels.clone().into()),
-                    ..Default::default()
-                },
-            ];
-            for o in opts.clone() {
-                match self.api.client.create_network(o).await {
-                    Ok(_) => (),
-                    Err(bollard::errors::Error::DockerResponseServerError {
-                        status_code: 409,
-                        message,
-                    }) => {
-                        log::debug!("Could not create network: {}", message);
-                    }
-                    e => panic!("{:?}", e),
-                };
-            }
-            Some(
-                opts.clone()
-                    .into_iter()
-                    .map(|f| f.name.to_string())
-                    .collect::<Vec<_>>(),
-            )
-        } else {
-            None
-        };
 
         for (name, s) in &mut cfg.sidecars {
             log::debug!("Process sidecar: {}", name);
@@ -116,6 +79,8 @@ impl<'a> WorkspaceApi<'a> {
                 .map(|x| x.to_string())
                 .unwrap_or(constants::ROOT_UID.to_string());
 
+            let internal_network = &constants::internal_network(workspace_key);
+            let egress_network = &constants::egress_network(workspace_key);
             let run_spec = RunSpec {
                 reason: &container_name,
                 container_name: &container_name,
@@ -123,11 +88,14 @@ impl<'a> WorkspaceApi<'a> {
                 image: &s.image,
                 force_recreate: force,
                 workspace_key: &workspace_key,
-                labels,
+                labels: labels.clone(),
                 env: Some(s.env.clone()),
-                networks: network
-                    .as_ref()
-                    .map(|v| v.iter().map(|s| s.as_str()).collect::<Vec<_>>()),
+                default_network: Some(internal_network),
+                additional_networks: if s.internet_access {
+                    Some(vec![egress_network])
+                } else {
+                    None
+                },
                 network_aliases: Some(vec![name.into()]),
                 command: if cmd.is_empty() {
                     None
@@ -146,7 +114,6 @@ impl<'a> WorkspaceApi<'a> {
                 privileged: s.privileged,
                 init: s.init,
                 force_pull: pull_image,
-                internet_access: s.internet_access,
                 ..Default::default()
             };
 
@@ -159,7 +126,7 @@ impl<'a> WorkspaceApi<'a> {
                         .container
                         .create(RunSpec {
                             run_mode: RunMode::SidecarInstall,
-                            internet_access: true,
+                            default_network: Some(egress_network),
                             // IMPORTANT: do not inject the sidecar env so it doesn't get baked into
                             // the runtime image. It also ensures unaltered behavior of the base image
                             // during the installation stage
@@ -239,6 +206,6 @@ impl<'a> WorkspaceApi<'a> {
             }
         }
 
-        Ok((RuntimeConfig { ..cfg.clone() }, network.clone()))
+        Ok(RuntimeConfig { ..cfg.clone() })
     }
 }

@@ -65,7 +65,16 @@ impl<'a> WorkspaceApi<'a> {
                 .await?,
         )?;
 
-        let mut shell_value = config.shell.clone();
+        let is_work_container = container_name == constants::DEFAULT_CONTAINER_NAME;
+
+        let mut shell_value = if is_work_container {
+            config.shell.clone()
+        } else {
+            config.sidecars[container_name]
+                .shell
+                .clone()
+                .unwrap_or(vec!["sh".to_string()])
+        };
 
         if let Some(shell) = shell {
             shell_value = shell.iter().map(|v| v.to_string()).collect::<Vec<_>>();
@@ -86,11 +95,7 @@ impl<'a> WorkspaceApi<'a> {
                 }
             };
 
-            // skipped for sidecars. They often will be distro-less so that would fail anyway
-            /* && container_name == constants::DEFAULT_CONTAINER_NAME */
             if !root {
-                let is_work_container = container_name == constants::DEFAULT_CONTAINER_NAME;
-
                 if is_work_container {
                     // only for work containers: sidecars have a readonly rootfs so it would fail
                     self.api.exec.ensure_user(container_id).await?;
@@ -130,12 +135,7 @@ impl<'a> WorkspaceApi<'a> {
                     } else {
                         None
                     },
-                    if container_name == constants::DEFAULT_CONTAINER_NAME {
-                        Some(shell_value.iter().map(|v| v.as_str()).collect::<Vec<_>>())
-                    } else {
-                        //TODO: use the default shell defined in a sidecar's image. Distro-less shall fail regardless.
-                        Some(vec!["sh"])
-                    },
+                    Some(shell_value.iter().map(|v| v.as_str()).collect::<Vec<_>>()),
                 )
                 .await
             {

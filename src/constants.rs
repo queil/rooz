@@ -10,3 +10,10 @@ pub const WORK_DIR: &'static str = "/work";
 pub fn default_command<'a>() -> Option<Vec<&'a str>> {
     Some(vec!["cat"])
 }
+
+pub fn egress_network(workspace_key: &str) -> String {
+    format!("{}-egress", workspace_key)
+}
+pub fn internal_network(workspace_key: &str) -> String {
+    format!("{}-internal", workspace_key)
+}

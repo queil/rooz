@@ -26,7 +26,7 @@ use bollard::{
 };
 
 use crate::model::types::{TargetDir, VolumeFilesSpec};
-use bollard_stubs::models::MountTypeEnum;
+use bollard_stubs::models::{MountTypeEnum, NetworkCreateRequest, NetworkingConfig};
 use bollard_stubs::query_parameters::{UploadToContainerOptions, WaitContainerOptions};
 use futures::{StreamExt, TryStreamExt, future};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -302,6 +302,7 @@ impl<'a> ContainerApi<'a> {
             init: Some(spec.init),
             readonly_rootfs,
             port_bindings,
+            network_mode: spec.default_network.map(|x| x.to_string()),
             ..Default::default()
         };
 
@@ -339,6 +340,15 @@ impl<'a> ContainerApi<'a> {
             host_config: Some(host_config),
             labels: Some(labels.into()),
             env: Some(env.iter().map(|&s| s.to_string()).collect()),
+            networking_config: spec.default_network.map(|n| NetworkingConfig {
+                endpoints_config: Some(HashMap::from([(
+                    n.to_string(),
+                    EndpointSettings {
+                        aliases: spec.network_aliases.clone(),
+                        ..Default::default()
+                    },
+                )])),
+            }),
             ..Default::default()
         };
 
@@ -351,23 +361,22 @@ impl<'a> ContainerApi<'a> {
             Err(err) => panic!("ERROR: {:?}", err),
         };
 
-        if let Some(networks) = &spec.networks {
+        if let Some(networks) = &spec.additional_networks {
             for n in networks {
-                if !n.ends_with("-inet") || spec.internet_access {
-                    let connect_network_options = NetworkConnectRequest {
-                        container: response.id.to_string(),
-                        endpoint_config: Some(EndpointSettings {
-                            aliases: spec.network_aliases.clone(),
-                            ..Default::default()
-                        }),
-                    };
-                    self.client
-                        .connect_network(n, connect_network_options.clone())
-                        .await?;
-                }
+                self.client
+                    .connect_network(
+                        n,
+                        NetworkConnectRequest {
+                            container: response.id.to_string(),
+                            endpoint_config: Some(EndpointSettings {
+                                aliases: spec.network_aliases.clone(),
+                                ..Default::default()
+                            }),
+                        },
+                    )
+                    .await?;
             }
         }
-
         log::debug!(
             "Created container: {} ({})",
             spec.container_name,

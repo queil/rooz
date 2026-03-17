@@ -15,6 +15,7 @@ use crate::{
         labels::{self, Labels},
     },
 };
+use bollard_stubs::models::NetworkCreateRequest;
 use std::collections::HashMap;
 use std::fs;
 
@@ -87,11 +88,35 @@ impl<'a> WorkspaceApi<'a> {
             }
         }
 
-        let (cfg2, network) = self
-            .ensure_sidecars(&mut cfg2, workspace_key, force, cli_params.pull_image)
+        let mut labels = work_spec.labels.clone();
+
+        let internal_network = &constants::internal_network(workspace_key);
+        let egress_network = &constants::egress_network(workspace_key);
+
+        self.api
+            .client
+            .create_network(NetworkCreateRequest {
+                name: egress_network.to_string(),
+                labels: Some(labels.clone().into()),
+                ..Default::default()
+            })
             .await?;
 
-        let mut labels = work_spec.labels.clone();
+        if !cfg2.sidecars.is_empty() {
+            self.api
+                .client
+                .create_network(NetworkCreateRequest {
+                    name: internal_network.to_string(),
+                    internal: Some(true),
+                    labels: Some(labels.clone().into()),
+                    ..Default::default()
+                })
+                .await?;
+        }
+
+        let cfg2 = self
+            .ensure_sidecars(&mut cfg2, workspace_key, force, cli_params.pull_image)
+            .await?;
 
         labels.extend(&[Labels::container(constants::DEFAULT_CONTAINER_NAME)]);
 
@@ -109,9 +134,12 @@ impl<'a> WorkspaceApi<'a> {
                 .clone()
                 .map(|r| r.dir)
                 .unwrap_or(constants::WORK_DIR.to_string()),
-            network: network
-                .as_ref()
-                .map(|v| v.iter().map(|s| s.as_str()).collect::<Vec<_>>()),
+            default_network: Some(egress_network.as_str()),
+            additional_networks: if !cfg2.sidecars.is_empty() {
+                Some(vec![internal_network.as_str()])
+            } else {
+                None
+            },
             labels,
             privileged: cfg2.privileged,
             init: cfg2.init,
