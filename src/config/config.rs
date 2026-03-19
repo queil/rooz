@@ -113,7 +113,7 @@ pub struct RoozSidecar {
     pub work_dir: Option<String>,
     pub user: Option<String>,
     pub uid: Option<i32>,
-    pub internet_access: Option<bool>,
+    pub egress: Option<bool>,
     pub shell: Option<Vec<String>>,
 }
 
@@ -145,7 +145,7 @@ impl RoozSidecar {
             privileged: self.privileged,
             init: self.init,
             uid: self.uid,
-            internet_access: self.internet_access,
+            egress: self.egress,
         })
     }
 }

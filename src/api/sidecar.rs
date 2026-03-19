@@ -91,7 +91,7 @@ impl<'a> WorkspaceApi<'a> {
                 labels: labels.clone(),
                 env: Some(s.env.clone()),
                 default_network: Some(internal_network),
-                additional_networks: if s.internet_access {
+                additional_networks: if s.egress {
                     Some(vec![egress_network])
                 } else {
                     None

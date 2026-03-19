@@ -22,7 +22,7 @@ pub struct RoozSidecarRuntime {
     pub work_dir: String,
     pub user: Option<String>,
     pub uid: Option<i32>,
-    pub internet_access: bool,
+    pub egress: bool,
     pub install: Option<String>,
 }
 
@@ -53,7 +53,7 @@ impl<'a> From<&'a RoozSidecar> for RoozSidecarRuntime {
             init: value.init.clone().unwrap_or(true),
             work_dir: value.work_dir.clone().unwrap_or_default(),
             user: value.user.clone(),
-            internet_access: value.internet_access.clone().unwrap_or(false),
+            egress: value.egress.clone().unwrap_or(false),
             install: value.install.clone(),
             uid: value.uid.clone(),
         }
@@ -80,7 +80,7 @@ pub struct RuntimeConfig {
     pub mounts: HashMap<String, MountSource>,
     pub real_mounts: HashMap<TargetDir, VolumeFilesSpec>,
     pub install: Option<String>,
-    pub internet_access: bool,
+    pub egress: bool,
 }
 
 impl Default for RuntimeConfig {
@@ -104,7 +104,7 @@ impl Default for RuntimeConfig {
             mounts: HashMap::new(),
             real_mounts: HashMap::new(),
             install: None,
-            internet_access: true,
+            egress: true,
         }
     }
 }
