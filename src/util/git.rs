@@ -25,8 +25,8 @@ pub struct CloneEnv {
     pub uid: String,
     pub workspace_key: String,
     pub working_dir: String,
-    pub use_volume: bool,
     pub depth_override: Option<i64>,
+    pub force_pull: bool,
 }
 
 impl Default for CloneEnv {
@@ -36,8 +36,8 @@ impl Default for CloneEnv {
             uid: constants::DEFAULT_UID.to_string(),
             workspace_key: Default::default(),
             working_dir: constants::WORK_DIR.to_string(),
-            use_volume: true,
             depth_override: None,
+            force_pull: false,
         }
     }
 }
@@ -162,7 +162,17 @@ impl<'a> GitApi<'a> {
                     &clone_dir, &depth, &url
                 )
                 .as_str(),
-            )
+            );
+
+            if spec.force_pull {
+                clone_script.push_str(
+                    format!(
+                        "ls '{}/.git' > /dev/null 2>&1 && git -C '{}' -c include.path=/tmp/rooz/.gitconfig pull\n",
+                        &clone_dir, &clone_dir
+                    )
+                        .as_str(),
+                );
+            }
         }
 
         let clone_cmd = container::inject(&clone_script, "clone.sh");
@@ -184,9 +194,7 @@ impl<'a> GitApi<'a> {
             volumes.push(git_config_vol.clone());
         }
 
-        if spec.use_volume {
-            volumes.push(RoozVolume::work(&spec.workspace_key, &spec.working_dir));
-        };
+        volumes.push(RoozVolume::work(&spec.workspace_key, &spec.working_dir));
 
         self.api
             .volume
@@ -303,7 +311,6 @@ impl<'a> GitApi<'a> {
         let container_id = self
             .clone_from_spec(
                 &CloneEnv {
-                    use_volume: true,
                     depth_override: Some(1),
                     ..spec.clone()
                 },
