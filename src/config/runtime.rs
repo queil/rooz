@@ -4,6 +4,7 @@ use crate::constants;
 use crate::model::types::{TargetDir, VolumeFilesSpec};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use serde_with::serde_as;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
@@ -59,8 +60,9 @@ impl<'a> From<&'a RoozSidecar> for RoozSidecarRuntime {
         }
     }
 }
-#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde_with::skip_serializing_none]
+#[serde_as]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct RuntimeConfig {
     pub git_ssh_url: Option<String>,
     pub extra_repos: Vec<String>,

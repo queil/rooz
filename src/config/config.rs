@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::path::Path;
+use serde_with::serde_as;
 
 #[derive(Debug, Clone)]
 pub enum ConfigSource {
@@ -97,9 +98,10 @@ impl FileFormat {
     }
 }
 
+#[serde_with::skip_serializing_none]
+#[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
-#[serde_with::skip_serializing_none]
 pub struct RoozSidecar {
     pub image: String,
     pub env: Option<IndexMap<String, String>>,
@@ -150,9 +152,10 @@ impl RoozSidecar {
     }
 }
 
+#[serde_with::skip_serializing_none]
+#[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
-#[serde_with::skip_serializing_none]
 pub struct RoozCfg {
     pub vars: Option<IndexMap<String, String>>,
     pub secrets: Option<IndexMap<String, String>>,
