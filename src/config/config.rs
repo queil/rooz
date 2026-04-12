@@ -6,10 +6,10 @@ use colored::Colorize;
 use handlebars::{Handlebars, no_escape};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
+use serde_with::serde_as;
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::path::Path;
-use serde_with::serde_as;
 
 #[derive(Debug, Clone)]
 pub enum ConfigSource {

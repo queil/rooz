@@ -244,10 +244,16 @@ impl<'a> ExecApi<'a> {
         container_id: &str,
         cmd: String,
     ) -> Result<(), AnyError> {
+        let script = if cmd.starts_with("#!") {
+            cmd.splitn(2, '\n').nth(1).unwrap_or(&cmd)
+        } else {
+            &cmd
+        };
         let cmd = format!(
-            r#"echo '[install] {}'
+            r#"#!/bin/sh
+echo '[install] {}'
 {}"#,
-            container_name, cmd
+            container_name, script
         );
         let install_cmd = inject(cmd.as_str(), "install.sh");
         let v = install_cmd.iter().map(|x| x.as_str()).collect::<Vec<_>>();
