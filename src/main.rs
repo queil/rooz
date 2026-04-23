@@ -198,9 +198,7 @@ async fn main() -> Result<(), AnyError> {
         } => workspace.remove(&name, false, force).await?,
 
         Cli {
-            command: Remove(RemoveParams {
-                name: _, force, ..
-            }),
+            command: Remove(RemoveParams { name: _, force, .. }),
             ..
         } => workspace.remove_all(force).await?,
 

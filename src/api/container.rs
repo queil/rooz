@@ -517,14 +517,15 @@ exit $EXEC_EXIT_CODE"#;
                 image: image.unwrap_or(constants::DEFAULT_IMAGE),
                 container_name: &id::random_suffix("one-shot"),
                 command: Some(entrypoint),
-                mounts: mounts.map(|mut m| {
-                    m.extend_from_slice(&[Mount {
+                mounts: {
+                    let mut m = mounts.unwrap_or_default();
+                    m.push(Mount {
                         target: Some(work_dir.into()),
                         typ: Some(MountTypeEnum::TMPFS),
                         ..Default::default()
-                    }]);
-                    m
-                }),
+                    });
+                    Some(m)
+                },
                 uid: uid.unwrap_or(constants::ROOT_UID),
                 work_dir: Some(work_dir),
                 ..Default::default()
