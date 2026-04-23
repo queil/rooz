@@ -25,7 +25,7 @@ use crate::{
 };
 
 use api::{ConfigApi, CryptApi};
-pub use bollard::Docker;
+pub use bollard::{API_DEFAULT_VERSION, Docker};
 use bollard_stubs::models::SystemVersion;
 use clap::{CommandFactory, Parser};
 use clap_complete::generate;
@@ -57,7 +57,13 @@ async fn main() -> Result<(), AnyError> {
         std::process::exit(0);
     }
 
-    let connection = Docker::connect_with_local_defaults();
+    let connection = match std::env::var("DOCKER_HOST").ok().filter(|s| !s.is_empty()) {
+        Some(h) if h.starts_with("unix://") => {
+            Docker::connect_with_unix(h.trim_start_matches("unix://"), 120, API_DEFAULT_VERSION)
+        }
+        Some(_) => Docker::connect_with_http_defaults(),
+        None => Docker::connect_with_local_defaults(),
+    };
 
     let docker = connection.expect("Docker API connection established");
 
@@ -193,7 +199,7 @@ async fn main() -> Result<(), AnyError> {
 
         Cli {
             command: Remove(RemoveParams {
-                name: None, force, ..
+                name: _, force, ..
             }),
             ..
         } => workspace.remove_all(force).await?,
