@@ -7,7 +7,7 @@ use bollard::{
 use bollard_stubs::models::ExecInspectResponse;
 use futures::{Stream, StreamExt};
 
-use crate::api::container::inject;
+use crate::api::container::inject_sh;
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use std::{io::Read, time::Duration};
 use tokio::{
@@ -255,7 +255,7 @@ echo '[install] {}'
 {}"#,
             container_name, script
         );
-        let install_cmd = inject(cmd.as_str(), "install.sh");
+        let install_cmd = inject_sh(cmd.as_str());
         let v = install_cmd.iter().map(|x| x.as_str()).collect::<Vec<_>>();
         self.tty(
             "install",
@@ -312,10 +312,7 @@ echo '[install] {}'
                 Some(vec![
                     "sh",
                     "-c",
-                    &format!(
-                        "chmod -R 1777 {}",
-                        &dir.replace("~", "${ROOZ_META_HOME}")
-                    ),
+                    &format!("chmod -R 1777 {}", &dir.replace("~", "${ROOZ_META_HOME}")),
                 ]),
             )
             .await?;
@@ -325,15 +322,13 @@ echo '[install] {}'
     }
 
     pub async fn ensure_user(&self, container_id: &str) -> Result<(), AnyError> {
-        let ensure_user_cmd = inject(
+        let ensure_user_cmd = inject_sh(
             format!(
                     r#"grep -q "^$ROOZ_META_USER:x:$ROOZ_META_UID" /etc/passwd && exit 0
                        sed -i "/:x:${{ROOZ_META_UID}}/d" /etc/passwd && \
                        echo "$ROOZ_META_USER:x:$ROOZ_META_UID:$ROOZ_META_UID:$ROOZ_META_USER:$ROOZ_META_HOME:/bin/sh" >> /etc/passwd"#,
             )
-            .as_ref(),
-            "make_user.sh",
-        );
+            .as_ref());
 
         let ensure_user_output = self
             .output(
