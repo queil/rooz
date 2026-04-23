@@ -504,19 +504,7 @@ impl<'a> VolumeApi<'a> {
             .one_shot(
                 &format!("populate volume: {}", &spec.volume_name.as_str()),
                 cmd,
-                Some(vec![
-                    mount,
-                    Mount {
-                        typ: Some(MountTypeEnum::TMPFS),
-                        target: Some("/tmp".to_string()),
-                        tmpfs_options: Some(MountTmpfsOptions {
-                            size_bytes: Some(16 * 1024 * 1024),
-                            mode: Some(0o1777),
-                            ..Default::default()
-                        }),
-                        ..Default::default()
-                    },
-                ]),
+                Some(vec![mount]),
                 None,
                 None,
             )
@@ -562,19 +550,7 @@ impl<'a> VolumeApi<'a> {
             .one_shot(
                 &format!("populate volume: {}", &volume_name),
                 cmd,
-                Some(vec![
-                    mount,
-                    Mount {
-                        typ: Some(MountTypeEnum::TMPFS),
-                        target: Some("/tmp".to_string()),
-                        tmpfs_options: Some(MountTmpfsOptions {
-                            size_bytes: Some(16 * 1024 * 1024),
-                            mode: Some(0o1777),
-                            ..Default::default()
-                        }),
-                        ..Default::default()
-                    },
-                ]),
+                Some(vec![mount]),
                 None,
                 None,
             )

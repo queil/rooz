@@ -510,7 +510,7 @@ exit $EXEC_EXIT_CODE"#;
 
         let epv = inject_sh(&wait_for_exec);
         let entrypoint = epv.iter().map(String::as_str).collect();
-        let work_dir = "/tmp/one-shot";
+        let work_dir = "/tmp";
         let id = self
             .create(RunSpec {
                 reason: name,
