@@ -157,7 +157,7 @@ impl<'a> ExecApi<'a> {
     ) -> Result<String, AnyError> {
         #[cfg(not(windows))]
         {
-            log::debug!(
+            log::trace!(
                 "[{}] exec: {:?} in working dir: {:?}",
                 reason,
                 cmd,
