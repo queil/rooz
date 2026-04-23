@@ -508,7 +508,7 @@ EXEC_EXIT_CODE=$(cat /tmp/exec_exit)
 echo "Exec session ended: $EXEC_EXIT_CODE"
 exit $EXEC_EXIT_CODE"#;
 
-        let epv = inject(&wait_for_exec, "entrypoint.sh");
+        let epv = inject_sh(&wait_for_exec);
         let entrypoint = epv.iter().map(String::as_str).collect();
         let work_dir = "/tmp/one-shot";
         let id = self
