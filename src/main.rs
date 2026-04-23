@@ -39,7 +39,7 @@ use util::labels::{self, Labels};
 
 #[tokio::main]
 async fn main() -> Result<(), AnyError> {
-    env_logger::Env::default().default_filter_or("rooz=debug");
+    env_logger::init();
 
     log::debug!("Started");
 
