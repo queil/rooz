@@ -394,7 +394,7 @@ impl<'a> ContainerApi<'a> {
 
     pub async fn create(&self, spec: RunSpec<'a>) -> Result<ContainerResult, AnyError> {
         log::debug!(
-            "[{}: {:?}]: CREATE CONTAINER - name: {}, uid: {}, user: {}, image: {}, entrypoint: {}",
+            "[{}: {:?}]: CREATE CONTAINER - name: {}, uid: {}, user: {}, image: {}, entrypoint: {:?}",
             &spec.reason,
             spec.run_mode,
             spec.container_name,
