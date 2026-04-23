@@ -42,12 +42,20 @@ impl RoozVolumeRole {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct RoozVolumeFile {
     pub file_path: String,
     pub data: String,
 }
 
+impl std::fmt::Debug for RoozVolumeFile {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RoozVolumeFile")
+            .field("file_path", &self.file_path)
+            .field("data", &format!("<{} bytes>", self.data.len()))
+            .finish()
+    }
+}
 #[derive(Debug, Clone)]
 pub struct RoozVolume {
     pub path: String,
