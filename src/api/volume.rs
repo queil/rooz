@@ -25,7 +25,7 @@ use bollard::{
     service::Mount,
 };
 use bollard_stubs::models::MountTypeEnum::VOLUME;
-use bollard_stubs::models::VolumeCreateRequest;
+use bollard_stubs::models::{MountTmpfsOptions, MountTypeEnum, VolumeCreateRequest};
 
 impl<'a> VolumeApi<'a> {
     pub async fn get_all(&self, labels: &Labels) -> Result<Vec<Volume>, AnyError> {
@@ -504,7 +504,19 @@ impl<'a> VolumeApi<'a> {
             .one_shot(
                 &format!("populate volume: {}", &spec.volume_name.as_str()),
                 cmd,
-                Some(vec![mount]),
+                Some(vec![
+                    mount,
+                    Mount {
+                        typ: Some(MountTypeEnum::TMPFS),
+                        target: Some("/tmp".to_string()),
+                        tmpfs_options: Some(MountTmpfsOptions {
+                            size_bytes: Some(16 * 1024 * 1024),
+                            mode: Some(0o1777),
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    },
+                ]),
                 None,
                 None,
             )
