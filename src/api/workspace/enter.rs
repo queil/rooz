@@ -96,11 +96,10 @@ impl<'a> WorkspaceApi<'a> {
             };
 
             if !root {
-                //TODO: run for tmp mode only
-                //if is_work_container {
-                //    // only for work containers: sidecars have a readonly rootfs so it would fail
-                //    self.api.exec.ensure_user(container_id).await?;
-                //}
+                if is_work_container {
+                    // only for work containers: sidecars have a readonly rootfs so it would fail
+                    self.api.exec.ensure_user(container_id).await?;
+                }
 
                 let real_mounts = if is_work_container {
                     &config.real_mounts

@@ -16,13 +16,6 @@ pub struct ContainerBackend {
     pub platform: String,
 }
 
-fn parse_version(v: &str) -> Option<(u64, u64)> {
-    let mut parts = v.splitn(3, '.');
-    let major = parts.next()?.parse().ok()?;
-    let minor = parts.next().unwrap_or("0").parse().ok()?;
-    Some((major, minor))
-}
-
 impl ContainerBackend {
     pub async fn resolve(version: &SystemVersion, info: &SystemInfo) -> Result<Self, AnyError> {
         fn backend(info: &SystemInfo, version: &SystemVersion) -> ContainerBackend {
@@ -73,44 +66,11 @@ impl ContainerBackend {
             }
         }
 
-        let backend = backend(&info, &version);
-        if let ContainerEngine::Unknown = backend.engine {
+        let info = backend(&info, &version);
+        if let ContainerEngine::Unknown = info.engine {
             log::debug!("{:?}", &version);
-            log::debug!("{:?}", &backend);
+            log::debug!("{:?}", &info);
         }
-
-        // Subpath mounts require Docker >= 25.0 or Podman >= 4.7.
-        let version_str = match backend.engine {
-            ContainerEngine::Podman => version
-                .components
-                .as_ref()
-                .and_then(|cs| cs.iter().find(|c| c.name == "Podman Engine"))
-                .map(|c| c.version.as_str())
-                .or_else(|| version.version.as_deref())
-                .unwrap_or("0.0.0"),
-            _ => version.version.as_deref().unwrap_or("0.0.0"),
-        };
-
-        let (req_major, req_minor) = match backend.engine {
-            ContainerEngine::Podman => (4, 7),
-            _ => (25, 0),
-        };
-
-        if let Some((major, minor)) = parse_version(version_str) {
-            if major < req_major || (major == req_major && minor < req_minor) {
-                let engine_name = match backend.engine {
-                    ContainerEngine::Podman => "Podman",
-                    _ => "Docker",
-                };
-                return Err(format!(
-                    "rooz requires Docker >= 25.0 or Podman >= 4.7 for single-file mounts \
-                     (detected {} {})",
-                    engine_name, version_str
-                )
-                .into());
-            }
-        }
-
-        Ok(backend)
+        Ok(info)
     }
 }

@@ -137,6 +137,12 @@ impl<'a> WorkspaceApi<'a> {
                         })
                         .await?
                     {
+                        // IMPORTANT: make symlinks to the mounted volumes before install so the
+                        // mounted files/dirs are available
+                        self.api
+                            .container
+                            .symlink_files(&container_id, &real_mounts, uid)
+                            .await?;
                         self.api.container.start(&container_id).await?;
                         self.api
                             .exec
@@ -174,15 +180,29 @@ impl<'a> WorkspaceApi<'a> {
                 }
 
                 let latest_runtime_image = format!("{}:latest", runtime_image);
-                self.api
+                if let ContainerResult::Created { id: container_id } = self
+                    .api
                     .container
                     .create(RunSpec {
                         image: &latest_runtime_image,
                         ..run_spec.clone()
                     })
-                    .await?;
+                    .await?
+                {
+                    self.api
+                        .container
+                        .symlink_files(&container_id, &real_mounts, uid)
+                        .await?;
+                }
             } else {
-                self.api.container.create(run_spec).await?;
+                if let ContainerResult::Created { id: container_id } =
+                    self.api.container.create(run_spec).await?
+                {
+                    self.api
+                        .container
+                        .symlink_files(&container_id, &real_mounts, uid)
+                        .await?;
+                }
             }
         }
 
