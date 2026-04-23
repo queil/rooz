@@ -21,6 +21,8 @@ data:
   #local-file:
   #  path: ./local.yaml
 
+image: docker.io/alpine
+
 mounts:
   ~/certs/my.key: cert
   ~/placeholder: empty-dir

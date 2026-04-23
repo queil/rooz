@@ -25,7 +25,7 @@ use bollard::{
     service::Mount,
 };
 use bollard_stubs::models::MountTypeEnum::VOLUME;
-use bollard_stubs::models::{MountTmpfsOptions, MountTypeEnum, VolumeCreateRequest};
+use bollard_stubs::models::{MountVolumeOptions, VolumeCreateRequest};
 
 impl<'a> VolumeApi<'a> {
     pub async fn get_all(&self, labels: &Labels) -> Result<Vec<Volume>, AnyError> {
@@ -249,6 +249,9 @@ impl<'a> VolumeApi<'a> {
         mounts: HashMap<TargetPath, DataEntryVolumeSpec>,
         home_dir: Option<&str>,
     ) -> HashMap<TargetDir, VolumeFilesSpec> {
+        // Volume files are populated into a shadow dir so the one-shot container has a
+        // stable mount point. The subpath stored in FileSpec.target_file is the filename
+        // at the root of that volume, used as the subpath for the runtime mount.
         const SHADOW_ROOT_DIR: &str = "/var/lib/rooz";
         mounts
             .iter()
@@ -260,19 +263,15 @@ impl<'a> VolumeApi<'a> {
                         executable,
                         ..
                     } => {
-                        let shadow_subpath = &source_entry.clone().data.name();
-                        let shadow_file = Path::new(SHADOW_ROOT_DIR).join(shadow_subpath).join(
-                            Path::new(&expanded_target)
-                                .with_file_name(shadow_subpath)
-                                .with_extension("data")
-                                .to_string_lossy()
-                                .trim_start_matches('/'),
-                        );
+                        let data_name = source_entry.clone().data.name();
+                        let shadow_dir = format!("{}/{}", SHADOW_ROOT_DIR, data_name);
+                        // Canonical filename at the volume root — used as the subpath for mounting.
+                        let volume_subpath = format!("{}.data", data_name);
 
                         (
-                            format!("{}/{}", SHADOW_ROOT_DIR.to_string(), shadow_subpath),
+                            shadow_dir,
                             Some(FileSpec {
-                                target_file: TargetFile(shadow_file.to_string_lossy().into_owned()),
+                                target_file: TargetFile(volume_subpath),
                                 user_file: UserFile(expanded_target),
                                 generator,
                                 executable,
@@ -345,13 +344,35 @@ impl<'a> VolumeApi<'a> {
         &self,
         real_mounts: &HashMap<TargetDir, VolumeFilesSpec>,
     ) -> Result<Vec<Mount>, AnyError> {
-        let mut mount_entries = HashMap::new();
-        mount_entries.extend(real_mounts.clone());
-
-        let mounts_v2 = mount_entries
-            .into_iter()
-            .map(|(target, source)| Self::mount(&target, &source))
-            .map(|v| (v.target.clone().unwrap().to_string(), v.clone()))
+        let mounts_v2 = real_mounts
+            .iter()
+            .flat_map(|(target, source)| {
+                if source.files.is_empty() {
+                    // Directory: plain volume mount at the target path.
+                    vec![Self::mount(target, source)]
+                } else {
+                    // Files: one subpath volume mount per file, directly at the user path.
+                    // The volume is populated with each file at a canonical path (e.g. git-config.data)
+                    // and the subpath mount makes it appear at the intended location without any
+                    // rootfs writes or symlinks.
+                    source
+                        .files
+                        .iter()
+                        .map(|f| Mount {
+                            target: Some(f.user_file.as_str().to_string()),
+                            source: Some(source.volume_name.as_str().to_string()),
+                            typ: Some(VOLUME),
+                            read_only: Some(false),
+                            volume_options: Some(MountVolumeOptions {
+                                subpath: Some(f.target_file.as_str().to_string()),
+                                ..Default::default()
+                            }),
+                            ..Mount::default()
+                        })
+                        .collect::<Vec<_>>()
+                }
+            })
+            .map(|v| (v.target.clone().unwrap(), v))
             .collect::<HashMap<_, _>>() //dedupe entries to avoid duplicate mounts
             .into_values()
             .collect::<Vec<_>>();
@@ -438,11 +459,15 @@ impl<'a> VolumeApi<'a> {
     ) -> Result<(), AnyError> {
         let mut cmds = Vec::new();
         for f in &spec.files {
-            let parent_dir = Path::new(f.target_file.as_str())
+            // target_file is the subpath inside the volume (e.g. "git-config.data");
+            // combine with root_dir to get the absolute path inside the population container.
+            let full_path = Path::new(root_dir).join(f.target_file.as_str());
+            let parent_dir = full_path
                 .parent()
                 .unwrap()
                 .to_string_lossy()
                 .into_owned();
+            let full_path_str = full_path.to_string_lossy().into_owned();
 
             let content = match &f.generator {
                 ContentGenerator::Inline(content) => content.to_string(),
@@ -477,9 +502,9 @@ impl<'a> VolumeApi<'a> {
                 // IMPORTANT: never trim content so YAML multi-line strings are respected and can
                 // control whitespace and most importantly EOLs
                 general_purpose::STANDARD.encode(content),
-                f.target_file.as_str(),
+                full_path_str,
                 if f.executable {
-                    format!(" && chmod +x {}", f.target_file.as_str())
+                    format!(" && chmod +x {}", full_path_str)
                 } else {
                     "".to_string()
                 }

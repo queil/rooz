@@ -183,7 +183,7 @@ impl<'a> WorkspaceApi<'a> {
             ..*work_spec
         };
 
-        let ws = self.create(&work_spec, &real_mounts).await?;
+        let ws = self.create(&work_spec).await?;
         if !cfg2.extra_repos.is_empty() {
             self.git
                 .clone_extra_repos(clone_spec.clone(), cfg2.extra_repos)
