@@ -1,6 +1,6 @@
 use gix_config::File;
 use std::collections::HashMap;
-
+use bollard_stubs::models::{Mount, MountTypeEnum};
 use crate::{
     api::{ExecApi, GitApi, container},
     config::config::FileFormat,
@@ -205,6 +205,12 @@ impl<'a> GitApi<'a> {
             mounts.push(vol.to_mount(None));
         }
 
+        mounts.push(Mount {
+            target: Some("/tmp".to_string()),
+            typ: Some(MountTypeEnum::TMPFS),
+            ..Default::default()
+        });
+        
         let run_spec = RunSpec {
             reason: "git-clone",
             image: &spec.image,
