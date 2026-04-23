@@ -107,18 +107,10 @@ impl<'a> WorkspaceApi<'a> {
                     &config.sidecars[container_name].real_mounts
                 };
 
-                let chown_uid = if is_work_container {
-                    &config.uid
-                } else {
-                    &config.sidecars[container_name]
-                        .uid
-                        .unwrap_or_else(|| panic!("TODO: read default uid from the image"))
-                };
-
                 for (target, _) in real_mounts {
                     self.api
                         .exec
-                        .chown(&container_id, chown_uid, target.as_str())
+                        .chmod(&container_id, target.as_str())
                         .await?;
                 }
             }

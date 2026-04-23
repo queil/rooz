@@ -301,6 +301,29 @@ echo '[install] {}'
         Ok(())
     }
 
+    pub async fn chmod(&self, container_id: &str, dir: &str) -> Result<(), AnyError> {
+        log::debug!("Changing permissions... ({})", &dir);
+
+        let chmod_response = self
+            .output(
+                "chmod",
+                container_id,
+                Some(constants::ROOT_USER),
+                Some(vec![
+                    "sh",
+                    "-c",
+                    &format!(
+                        "chmod -R 1777 {}",
+                        &dir.replace("~", "${ROOZ_META_HOME}")
+                    ),
+                ]),
+            )
+            .await?;
+
+        log::debug!("{}", chmod_response);
+        Ok(())
+    }
+
     pub async fn ensure_user(&self, container_id: &str) -> Result<(), AnyError> {
         let ensure_user_cmd = inject(
             format!(
