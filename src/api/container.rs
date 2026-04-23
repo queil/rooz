@@ -579,7 +579,7 @@ echo start > /tmp/exec_start
         "#,
             command
         );
-        inject(&cmd, "exec.sh")
+        inject_sh(&cmd)
     }
 
     pub async fn one_shot_output(
@@ -591,7 +591,7 @@ echo start > /tmp/exec_start
         image: Option<&str>,
     ) -> Result<OneShotResult, AnyError> {
         let id = self.make_one_shot(name, mounts, uid, image).await?;
-        let cmd = inject_sh(&command);
+        let cmd = Self::format_cmd(command);
         let cmd = cmd.iter().map(|x| x.as_str()).collect::<Vec<_>>();
 
         let id_clone = id.clone();
