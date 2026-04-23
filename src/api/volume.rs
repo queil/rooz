@@ -509,11 +509,6 @@ impl<'a> VolumeApi<'a> {
                     Mount {
                         typ: Some(MountTypeEnum::TMPFS),
                         target: Some("/tmp".to_string()),
-                        tmpfs_options: Some(MountTmpfsOptions {
-                            size_bytes: Some(16 * 1024 * 1024),
-                            mode: Some(0o1777),
-                            ..Default::default()
-                        }),
                         ..Default::default()
                     },
                 ]),
