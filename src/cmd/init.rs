@@ -17,11 +17,11 @@ impl<'a> InitApi<'a> {
     async fn init_ssh(&self, image_id: &str, uid: &str) -> Result<(), AnyError> {
         let hostname = self.client.info().await?.name.unwrap_or("unknown".into());
         let init_ssh = format!(
-            r#"mkdir -p /tmp/.ssh
-                       KEYFILE=/tmp/.ssh/id_ed25519
+            r#"mkdir -p /init/.ssh
+                       KEYFILE=/init/.ssh/id_ed25519
                        ls "$KEYFILE.pub" > /dev/null 2>&1 || ssh-keygen -t ed25519 -N '' -f $KEYFILE -C rooz@{}
                        cat "$KEYFILE.pub"
-                       chmod 400 $KEYFILE && chown -R {} /tmp/.ssh
+                       chmod 400 $KEYFILE && chown -R {} /init/.ssh
                     "#,
             &hostname, &uid,
         );
@@ -30,7 +30,7 @@ impl<'a> InitApi<'a> {
             .one_shot(
                 "init",
                 init_ssh,
-                Some(vec![ssh::mount("/tmp/.ssh")]),
+                Some(vec![ssh::mount("/init/.ssh")]),
                 None,
                 Some(&image_id),
             )
@@ -48,13 +48,13 @@ impl<'a> InitApi<'a> {
             self.volume
                 .ensure_mounts(
                     &vec![RoozVolume::system_config_init(
-                        "/tmp/sys",
+                        "/init/sys",
                         SystemConfig {
                             age_key: Some(age_key.to_string().expose_secret().to_string()),
                             gitconfig: Some(
                                 r#"
 [core]
-  sshCommand = ssh -i /tmp/.ssh/id_ed25519 -o UserKnownHostsFile=/tmp/.ssh/known_hosts
+  sshCommand = ssh -i /init/.ssh/id_ed25519 -o UserKnownHostsFile=/init/.ssh/known_hosts
 "#
                                 .trim()
                                 .to_string(),
