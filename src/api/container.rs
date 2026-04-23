@@ -46,6 +46,13 @@ pub fn inject(script: &str, name: &str) -> Vec<String> {
         ),
     ]
 }
+pub fn inject_sh(script: &str) -> Vec<String> {
+    vec![
+        "sh".to_string(),
+        "-c".to_string(),
+        script.trim().to_string(),
+    ]
+}
 
 impl<'a> ContainerApi<'a> {
     pub async fn get_all(&self, labels: &Labels) -> Result<Vec<ContainerSummary>, AnyError> {
@@ -584,7 +591,7 @@ echo start > /tmp/exec_start
         image: Option<&str>,
     ) -> Result<OneShotResult, AnyError> {
         let id = self.make_one_shot(name, mounts, uid, image).await?;
-        let cmd = Self::format_cmd(command);
+        let cmd = inject_sh(&command);
         let cmd = cmd.iter().map(|x| x.as_str()).collect::<Vec<_>>();
 
         let id_clone = id.clone();
