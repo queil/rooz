@@ -22,7 +22,8 @@ ctrlc = "3.4.5"
 edit = "0.1.5"
 env_logger = "0.11.5"
 futures = "0.3.30"
-gix-config = { version = "0.53.0", features = ["serde"] }
+gix-config = { version = "0.54.0", features = ["serde", "sha1"] }
+gix-actor = "=0.40.0" # fix build
 handlebars = "6.0.0"
 lazy_static = "1.5.0"
 log = "0.4.22"
@@ -37,3 +38,4 @@ tokio = { version = "1.46", features = ["rt-multi-thread", "macros", "io-std"] }
 tar = "0.4.44"
 indexmap = { version ="2.13.0", features = ["serde"] }
 serde_with = "3.18.0"
+
