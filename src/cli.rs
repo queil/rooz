@@ -167,10 +167,11 @@ pub struct NewParams {
     pub work: WorkParams,
     #[arg(
         long,
-        help = "Configures the new workspace from a config file given by the path.",
-        alias = "config"
+        help = "Configures the new workspace from a config file given by the path. Can be specified up to 2 times.",
+        alias = "config",
+        action = clap::ArgAction::Append,
     )]
-    pub config_path: Option<String>,
+    pub config_path: Vec<String>,
 }
 
 #[derive(Parser, Debug)]

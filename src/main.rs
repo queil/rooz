@@ -133,12 +133,21 @@ async fn main() -> Result<(), AnyError> {
                 }),
             ..
         } => {
-            let config_source = match config_path {
-                Some(path) => Some(ConfigSource::Path {
-                    value: ConfigPath::from_str(&path)?,
-                }),
-                None => None,
-            };
+            if config_path.len() > 2 {
+                return Err(format!(
+                    "--config can be specified at most 2 times, got {}",
+                    config_path.len()
+                )
+                .into());
+            }
+            let config_sources = config_path
+                .into_iter()
+                .map(|path| {
+                    Ok(ConfigSource::Path {
+                        value: ConfigPath::from_str(&path)?,
+                    })
+                })
+                .collect::<Result<Vec<_>, AnyError>>()?;
 
             let labels = Labels::from(&[
                 Labels::workspace(&name),
@@ -153,7 +162,7 @@ async fn main() -> Result<(), AnyError> {
                 None => Ok(()),
             }?;
 
-            workspace.new(&name, &work, config_source, false).await?;
+            workspace.new(&name, &work, config_sources, false).await?;
             println!(
                 "\nThe workspace is ready. Run 'rooz enter {}' to enter.",
                 name

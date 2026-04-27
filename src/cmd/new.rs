@@ -4,7 +4,7 @@ use crate::{
     api::WorkspaceApi,
     cli::WorkParams,
     config::{
-        config::{ConfigPath, ConfigSource, FileFormat, RoozCfg},
+        config::{deep_merge_yaml, ConfigPath, ConfigSource, FileFormat, RoozCfg},
         runtime::RuntimeConfig,
     },
     constants,
@@ -24,7 +24,6 @@ impl<'a> WorkspaceApi<'a> {
     async fn new_core(
         &self,
         cfg_builder: &mut RoozCfg,
-        cli_config: Option<RoozCfg>,
         cli_params: &WorkParams,
         work_spec: &WorkSpec<'a>,
         clone_spec: &CloneEnv,
@@ -32,9 +31,6 @@ impl<'a> WorkspaceApi<'a> {
         workspace_key: &str,
         force: bool,
     ) -> Result<EnterSpec, AnyError> {
-        if let Some(c) = &cli_config {
-            cfg_builder.from_config(c);
-        }
         cfg_builder.from_cli(cli_params, None);
         self.config
             .decrypt(
@@ -196,69 +192,86 @@ impl<'a> WorkspaceApi<'a> {
         })
     }
 
-    async fn get_cli_config(
+    async fn load_config_source(
+        &self,
+        source: &ConfigSource,
+        clone_env: &CloneEnv,
+    ) -> Result<(String, Option<String>), AnyError> {
+        match source {
+            ConfigSource::Update {
+                value,
+                origin,
+                format,
+            } => {
+                let body = value.to_string(format.clone())?;
+                Ok((origin.to_string(), Some(body)))
+            }
+            ConfigSource::Path { value: path } => match path {
+                ConfigPath::File { path } => {
+                    let body = fs::read_to_string(path)?;
+                    let absolute_path =
+                        std::path::absolute(path)?.to_string_lossy().into_owned();
+                    Ok((absolute_path, Some(body)))
+                }
+                ConfigPath::Git { url, file_path } => {
+                    let body = self
+                        .git
+                        .clone_config_repo(clone_env.clone(), url, file_path)
+                        .await?;
+                    Ok((path.to_string(), body))
+                }
+            },
+        }
+    }
+
+    async fn get_cli_configs(
         &self,
         workspace_key: &str,
-        cli_config_path: &Option<ConfigSource>,
+        cli_config_paths: &[ConfigSource],
         clone_env: &CloneEnv,
-    ) -> Result<Option<RoozCfg>, AnyError> {
-        let val = if let Some(source) = &cli_config_path {
-            let (origin, body, rooz_cfg): (String, Option<String>, Option<RoozCfg>) = match source {
-                ConfigSource::Update {
-                    value,
-                    origin,
-                    format,
-                } => {
-                    let body = value.to_string(format.clone())?;
-                    (origin.to_string(), Some(body), Some(value.clone()))
-                }
-                ConfigSource::Path { value: path } => match path {
-                    ConfigPath::File { path } => {
-                        let body = fs::read_to_string(&path)?;
-                        let absolute_path =
-                            std::path::absolute(path)?.to_string_lossy().into_owned();
-                        (
-                            absolute_path.to_string(),
-                            Some(body.clone()),
-                            RoozCfg::deserialize_config(&body, FileFormat::from_path(&path))?,
-                        )
-                    }
-                    ConfigPath::Git { url, file_path } => {
-                        let body = self
-                            .git
-                            .clone_config_repo(clone_env.clone(), &url, &file_path)
-                            .await?;
+    ) -> Result<Option<String>, AnyError> {
+        if cli_config_paths.is_empty() {
+            return Ok(None);
+        }
 
-                        let rooz_cfg = match body.clone() {
-                            Some(body) => {
-                                let fmt = FileFormat::from_path(&file_path);
-                                RoozCfg::deserialize_config(&body, fmt)?
-                            }
-                            None => None,
-                        };
+        let mut merged: Option<serde_yaml::Value> = None;
+        let mut last_origin = String::new();
 
-                        (path.to_string(), body, rooz_cfg)
-                    }
-                },
-            };
-
-            self.config
-                .store(workspace_key, &origin, &body.unwrap())
+        for source in cli_config_paths {
+            let (origin, body) = self
+                .load_config_source(source, clone_env)
                 .await?;
+            if let Some(body) = body {
+                last_origin = origin;
+                match serde_yaml::from_str::<serde_yaml::Value>(&body) {
+                    Ok(overlay) => match merged.as_mut() {
+                        None => merged = Some(overlay),
+                        Some(base) => deep_merge_yaml(base, overlay),
+                    },
+                    Err(e) => eprintln!(
+                        "{}",
+                        format!("WARNING: Could not read config: {}", e)
+                    ),
+                }
+            }
+        }
 
-            rooz_cfg
+        if let Some(ref value) = merged {
+            let merged_body = serde_yaml::to_string(value)?;
+            self.config
+                .store(workspace_key, &last_origin, &merged_body)
+                .await?;
+            Ok(Some(merged_body))
         } else {
-            None
-        };
-
-        Ok(val)
+            Ok(None)
+        }
     }
 
     pub async fn new(
         &self,
         workspace_key: &str,
         cli_params: &WorkParams,
-        cli_config_path: Option<ConfigSource>,
+        cli_config_paths: Vec<ConfigSource>,
         ephemeral: bool,
     ) -> Result<EnterSpec, AnyError> {
         let orig_uid = cli_params
@@ -285,9 +298,13 @@ impl<'a> WorkspaceApi<'a> {
             ..Default::default()
         };
 
-        let cli_cfg = self
-            .get_cli_config(workspace_key, &cli_config_path, &clone_env)
+        let cli_config_body = self
+            .get_cli_configs(workspace_key, &cli_config_paths, &clone_env)
             .await?;
+
+        let cli_cfg_for_url: Option<RoozCfg> = cli_config_body
+            .as_deref()
+            .and_then(|b| RoozCfg::deserialize_config(b, FileFormat::Yaml).ok().flatten());
 
         let work_spec = WorkSpec {
             uid: &orig_uid,
@@ -299,40 +316,57 @@ impl<'a> WorkspaceApi<'a> {
             ..Default::default()
         };
         let mut cfg_builder = RoozCfg::default().from_cli_env(cli_params.clone());
-        let root_repo_result = match &RoozCfg::git_ssh_url(cli_params, &cli_cfg) {
+
+        let is_update_mode = cli_config_paths
+            .first()
+            .map(|s| matches!(s, ConfigSource::Update { .. }))
+            .unwrap_or(false);
+
+        let mut repo_config_body: Option<String> = None;
+
+        let root_repo_result = match &RoozCfg::git_ssh_url(cli_params, &cli_cfg_for_url) {
             Some(url) => {
-                let result = self.git.clone_root_repo(&url, &clone_env).await?;
-                match (&result.config, &cli_config_path) {
-                    (Some(_), Some(ConfigSource::Update { .. })) => {
+                let result = self.git.clone_root_repo(url, &clone_env).await?;
+                match (&result.config, is_update_mode) {
+                    (Some(_), true) => {
                         log::debug!("Ignoring the in-repo config file in update mode");
                     }
-                    (Some((body, format)), _) => {
-                        match RoozCfg::deserialize_config(body, *format)? {
-                            Some(c) => {
-                                cfg_builder.from_config(&c);
-                                log::debug!("Config file applied.");
-                                let origin = format!("{}//.rooz.{}", url, format.to_string());
-                                self.config.store(workspace_key, &origin, &body).await?;
-                            }
-                            None => {
-                                log::debug!("No valid config file found in the repository.");
-                            }
-                        }
+                    (Some((body, format)), false) => {
+                        log::debug!("Config file applied.");
+                        let origin = format!("{}//.rooz.{}", url, format.to_string());
+                        self.config.store(workspace_key, &origin, body).await?;
+                        repo_config_body = Some(body.clone());
                     }
                     (None, _) => {
                         log::debug!("No valid config file found in the repository.");
                     }
                 }
-
                 Some(result)
             }
             None => None,
         };
 
+        if cli_config_body.is_some() || repo_config_body.is_some() {
+            let mut base: serde_yaml::Value = serde_yaml::to_value(&cfg_builder)?;
+            if let Some(ref body) = cli_config_body {
+                let overlay: serde_yaml::Value = serde_yaml::from_str(body)?;
+                deep_merge_yaml(&mut base, overlay);
+            }
+            if let Some(ref body) = repo_config_body {
+                match serde_yaml::from_str::<serde_yaml::Value>(body) {
+                    Ok(overlay) => deep_merge_yaml(&mut base, overlay),
+                    Err(e) => eprintln!(
+                        "{}",
+                        format!("WARNING: Could not read config (yaml)\n{}", e)
+                    ),
+                }
+            }
+            cfg_builder = serde_yaml::from_value(base)?;
+        }
+
         let enter_spec = self
             .new_core(
                 &mut cfg_builder,
-                cli_cfg,
                 cli_params,
                 &WorkSpec {
                     labels,
@@ -358,7 +392,7 @@ impl<'a> WorkspaceApi<'a> {
             config,
             ..
         } = self
-            .new(&id::random_suffix("tmp"), spec, None, true)
+            .new(&id::random_suffix("tmp"), spec, vec![], true)
             .await?;
 
         let working_dir = git_spec

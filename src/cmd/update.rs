@@ -121,7 +121,7 @@ impl<'a> WorkspaceApi<'a> {
                 pull_image: if no_pull || interactive { false } else { true },
                 ..Default::default()
             },
-            config_source,
+            config_source.into_iter().collect(),
             false,
         )
         .await?;

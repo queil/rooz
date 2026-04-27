@@ -215,19 +215,6 @@ impl RoozCfg {
         })
     }
 
-    fn extend_if_any<A, T: Extend<A> + IntoIterator<Item = A>>(
-        target: Option<T>,
-        other: Option<T>,
-    ) -> Option<T> {
-        if let Some(caches) = other {
-            let mut ret = target.unwrap();
-            ret.extend(caches);
-            Some(ret)
-        } else {
-            target
-        }
-    }
-
     pub fn from_cli(&mut self, cli: &WorkParams, shell: Option<String>) -> () {
         *self = RoozCfg {
             shell: shell.map(|v| vec![v]).or(self.shell.clone()),
@@ -235,31 +222,15 @@ impl RoozCfg {
             user: cli.user.clone().or(self.user.clone()),
             git_ssh_url: cli.git_ssh_url.clone().or(self.git_ssh_url.clone()),
             privileged: cli.privileged.or(self.privileged),
-            caches: Self::extend_if_any(self.caches.clone(), cli.caches.clone()),
+            caches: match cli.caches.clone() {
+                Some(extra) => {
+                    let mut base = self.caches.clone().unwrap_or_default();
+                    base.extend(extra);
+                    Some(base)
+                }
+                None => self.caches.clone(),
+            },
             ..self.clone()
-        }
-    }
-
-    pub fn from_config(&mut self, config: &RoozCfg) -> () {
-        *self = RoozCfg {
-            vars: Self::extend_if_any(self.vars.clone(), config.vars.clone()),
-            secrets: Self::extend_if_any(self.secrets.clone(), config.secrets.clone()),
-            git_ssh_url: config.git_ssh_url.clone().or(self.git_ssh_url.clone()),
-            extra_repos: Self::extend_if_any(self.extra_repos.clone(), config.extra_repos.clone()),
-            image: config.image.clone().or(self.image.clone()),
-            caches: Self::extend_if_any(self.caches.clone(), config.caches.clone()),
-            shell: config.shell.clone().or(self.shell.clone()),
-            user: config.user.clone().or(self.user.clone()),
-            ports: Self::extend_if_any(self.ports.clone(), config.ports.clone()),
-            privileged: config.privileged.clone().or(self.privileged.clone()),
-            init: config.init.clone().or(self.init.clone()),
-            command: Self::extend_if_any(self.command.clone(), config.command.clone()),
-            args: Self::extend_if_any(self.args.clone(), config.args.clone()),
-            env: Self::extend_if_any(self.env.clone(), config.env.clone()),
-            sidecars: Self::extend_if_any(self.sidecars.clone(), config.sidecars.clone()),
-            data: Self::extend_if_any(self.data.clone(), config.data.clone()),
-            mounts: Self::extend_if_any(self.mounts.clone(), config.mounts.clone()),
-            install: config.install.clone().or(self.install.clone()),
         }
     }
 
@@ -268,7 +239,14 @@ impl RoozCfg {
             shell: cli.env.shell.map(|v| vec![v]).or(self.shell.clone()),
             image: cli.env.image.or(self.image.clone()),
             user: cli.env.user.or(self.user.clone()),
-            caches: Self::extend_if_any(self.caches.clone(), cli.env.caches),
+            caches: match cli.env.caches {
+                Some(extra) => {
+                    let mut base = self.caches.clone().unwrap_or_default();
+                    base.extend(extra);
+                    Some(base)
+                }
+                None => self.caches.clone(),
+            },
             git_ssh_url: cli.git_ssh_url.or(self.git_ssh_url.clone()),
             ..self.clone()
         }
@@ -396,6 +374,31 @@ impl RoozCfg {
         }
     }
 }
+const REPLACE_SEQ_KEYS: &[&str] = &["shell", "command", "args"];
+
+pub fn deep_merge_yaml(base: &mut serde_yaml::Value, overlay: serde_yaml::Value) {
+    use serde_yaml::Value;
+    match (base, overlay) {
+        (Value::Mapping(b), Value::Mapping(o)) => {
+            for (k, v) in o {
+                let replace = k.as_str().map(|s| REPLACE_SEQ_KEYS.contains(&s)).unwrap_or(false);
+                if replace {
+                    b.insert(k, v);
+                } else {
+                    match b.get_mut(&k) {
+                        Some(existing) => deep_merge_yaml(existing, v),
+                        None => {
+                            b.insert(k, v);
+                        }
+                    }
+                }
+            }
+        }
+        (Value::Sequence(b), Value::Sequence(o)) => b.extend(o),
+        (b, o) => *b = o,
+    }
+}
+
 fn render_str(
     reg: &Handlebars,
     val: &str,
@@ -646,5 +649,152 @@ data:
                 }
             }
         }
+    }
+
+    fn merge(base: &str, overlay: &str) -> RoozCfg {
+        let mut base_val: serde_yaml::Value = serde_yaml::from_str(base).unwrap();
+        let overlay_val: serde_yaml::Value = serde_yaml::from_str(overlay).unwrap();
+        deep_merge_yaml(&mut base_val, overlay_val);
+        serde_yaml::from_value(base_val).unwrap()
+    }
+
+    #[test]
+    fn merge_same_sidecar_different_env_vars() {
+        let base = r#"
+sidecars:
+  claude:
+    image: ghcr.io/example/claude
+    env:
+      FOO: bar
+    mounts:
+      /home/claude/.cache: {}
+"#;
+        let overlay = r#"
+sidecars:
+  claude:
+    env:
+      EXTRA: value
+    mounts:
+      /home/claude/.dotnet: {}
+"#;
+        let result = merge(base, overlay);
+        let sidecars = result.sidecars.unwrap();
+        let claude = sidecars.get("claude").unwrap();
+        assert_eq!(claude.image, "ghcr.io/example/claude");
+        let env = claude.env.as_ref().unwrap();
+        assert_eq!(env.get("FOO").map(String::as_str), Some("bar"));
+        assert_eq!(env.get("EXTRA").map(String::as_str), Some("value"));
+        let mounts = claude.mounts.as_ref().unwrap();
+        assert!(mounts.contains_key("/home/claude/.cache"));
+        assert!(mounts.contains_key("/home/claude/.dotnet"));
+    }
+
+    #[test]
+    fn merge_base_sidecar_absent_from_overlay() {
+        let base = r#"
+sidecars:
+  claude:
+    image: ghcr.io/example/claude
+    env:
+      FOO: bar
+"#;
+        let overlay = r#"
+image: other-image
+"#;
+        let result = merge(base, overlay);
+        let sidecars = result.sidecars.unwrap();
+        let claude = sidecars.get("claude").unwrap();
+        assert_eq!(claude.image, "ghcr.io/example/claude");
+        assert_eq!(result.image, Some("other-image".to_string()));
+    }
+
+    #[test]
+    fn merge_scalar_overlay_wins() {
+        let result = merge("image: base-image\n", "image: overlay-image\n");
+        assert_eq!(result.image, Some("overlay-image".to_string()));
+    }
+
+    #[test]
+    fn merge_base_value_preserved_when_overlay_absent() {
+        let base = "image: base-image\nuser: myuser\n";
+        let overlay = "shell:\n  - fish\n";
+        let result = merge(base, overlay);
+        assert_eq!(result.image, Some("base-image".to_string()));
+        assert_eq!(result.user, Some("myuser".to_string()));
+        assert_eq!(result.shell, Some(vec!["fish".to_string()]));
+    }
+
+    #[test]
+    fn merge_sequences_additive() {
+        let base = "caches:\n  - /home/user/.cargo\n";
+        let overlay = "caches:\n  - /home/user/.npm\n";
+        let result = merge(base, overlay);
+        let caches = result.caches.unwrap();
+        assert_eq!(caches.len(), 2);
+        assert!(caches.contains(&"/home/user/.cargo".to_string()));
+        assert!(caches.contains(&"/home/user/.npm".to_string()));
+    }
+
+    #[test]
+    fn merge_shell_command_args_replace() {
+        let base = "shell:\n  - bash\ncommand:\n  - old-cmd\nargs:\n  - --old\n";
+        let overlay = "shell:\n  - fish\ncommand:\n  - new-cmd\nargs:\n  - --new\n";
+        let result = merge(base, overlay);
+        assert_eq!(result.shell, Some(vec!["fish".to_string()]));
+        assert_eq!(result.command, Some(vec!["new-cmd".to_string()]));
+        assert_eq!(result.args, Some(vec!["--new".to_string()]));
+    }
+
+    #[test]
+    fn merge_shell_absent_from_overlay_preserves_base() {
+        let base = "shell:\n  - bash\nimage: my-image\n";
+        let overlay = "image: other-image\n";
+        let result = merge(base, overlay);
+        assert_eq!(result.shell, Some(vec!["bash".to_string()]));
+        assert_eq!(result.image, Some("other-image".to_string()));
+    }
+
+    #[test]
+    fn merge_sidecar_shell_replaces() {
+        let base = r#"
+sidecars:
+  worker:
+    image: myimage
+    shell:
+      - bash
+    command:
+      - old
+"#;
+        let overlay = r#"
+sidecars:
+  worker:
+    shell:
+      - fish
+    command:
+      - new
+"#;
+        let result = merge(base, overlay);
+        let sidecar = result.sidecars.unwrap();
+        let worker = sidecar.get("worker").unwrap();
+        assert_eq!(worker.shell, Some(vec!["fish".to_string()]));
+        assert_eq!(worker.command, Some(vec!["new".to_string()]));
+    }
+
+    #[test]
+    fn three_way_merge_correct_order() {
+        let a = "image: image-a\nenv:\n  FROM_A: \"yes\"\n";
+        let b = "env:\n  FROM_B: \"yes\"\n";
+        let c = "image: image-c\nenv:\n  FROM_C: \"yes\"\n";
+
+        let mut base_val: serde_yaml::Value = serde_yaml::from_str(a).unwrap();
+        deep_merge_yaml(&mut base_val, serde_yaml::from_str(b).unwrap());
+        deep_merge_yaml(&mut base_val, serde_yaml::from_str(c).unwrap());
+        let result: RoozCfg = serde_yaml::from_value(base_val).unwrap();
+
+        assert_eq!(result.image, Some("image-c".to_string()));
+        let env = result.env.unwrap();
+        assert_eq!(env.get("FROM_A").map(String::as_str), Some("yes"));
+        assert_eq!(env.get("FROM_B").map(String::as_str), Some("yes"));
+        assert_eq!(env.get("FROM_C").map(String::as_str), Some("yes"));
     }
 }
