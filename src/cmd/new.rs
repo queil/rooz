@@ -346,19 +346,19 @@ impl<'a> WorkspaceApi<'a> {
             None => None,
         };
 
-        if cli_config_body.is_some() || repo_config_body.is_some() {
+        // in-repo config first, then --config on top (original merge order)
+        let bodies: Vec<&str> = repo_config_body
+            .as_deref()
+            .into_iter()
+            .chain(cli_config_body.as_deref())
+            .collect();
+
+        if !bodies.is_empty() {
             let mut base: serde_yaml::Value = serde_yaml::to_value(&cfg_builder)?;
-            if let Some(ref body) = cli_config_body {
-                let overlay: serde_yaml::Value = serde_yaml::from_str(body)?;
-                deep_merge_yaml(&mut base, overlay);
-            }
-            if let Some(ref body) = repo_config_body {
+            for body in bodies {
                 match serde_yaml::from_str::<serde_yaml::Value>(body) {
                     Ok(overlay) => deep_merge_yaml(&mut base, overlay),
-                    Err(e) => eprintln!(
-                        "{}",
-                        format!("WARNING: Could not read config (yaml)\n{}", e)
-                    ),
+                    Err(e) => eprintln!("WARNING: Could not read config (yaml)\n{}", e),
                 }
             }
             cfg_builder = serde_yaml::from_value(base)?;
