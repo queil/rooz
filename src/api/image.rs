@@ -166,15 +166,18 @@ impl<'a> ImageApi<'a> {
             match l {
                 Ok(CreateImageInfo {
                     id,
-                    status: Some(status),
-                    progress_detail: p,
+                    status,
+                    progress_detail,
                     ..
                 }) => {
-                    if let (Some(id), status) = (&id, &status) {
-                        progress.update(id, status, p.clone().unwrap().current, p.unwrap().total);
+                    if let (Some(id), Some(status)) = (id, status) {
+                        let (cur, tot) = match progress_detail {
+                            Some(pd) => (pd.current, pd.total),
+                            None => (None, None),
+                        };
+                        progress.update(&id, &status, cur, tot);
                     }
                 }
-                Ok(msg) => panic!("{:?}", msg),
                 Err(Error::DockerStreamError { error }) => eprintln!("{}", error),
                 e => panic!("{:?}", e),
             };
