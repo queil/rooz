@@ -221,12 +221,13 @@ impl RoozCfg {
         target: Option<T>,
         other: Option<T>,
     ) -> Option<T> {
-        if let Some(caches) = other {
-            let mut ret = target.unwrap();
-            ret.extend(caches);
-            Some(ret)
-        } else {
-            target
+        match (target, other) {
+            (Some(mut t), Some(o)) => {
+                t.extend(o);
+                Some(t)
+            }
+            (t, None) => t,
+            (None, o) => o,
         }
     }
 
