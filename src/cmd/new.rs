@@ -203,14 +203,19 @@ impl<'a> WorkspaceApi<'a> {
         clone_env: &CloneEnv,
     ) -> Result<Option<RoozCfg>, AnyError> {
         let val = if let Some(source) = &cli_config_path {
-            let (origin, body, rooz_cfg): (String, Option<String>, Option<RoozCfg>) = match source {
+            let (origin, body, extends_body, rooz_cfg): (
+                String,
+                Option<String>,
+                Option<String>,
+                Option<RoozCfg>,
+            ) = match source {
                 ConfigSource::Update {
                     value,
                     origin,
                     format,
                 } => {
                     let body = value.to_string(format.clone())?;
-                    (origin.to_string(), Some(body), Some(value.clone()))
+                    (origin.to_string(), Some(body), None, Some(value.clone()))
                 }
                 ConfigSource::Path { value: path } => match path {
                     ConfigPath::File { path } => {
@@ -219,7 +224,7 @@ impl<'a> WorkspaceApi<'a> {
                             std::path::absolute(path)?.to_string_lossy().into_owned();
                         let fmt = FileFormat::from_path(&path);
                         let cfg = RoozCfg::deserialize_config(&body, fmt)?;
-                        let cfg = match cfg {
+                        let (cfg, base_body) = match cfg {
                             Some(c) if c.extends.is_some() => {
                                 let extends_path = c.extends.clone().unwrap();
                                 RoozCfg::validate_extends_path(&extends_path)?;
@@ -242,30 +247,46 @@ impl<'a> WorkspaceApi<'a> {
                                         }
                                         let mut merged = base;
                                         merged.from_config(&c);
-                                        Some(merged)
+                                        (Some(merged), Some(base_body))
                                     }
                                     None => return Err(format!("Failed to parse extends '{}': invalid config", base_path).into()),
                                 }
                             }
-                            other => other,
+                            other => (other, None),
                         };
-                        (absolute_path.to_string(), Some(body.clone()), cfg)
+                        (absolute_path.to_string(), Some(body.clone()), base_body, cfg)
                     }
                     ConfigPath::Git { url, file_path } => {
-                        let (body, _) = self
+                        let (result, _) = self
                             .git
                             .clone_config_repo(clone_env.clone(), &url, &file_path)
                             .await?;
 
-                        let rooz_cfg = match body.clone() {
-                            Some(ref b) => {
+                        let (rooz_cfg, main_body, base_body) = match result {
+                            Some((body, extends_body)) => {
                                 let fmt = FileFormat::from_path(&file_path);
-                                RoozCfg::deserialize_config(b, fmt)?
+                                let cfg = RoozCfg::deserialize_config(&body, fmt)?;
+                                let merged = match cfg {
+                                    Some(c) if extends_body.is_some() => {
+                                        let eb = extends_body.as_deref().unwrap();
+                                        let ext_path = c.extends.as_deref().unwrap();
+                                        let ext_fmt = FileFormat::from_path(ext_path);
+                                        match RoozCfg::deserialize_config(eb, ext_fmt)? {
+                                            Some(mut base) => {
+                                                base.from_config(&c);
+                                                Some(base)
+                                            }
+                                            None => return Err("Failed to parse extends: invalid config".into()),
+                                        }
+                                    }
+                                    other => other,
+                                };
+                                (merged, Some(body), extends_body)
                             }
-                            None => None,
+                            None => (None, None, None),
                         };
 
-                        (path.to_string(), body, rooz_cfg)
+                        (path.to_string(), main_body, base_body, rooz_cfg)
                     }
                 },
             };
@@ -273,6 +294,9 @@ impl<'a> WorkspaceApi<'a> {
             self.config
                 .store(workspace_key, &origin, &body.unwrap())
                 .await?;
+            if let Some(eb) = extends_body {
+                self.config.store_extends(workspace_key, &eb).await?;
+            }
 
             rooz_cfg
         } else {
@@ -334,9 +358,17 @@ impl<'a> WorkspaceApi<'a> {
                     (Some(_), Some(ConfigSource::Update { .. })) => {
                         log::debug!("Ignoring the in-repo config file in update mode");
                     }
-                    (Some((body, format)), _) => {
+                    (Some((body, extends_body, format)), _) => {
                         match RoozCfg::deserialize_config(body, *format)? {
                             Some(c) => {
+                                if let Some(eb) = extends_body {
+                                    let ext_path = c.extends.as_deref().unwrap();
+                                    let ext_fmt = FileFormat::from_path(ext_path);
+                                    if let Some(base) = RoozCfg::deserialize_config(eb, ext_fmt)? {
+                                        cfg_builder.from_config(&base);
+                                    }
+                                    self.config.store_extends(workspace_key, eb).await?;
+                                }
                                 cfg_builder.from_config(&c);
                                 log::debug!("Config file applied.");
                                 let origin = format!("{}//.rooz.{}", url, format.to_string());

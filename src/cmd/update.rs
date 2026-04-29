@@ -56,12 +56,12 @@ impl<'a> WorkspaceApi<'a> {
                                 ..Default::default()
                             };
 
-                            let (body, _) = self
+                            let (result, _) = self
                                 .git
                                 .clone_config_repo(clone_env, &url, &file_path)
                                 .await?;
-                            if let Some(cfg) = body {
-                                original_body = cfg;
+                            if let Some((body, _)) = result {
+                                original_body = body;
                             };
                         }
                     };

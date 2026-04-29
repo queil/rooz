@@ -44,7 +44,7 @@ impl Default for CloneEnv {
 
 #[derive(Clone, Debug)]
 pub struct RootRepoCloneResult {
-    pub config: Option<(String, FileFormat)>,
+    pub config: Option<(String, Option<String>, FileFormat)>,
     pub dir: String,
 }
 
@@ -100,7 +100,7 @@ impl<'a> ExecApi<'a> {
         clone_dir: &str,
         file_format: FileFormat,
         exact_path: Option<&str>,
-    ) -> Result<Option<String>, AnyError> {
+    ) -> Result<Option<(String, Option<String>)>, AnyError> {
         use crate::config::config::RoozCfg;
 
         let file_path = match exact_path {
@@ -140,19 +140,18 @@ impl<'a> ExecApi<'a> {
                 }
                 let base_fmt = FileFormat::from_path(extends_path);
                 match RoozCfg::deserialize_config(&base_body, base_fmt)? {
-                    Some(mut base) => {
+                    Some(base) => {
                         if base.extends.is_some() {
                             return Err(format!("extends nesting is not allowed (depth limit 1): '{}'", extends_path).into());
                         }
-                        base.from_config(&cfg);
-                        return Ok(Some(base.to_string(file_format)?));
+                        return Ok(Some((body, Some(base_body))));
                     }
                     None => return Err(format!("Failed to parse extends '{}': invalid config", extends_path).into()),
                 }
             }
         }
 
-        Ok(Some(body))
+        Ok(Some((body, None)))
     }
 }
 
@@ -271,15 +270,15 @@ impl<'a> GitApi<'a> {
         &self,
         container_id: &str,
         clone_dir: &str,
-    ) -> Result<Option<(String, FileFormat)>, AnyError> {
+    ) -> Result<Option<(String, Option<String>, FileFormat)>, AnyError> {
         let exec = self.api.exec;
 
-        let rooz_cfg = if let Some(cfg) = exec
+        let rooz_cfg = if let Some((body, extends_body)) = exec
             .read_config_body(&container_id, &clone_dir, FileFormat::Yaml, None)
             .await?
         {
             log::debug!("Config file found (YAML)");
-            Some((cfg, FileFormat::Yaml))
+            Some((body, extends_body, FileFormat::Yaml))
         } else {
             log::debug!("No valid config file found");
             None
@@ -304,10 +303,7 @@ impl<'a> GitApi<'a> {
         self.api.container.kill(&container_id, false).await?;
 
         Ok(RootRepoCloneResult {
-            config: match config {
-                Some(c) => Some(c),
-                None => None,
-            },
+            config,
             dir: clone_dir,
         })
     }
@@ -329,7 +325,7 @@ impl<'a> GitApi<'a> {
         spec: CloneEnv,
         url: &str,
         path: &str,
-    ) -> Result<(Option<String>, String), AnyError> {
+    ) -> Result<(Option<(String, Option<String>)>, String), AnyError> {
         let container_id = self
             .clone_from_spec(
                 &CloneEnv {
@@ -347,13 +343,13 @@ impl<'a> GitApi<'a> {
             &self.api.get_system_config().await?.gitconfig,
         )?;
         let file_format = FileFormat::from_path(path);
-        let body = self
+        let result = self
             .api
             .exec
             .read_config_body(&container_id, &clone_dir, file_format, Some(path))
             .await?;
         self.api.container.kill(&container_id, false).await?;
-        Ok((body, clone_dir))
+        Ok((result, clone_dir))
     }
 
 }
