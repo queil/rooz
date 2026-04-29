@@ -40,6 +40,29 @@ impl<'a> ConfigApi<'a> {
         Ok(())
     }
 
+    pub async fn store_extends(
+        &self,
+        workspace_key: &str,
+        body: &str,
+    ) -> Result<(), AnyError> {
+        let config_vol = RoozVolume::config_data(
+            workspace_key,
+            "/etc/rooz",
+            Some(
+                [(ConfigType::Extends.file_path().to_string(), body.to_string())]
+                    .into_iter()
+                    .collect(),
+            ),
+            None,
+            Some(RoozVolumeRole::WorkspaceConfig),
+        );
+        self.api
+            .volume
+            .ensure_mounts(&vec![config_vol], None, Some(constants::ROOT_UID))
+            .await?;
+        Ok(())
+    }
+
     pub async fn read(
         &self,
         workspace_key: &str,

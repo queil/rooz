@@ -65,6 +65,7 @@ impl<'a> ConfigPath {
 #[derive(Debug, Clone, Copy)]
 pub enum ConfigType {
     Body,
+    Extends,
     Runtime,
 }
 
@@ -72,6 +73,7 @@ impl ConfigType {
     pub fn file_path(&self) -> &str {
         match self {
             ConfigType::Body => "workspace.config",
+            ConfigType::Extends => "extends.config",
             ConfigType::Runtime => "runtime.config",
         }
     }
@@ -157,6 +159,7 @@ impl RoozSidecar {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct RoozCfg {
+    pub extends: Option<String>,
     pub vars: Option<IndexMap<String, String>>,
     pub secrets: Option<IndexMap<String, String>>,
     pub git_ssh_url: Option<String>,
@@ -180,6 +183,7 @@ pub struct RoozCfg {
 impl Default for RoozCfg {
     fn default() -> Self {
         Self {
+            extends: None,
             vars: Some(IndexMap::new()),
             secrets: Some(IndexMap::new()),
             git_ssh_url: None,
@@ -219,12 +223,13 @@ impl RoozCfg {
         target: Option<T>,
         other: Option<T>,
     ) -> Option<T> {
-        if let Some(caches) = other {
-            let mut ret = target.unwrap();
-            ret.extend(caches);
-            Some(ret)
-        } else {
-            target
+        match (target, other) {
+            (Some(mut t), Some(o)) => {
+                t.extend(o);
+                Some(t)
+            }
+            (t, None) => t,
+            (None, o) => o,
         }
     }
 
@@ -242,6 +247,7 @@ impl RoozCfg {
 
     pub fn from_config(&mut self, config: &RoozCfg) -> () {
         *self = RoozCfg {
+            extends: None,
             vars: Self::extend_if_any(self.vars.clone(), config.vars.clone()),
             secrets: Self::extend_if_any(self.secrets.clone(), config.secrets.clone()),
             git_ssh_url: config.git_ssh_url.clone().or(self.git_ssh_url.clone()),
@@ -261,6 +267,16 @@ impl RoozCfg {
             mounts: Self::extend_if_any(self.mounts.clone(), config.mounts.clone()),
             install: config.install.clone().or(self.install.clone()),
         }
+    }
+
+    pub fn validate_extends_path(path: &str) -> Result<(), AnyError> {
+        if path.contains(':') {
+            return Err(format!("extends path must be a local relative path (no URLs): '{}'", path).into());
+        }
+        if path.starts_with('/') {
+            return Err(format!("extends path must be relative, not absolute: '{}'", path).into());
+        }
+        Ok(())
     }
 
     pub fn from_cli_env(self, cli: WorkParams) -> Self {

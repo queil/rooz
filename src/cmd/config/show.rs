@@ -9,6 +9,8 @@ use crate::{
     util::labels::{self, Labels, WORKSPACE_CONFIG_ROLE},
 };
 
+const EXTENDS_SEPARATOR: &str = "---";
+
 impl<'a> ConfigApi<'a> {
     pub async fn show(
         &self,
@@ -43,13 +45,20 @@ impl<'a> ConfigApi<'a> {
 
                 let body = self.read(workspace_key, &ConfigType::Body).await?;
 
-                if let Some(format) = new_format {
+                let body = if let Some(format) = new_format {
                     let origin_path = volume.labels.get(labels::CONFIG_ORIGIN).unwrap();
                     let original_format = FileFormat::from_path(&origin_path);
                     let cfg = RoozCfg::from_string(&body, original_format)?;
-                    Some(cfg.to_string(format)?.to_string())
+                    cfg.to_string(format)?
                 } else {
-                    Some(body.to_string())
+                    body
+                };
+
+                let extends_body = self.read(workspace_key, &ConfigType::Extends).await?;
+                if extends_body.is_empty() {
+                    Some(body)
+                } else {
+                    Some(format!("{}\n{}\n{}", body, EXTENDS_SEPARATOR, extends_body))
                 }
             }
             ConfigPart::Runtime => {
