@@ -157,6 +157,7 @@ impl RoozSidecar {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct RoozCfg {
+    pub extends: Option<String>,
     pub vars: Option<IndexMap<String, String>>,
     pub secrets: Option<IndexMap<String, String>>,
     pub git_ssh_url: Option<String>,
@@ -180,6 +181,7 @@ pub struct RoozCfg {
 impl Default for RoozCfg {
     fn default() -> Self {
         Self {
+            extends: None,
             vars: Some(IndexMap::new()),
             secrets: Some(IndexMap::new()),
             git_ssh_url: None,
@@ -242,6 +244,7 @@ impl RoozCfg {
 
     pub fn from_config(&mut self, config: &RoozCfg) -> () {
         *self = RoozCfg {
+            extends: None,
             vars: Self::extend_if_any(self.vars.clone(), config.vars.clone()),
             secrets: Self::extend_if_any(self.secrets.clone(), config.secrets.clone()),
             git_ssh_url: config.git_ssh_url.clone().or(self.git_ssh_url.clone()),
@@ -261,6 +264,16 @@ impl RoozCfg {
             mounts: Self::extend_if_any(self.mounts.clone(), config.mounts.clone()),
             install: config.install.clone().or(self.install.clone()),
         }
+    }
+
+    pub fn validate_extends_path(path: &str) -> Result<(), AnyError> {
+        if path.contains(':') {
+            return Err(format!("extends path must be a local relative path (no URLs): '{}'", path).into());
+        }
+        if path.starts_with('/') {
+            return Err(format!("extends path must be relative, not absolute: '{}'", path).into());
+        }
+        Ok(())
     }
 
     pub fn from_cli_env(self, cli: WorkParams) -> Self {

@@ -217,22 +217,50 @@ impl<'a> WorkspaceApi<'a> {
                         let body = fs::read_to_string(&path)?;
                         let absolute_path =
                             std::path::absolute(path)?.to_string_lossy().into_owned();
-                        (
-                            absolute_path.to_string(),
-                            Some(body.clone()),
-                            RoozCfg::deserialize_config(&body, FileFormat::from_path(&path))?,
-                        )
+                        let fmt = FileFormat::from_path(&path);
+                        let cfg = RoozCfg::deserialize_config(&body, fmt)?;
+                        let cfg = match cfg {
+                            Some(c) if c.extends.is_some() => {
+                                let extends_path = c.extends.clone().unwrap();
+                                RoozCfg::validate_extends_path(&extends_path)?;
+                                let dir = std::path::Path::new(path.as_str())
+                                    .parent()
+                                    .map(|p| p.to_string_lossy().into_owned())
+                                    .unwrap_or_default();
+                                let base_path = if dir.is_empty() {
+                                    extends_path.clone()
+                                } else {
+                                    format!("{}/{}", dir, extends_path)
+                                };
+                                let base_body = fs::read_to_string(&base_path)
+                                    .map_err(|e| format!("Failed to read extends '{}': {}", base_path, e))?;
+                                let base_fmt = FileFormat::from_path(&base_path);
+                                match RoozCfg::deserialize_config(&base_body, base_fmt)? {
+                                    Some(base) => {
+                                        if base.extends.is_some() {
+                                            return Err(format!("extends nesting is not allowed (depth limit 1): '{}'", base_path).into());
+                                        }
+                                        let mut merged = base;
+                                        merged.from_config(&c);
+                                        Some(merged)
+                                    }
+                                    None => return Err(format!("Failed to parse extends '{}': invalid config", base_path).into()),
+                                }
+                            }
+                            other => other,
+                        };
+                        (absolute_path.to_string(), Some(body.clone()), cfg)
                     }
                     ConfigPath::Git { url, file_path } => {
-                        let body = self
+                        let (body, _) = self
                             .git
                             .clone_config_repo(clone_env.clone(), &url, &file_path)
                             .await?;
 
                         let rooz_cfg = match body.clone() {
-                            Some(body) => {
+                            Some(ref b) => {
                                 let fmt = FileFormat::from_path(&file_path);
-                                RoozCfg::deserialize_config(&body, fmt)?
+                                RoozCfg::deserialize_config(b, fmt)?
                             }
                             None => None,
                         };
