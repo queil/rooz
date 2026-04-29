@@ -60,8 +60,8 @@ impl<'a> WorkspaceApi<'a> {
                                 .git
                                 .clone_config_repo(clone_env, &url, &file_path)
                                 .await?;
-                            if let Some((body, _)) = result {
-                                original_body = body;
+                            if let Some(cb) = result {
+                                original_body = cb.body;
                             };
                         }
                     };

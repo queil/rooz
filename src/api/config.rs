@@ -15,6 +15,12 @@ use colored::Colorize;
 
 use super::{Api, ConfigApi};
 
+pub struct ConfigBody {
+    pub body: String,
+    pub bases: Option<String>,
+    pub merged: Option<RoozCfg>,
+}
+
 #[async_trait::async_trait]
 pub trait ConfigReader {
     async fn read_file(&self, path: &str) -> Result<String, AnyError>;
@@ -45,13 +51,13 @@ impl<'a> ConfigApi<'a> {
         Ok(())
     }
 
-    pub async fn store_extends(&self, workspace_key: &str, body: &str) -> Result<(), AnyError> {
+    pub async fn store_bases(&self, workspace_key: &str, body: &str) -> Result<(), AnyError> {
         let config_vol = RoozVolume::config_data(
             workspace_key,
             "/etc/rooz",
             Some(
                 [(
-                    ConfigType::Extends.file_path().to_string(),
+                    ConfigType::Bases.file_path().to_string(),
                     body.to_string(),
                 )]
                 .into_iter()
@@ -201,7 +207,12 @@ impl<'a> ConfigApi<'a> {
         child_path: &str,
         child: RoozCfg,
         depth: usize,
-    ) -> Result<RoozCfg, AnyError> {
+    ) -> Result<(RoozCfg, Vec<(String, RoozCfg)>), AnyError> {
+        let base_paths = match child.bases.as_ref() {
+            Some(p) if !p.is_empty() => p.clone(),
+            _ => return Ok((child, vec![])),
+        };
+
         if depth >= Self::MAX_EXTENDS_DEPTH {
             return Err(format!(
                 "bases nesting too deep (limit {})",
@@ -210,11 +221,6 @@ impl<'a> ConfigApi<'a> {
             .into());
         }
 
-        let base_paths = match child.bases.as_ref() {
-            Some(p) if !p.is_empty() => p.clone(),
-            _ => return Ok(child),
-        };
-
         RoozCfg::validate_base_list(&base_paths)?;
 
         let parent_dir = std::path::Path::new(child_path)
@@ -222,6 +228,7 @@ impl<'a> ConfigApi<'a> {
             .map(|p| p.to_string_lossy().into_owned())
             .unwrap_or_default();
 
+        let mut individual_bases: Vec<(String, RoozCfg)> = Vec::new();
         let mut accumulated = RoozCfg::none();
         for base_path in &base_paths {
             let abs_path = if parent_dir.is_empty() {
@@ -239,13 +246,14 @@ impl<'a> ConfigApi<'a> {
             let base = RoozCfg::deserialize_config(&base_body, base_fmt)?
                 .ok_or_else(|| format!("Failed to parse base '{}': invalid config", base_path))?;
 
-            let resolved =
+            let (resolved, _) =
                 Box::pin(self.resolve_extends_chain(reader, &abs_path, base, depth + 1)).await?;
+            individual_bases.push((base_path.clone(), resolved.clone()));
             accumulated.from_config(&resolved);
         }
 
         accumulated.from_config(&child);
-        Ok(accumulated)
+        Ok((accumulated, individual_bases))
     }
 
     pub async fn read_config_body(
@@ -254,9 +262,7 @@ impl<'a> ConfigApi<'a> {
         clone_dir: &str,
         file_format: FileFormat,
         exact_path: Option<&str>,
-    ) -> Result<Option<(String, Option<String>)>, AnyError> {
-        use crate::config::config::RoozCfg;
-
+    ) -> Result<Option<ConfigBody>, AnyError> {
         let file_path = match exact_path {
             Some(p) => format!("{}/{}", clone_dir, p.to_string()),
             None => format!("{}/.rooz.{}", clone_dir, file_format.to_string()),
@@ -291,14 +297,20 @@ impl<'a> ConfigApi<'a> {
                     api: self.api,
                     container_id,
                 };
-                let merged = self
+                let (merged, individual_bases) = self
                     .resolve_extends_chain(&reader, &file_path, cfg, 0)
                     .await?;
-                return Ok(Some((body, Some(merged.to_string(file_format)?))));
+                let bases_yaml = individual_bases
+                    .iter()
+                    .map(|(path, b)| b.to_string(file_format).map(|yaml| format!("# {}\n{}", path, yaml)))
+                    .collect::<Result<Vec<_>, _>>()?
+                    .join("\n---\n");
+                let bases_storage = if bases_yaml.is_empty() { None } else { Some(bases_yaml) };
+                return Ok(Some(ConfigBody { body, bases: bases_storage, merged: Some(merged) }));
             }
         }
 
-        Ok(Some((body, None)))
+        Ok(Some(ConfigBody { body, bases: None, merged: None }))
     }
 
     pub async fn try_read_config(
@@ -306,12 +318,12 @@ impl<'a> ConfigApi<'a> {
         container_id: &str,
         clone_dir: &str,
     ) -> Result<Option<(String, Option<String>, FileFormat)>, AnyError> {
-        let rooz_cfg = if let Some((body, extends_body)) = self
+        let rooz_cfg = if let Some(cb) = self
             .read_config_body(&container_id, &clone_dir, FileFormat::Yaml, None)
             .await?
         {
             log::debug!("Config file found (YAML)");
-            Some((body, extends_body, FileFormat::Yaml))
+            Some((cb.body, None, FileFormat::Yaml))
         } else {
             log::debug!("No valid config file found");
             None
