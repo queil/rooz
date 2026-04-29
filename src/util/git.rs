@@ -123,7 +123,7 @@ impl<'a> ExecApi<'a> {
             };
         }
 
-        if let Some(cfg) = RoozCfg::deserialize_config(&body, file_format)? {
+        if let (Some(_), Some(cfg)) = (exact_path, RoozCfg::deserialize_config(&body, file_format)?) {
             if let Some(extends_path) = cfg.extends.as_deref() {
                 RoozCfg::validate_extends_path(extends_path)?;
                 let parent_dir = std::path::Path::new(&file_path)

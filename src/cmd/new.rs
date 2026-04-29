@@ -358,16 +358,11 @@ impl<'a> WorkspaceApi<'a> {
                     (Some(_), Some(ConfigSource::Update { .. })) => {
                         log::debug!("Ignoring the in-repo config file in update mode");
                     }
-                    (Some((body, extends_body, format)), _) => {
+                    (Some((body, _extends_body, format)), _) => {
                         match RoozCfg::deserialize_config(body, *format)? {
                             Some(c) => {
-                                if let Some(eb) = extends_body {
-                                    let ext_path = c.extends.as_deref().unwrap();
-                                    let ext_fmt = FileFormat::from_path(ext_path);
-                                    if let Some(base) = RoozCfg::deserialize_config(eb, ext_fmt)? {
-                                        cfg_builder.from_config(&base);
-                                    }
-                                    self.config.store_extends(workspace_key, eb).await?;
+                                if c.extends.is_some() {
+                                    return Err("'extends' is not supported in in-repo config (.rooz.yaml); use it in a --config file instead".into());
                                 }
                                 cfg_builder.from_config(&c);
                                 log::debug!("Config file applied.");
