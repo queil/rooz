@@ -204,43 +204,48 @@ impl<'a> ConfigApi<'a> {
     ) -> Result<RoozCfg, AnyError> {
         if depth >= Self::MAX_EXTENDS_DEPTH {
             return Err(format!(
-                "extends nesting too deep (limit {})",
+                "bases nesting too deep (limit {})",
                 Self::MAX_EXTENDS_DEPTH
             )
             .into());
         }
 
-        let extends_path = match child.extends.as_deref() {
-            Some(p) => p,
-            None => return Ok(child),
+        let base_paths = match child.bases.as_ref() {
+            Some(p) if !p.is_empty() => p.clone(),
+            _ => return Ok(child),
         };
 
-        RoozCfg::validate_extends_path(extends_path)?;
+        RoozCfg::validate_base_list(&base_paths)?;
 
         let parent_dir = std::path::Path::new(child_path)
             .parent()
             .map(|p| p.to_string_lossy().into_owned())
             .unwrap_or_default();
-        let abs_extends = if parent_dir.is_empty() {
-            extends_path.to_string()
-        } else {
-            format!("{}/{}", parent_dir, extends_path)
-        };
 
-        let base_body = reader.read_file(&abs_extends).await?;
-        if base_body.is_empty() {
-            return Err(format!("extends '{}' not found or empty", extends_path).into());
+        let mut accumulated = RoozCfg::none();
+        for base_path in &base_paths {
+            let abs_path = if parent_dir.is_empty() {
+                base_path.to_string()
+            } else {
+                format!("{}/{}", parent_dir, base_path)
+            };
+
+            let base_body = reader.read_file(&abs_path).await?;
+            if base_body.is_empty() {
+                return Err(format!("base '{}' not found or empty", base_path).into());
+            }
+
+            let base_fmt = FileFormat::from_path(base_path);
+            let base = RoozCfg::deserialize_config(&base_body, base_fmt)?
+                .ok_or_else(|| format!("Failed to parse base '{}': invalid config", base_path))?;
+
+            let resolved =
+                Box::pin(self.resolve_extends_chain(reader, &abs_path, base, depth + 1)).await?;
+            accumulated.from_config(&resolved);
         }
 
-        let base_fmt = FileFormat::from_path(extends_path);
-        let base = RoozCfg::deserialize_config(&base_body, base_fmt)?
-            .ok_or_else(|| format!("Failed to parse extends '{}': invalid config", extends_path))?;
-
-        let mut effective_base =
-            Box::pin(self.resolve_extends_chain(reader, &abs_extends, base, depth + 1)).await?;
-
-        effective_base.from_config(&child);
-        Ok(effective_base)
+        accumulated.from_config(&child);
+        Ok(accumulated)
     }
 
     pub async fn read_config_body(
@@ -281,7 +286,7 @@ impl<'a> ConfigApi<'a> {
 
         if let (Some(_), Some(cfg)) = (exact_path, RoozCfg::deserialize_config(&body, file_format)?)
         {
-            if cfg.extends.is_some() {
+            if cfg.bases.is_some() {
                 let reader = ContainerReader {
                     api: self.api,
                     container_id,
