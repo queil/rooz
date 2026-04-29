@@ -242,12 +242,38 @@ impl<'a> WorkspaceApi<'a> {
                                 let base_fmt = FileFormat::from_path(&base_path);
                                 match RoozCfg::deserialize_config(&base_body, base_fmt)? {
                                     Some(base) => {
-                                        if base.extends.is_some() {
-                                            return Err(format!("extends nesting is not allowed (depth limit 1): '{}'", base_path).into());
-                                        }
-                                        let mut merged = base;
+                                        let base2_extends = base.extends.clone();
+                                        let effective_base_body = if let Some(base2_path) = base2_extends {
+                                            RoozCfg::validate_extends_path(&base2_path)?;
+                                            let base2_dir = std::path::Path::new(&base_path)
+                                                .parent()
+                                                .map(|p| p.to_string_lossy().into_owned())
+                                                .unwrap_or_default();
+                                            let abs_base2 = if base2_dir.is_empty() {
+                                                base2_path.clone()
+                                            } else {
+                                                format!("{}/{}", base2_dir, base2_path)
+                                            };
+                                            let base2_body = fs::read_to_string(&abs_base2)
+                                                .map_err(|e| format!("Failed to read extends '{}': {}", abs_base2, e))?;
+                                            let base2_fmt = FileFormat::from_path(&abs_base2);
+                                            match RoozCfg::deserialize_config(&base2_body, base2_fmt)? {
+                                                Some(base2) => {
+                                                    if base2.extends.is_some() {
+                                                        return Err(format!("extends nesting is not allowed (depth limit 2): '{}'", base2_path).into());
+                                                    }
+                                                    let mut effective = base2;
+                                                    effective.from_config(&base);
+                                                    effective.to_string(fmt)?
+                                                }
+                                                None => return Err(format!("Failed to parse extends '{}': invalid config", base2_path).into()),
+                                            }
+                                        } else {
+                                            base_body
+                                        };
+                                        let mut merged = RoozCfg::deserialize_config(&effective_base_body, fmt)?.unwrap();
                                         merged.from_config(&c);
-                                        (Some(merged), Some(base_body))
+                                        (Some(merged), Some(effective_base_body))
                                     }
                                     None => return Err(format!("Failed to parse extends '{}': invalid config", base_path).into()),
                                 }
