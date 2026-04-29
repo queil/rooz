@@ -1,8 +1,0 @@
-vars:
-  TEST: 1
-
-sidecars:
-  sql:
-    image: docker.io/postgres
-
-extends: base.yaml
