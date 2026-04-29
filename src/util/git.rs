@@ -2,7 +2,7 @@ use gix_config::File;
 use std::collections::HashMap;
 
 use crate::{
-    api::{GitApi, container},
+    api::{GitApi, config::ConfigBody, container},
     config::config::FileFormat,
     constants,
     model::{
@@ -246,7 +246,7 @@ impl<'a> GitApi<'a> {
         spec: CloneEnv,
         url: &str,
         path: &str,
-    ) -> Result<(Option<(String, Option<String>)>, String), AnyError> {
+    ) -> Result<(Option<ConfigBody>, String), AnyError> {
         let container_id = self
             .clone_from_spec(
                 &CloneEnv {

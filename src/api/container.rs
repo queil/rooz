@@ -26,7 +26,7 @@ use bollard::{
 };
 
 use crate::model::types::{TargetDir, VolumeFilesSpec};
-use crate::util::backend::ContainerBackend;
+
 use bollard_stubs::models::{MountTypeEnum, NetworkingConfig};
 use bollard_stubs::query_parameters::{UploadToContainerOptions, WaitContainerOptions};
 use futures::{StreamExt, TryStreamExt, future};

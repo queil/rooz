@@ -1,0 +1,6 @@
+mounts:
+  /test: {}
+
+sidecars:
+  docker:
+    image: docker.io/docker

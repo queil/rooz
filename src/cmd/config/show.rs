@@ -54,11 +54,11 @@ impl<'a> ConfigApi<'a> {
                     body
                 };
 
-                let extends_body = self.read(workspace_key, &ConfigType::Extends).await?;
-                if extends_body.is_empty() {
+                let bases_body = self.read(workspace_key, &ConfigType::Bases).await?;
+                if bases_body.is_empty() {
                     Some(body)
                 } else {
-                    Some(format!("{}\n{}\n{}", body, EXTENDS_SEPARATOR, extends_body))
+                    Some(format!("{}\n{}\n{}", body, EXTENDS_SEPARATOR, bases_body))
                 }
             }
             ConfigPart::Runtime => {

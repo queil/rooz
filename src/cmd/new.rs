@@ -1,5 +1,5 @@
 use crate::api::VolumeApi;
-use crate::api::config::LocalReader;
+use crate::api::config::{ConfigBody, LocalReader};
 use crate::model::types::VolumeResult;
 use crate::{
     api::WorkspaceApi,
@@ -216,7 +216,26 @@ impl<'a> WorkspaceApi<'a> {
                     format,
                 } => {
                     let body = value.to_string(format.clone())?;
-                    (origin.to_string(), Some(body), None, Some(value.clone()))
+                    let (cfg, base_body) = if value.bases.is_some() {
+                        if let Ok(ConfigPath::File { path }) = ConfigPath::from_str(origin) {
+                            let reader = LocalReader {};
+                            let (merged, individual_bases) = self
+                                .config
+                                .resolve_extends_chain(&reader, &path, value.clone(), 0)
+                                .await?;
+                            let bases_yaml = individual_bases
+                                .iter()
+                                .map(|(p, b)| b.to_string(*format).map(|yaml| format!("# {}\n{}", p, yaml)))
+                                .collect::<Result<Vec<_>, _>>()?
+                                .join("\n---\n");
+                            (Some(merged), if bases_yaml.is_empty() { None } else { Some(bases_yaml) })
+                        } else {
+                            (Some(value.clone()), None)
+                        }
+                    } else {
+                        (Some(value.clone()), None)
+                    };
+                    (origin.to_string(), Some(body), base_body, cfg)
                 }
                 ConfigSource::Path { value: path } => match path {
                     ConfigPath::File { path } => {
@@ -227,14 +246,19 @@ impl<'a> WorkspaceApi<'a> {
                         let cfg = RoozCfg::deserialize_config(&body, fmt)?;
 
                         let (cfg, base_body) = match cfg {
-                            Some(c) if c.extends.is_some() => {
+                            Some(c) if c.bases.is_some() => {
                                 let reader = LocalReader {};
-                                let merged = self
+                                let (merged, individual_bases) = self
                                     .config
                                     .resolve_extends_chain(&reader, path.as_str(), c, 0)
                                     .await?;
-                                let base_body = merged.to_string(fmt)?;
-                                (Some(merged), Some(base_body))
+                                let bases_yaml = individual_bases
+                                    .iter()
+                                    .map(|(path, b)| b.to_string(fmt).map(|yaml| format!("# {}\n{}", path, yaml)))
+                                    .collect::<Result<Vec<_>, _>>()?
+                                    .join("\n---\n");
+                                let base_body = if bases_yaml.is_empty() { None } else { Some(bases_yaml) };
+                                (Some(merged), base_body)
                             }
                             other => (other, None),
                         };
@@ -247,30 +271,12 @@ impl<'a> WorkspaceApi<'a> {
                             .await?;
 
                         let (rooz_cfg, main_body, base_body) = match result {
-                            Some((body, extends_body)) => {
+                            Some(ConfigBody { body, bases, merged }) => {
                                 let fmt = FileFormat::from_path(&file_path);
-                                let cfg = RoozCfg::deserialize_config(&body, fmt)?;
-                                let merged = match cfg {
-                                    Some(c) if extends_body.is_some() => {
-                                        let eb = extends_body.as_deref().unwrap();
-                                        let ext_path = c.extends.as_deref().unwrap();
-                                        let ext_fmt = FileFormat::from_path(ext_path);
-                                        match RoozCfg::deserialize_config(eb, ext_fmt)? {
-                                            Some(mut base) => {
-                                                base.from_config(&c);
-                                                Some(base)
-                                            }
-                                            None => {
-                                                return Err(
-                                                    "Failed to parse extends: invalid config"
-                                                        .into(),
-                                                );
-                                            }
-                                        }
-                                    }
-                                    other => other,
-                                };
-                                (merged, Some(body), extends_body)
+                                let cfg = merged
+                                    .map(Ok)
+                                    .unwrap_or_else(|| RoozCfg::deserialize_config(&body, fmt).map(|o| o.unwrap()))?;
+                                (Some(cfg), Some(body), bases)
                             }
                             None => (None, None, None),
                         };
@@ -283,9 +289,9 @@ impl<'a> WorkspaceApi<'a> {
             self.config
                 .store(workspace_key, &origin, &body.unwrap())
                 .await?;
-            if let Some(eb) = extends_body {
-                self.config.store_extends(workspace_key, &eb).await?;
-            }
+            self.config
+                .store_bases(workspace_key, extends_body.as_deref().unwrap_or(""))
+                .await?;
 
             rooz_cfg
         } else {
@@ -350,8 +356,8 @@ impl<'a> WorkspaceApi<'a> {
                     (Some((body, _extends_body, format)), _) => {
                         match RoozCfg::deserialize_config(body, *format)? {
                             Some(c) => {
-                                if c.extends.is_some() {
-                                    return Err("'extends' is not supported in in-repo config (.rooz.yaml); use it in a --config file instead".into());
+                                if c.bases.is_some() {
+                                    return Err("'bases' is not supported in in-repo config (.rooz.yaml); use it in a --config file instead".into());
                                 }
                                 cfg_builder.from_config(&c);
                                 log::debug!("Config file applied.");
