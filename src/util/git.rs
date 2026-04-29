@@ -2,7 +2,7 @@ use gix_config::File;
 use std::collections::HashMap;
 
 use crate::{
-    api::{ExecApi, GitApi, container},
+    api::{GitApi, container},
     config::config::FileFormat,
     constants,
     model::{
@@ -91,93 +91,6 @@ fn get_clone_dir(
 
     log::debug!("Full clone dir: {:?}", &work_dir);
     Ok(work_dir)
-}
-
-impl<'a> ExecApi<'a> {
-    async fn read_config_body(
-        &self,
-        container_id: &str,
-        clone_dir: &str,
-        file_format: FileFormat,
-        exact_path: Option<&str>,
-    ) -> Result<Option<(String, Option<String>)>, AnyError> {
-        use crate::config::config::RoozCfg;
-
-        let file_path = match exact_path {
-            Some(p) => format!("{}/{}", clone_dir, p.to_string()),
-            None => format!("{}/.rooz.{}", clone_dir, file_format.to_string()),
-        };
-
-        let ls_cmd = format!(
-            "ls {} > /dev/null 2>&1 && cat `ls {} | head -1`",
-            file_path, file_path
-        );
-        let body = self
-            .output("rooz-cfg", container_id, None, Some(vec!["sh", "-c", &ls_cmd]))
-            .await?;
-
-        if body.is_empty() {
-            return match exact_path {
-                Some(p) => Err(format!("Config file '{}' not found or empty", p).into()),
-                None => Ok(None),
-            };
-        }
-
-        if let (Some(_), Some(cfg)) = (exact_path, RoozCfg::deserialize_config(&body, file_format)?) {
-            if let Some(extends_path) = cfg.extends.as_deref() {
-                RoozCfg::validate_extends_path(extends_path)?;
-                let parent_dir = std::path::Path::new(&file_path)
-                    .parent()
-                    .map(|p| p.to_string_lossy().into_owned())
-                    .unwrap_or_default();
-                let abs_extends = format!("{}/{}", parent_dir, extends_path);
-                let cat_cmd = format!("cat '{}'", abs_extends);
-                let base_body = self
-                    .output("rooz-cfg-extends", container_id, None, Some(vec!["sh", "-c", &cat_cmd]))
-                    .await?;
-                if base_body.is_empty() {
-                    return Err(format!("extends '{}' not found or empty", extends_path).into());
-                }
-                let base_fmt = FileFormat::from_path(extends_path);
-                match RoozCfg::deserialize_config(&base_body, base_fmt)? {
-                    Some(base) => {
-                        let base2_extends = base.extends.clone();
-                        if let Some(base2_path) = base2_extends {
-                            RoozCfg::validate_extends_path(&base2_path)?;
-                            let base2_dir = std::path::Path::new(&abs_extends)
-                                .parent()
-                                .map(|p| p.to_string_lossy().into_owned())
-                                .unwrap_or_default();
-                            let abs_base2 = format!("{}/{}", base2_dir, base2_path);
-                            let cat_base2_cmd = format!("cat '{}'", abs_base2);
-                            let base2_body = self
-                                .output("rooz-cfg-extends", container_id, None, Some(vec!["sh", "-c", &cat_base2_cmd]))
-                                .await?;
-                            if base2_body.is_empty() {
-                                return Err(format!("extends '{}' not found or empty", base2_path).into());
-                            }
-                            let base2_fmt = FileFormat::from_path(&base2_path);
-                            match RoozCfg::deserialize_config(&base2_body, base2_fmt)? {
-                                Some(base2) => {
-                                    if base2.extends.is_some() {
-                                        return Err(format!("extends nesting is not allowed (depth limit 2): '{}'", base2_path).into());
-                                    }
-                                    let mut effective_base = base2;
-                                    effective_base.from_config(&base);
-                                    return Ok(Some((body, Some(effective_base.to_string(file_format)?))));
-                                }
-                                None => return Err(format!("Failed to parse extends '{}': invalid config", base2_path).into()),
-                            }
-                        }
-                        return Ok(Some((body, Some(base_body))));
-                    }
-                    None => return Err(format!("Failed to parse extends '{}': invalid config", extends_path).into()),
-                }
-            }
-        }
-
-        Ok(Some((body, None)))
-    }
 }
 
 impl<'a> GitApi<'a> {
@@ -291,26 +204,6 @@ impl<'a> GitApi<'a> {
         }
     }
 
-    async fn try_read_config(
-        &self,
-        container_id: &str,
-        clone_dir: &str,
-    ) -> Result<Option<(String, Option<String>, FileFormat)>, AnyError> {
-        let exec = self.api.exec;
-
-        let rooz_cfg = if let Some((body, extends_body)) = exec
-            .read_config_body(&container_id, &clone_dir, FileFormat::Yaml, None)
-            .await?
-        {
-            log::debug!("Config file found (YAML)");
-            Some((body, extends_body, FileFormat::Yaml))
-        } else {
-            log::debug!("No valid config file found");
-            None
-        };
-        Ok(rooz_cfg)
-    }
-
     pub async fn clone_root_repo(
         &self,
         url: &str,
@@ -324,7 +217,10 @@ impl<'a> GitApi<'a> {
             &url,
             &self.api.get_system_config().await?.gitconfig,
         )?;
-        let config = self.try_read_config(&container_id, &clone_dir).await?;
+        let config = self
+            .config
+            .try_read_config(&container_id, &clone_dir)
+            .await?;
         self.api.container.kill(&container_id, false).await?;
 
         Ok(RootRepoCloneResult {
@@ -369,12 +265,10 @@ impl<'a> GitApi<'a> {
         )?;
         let file_format = FileFormat::from_path(path);
         let result = self
-            .api
-            .exec
+            .config
             .read_config_body(&container_id, &clone_dir, file_format, Some(path))
             .await?;
         self.api.container.kill(&container_id, false).await?;
         Ok((result, clone_dir))
     }
-
 }

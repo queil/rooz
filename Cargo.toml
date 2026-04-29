@@ -1,6 +1,6 @@
 [package]
 name = "rooz"
-version = "0.150.0"
+version = "0.150.2"
 edition = "2024"
 
 [dependencies]
@@ -37,3 +37,4 @@ tokio = { version = "1.46", features = ["rt-multi-thread", "macros", "io-std"] }
 tar = "0.4.44"
 indexmap = { version ="2.13.0", features = ["serde"] }
 serde_with = "3.18.0"
+async-trait = "0.1.89"

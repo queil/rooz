@@ -271,7 +271,11 @@ impl RoozCfg {
 
     pub fn validate_extends_path(path: &str) -> Result<(), AnyError> {
         if path.contains(':') {
-            return Err(format!("extends path must be a local relative path (no URLs): '{}'", path).into());
+            return Err(format!(
+                "extends path must be a local relative path (no URLs): '{}'",
+                path
+            )
+            .into());
         }
         if path.starts_with('/') {
             return Err(format!("extends path must be relative, not absolute: '{}'", path).into());
