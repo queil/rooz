@@ -1,6 +1,6 @@
 [package]
 name = "rooz"
-version = "0.150.3"
+version = "0.150.4"
 edition = "2024"
 
 [dependencies]
