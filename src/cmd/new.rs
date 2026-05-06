@@ -79,13 +79,13 @@ impl<'a> WorkspaceApi<'a> {
         let mut cfg2 = cfg.clone();
 
         let mounts_v2 = self.api.volume.mounts_v2(&real_mounts).await?;
-        for (t, m) in real_mounts.clone() {
+        for (_, m) in real_mounts.clone() {
             //TODO: when initializing volumes both here in sidecars we should verify
             // if each file exists and if not create them
             if let VolumeResult::Created {} = volume_results[&m.volume_name] {
                 self.api
                     .volume
-                    .populate_volume(t, m, Some(work_spec.uid.to_string().parse::<i32>()?))
+                    .populate_volume(m, Some(work_spec.uid.to_string().parse::<i32>()?))
                     .await?;
             }
         }
@@ -184,7 +184,7 @@ impl<'a> WorkspaceApi<'a> {
             ..*work_spec
         };
 
-        let ws = self.create(&work_spec, &real_mounts).await?;
+        let ws = self.create(&work_spec).await?;
         if !cfg2.extra_repos.is_empty() {
             self.git
                 .clone_extra_repos(clone_spec.clone(), cfg2.extra_repos)
