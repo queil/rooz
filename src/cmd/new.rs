@@ -79,13 +79,13 @@ impl<'a> WorkspaceApi<'a> {
         let mut cfg2 = cfg.clone();
 
         let mounts_v2 = self.api.volume.mounts_v2(&real_mounts).await?;
-        for (t, m) in real_mounts.clone() {
+        for (_, m) in real_mounts.clone() {
             //TODO: when initializing volumes both here in sidecars we should verify
             // if each file exists and if not create them
             if let VolumeResult::Created {} = volume_results[&m.volume_name] {
                 self.api
                     .volume
-                    .populate_volume(t, m, Some(work_spec.uid.to_string().parse::<i32>()?))
+                    .populate_volume(m, Some(work_spec.uid.to_string().parse::<i32>()?))
                     .await?;
             }
         }
@@ -184,7 +184,7 @@ impl<'a> WorkspaceApi<'a> {
             ..*work_spec
         };
 
-        let ws = self.create(&work_spec, &real_mounts).await?;
+        let ws = self.create(&work_spec).await?;
         if !cfg2.extra_repos.is_empty() {
             self.git
                 .clone_extra_repos(clone_spec.clone(), cfg2.extra_repos)
@@ -225,10 +225,20 @@ impl<'a> WorkspaceApi<'a> {
                                 .await?;
                             let bases_yaml = individual_bases
                                 .iter()
-                                .map(|(p, b)| b.to_string(*format).map(|yaml| format!("# {}\n{}", p, yaml)))
+                                .map(|(p, b)| {
+                                    b.to_string(*format)
+                                        .map(|yaml| format!("# {}\n{}", p, yaml))
+                                })
                                 .collect::<Result<Vec<_>, _>>()?
                                 .join("\n---\n");
-                            (Some(merged), if bases_yaml.is_empty() { None } else { Some(bases_yaml) })
+                            (
+                                Some(merged),
+                                if bases_yaml.is_empty() {
+                                    None
+                                } else {
+                                    Some(bases_yaml)
+                                },
+                            )
                         } else {
                             (Some(value.clone()), None)
                         }
@@ -254,10 +264,16 @@ impl<'a> WorkspaceApi<'a> {
                                     .await?;
                                 let bases_yaml = individual_bases
                                     .iter()
-                                    .map(|(path, b)| b.to_string(fmt).map(|yaml| format!("# {}\n{}", path, yaml)))
+                                    .map(|(path, b)| {
+                                        b.to_string(fmt).map(|yaml| format!("# {}\n{}", path, yaml))
+                                    })
                                     .collect::<Result<Vec<_>, _>>()?
                                     .join("\n---\n");
-                                let base_body = if bases_yaml.is_empty() { None } else { Some(bases_yaml) };
+                                let base_body = if bases_yaml.is_empty() {
+                                    None
+                                } else {
+                                    Some(bases_yaml)
+                                };
                                 (Some(merged), base_body)
                             }
                             other => (other, None),
@@ -271,11 +287,15 @@ impl<'a> WorkspaceApi<'a> {
                             .await?;
 
                         let (rooz_cfg, main_body, base_body) = match result {
-                            Some(ConfigBody { body, bases, merged }) => {
+                            Some(ConfigBody {
+                                body,
+                                bases,
+                                merged,
+                            }) => {
                                 let fmt = FileFormat::from_path(&file_path);
-                                let cfg = merged
-                                    .map(Ok)
-                                    .unwrap_or_else(|| RoozCfg::deserialize_config(&body, fmt).map(|o| o.unwrap()))?;
+                                let cfg = merged.map(Ok).unwrap_or_else(|| {
+                                    RoozCfg::deserialize_config(&body, fmt).map(|o| o.unwrap())
+                                })?;
                                 (Some(cfg), Some(body), bases)
                             }
                             None => (None, None, None),

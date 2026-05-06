@@ -56,12 +56,9 @@ impl<'a> ConfigApi<'a> {
             workspace_key,
             "/etc/rooz",
             Some(
-                [(
-                    ConfigType::Bases.file_path().to_string(),
-                    body.to_string(),
-                )]
-                .into_iter()
-                .collect(),
+                [(ConfigType::Bases.file_path().to_string(), body.to_string())]
+                    .into_iter()
+                    .collect(),
             ),
             None,
             Some(RoozVolumeRole::WorkspaceConfig),
@@ -214,11 +211,9 @@ impl<'a> ConfigApi<'a> {
         };
 
         if depth >= Self::MAX_EXTENDS_DEPTH {
-            return Err(format!(
-                "bases nesting too deep (limit {})",
-                Self::MAX_EXTENDS_DEPTH
-            )
-            .into());
+            return Err(
+                format!("bases nesting too deep (limit {})", Self::MAX_EXTENDS_DEPTH).into(),
+            );
         }
 
         RoozCfg::validate_base_list(&base_paths)?;
@@ -302,15 +297,30 @@ impl<'a> ConfigApi<'a> {
                     .await?;
                 let bases_yaml = individual_bases
                     .iter()
-                    .map(|(path, b)| b.to_string(file_format).map(|yaml| format!("# {}\n{}", path, yaml)))
+                    .map(|(path, b)| {
+                        b.to_string(file_format)
+                            .map(|yaml| format!("# {}\n{}", path, yaml))
+                    })
                     .collect::<Result<Vec<_>, _>>()?
                     .join("\n---\n");
-                let bases_storage = if bases_yaml.is_empty() { None } else { Some(bases_yaml) };
-                return Ok(Some(ConfigBody { body, bases: bases_storage, merged: Some(merged) }));
+                let bases_storage = if bases_yaml.is_empty() {
+                    None
+                } else {
+                    Some(bases_yaml)
+                };
+                return Ok(Some(ConfigBody {
+                    body,
+                    bases: bases_storage,
+                    merged: Some(merged),
+                }));
             }
         }
 
-        Ok(Some(ConfigBody { body, bases: None, merged: None }))
+        Ok(Some(ConfigBody {
+            body,
+            bases: None,
+            merged: None,
+        }))
     }
 
     pub async fn try_read_config(

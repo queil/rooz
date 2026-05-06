@@ -20,12 +20,15 @@ use crate::{
 use base64::{Engine as _, engine::general_purpose};
 use bollard::{
     errors::Error::DockerResponseServerError,
-    models::Volume,
+    models::{MountVolumeOptions, Volume},
     query_parameters::{ListVolumesOptions, RemoveVolumeOptions},
     service::Mount,
 };
 use bollard_stubs::models::MountTypeEnum::VOLUME;
 use bollard_stubs::models::VolumeCreateRequest;
+use crate::util::backend::ContainerEngine;
+
+const SHADOW_ROOT_DIR: &str = "/var/lib/rooz";
 
 impl<'a> VolumeApi<'a> {
     pub async fn get_all(&self, labels: &Labels) -> Result<Vec<Volume>, AnyError> {
@@ -249,7 +252,6 @@ impl<'a> VolumeApi<'a> {
         mounts: HashMap<TargetPath, DataEntryVolumeSpec>,
         home_dir: Option<&str>,
     ) -> HashMap<TargetDir, VolumeFilesSpec> {
-        const SHADOW_ROOT_DIR: &str = "/var/lib/rooz";
         mounts
             .iter()
             .map(|(target, source_entry)| {
@@ -265,7 +267,7 @@ impl<'a> VolumeApi<'a> {
                             .with_extension("data");
 
                         (
-                            SHADOW_ROOT_DIR.to_string(),
+                            expanded_target.clone(),
                             Some(FileSpec {
                                 target_file: TargetFile(shadow_file.to_string_lossy().to_string()),
                                 user_file: UserFile(expanded_target),
@@ -314,20 +316,49 @@ impl<'a> VolumeApi<'a> {
 
     pub async fn populate_volume(
         &self,
-        target_dir: TargetDir,
         volume_file: VolumeFilesSpec,
         uid: Option<i32>,
     ) -> Result<(), AnyError> {
+        let populate_target = TargetDir(SHADOW_ROOT_DIR.to_string());
         self.ensure_file_v2(
-            target_dir.as_str(),
+            SHADOW_ROOT_DIR,
             &volume_file.clone(),
-            Self::mount(&target_dir, &volume_file),
+            Self::populate_mount(&populate_target, &volume_file),
             uid,
         )
         .await
     }
 
     pub fn mount(target: &TargetDir, source: &VolumeFilesSpec) -> Mount {
+        debug_assert!(
+            source.files.len() <= 1,
+            "user-container mount expects 0 or 1 file per target; got {} for {}",
+            source.files.len(),
+            target.as_str()
+        );
+
+        let subpath = source.files.first().map(|f| {
+            Path::new(f.target_file.as_str())
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .into_owned()
+        });
+
+        Mount {
+            target: Some(target.as_str().to_string()),
+            source: Some(source.volume_name.as_str().to_string()),
+            typ: Some(VOLUME),
+            read_only: Some(subpath.is_some()),
+            volume_options: subpath.map(|sp| MountVolumeOptions {
+                subpath: Some(sp),
+                ..Default::default()
+            }),
+            ..Mount::default()
+        }
+    }
+
+    pub fn populate_mount(target: &TargetDir, source: &VolumeFilesSpec) -> Mount {
         Mount {
             target: Some(target.as_str().to_string()),
             source: Some(source.volume_name.as_str().to_string()),
@@ -336,6 +367,7 @@ impl<'a> VolumeApi<'a> {
             ..Mount::default()
         }
     }
+
     pub async fn mounts_v2(
         &self,
         real_mounts: &HashMap<TargetDir, VolumeFilesSpec>,

@@ -1,0 +1,8 @@
+data:
+  git-config:
+    content: |-
+      [url "git@github.com:"]
+      insteadOf = gh:
+
+mounts:
+  ~/.gitconfig: git-config
