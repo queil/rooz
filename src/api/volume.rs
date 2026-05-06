@@ -349,7 +349,7 @@ impl<'a> VolumeApi<'a> {
             target: Some(target.as_str().to_string()),
             source: Some(source.volume_name.as_str().to_string()),
             typ: Some(VOLUME),
-            read_only: Some(subpath.is_some()),
+            read_only: Some(false),
             volume_options: subpath.map(|sp| MountVolumeOptions {
                 subpath: Some(sp),
                 // IMPORTANT: no copy prevents it from failing if the file already exists in the image
