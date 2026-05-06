@@ -352,6 +352,10 @@ impl<'a> VolumeApi<'a> {
             read_only: Some(subpath.is_some()),
             volume_options: subpath.map(|sp| MountVolumeOptions {
                 subpath: Some(sp),
+                // IMPORTANT: no copy prevents it from failing if the file already exists in the image
+                //    error: Error response from daemon: open /var/lib/docker/tmp/safe-mountXXXXXXXXX: not a directory
+                // We overlay it anyway so it is not an issue
+                no_copy: Some(true),
                 ..Default::default()
             }),
             ..Mount::default()
