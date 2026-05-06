@@ -65,6 +65,7 @@ impl<'a> ConfigPath {
 #[derive(Debug, Clone, Copy)]
 pub enum ConfigType {
     Body,
+    Bases,
     Runtime,
 }
 
@@ -72,6 +73,7 @@ impl ConfigType {
     pub fn file_path(&self) -> &str {
         match self {
             ConfigType::Body => "workspace.config",
+            ConfigType::Bases => "bases.config",
             ConfigType::Runtime => "runtime.config",
         }
     }
@@ -157,6 +159,7 @@ impl RoozSidecar {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct RoozCfg {
+    pub bases: Option<Vec<String>>,
     pub vars: Option<IndexMap<String, String>>,
     pub secrets: Option<IndexMap<String, String>>,
     pub git_ssh_url: Option<String>,
@@ -180,6 +183,7 @@ pub struct RoozCfg {
 impl Default for RoozCfg {
     fn default() -> Self {
         Self {
+            bases: None,
             vars: Some(IndexMap::new()),
             secrets: Some(IndexMap::new()),
             git_ssh_url: None,
@@ -215,16 +219,27 @@ impl RoozCfg {
         })
     }
 
-    fn extend_if_any<A, T: Extend<A> + IntoIterator<Item = A>>(
-        target: Option<T>,
-        other: Option<T>,
-    ) -> Option<T> {
-        if let Some(caches) = other {
-            let mut ret = target.unwrap();
-            ret.extend(caches);
-            Some(ret)
-        } else {
-            target
+    pub fn none() -> Self {
+        Self {
+            bases: None,
+            vars: None,
+            secrets: None,
+            git_ssh_url: None,
+            extra_repos: None,
+            image: None,
+            caches: None,
+            shell: None,
+            user: None,
+            ports: None,
+            privileged: None,
+            init: None,
+            install: None,
+            command: None,
+            args: None,
+            env: None,
+            sidecars: None,
+            data: None,
+            mounts: None,
         }
     }
 
@@ -235,32 +250,61 @@ impl RoozCfg {
             user: cli.user.clone().or(self.user.clone()),
             git_ssh_url: cli.git_ssh_url.clone().or(self.git_ssh_url.clone()),
             privileged: cli.privileged.or(self.privileged),
-            caches: Self::extend_if_any(self.caches.clone(), cli.caches.clone()),
+            caches: extend_if_any(self.caches.clone(), cli.caches.clone()),
             ..self.clone()
         }
     }
 
     pub fn from_config(&mut self, config: &RoozCfg) -> () {
         *self = RoozCfg {
-            vars: Self::extend_if_any(self.vars.clone(), config.vars.clone()),
-            secrets: Self::extend_if_any(self.secrets.clone(), config.secrets.clone()),
+            bases: None,
+            vars: extend_if_any(self.vars.clone(), config.vars.clone()),
+            secrets: extend_if_any(self.secrets.clone(), config.secrets.clone()),
             git_ssh_url: config.git_ssh_url.clone().or(self.git_ssh_url.clone()),
-            extra_repos: Self::extend_if_any(self.extra_repos.clone(), config.extra_repos.clone()),
+            extra_repos: extend_if_any(self.extra_repos.clone(), config.extra_repos.clone()),
             image: config.image.clone().or(self.image.clone()),
-            caches: Self::extend_if_any(self.caches.clone(), config.caches.clone()),
+            caches: extend_if_any(self.caches.clone(), config.caches.clone()),
             shell: config.shell.clone().or(self.shell.clone()),
             user: config.user.clone().or(self.user.clone()),
-            ports: Self::extend_if_any(self.ports.clone(), config.ports.clone()),
+            ports: extend_if_any(self.ports.clone(), config.ports.clone()),
             privileged: config.privileged.clone().or(self.privileged.clone()),
             init: config.init.clone().or(self.init.clone()),
-            command: Self::extend_if_any(self.command.clone(), config.command.clone()),
-            args: Self::extend_if_any(self.args.clone(), config.args.clone()),
-            env: Self::extend_if_any(self.env.clone(), config.env.clone()),
-            sidecars: Self::extend_if_any(self.sidecars.clone(), config.sidecars.clone()),
-            data: Self::extend_if_any(self.data.clone(), config.data.clone()),
-            mounts: Self::extend_if_any(self.mounts.clone(), config.mounts.clone()),
+            command: config.command.clone().or(self.command.clone()),
+            args: config.args.clone().or(self.args.clone()),
+            env: extend_if_any(self.env.clone(), config.env.clone()),
+            sidecars: merge_sidecars(self.sidecars.clone(), config.sidecars.clone()),
+            data: extend_if_any(self.data.clone(), config.data.clone()),
+            mounts: extend_if_any(self.mounts.clone(), config.mounts.clone()),
             install: config.install.clone().or(self.install.clone()),
         }
+    }
+
+    pub fn validate_base_path(path: &str) -> Result<(), AnyError> {
+        if path.contains(':') {
+            return Err(format!(
+                "base path must be a local relative path (no URLs): '{}'",
+                path
+            )
+            .into());
+        }
+        if path.starts_with('/') {
+            return Err(format!("base path must be relative, not absolute: '{}'", path).into());
+        }
+        Ok(())
+    }
+
+    pub fn validate_base_list(paths: &[String]) -> Result<(), AnyError> {
+        if paths.len() > 2 {
+            return Err(format!(
+                "at most 2 base paths allowed per level, got {}",
+                paths.len()
+            )
+            .into());
+        }
+        for path in paths {
+            Self::validate_base_path(path)?;
+        }
+        Ok(())
     }
 
     pub fn from_cli_env(self, cli: WorkParams) -> Self {
@@ -268,7 +312,7 @@ impl RoozCfg {
             shell: cli.env.shell.map(|v| vec![v]).or(self.shell.clone()),
             image: cli.env.image.or(self.image.clone()),
             user: cli.env.user.or(self.user.clone()),
-            caches: Self::extend_if_any(self.caches.clone(), cli.env.caches),
+            caches: extend_if_any(self.caches.clone(), cli.env.caches),
             git_ssh_url: cli.git_ssh_url.or(self.git_ssh_url.clone()),
             ..self.clone()
         }
@@ -396,6 +440,60 @@ impl RoozCfg {
         }
     }
 }
+fn extend_if_any<A, T: Extend<A> + IntoIterator<Item = A>>(
+    target: Option<T>,
+    other: Option<T>,
+) -> Option<T> {
+    match (target, other) {
+        (Some(mut t), Some(o)) => {
+            t.extend(o);
+            Some(t)
+        }
+        (t, None) => t,
+        (None, o) => o,
+    }
+}
+
+fn merge_sidecars(
+    target: Option<IndexMap<String, RoozSidecar>>,
+    other: Option<IndexMap<String, RoozSidecar>>,
+) -> Option<IndexMap<String, RoozSidecar>> {
+    match (target, other) {
+        (Some(mut t), Some(o)) => {
+            for (k, v) in o {
+                match t.get_mut(&k) {
+                    Some(existing) => existing.merge_from(&v),
+                    None => {
+                        t.insert(k, v);
+                    }
+                }
+            }
+            Some(t)
+        }
+        (t, None) => t,
+        (None, o) => o,
+    }
+}
+
+impl RoozSidecar {
+    pub fn merge_from(&mut self, other: &RoozSidecar) {
+        self.image = other.image.clone();
+        self.env = extend_if_any(self.env.clone(), other.env.clone());
+        self.command = other.command.clone().or(self.command.clone());
+        self.args = other.args.clone().or(self.args.clone());
+        self.shell = other.shell.clone().or(self.shell.clone());
+        self.mounts = extend_if_any(self.mounts.clone(), other.mounts.clone());
+        self.ports = extend_if_any(self.ports.clone(), other.ports.clone());
+        self.privileged = other.privileged.or(self.privileged);
+        self.init = other.init.or(self.init);
+        self.install = other.install.clone().or(self.install.clone());
+        self.work_dir = other.work_dir.clone().or(self.work_dir.clone());
+        self.user = other.user.clone().or(self.user.clone());
+        self.uid = other.uid.or(self.uid);
+        self.egress = other.egress.or(self.egress);
+    }
+}
+
 fn render_str(
     reg: &Handlebars,
     val: &str,

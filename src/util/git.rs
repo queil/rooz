@@ -2,7 +2,7 @@ use gix_config::File;
 use std::collections::HashMap;
 use bollard_stubs::models::{Mount, MountTypeEnum};
 use crate::{
-    api::{ExecApi, GitApi, container},
+    api::{GitApi, config::ConfigBody, container},
     config::config::FileFormat,
     constants,
     model::{
@@ -44,7 +44,7 @@ impl Default for CloneEnv {
 
 #[derive(Clone, Debug)]
 pub struct RootRepoCloneResult {
-    pub config: Option<(String, FileFormat)>,
+    pub config: Option<(String, Option<String>, FileFormat)>,
     pub dir: String,
 }
 
@@ -91,47 +91,6 @@ fn get_clone_dir(
 
     log::debug!("Full clone dir: {:?}", &work_dir);
     Ok(work_dir)
-}
-
-impl<'a> ExecApi<'a> {
-    async fn read_config_body(
-        &self,
-        container_id: &str,
-        clone_dir: &str,
-        file_format: FileFormat,
-        exact_path: Option<&str>,
-    ) -> Result<Option<String>, AnyError> {
-        let file_path = match exact_path {
-            Some(p) => format!("{}/{}", clone_dir, p.to_string()),
-            None => format!("{}/.rooz.{}", clone_dir, file_format.to_string()),
-        };
-
-        let config = self
-            .output(
-                "rooz-cfg",
-                &container_id,
-                None,
-                Some(vec![
-                    "sh",
-                    "-c",
-                    format!(
-                        "ls {} > /dev/null 2>&1 && cat `ls {} | head -1`",
-                        file_path, file_path
-                    )
-                    .as_ref(),
-                ]),
-            )
-            .await?;
-
-        if config.is_empty() {
-            match exact_path {
-                Some(p) => Err(format!("Config file '{}' not found or empty", p).into()),
-                None => Ok(None),
-            }
-        } else {
-            Ok(Some(config))
-        }
-    }
 }
 
 impl<'a> GitApi<'a> {
@@ -251,26 +210,6 @@ impl<'a> GitApi<'a> {
         }
     }
 
-    async fn try_read_config(
-        &self,
-        container_id: &str,
-        clone_dir: &str,
-    ) -> Result<Option<(String, FileFormat)>, AnyError> {
-        let exec = self.api.exec;
-
-        let rooz_cfg = if let Some(cfg) = exec
-            .read_config_body(&container_id, &clone_dir, FileFormat::Yaml, None)
-            .await?
-        {
-            log::debug!("Config file found (YAML)");
-            Some((cfg, FileFormat::Yaml))
-        } else {
-            log::debug!("No valid config file found");
-            None
-        };
-        Ok(rooz_cfg)
-    }
-
     pub async fn clone_root_repo(
         &self,
         url: &str,
@@ -284,14 +223,14 @@ impl<'a> GitApi<'a> {
             &url,
             &self.api.get_system_config().await?.gitconfig,
         )?;
-        let config = self.try_read_config(&container_id, &clone_dir).await?;
+        let config = self
+            .config
+            .try_read_config(&container_id, &clone_dir)
+            .await?;
         self.api.container.kill(&container_id, false).await?;
 
         Ok(RootRepoCloneResult {
-            config: match config {
-                Some(c) => Some(c),
-                None => None,
-            },
+            config,
             dir: clone_dir,
         })
     }
@@ -313,7 +252,7 @@ impl<'a> GitApi<'a> {
         spec: CloneEnv,
         url: &str,
         path: &str,
-    ) -> Result<Option<String>, AnyError> {
+    ) -> Result<(Option<ConfigBody>, String), AnyError> {
         let container_id = self
             .clone_from_spec(
                 &CloneEnv {
@@ -331,12 +270,11 @@ impl<'a> GitApi<'a> {
             &self.api.get_system_config().await?.gitconfig,
         )?;
         let file_format = FileFormat::from_path(path);
-        let rooz_cfg = self
-            .api
-            .exec
+        let result = self
+            .config
             .read_config_body(&container_id, &clone_dir, file_format, Some(path))
             .await?;
         self.api.container.kill(&container_id, false).await?;
-        Ok(rooz_cfg)
+        Ok((result, clone_dir))
     }
 }

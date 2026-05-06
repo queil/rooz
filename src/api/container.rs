@@ -26,6 +26,7 @@ use bollard::{
 };
 
 use crate::model::types::{TargetDir, VolumeFilesSpec};
+
 use bollard_stubs::models::{MountTypeEnum, NetworkingConfig};
 use bollard_stubs::query_parameters::{UploadToContainerOptions, WaitContainerOptions};
 use futures::{StreamExt, TryStreamExt, future};
@@ -291,13 +292,23 @@ impl<'a> ContainerApi<'a> {
             }
         }
 
-        let (attach_stdin, tty, open_stdin, auto_remove, readonly_rootfs) = match spec.run_mode {
-            RunMode::Workspace => (Some(true), Some(true), None, None, None),
-            RunMode::Tmp => (Some(true), Some(true), None, Some(true), None),
-            RunMode::Git => (None, None, Some(true), Some(true), Some(true)),
-            RunMode::OneShot => (None, None, None, Some(true), Some(true)),
-            RunMode::Sidecar => (None, None, None, None, Some(true)),
-            RunMode::SidecarInstall => (None, None, Some(true), None, None),
+        let (attach_stdin, tty, open_stdin, auto_remove, readonly_rootfs) = {
+            // TODO: Podman is less restrictive to what can be done with read-only rootfs via API
+            // Docker is much more demanding and the current impl of rooz breaks severely
+            // Rancher - untested...
+            let readonly_rootfs = match self.backend.engine {
+                ContainerEngine::Podman => Some(true),
+                _ => None,
+            };
+
+            match spec.run_mode {
+                RunMode::Workspace => (Some(true), Some(true), None, None, None),
+                RunMode::Tmp => (Some(true), Some(true), None, Some(true), None),
+                RunMode::Git => (None, None, Some(true), Some(true), readonly_rootfs),
+                RunMode::OneShot => (None, None, None, Some(true), readonly_rootfs),
+                RunMode::Sidecar => (None, None, None, None, readonly_rootfs),
+                RunMode::SidecarInstall => (None, None, Some(true), None, None),
+            }
         };
 
         let host_config = HostConfig {

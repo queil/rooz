@@ -52,6 +52,7 @@ pub struct Api<'a> {
 
 pub struct GitApi<'a> {
     pub api: &'a Api<'a>,
+    pub config: &'a ConfigApi<'a>,
 }
 
 pub struct ConfigApi<'a> {

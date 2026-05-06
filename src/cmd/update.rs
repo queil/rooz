@@ -42,6 +42,7 @@ impl<'a> WorkspaceApi<'a> {
                 let format = FileFormat::from_path(config_source);
                 let config_path = ConfigPath::from_str(&config_source)?;
                 let mut original_body = self.config.read(workspace_key, &ConfigType::Body).await?;
+                let mut pre_merged: Option<RoozCfg> = None;
 
                 if !interactive {
                     match &config_path {
@@ -56,20 +57,22 @@ impl<'a> WorkspaceApi<'a> {
                                 ..Default::default()
                             };
 
-                            match self
+                            let (result, _) = self
                                 .git
                                 .clone_config_repo(clone_env, &url, &file_path)
-                                .await?
-                            {
-                                Some(cfg) => original_body = cfg.to_string(),
-                                None => (),
+                                .await?;
+                            if let Some(cb) = result {
+                                original_body = cb.body;
+                                pre_merged = cb.merged;
                             };
                         }
                     };
                 }
 
-                let mut original_config =
-                    RoozCfg::deserialize_config(&original_body, format)?.unwrap();
+                let mut original_config = match pre_merged {
+                    Some(merged) => merged,
+                    None => RoozCfg::deserialize_config(&original_body, format)?.unwrap(),
+                };
 
                 let config_to_apply = if interactive {
                     let identity = self.api.get_system_config().await?.age_identity()?;

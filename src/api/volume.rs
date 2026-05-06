@@ -260,19 +260,14 @@ impl<'a> VolumeApi<'a> {
                         executable,
                         ..
                     } => {
-                        let shadow_subpath = &source_entry.clone().data.name();
-                        let shadow_file = Path::new(SHADOW_ROOT_DIR).join(shadow_subpath).join(
-                            Path::new(&expanded_target)
-                                .with_file_name(shadow_subpath)
-                                .with_extension("data")
-                                .to_string_lossy()
-                                .trim_start_matches('/'),
-                        );
+                        let shadow_file = Path::new(SHADOW_ROOT_DIR)
+                            .join(&source_entry.data.clone().name())
+                            .with_extension("data");
 
                         (
-                            format!("{}/{}", SHADOW_ROOT_DIR.to_string(), shadow_subpath),
+                            SHADOW_ROOT_DIR.to_string(),
                             Some(FileSpec {
-                                target_file: TargetFile(shadow_file.to_string_lossy().into_owned()),
+                                target_file: TargetFile(shadow_file.to_string_lossy().to_string()),
                                 user_file: UserFile(expanded_target),
                                 generator,
                                 executable,

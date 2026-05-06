@@ -110,11 +110,14 @@ async fn main() -> Result<(), AnyError> {
 
     let crypt_api = CryptApi {};
 
-    let git_api = GitApi { api: &rooz };
-
     let config_api = ConfigApi {
         api: &rooz,
         crypt: &crypt_api,
+    };
+
+    let git_api = GitApi {
+        api: &rooz,
+        config: &config_api,
     };
 
     let workspace = WorkspaceApi {

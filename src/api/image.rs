@@ -164,7 +164,12 @@ impl<'a> ImageApi<'a> {
 
         while let Some(l) = image_info.next().await {
             match l {
-                Ok(CreateImageInfo { id, status, progress_detail, .. }) => {
+                Ok(CreateImageInfo {
+                    id,
+                    status,
+                    progress_detail,
+                    ..
+                }) => {
                     if let (Some(id), Some(status)) = (id, status) {
                         let (cur, tot) = match progress_detail {
                             Some(pd) => (pd.current, pd.total),

@@ -1,0 +1,13 @@
+vars:
+  test-x: 1
+
+env:
+  TEST: '{{ test-x }}'
+
+sidecars:
+  sql:
+    image: docker.io/postgres
+
+bases: 
+- base.yaml
+- base2.yaml

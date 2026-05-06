@@ -1,0 +1,4 @@
+image: docker.io/alpine
+sidecars:
+  mongo:
+    image: docker.io/mongo
