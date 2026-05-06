@@ -47,6 +47,13 @@ pub fn inject(script: &str, name: &str) -> Vec<String> {
         ),
     ]
 }
+pub fn inject_sh(script: &str) -> Vec<String> {
+    vec![
+        "sh".to_string(),
+        "-c".to_string(),
+        script.trim().to_string(),
+    ]
+}
 
 impl<'a> ContainerApi<'a> {
     pub async fn get_all(&self, labels: &Labels) -> Result<Vec<ContainerSummary>, AnyError> {
@@ -398,7 +405,7 @@ impl<'a> ContainerApi<'a> {
 
     pub async fn create(&self, spec: RunSpec<'a>) -> Result<ContainerResult, AnyError> {
         log::debug!(
-            "[{}: {:?}]: CREATE CONTAINER - name: {}, uid: {}, user: {}, image: {}, entrypoint: {}",
+            "[{}: {:?}]: CREATE CONTAINER - name: {}, uid: {}, user: {}, image: {}, entrypoint: {:?}",
             &spec.reason,
             spec.run_mode,
             spec.container_name,
@@ -512,23 +519,24 @@ EXEC_EXIT_CODE=$(cat /tmp/exec_exit)
 echo "Exec session ended: $EXEC_EXIT_CODE"
 exit $EXEC_EXIT_CODE"#;
 
-        let epv = inject(&wait_for_exec, "entrypoint.sh");
+        let epv = inject_sh(&wait_for_exec);
         let entrypoint = epv.iter().map(String::as_str).collect();
-        let work_dir = "/tmp/one-shot";
+        let work_dir = "/tmp";
         let id = self
             .create(RunSpec {
                 reason: name,
                 image: image.unwrap_or(constants::DEFAULT_IMAGE),
                 container_name: &id::random_suffix("one-shot"),
                 command: Some(entrypoint),
-                mounts: mounts.map(|mut m| {
-                    m.extend_from_slice(&[Mount {
+                mounts: {
+                    let mut m = mounts.unwrap_or_default();
+                    m.push(Mount {
                         target: Some(work_dir.into()),
                         typ: Some(MountTypeEnum::TMPFS),
                         ..Default::default()
-                    }]);
-                    m
-                }),
+                    });
+                    Some(m)
+                },
                 uid: uid.unwrap_or(constants::ROOT_UID),
                 work_dir: Some(work_dir),
                 ..Default::default()
@@ -583,7 +591,7 @@ echo start > /tmp/exec_start
         "#,
             command
         );
-        inject(&cmd, "exec.sh")
+        inject_sh(&cmd)
     }
 
     pub async fn one_shot_output(

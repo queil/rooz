@@ -1,6 +1,6 @@
 use gix_config::File;
 use std::collections::HashMap;
-
+use bollard_stubs::models::{Mount, MountTypeEnum};
 use crate::{
     api::{GitApi, config::ConfigBody, container},
     config::config::FileFormat,
@@ -134,7 +134,7 @@ impl<'a> GitApi<'a> {
             }
         }
 
-        let clone_cmd = container::inject(&clone_script, "clone.sh");
+        let clone_cmd = container::inject_sh(&clone_script);
         let labels = Labels::from(&[Labels::workspace(&spec.workspace_key), Labels::role("git")]);
         let mut mounts = vec![ssh::mount("/tmp/.ssh")];
 
@@ -163,6 +163,12 @@ impl<'a> GitApi<'a> {
         for vol in &volumes {
             mounts.push(vol.to_mount(None));
         }
+
+        mounts.push(Mount {
+            target: Some("/tmp".to_string()),
+            typ: Some(MountTypeEnum::TMPFS),
+            ..Default::default()
+        });
 
         let run_spec = RunSpec {
             reason: "git-clone",

@@ -7,7 +7,7 @@ use bollard::{
 use bollard_stubs::models::ExecInspectResponse;
 use futures::{Stream, StreamExt};
 
-use crate::api::container::inject;
+use crate::api::container::inject_sh;
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use std::{io::Read, time::Duration};
 use tokio::{
@@ -157,7 +157,7 @@ impl<'a> ExecApi<'a> {
     ) -> Result<String, AnyError> {
         #[cfg(not(windows))]
         {
-            log::debug!(
+            log::trace!(
                 "[{}] exec: {:?} in working dir: {:?}",
                 reason,
                 cmd,
@@ -255,7 +255,7 @@ echo '[install] {}'
 {}"#,
             container_name, script
         );
-        let install_cmd = inject(cmd.as_str(), "install.sh");
+        let install_cmd = inject_sh(cmd.as_str());
         let v = install_cmd.iter().map(|x| x.as_str()).collect::<Vec<_>>();
         self.tty(
             "install",
@@ -301,16 +301,34 @@ echo '[install] {}'
         Ok(())
     }
 
+    pub async fn chmod(&self, container_id: &str, dir: &str) -> Result<(), AnyError> {
+        log::debug!("Changing permissions... ({})", &dir);
+
+        let chmod_response = self
+            .output(
+                "chmod",
+                container_id,
+                Some(constants::ROOT_USER),
+                Some(vec![
+                    "sh",
+                    "-c",
+                    &format!("chmod -R 1777 {}", &dir.replace("~", "${ROOZ_META_HOME}")),
+                ]),
+            )
+            .await?;
+
+        log::debug!("{}", chmod_response);
+        Ok(())
+    }
+
     pub async fn ensure_user(&self, container_id: &str) -> Result<(), AnyError> {
-        let ensure_user_cmd = inject(
+        let ensure_user_cmd = inject_sh(
             format!(
                     r#"grep -q "^$ROOZ_META_USER:x:$ROOZ_META_UID" /etc/passwd && exit 0
                        sed -i "/:x:${{ROOZ_META_UID}}/d" /etc/passwd && \
                        echo "$ROOZ_META_USER:x:$ROOZ_META_UID:$ROOZ_META_UID:$ROOZ_META_USER:$ROOZ_META_HOME:/bin/sh" >> /etc/passwd"#,
             )
-            .as_ref(),
-            "make_user.sh",
-        );
+            .as_ref());
 
         let ensure_user_output = self
             .output(

@@ -25,7 +25,7 @@ use bollard::{
     service::Mount,
 };
 use bollard_stubs::models::MountTypeEnum::VOLUME;
-use bollard_stubs::models::VolumeCreateRequest;
+use bollard_stubs::models::{MountTmpfsOptions, MountTypeEnum, VolumeCreateRequest};
 
 impl<'a> VolumeApi<'a> {
     pub async fn get_all(&self, labels: &Labels) -> Result<Vec<Volume>, AnyError> {
