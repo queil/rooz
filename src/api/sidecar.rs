@@ -69,7 +69,7 @@ impl<'a> WorkspaceApi<'a> {
                 s.real_mounts.insert(t.clone(), m.clone());
                 // The volume might already be created by the workspace-level volume creation
                 // but still may need files in the paths not covered by that process
-                self.api.volume.populate_volume(t, m, uid).await?;
+                self.api.volume.populate_volume(m, uid).await?;
             }
 
             let cmd = &s.command.iter().map(|x| x.as_str()).collect::<Vec<_>>();
@@ -137,12 +137,6 @@ impl<'a> WorkspaceApi<'a> {
                         })
                         .await?
                     {
-                        // IMPORTANT: make symlinks to the mounted volumes before install so the
-                        // mounted files/dirs are available
-                        self.api
-                            .container
-                            .symlink_files(&container_id, &real_mounts, uid)
-                            .await?;
                         self.api.container.start(&container_id).await?;
                         self.api
                             .exec
@@ -180,29 +174,15 @@ impl<'a> WorkspaceApi<'a> {
                 }
 
                 let latest_runtime_image = format!("{}:latest", runtime_image);
-                if let ContainerResult::Created { id: container_id } = self
-                    .api
+                self.api
                     .container
                     .create(RunSpec {
                         image: &latest_runtime_image,
                         ..run_spec.clone()
                     })
-                    .await?
-                {
-                    self.api
-                        .container
-                        .symlink_files(&container_id, &real_mounts, uid)
-                        .await?;
-                }
+                    .await?;
             } else {
-                if let ContainerResult::Created { id: container_id } =
-                    self.api.container.create(run_spec).await?
-                {
-                    self.api
-                        .container
-                        .symlink_files(&container_id, &real_mounts, uid)
-                        .await?;
-                }
+                self.api.container.create(run_spec).await?;
             }
         }
 

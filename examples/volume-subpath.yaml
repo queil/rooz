@@ -1,0 +1,11 @@
+data:
+  git-config:
+    content: |-
+      [url "git@github.com:"]
+      insteadOf = gh:
+
+image: docker.io/alpine
+shell: ["sh"]
+
+mounts:
+  ~/.gitconfig: git-config
