@@ -27,7 +27,7 @@ use bollard::{
 
 use crate::model::types::{TargetDir, VolumeFilesSpec};
 
-use bollard_stubs::models::{MountTypeEnum, NetworkingConfig};
+use bollard_stubs::models::{MountType, NetworkingConfig};
 use bollard_stubs::query_parameters::{UploadToContainerOptions, WaitContainerOptions};
 use futures::{StreamExt, TryStreamExt, future};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -524,7 +524,7 @@ exit $EXEC_EXIT_CODE"#;
                 mounts: mounts.map(|mut m| {
                     m.extend_from_slice(&[Mount {
                         target: Some(work_dir.into()),
-                        typ: Some(MountTypeEnum::TMPFS),
+                        typ: Some(MountType::TMPFS),
                         ..Default::default()
                     }]);
                     m

@@ -11,7 +11,7 @@ use crate::{
         },
     },
 };
-use bollard::models::{Mount, MountTypeEnum};
+use bollard::models::{Mount, MountType};
 
 #[derive(Debug, Clone)]
 pub enum RoozVolumeSharing {
@@ -42,10 +42,19 @@ impl RoozVolumeRole {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct RoozVolumeFile {
     pub file_path: String,
     pub data: String,
+}
+
+impl std::fmt::Debug for RoozVolumeFile {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RoozVolumeFile")
+            .field("file_path", &self.file_path)
+            .field("data", &format!("<{} bytes>", self.data.len()))
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -98,7 +107,7 @@ impl RoozVolume {
         let vol_name = self.safe_volume_name();
 
         Mount {
-            typ: Some(MountTypeEnum::VOLUME),
+            typ: Some(MountType::VOLUME),
             source: Some(vol_name.into()),
             target: Some(self.expanded_path(tilde_replacement)),
             read_only: Some(false),

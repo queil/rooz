@@ -1,4 +1,4 @@
-use bollard::models::MountTypeEnum::VOLUME;
+use bollard::models::MountType::VOLUME;
 use bollard::service::Mount;
 
 pub const VOLUME_NAME: &'static str = "rooz-ssh-key-vol";

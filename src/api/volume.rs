@@ -24,7 +24,7 @@ use bollard::{
     query_parameters::{ListVolumesOptions, RemoveVolumeOptions},
     service::Mount,
 };
-use bollard_stubs::models::MountTypeEnum::VOLUME;
+use bollard_stubs::models::MountType::VOLUME;
 use bollard_stubs::models::VolumeCreateRequest;
 
 impl<'a> VolumeApi<'a> {

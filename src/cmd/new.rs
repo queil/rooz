@@ -225,10 +225,20 @@ impl<'a> WorkspaceApi<'a> {
                                 .await?;
                             let bases_yaml = individual_bases
                                 .iter()
-                                .map(|(p, b)| b.to_string(*format).map(|yaml| format!("# {}\n{}", p, yaml)))
+                                .map(|(p, b)| {
+                                    b.to_string(*format)
+                                        .map(|yaml| format!("# {}\n{}", p, yaml))
+                                })
                                 .collect::<Result<Vec<_>, _>>()?
                                 .join("\n---\n");
-                            (Some(merged), if bases_yaml.is_empty() { None } else { Some(bases_yaml) })
+                            (
+                                Some(merged),
+                                if bases_yaml.is_empty() {
+                                    None
+                                } else {
+                                    Some(bases_yaml)
+                                },
+                            )
                         } else {
                             (Some(value.clone()), None)
                         }
@@ -254,10 +264,16 @@ impl<'a> WorkspaceApi<'a> {
                                     .await?;
                                 let bases_yaml = individual_bases
                                     .iter()
-                                    .map(|(path, b)| b.to_string(fmt).map(|yaml| format!("# {}\n{}", path, yaml)))
+                                    .map(|(path, b)| {
+                                        b.to_string(fmt).map(|yaml| format!("# {}\n{}", path, yaml))
+                                    })
                                     .collect::<Result<Vec<_>, _>>()?
                                     .join("\n---\n");
-                                let base_body = if bases_yaml.is_empty() { None } else { Some(bases_yaml) };
+                                let base_body = if bases_yaml.is_empty() {
+                                    None
+                                } else {
+                                    Some(bases_yaml)
+                                };
                                 (Some(merged), base_body)
                             }
                             other => (other, None),
@@ -271,11 +287,15 @@ impl<'a> WorkspaceApi<'a> {
                             .await?;
 
                         let (rooz_cfg, main_body, base_body) = match result {
-                            Some(ConfigBody { body, bases, merged }) => {
+                            Some(ConfigBody {
+                                body,
+                                bases,
+                                merged,
+                            }) => {
                                 let fmt = FileFormat::from_path(&file_path);
-                                let cfg = merged
-                                    .map(Ok)
-                                    .unwrap_or_else(|| RoozCfg::deserialize_config(&body, fmt).map(|o| o.unwrap()))?;
+                                let cfg = merged.map(Ok).unwrap_or_else(|| {
+                                    RoozCfg::deserialize_config(&body, fmt).map(|o| o.unwrap())
+                                })?;
                                 (Some(cfg), Some(body), bases)
                             }
                             None => (None, None, None),
