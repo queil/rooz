@@ -138,7 +138,7 @@ impl<'a> ExecApi<'a> {
                 } => {
                     self.handle_output(output).await;
                     if exit_code != 0 {
-                        panic!("Exec terminated with exit code: {}.", exit_code);
+                        return Err(format!("Exec terminated with exit code: {}", exit_code).into());
                     }
                 }
                 _ => panic!("Unexpected exec state: {:?}", exec_state.clone()),
@@ -235,6 +235,30 @@ impl<'a> ExecApi<'a> {
             Ok(())
         } else {
             panic!("Could not start exec");
+        }
+    }
+
+    pub async fn resolve_working_dir<'b>(
+        &self,
+        container_id: &str,
+        working_dir: Option<&'b str>,
+    ) -> Result<Option<&'b str>, AnyError> {
+        let Some(dir) = working_dir else {
+            return Ok(None);
+        };
+        let check_cmd = format!("test -d '{}' && echo y || echo n", dir);
+        let result = self
+            .output(
+                "check-working-dir",
+                container_id,
+                Some(constants::ROOT_USER),
+                Some(vec!["sh", "-c", &check_cmd]),
+            )
+            .await?;
+        if result.trim() == "y" {
+            Ok(working_dir)
+        } else {
+            Ok(Some(constants::WORK_DIR))
         }
     }
 

@@ -85,8 +85,17 @@ impl<'a> WorkspaceApi<'a> {
         // the loop here is needed for auto-reconnecting the session
         loop {
             execute!(stdout(), Clear(ClearType::All))?;
-            match self.start(workspace_key).await {
-                Ok(_) => (),
+            let effective_working_dir = async {
+                self.start(workspace_key).await?;
+                self.api
+                    .exec
+                    .resolve_working_dir(container_id, working_dir)
+                    .await
+            }
+            .await;
+
+            let effective_working_dir = match effective_working_dir {
+                Ok(dir) => dir,
                 Err(e) => {
                     log::debug!("{}", e);
                     eprintln!("Rooz is reconnecting to {}", workspace_key);
@@ -129,7 +138,7 @@ impl<'a> WorkspaceApi<'a> {
                 .tty(
                     "work",
                     &container_id,
-                    working_dir,
+                    effective_working_dir,
                     if root {
                         Some(constants::ROOT_USER)
                     } else {
