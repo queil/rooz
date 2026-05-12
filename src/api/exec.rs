@@ -304,7 +304,6 @@ echo '[install] {}'
         log::debug!("Changing ownership... ({} {})", &uid, &dir);
 
         let uid_format = format!("{}:{}", &uid, &uid);
-        let dir_expr = dir.replace("~", "${ROOZ_META_HOME}");
         let chown_response = self
             .output(
                 "chown",
@@ -313,7 +312,11 @@ echo '[install] {}'
                 Some(vec![
                     "sh",
                     "-c",
-                    &format!("[ -d {0} ] && chown -R {1} {0} || echo 'chown skipped: {0} does not exist'", dir_expr, uid_format),
+                    &format!(
+                        "chown -R {} {}",
+                        &uid_format,
+                        &dir.replace("~", "${ROOZ_META_HOME}")
+                    ),
                 ]),
             )
             .await?;
