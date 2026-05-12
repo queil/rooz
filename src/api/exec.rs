@@ -174,7 +174,7 @@ impl<'a> ExecApi<'a> {
                         attach_stdin: Some(true),
                         tty: Some(true),
                         cmd,
-                        working_dir,
+                        working_dir: working_dir.or(Some("/")),
                         user,
                         ..Default::default()
                     },
