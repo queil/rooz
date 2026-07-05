@@ -21,3 +21,30 @@ pub fn sanitize(dirty: &str) -> String {
         .to_ascii_lowercase()
         .to_string()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::sanitize;
+
+    #[test]
+    fn alphanumeric_and_hyphens_pass_through() {
+        assert_eq!(sanitize("my-volume-1"), "my-volume-1");
+    }
+
+    #[test]
+    fn special_chars_replaced_by_hyphen() {
+        assert_eq!(sanitize("~/.cargo/registry"), "---cargo-registry");
+    }
+
+    #[test]
+    fn uppercase_lowercased() {
+        assert_eq!(sanitize("MyVolume"), "myvolume");
+    }
+
+    #[test]
+    fn underscore_collision_pinned() {
+        // ~/a.txt and ~/a_txt both produce "--a-txt" — pinned known wart
+        assert_eq!(sanitize("~/a.txt"), sanitize("~/a_txt"));
+        assert_eq!(sanitize("~/a.txt"), "--a-txt");
+    }
+}

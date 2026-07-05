@@ -74,3 +74,68 @@ impl ContainerBackend {
         Ok(info)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bollard_stubs::models::{SystemVersion, SystemVersionComponents};
+
+    fn ver(os: &str, arch: &str) -> SystemVersion {
+        SystemVersion {
+            os: Some(os.to_string()),
+            arch: Some(arch.to_string()),
+            ..Default::default()
+        }
+    }
+
+    fn ver_with_component(os: &str, arch: &str, component: &str) -> SystemVersion {
+        SystemVersion {
+            os: Some(os.to_string()),
+            arch: Some(arch.to_string()),
+            components: Some(vec![SystemVersionComponents {
+                name: component.to_string(),
+                version: "0".to_string(),
+                details: None,
+            }]),
+            ..Default::default()
+        }
+    }
+
+    fn info(operating_system: &str) -> bollard::service::SystemInfo {
+        bollard::service::SystemInfo {
+            operating_system: Some(operating_system.to_string()),
+            ..Default::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn backend_detection_table() {
+        use ContainerEngine::*;
+        let cases: Vec<(SystemVersion, bollard::service::SystemInfo, ContainerEngine)> = vec![
+            (ver("linux", "amd64"), info("Docker Desktop"), DockerDesktop),
+            (ver("linux", "amd64"), info("Rancher Desktop WSL Distribution"), RancherDesktop),
+            (ver_with_component("linux", "amd64", "Podman Engine"), info("linux"), Podman),
+            (ver_with_component("linux", "amd64", "Engine"), info("linux"), Unknown),
+            (ver("linux", "amd64"), info("Alpine Linux v3.20"), Unknown),   // Colima
+            (ver("linux", "aarch64"), info("OrbStack"), Unknown),           // OrbStack
+        ];
+
+        for (v, i, expected) in cases {
+            let b = ContainerBackend::resolve(&v, &i).await.unwrap();
+            assert_eq!(
+                std::mem::discriminant(&b.engine),
+                std::mem::discriminant(&expected),
+                "wrong detection for operating_system={:?}",
+                i.operating_system
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn platform_is_os_slash_arch() {
+        let b = ContainerBackend::resolve(&ver("linux", "amd64"), &info("Docker Desktop"))
+            .await
+            .unwrap();
+        assert_eq!(b.platform, "linux/amd64");
+    }
+}
