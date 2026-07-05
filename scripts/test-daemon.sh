@@ -30,12 +30,20 @@ up)
       "$IMAGE" \
       dockerd-entrypoint.sh --host=tcp://0.0.0.0:2375 --tls=false
 
-    # Wait for the daemon to be ready
-    until docker exec "$CONTAINER_NAME" docker info >/dev/null 2>&1; do
+    IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$CONTAINER_NAME")
+
+    # Rootless dockerd doesn't use /var/run/docker.sock, so check the TCP port directly.
+    ELAPSED=0
+    until curl -sf "http://${IP}:2375/version" >/dev/null 2>&1; do
       sleep 1
+      ELAPSED=$((ELAPSED + 1))
+      if [ "$ELAPSED" -ge 120 ]; then
+        echo "Timed out waiting for dockerd. Logs:" >&2
+        docker logs "$CONTAINER_NAME" >&2
+        exit 1
+      fi
     done
 
-    IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$CONTAINER_NAME")
     echo "export ROOZ_TEST_DOCKER_HOST=tcp://${IP}:2375"
     echo "export ROOZ_TEST_ENGINE=docker"
     echo "# Run tests with: cargo test --test smoke --test lifecycle -- --test-threads=1"
@@ -52,8 +60,15 @@ up)
       sh -c "podman system service --time=0 tcp://0.0.0.0:2375 2>&1"
 
     # Wait for the socket to be ready
+    ELAPSED=0
     until docker exec "$CONTAINER_NAME" podman info >/dev/null 2>&1; do
       sleep 1
+      ELAPSED=$((ELAPSED + 1))
+      if [ "$ELAPSED" -ge 120 ]; then
+        echo "Timed out waiting for podman service. Logs:" >&2
+        docker logs "$CONTAINER_NAME" >&2
+        exit 1
+      fi
     done
 
     IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$CONTAINER_NAME")
