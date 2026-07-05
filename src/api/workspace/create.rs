@@ -1,4 +1,3 @@
-use crate::model::types::{TargetDir, VolumeFilesSpec};
 use crate::{
     api::WorkspaceApi,
     model::{
@@ -7,15 +6,10 @@ use crate::{
     },
     util::ssh,
 };
-use std::collections::HashMap;
 use std::path::Path;
 
 impl<'a> WorkspaceApi<'a> {
-    pub async fn create(
-        &self,
-        spec: &WorkSpec<'a>,
-        real_mounts: &HashMap<TargetDir, VolumeFilesSpec>,
-    ) -> Result<WorkspaceResult, AnyError> {
+    pub async fn create(&self, spec: &WorkSpec<'a>) -> Result<WorkspaceResult, AnyError> {
         let mut volumes = vec![];
 
         if let Some(caches) = &spec.caches {
@@ -76,10 +70,6 @@ impl<'a> WorkspaceApi<'a> {
 
         match self.api.container.create(run_spec).await? {
             ContainerResult::Created { id: container_id } => {
-                self.api
-                    .container
-                    .symlink_files(&container_id, &real_mounts, Some(spec.uid.parse::<i32>()?))
-                    .await?;
                 if let Some(install) = spec.install.clone() {
                     self.api.container.start(&container_id).await?;
                     self.api

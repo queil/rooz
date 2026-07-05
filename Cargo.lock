@@ -2403,7 +2403,7 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
 name = "rooz"
-version = "0.150.7"
+version = "0.151.0"
 dependencies = [
  "age",
  "async-trait",

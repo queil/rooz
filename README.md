@@ -6,6 +6,13 @@
 
 Rooz is a CLI tool that enables you to work in containers. It is intended for developers and DevOps engineers. Because of that, it comes with a built-in support for git repositories, SSH keys generation, support for git-safe secrets, shared caches, sidecar containers, declarative configuration, and a robust CLI. Rooz is designed to share as little as possible with the host so it can also orchestrate your workspaces on remote Docker/Podman hosts.
 
+## Requirements
+
+Rooz requires one of the following container backends:
+* Docker >= 29.5.0
+* Podman >= 6
+* Rancher Desktop - untested atm
+
 ## Quick start
 
 ### Install
