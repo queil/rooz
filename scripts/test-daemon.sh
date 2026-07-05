@@ -38,6 +38,7 @@ up)
     IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$CONTAINER_NAME")
     echo "export ROOZ_TEST_DOCKER_HOST=tcp://${IP}:2375"
     echo "export ROOZ_TEST_ENGINE=docker"
+    echo "# Run tests with: cargo test --test smoke --test lifecycle -- --test-threads=1"
     ;;
 
   podman)
@@ -58,6 +59,7 @@ up)
     IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$CONTAINER_NAME")
     echo "export ROOZ_TEST_DOCKER_HOST=tcp://${IP}:2375"
     echo "export ROOZ_TEST_ENGINE=podman"
+    echo "# Run tests with: cargo test --test smoke --test lifecycle -- --test-threads=1"
     ;;
 
   *)
