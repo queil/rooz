@@ -1,14 +1,6 @@
-mod api;
-mod cli;
-mod cmd;
-mod config;
-mod constants;
-mod model;
-mod util;
-
 use std::io;
 
-use crate::{
+use rooz::{
     api::{Api, ContainerApi, ExecApi, GitApi, ImageApi, InitApi, VolumeApi, WorkspaceApi},
     cli::{
         Cli,
@@ -24,18 +16,19 @@ use crate::{
     util::backend::ContainerBackend,
 };
 
-use api::{ConfigApi, CryptApi};
-pub use bollard::{API_DEFAULT_VERSION, Docker};
+use rooz::api::{ConfigApi, CryptApi};
+use rooz::constants;
+use bollard::{API_DEFAULT_VERSION, Docker};
 use bollard_stubs::models::SystemVersion;
 use clap::{CommandFactory, Parser};
 use clap_complete::generate;
-use cli::{
+use rooz::cli::{
     CodeParams, EditConfigParams, EnterParams, RestartParams, StartParams, TemplateConfigParams,
     UpdateParams,
 };
-use cmd::update::UpdateMode;
-use config::config::{ConfigPath, ConfigSource, FileFormat};
-use util::labels::{self, Labels};
+use rooz::cmd::update::UpdateMode;
+use rooz::config::config::{ConfigPath, ConfigSource, FileFormat};
+use rooz::util::labels::{self, Labels};
 
 #[tokio::main]
 async fn main() -> Result<(), AnyError> {
@@ -47,7 +40,7 @@ async fn main() -> Result<(), AnyError> {
 
     if let Cli {
         command:
-            Remote(cli::RemoteParams {
+            Remote(rooz::cli::RemoteParams {
                 ssh_url,
                 local_docker_host,
             }),
@@ -280,31 +273,31 @@ async fn main() -> Result<(), AnyError> {
 
         Cli {
             command:
-                Config(cli::Config {
-                    command: cli::ConfigCommands::Template(TemplateConfigParams { format }),
+                Config(rooz::cli::Config {
+                    command: rooz::cli::ConfigCommands::Template(TemplateConfigParams { format }),
                 }),
             ..
         } => {
             workspace
                 .config
                 .template(match format {
-                    cli::ConfigFormat::Yaml => FileFormat::Yaml,
+                    rooz::cli::ConfigFormat::Yaml => FileFormat::Yaml,
                 })
                 .await?;
         }
 
         Cli {
             command:
-                Config(cli::Config {
-                    command: cli::ConfigCommands::Edit(EditConfigParams { config_path }),
+                Config(rooz::cli::Config {
+                    command: rooz::cli::ConfigCommands::Edit(EditConfigParams { config_path }),
                 }),
             ..
         } => workspace.config.edit(&config_path).await?,
 
         Cli {
             command:
-                Config(cli::Config {
-                    command: cli::ConfigCommands::Show(ShowConfigParams { name, part, output }),
+                Config(rooz::cli::Config {
+                    command: rooz::cli::ConfigCommands::Show(ShowConfigParams { name, part, output }),
                 }),
             ..
         } => {
@@ -313,7 +306,7 @@ async fn main() -> Result<(), AnyError> {
 
         Cli {
             command:
-                Remote(cli::RemoteParams {
+                Remote(rooz::cli::RemoteParams {
                     ssh_url: _,
                     local_docker_host: _,
                 }),
@@ -326,8 +319,8 @@ async fn main() -> Result<(), AnyError> {
 
         Cli {
             command:
-                System(cli::System {
-                    command: cli::SystemCommands::Prune(_),
+                System(rooz::cli::System {
+                    command: rooz::cli::SystemCommands::Prune(_),
                 }),
             ..
         } => {
@@ -336,8 +329,8 @@ async fn main() -> Result<(), AnyError> {
 
         Cli {
             command:
-                System(cli::System {
-                    command: cli::SystemCommands::Init(init_params),
+                System(rooz::cli::System {
+                    command: rooz::cli::SystemCommands::Init(init_params),
                 }),
             ..
         } => {
@@ -357,8 +350,8 @@ async fn main() -> Result<(), AnyError> {
 
         Cli {
             command:
-                System(cli::System {
-                    command: cli::SystemCommands::Completion(CompletionParams { shell }),
+                System(rooz::cli::System {
+                    command: rooz::cli::SystemCommands::Completion(CompletionParams { shell }),
                 }),
         } => {
             let mut cli = Cli::command()
@@ -370,8 +363,8 @@ async fn main() -> Result<(), AnyError> {
 
         Cli {
             command:
-                System(cli::System {
-                    command: cli::SystemCommands::Configure(ConfigureParams {}),
+                System(rooz::cli::System {
+                    command: rooz::cli::SystemCommands::Configure(ConfigureParams {}),
                 }),
         } => {
             let (_, config_string) = config_api
