@@ -1,0 +1,72 @@
+name: integration
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ── unit tests (no daemon) ──────────────────────────────────────────────────
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+      - name: Unit and doc tests
+        run: cargo test --lib --bins
+
+  # ── integration tests (daemon required) ────────────────────────────────────
+  integration:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        engine: [docker, podman]
+      fail-fast: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Build binary
+        run: cargo build
+
+      - name: Start ${{ matrix.engine }} daemon
+        run: |
+          bash scripts/test-daemon.sh up ${{ matrix.engine }} \
+            | grep '^export ' \
+            | sed 's/^export //' \
+            >> "$GITHUB_ENV"
+
+      - name: Integration tests
+        run: |
+          cargo test \
+            --test smoke \
+            --test lifecycle \
+            --test volumes \
+            --test sidecars \
+            -- --test-threads=1
+
+      - name: Stop daemon
+        if: always()
+        run: bash scripts/test-daemon.sh down ${{ matrix.engine }}
