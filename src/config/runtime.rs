@@ -1,5 +1,5 @@
 use super::config::{DataValue, MountSource, RoozCfg, RoozSidecar};
-use crate::AnyError;
+use crate::model::types::AnyError;
 use crate::constants;
 use crate::model::types::{TargetDir, VolumeFilesSpec};
 use serde::{Deserialize, Serialize};
