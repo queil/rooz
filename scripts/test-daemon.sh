@@ -32,9 +32,12 @@ up)
 
     IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$CONTAINER_NAME")
 
-    # Rootless dockerd doesn't use /var/run/docker.sock, so check the TCP port directly.
+    # Rootless dockerd doesn't use /var/run/docker.sock inside the container.
+    # Set DOCKER_HOST explicitly to the TCP endpoint we bound so the CLI doesn't
+    # fall back to the XDG runtime socket path.
     ELAPSED=0
-    until curl -sf "http://${IP}:2375/version" >/dev/null 2>&1; do
+    until docker exec "$CONTAINER_NAME" \
+        sh -c "DOCKER_HOST=tcp://localhost:2375 docker info" >/dev/null 2>&1; do
       sleep 1
       ELAPSED=$((ELAPSED + 1))
       if [ "$ELAPSED" -ge 120 ]; then
