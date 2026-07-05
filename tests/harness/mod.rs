@@ -184,6 +184,18 @@ impl TestEnv {
             .filter_map(|c| c.state)
             .collect()
     }
+
+    pub async fn all_rooz_volumes(&self) -> Vec<Volume> {
+        let mut filters = HashMap::new();
+        filters.insert("label".to_string(), vec!["dev.rooz=true".to_string()]);
+        let opts = ListVolumesOptions { filters: Some(filters), ..Default::default() };
+        self.docker
+            .list_volumes(Some(opts))
+            .await
+            .ok()
+            .and_then(|r| r.volumes)
+            .unwrap_or_default()
+    }
 }
 
 fn connect(docker_host: &str) -> Result<Docker, bollard::errors::Error> {
