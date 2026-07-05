@@ -2,6 +2,35 @@ use crate::model::types::AnyError;
 use bollard::service::SystemInfo;
 use bollard_stubs::models::SystemVersion;
 
+fn parse_major_minor(v: &str) -> (u64, u64) {
+    let mut parts = v.split('.');
+    let major = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
+    let minor = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
+    (major, minor)
+}
+
+pub fn check_version_floor(
+    version: &SystemVersion,
+    backend: &ContainerBackend,
+) -> Result<(), AnyError> {
+    let ver_str = version.version.as_deref().unwrap_or("");
+    let (major, minor) = parse_major_minor(ver_str);
+
+    let ok = match backend.engine {
+        ContainerEngine::Podman => major >= 6,
+        _ => major > 29 || (major == 29 && minor >= 5),
+    };
+
+    if !ok {
+        return Err(format!(
+            "rooz requires Docker 29.5+ / Podman 6+ (found {})",
+            ver_str
+        )
+        .into());
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone)]
 pub enum ContainerEngine {
     DockerDesktop,
@@ -106,6 +135,71 @@ mod tests {
             operating_system: Some(operating_system.to_string()),
             ..Default::default()
         }
+    }
+
+    fn backend(engine: ContainerEngine) -> ContainerBackend {
+        ContainerBackend { engine, platform: "linux/amd64".to_string() }
+    }
+
+    fn ver_str(v: &str) -> SystemVersion {
+        SystemVersion { version: Some(v.to_string()), ..Default::default() }
+    }
+
+    #[test]
+    fn version_floor_docker() {
+        let cases: &[(&str, bool)] = &[
+            ("29.5.0", true),
+            ("29.5.1", true),
+            ("29.6.1", true),
+            ("30.0.0", true),
+            ("29.4.9", false),
+            ("29.0.0", false),
+            ("28.9.9", false),
+            ("26.1.0", false),
+            ("", false),
+        ];
+        for &(v, should_pass) in cases {
+            let result = check_version_floor(&ver_str(v), &backend(ContainerEngine::Unknown));
+            assert_eq!(
+                result.is_ok(),
+                should_pass,
+                "docker floor check wrong for version '{}'",
+                v
+            );
+        }
+    }
+
+    #[test]
+    fn version_floor_podman() {
+        let cases: &[(&str, bool)] = &[
+            ("6.0.0", true),
+            ("6.1.0", true),
+            ("7.0.0", true),
+            ("5.9.9", false),
+            ("5.0.0", false),
+            ("4.9.0", false),
+            ("", false),
+        ];
+        for &(v, should_pass) in cases {
+            let result = check_version_floor(&ver_str(v), &backend(ContainerEngine::Podman));
+            assert_eq!(
+                result.is_ok(),
+                should_pass,
+                "podman floor check wrong for version '{}'",
+                v
+            );
+        }
+    }
+
+    #[test]
+    fn version_floor_error_message_contains_phrase() {
+        let err = check_version_floor(&ver_str("26.1.0"), &backend(ContainerEngine::Unknown))
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("rooz requires Docker 29.5+ / Podman 6+"),
+            "unexpected error: {}",
+            err
+        );
     }
 
     #[tokio::test]

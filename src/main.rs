@@ -13,7 +13,7 @@ use rooz::{
     },
     cmd::remote,
     model::{types::AnyError, volume::RoozVolume},
-    util::backend::ContainerBackend,
+    util::backend::{check_version_floor, ContainerBackend},
 };
 
 use rooz::api::{ConfigApi, CryptApi};
@@ -66,6 +66,7 @@ async fn main() -> Result<(), AnyError> {
     let info = docker.info().await?;
     let backend = ContainerBackend::resolve(&version, &info).await?;
     log::debug!("Container backend: {:?}", &backend);
+    check_version_floor(&version, &backend)?;
 
     if let Some(ver) = &version.api_version {
         log::debug!("Server API ver: {}", ver);
