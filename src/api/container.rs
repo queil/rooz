@@ -136,6 +136,16 @@ impl<'a> ContainerApi<'a> {
                 Ok(())
             }
             Err(DockerResponseServerError {
+                status_code: 409, ..
+            }) => {
+                log::debug!(
+                    "Container removal already in progress. Skipping: {}{}",
+                    &container_id,
+                    &force_display
+                );
+                Ok(())
+            }
+            Err(DockerResponseServerError {
                 status_code,
                 message,
             }) => Err(format!(

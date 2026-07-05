@@ -1,13 +1,14 @@
 use assert_cmd::Command;
 use bollard::{
     API_DEFAULT_VERSION, Docker,
-    models::{ContainerCreateBody, HostConfig, Mount},
+    models::{ContainerCreateBody, HostConfig, Mount, VolumeCreateRequest},
     query_parameters::{
-        CreateContainerOptions, ListContainersOptions, ListVolumesOptions, LogsOptions,
-        RemoveContainerOptions, StartContainerOptions, WaitContainerOptions,
+        CreateContainerOptions, ListContainersOptions, ListVolumesOptions,
+        LogsOptions, RemoveContainerOptions, RemoveVolumeOptions, StartContainerOptions,
+        WaitContainerOptions,
     },
 };
-use bollard_stubs::models::{ContainerSummary, MountType, Volume};
+use bollard_stubs::models::{ContainerSummary, ContainerSummaryStateEnum, MountType, Volume};
 use futures::StreamExt;
 use std::{collections::HashMap, env};
 
@@ -118,6 +119,70 @@ impl TestEnv {
             .await
             .ok();
         output
+    }
+
+    pub async fn create_decoy_container(&self, name: &str) {
+        let body = ContainerCreateBody {
+            image: Some("alpine:latest".to_string()),
+            cmd: Some(vec!["true".to_string()]),
+            ..Default::default()
+        };
+        self.docker
+            .create_container(
+                Some(CreateContainerOptions { name: Some(name.to_string()), ..Default::default() }),
+                body,
+            )
+            .await
+            .unwrap();
+    }
+
+    pub async fn create_decoy_volume(&self, name: &str) {
+        self.docker
+            .create_volume(VolumeCreateRequest { name: Some(name.to_string()), ..Default::default() })
+            .await
+            .unwrap();
+    }
+
+    pub async fn remove_decoy_container(&self, name: &str) {
+        self.docker
+            .remove_container(name, Some(RemoveContainerOptions { force: true, ..Default::default() }))
+            .await
+            .ok();
+    }
+
+    pub async fn remove_decoy_volume(&self, name: &str) {
+        self.docker
+            .remove_volume(name, None::<RemoveVolumeOptions>)
+            .await
+            .ok();
+    }
+
+    pub async fn container_exists(&self, name: &str) -> bool {
+        let mut filters = HashMap::new();
+        filters.insert("name".to_string(), vec![format!("^/{}$", name)]);
+        let opts = ListContainersOptions { all: true, filters: Some(filters), ..Default::default() };
+        !self.docker.list_containers(Some(opts)).await.unwrap_or_default().is_empty()
+    }
+
+    pub async fn volume_exists(&self, name: &str) -> bool {
+        let mut filters = HashMap::new();
+        filters.insert("name".to_string(), vec![name.to_string()]);
+        let opts = ListVolumesOptions { filters: Some(filters), ..Default::default() };
+        self.docker
+            .list_volumes(Some(opts))
+            .await
+            .ok()
+            .and_then(|r| r.volumes)
+            .map(|vs| !vs.is_empty())
+            .unwrap_or(false)
+    }
+
+    pub async fn workspace_container_states(&self, key: &str) -> Vec<ContainerSummaryStateEnum> {
+        self.containers_by_workspace(key)
+            .await
+            .into_iter()
+            .filter_map(|c| c.state)
+            .collect()
     }
 }
 
