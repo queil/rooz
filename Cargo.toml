@@ -38,3 +38,7 @@ tar = "0.4.44"
 indexmap = { version ="2.13.0", features = ["serde"] }
 serde_with = "3.18.0"
 async-trait = "0.1.89"
+
+[dev-dependencies]
+assert_cmd = "2.0"
+predicates = "3.0"
