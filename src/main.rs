@@ -13,21 +13,20 @@ use rooz::{
     },
     cmd::remote,
     model::{types::AnyError, volume::RoozVolume},
-    util::backend::{check_version_floor, ContainerBackend},
+    util::backend::{ContainerBackend, check_version_floor},
 };
 
-use rooz::api::{ConfigApi, CryptApi};
-use rooz::constants;
 use bollard::{API_DEFAULT_VERSION, Docker};
-use bollard_stubs::models::SystemVersion;
 use clap::{CommandFactory, Parser};
 use clap_complete::generate;
+use rooz::api::{ConfigApi, CryptApi};
 use rooz::cli::{
     CodeParams, EditConfigParams, EnterParams, RestartParams, StartParams, TemplateConfigParams,
     UpdateParams,
 };
 use rooz::cmd::update::UpdateMode;
 use rooz::config::config::{ConfigPath, ConfigSource, FileFormat};
+use rooz::constants;
 use rooz::util::labels::{self, Labels};
 
 #[tokio::main]
@@ -61,12 +60,8 @@ async fn main() -> Result<(), AnyError> {
     let docker = connection.expect("Docker API connection established");
 
     log::debug!("Client ver: {}", &docker.client_version());
-
-    let version: &SystemVersion = &docker.version().await?;
-    let info = docker.info().await?;
-    let backend = ContainerBackend::resolve(&version, &info).await?;
-    log::debug!("Container backend: {:?}", &backend);
-    check_version_floor(&version, &backend)?;
+    let (version, info) = tokio::join!(docker.version(), docker.info());
+    let (version, info) = (version?, info?);
 
     if let Some(ver) = &version.api_version {
         log::debug!("Server API ver: {}", ver);
@@ -76,6 +71,9 @@ async fn main() -> Result<(), AnyError> {
             log::debug!("{}: {}", c.name, c.version.replace('\n', ", "));
         }
     }
+    let backend = ContainerBackend::resolve(&version, &info).await?;
+    log::debug!("Container backend: {:?}", &backend);
+    check_version_floor(&version, &backend)?;
 
     let exec_api = ExecApi { client: &docker };
     let image_api = ImageApi {
@@ -298,7 +296,8 @@ async fn main() -> Result<(), AnyError> {
         Cli {
             command:
                 Config(rooz::cli::Config {
-                    command: rooz::cli::ConfigCommands::Show(ShowConfigParams { name, part, output }),
+                    command:
+                        rooz::cli::ConfigCommands::Show(ShowConfigParams { name, part, output }),
                 }),
             ..
         } => {
