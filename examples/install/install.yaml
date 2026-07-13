@@ -1,13 +1,28 @@
 image: docker.io/alpine:latest
 
+# install can be a map of named steps. Steps run in lexicographic key order
+# (use key prefixes like 00-, 10- to control ordering). In layered configs
+# (bases:) a higher layer can add or override steps by key, and remove an
+# inherited step by setting it to null.
+#
+# A bare string also still works and is treated as a single step named 00-inline:
+#
+#   install: |-
+#     apk add tinyproxy
+
+install:
+  00-tools: |-
+    apk add curl jq
+  10-cleanup: |-
+    rm -rf /var/cache/apk/*
 
 sidecars:
   test:
     image: docker.io/alpine:latest
     command: ["/usr/bin/tinyproxy"]
     args: ["-d"]
-    user: 1000
-    internet_access: true
+    uid: 1000
+    egress: true
     install: |-
       apk add tinyproxy
 

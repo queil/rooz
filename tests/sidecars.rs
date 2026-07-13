@@ -24,11 +24,16 @@ sidecars:
 
 #[tokio::test]
 async fn sidecar_created_alongside_work_container() {
-    let Some(env) = TestEnv::from_env() else { return };
+    let Some(env) = TestEnv::from_env() else {
+        return;
+    };
     let key = unique_key("sc-create");
     let (cfg_path, sidecar_name) = sidecar_cfg(&key);
 
-    env.rooz().args(["system", "init", "--force"]).assert().success();
+    env.rooz()
+        .args(["system", "init", "--force"])
+        .assert()
+        .success();
     env.rooz()
         .args(["new", &key, "--config", &cfg_path])
         .assert()
@@ -62,7 +67,9 @@ async fn sidecar_created_alongside_work_container() {
         "sidecar missing workspace label"
     );
     assert_eq!(
-        sc_labels.get("dev.rooz.workspace.container").map(String::as_str),
+        sc_labels
+            .get("dev.rooz.workspace.container")
+            .map(String::as_str),
         Some(sidecar_name.as_str()),
         "sidecar missing container-name label"
     );
@@ -75,11 +82,16 @@ async fn sidecar_created_alongside_work_container() {
 
 #[tokio::test]
 async fn sidecar_removed_with_workspace() {
-    let Some(env) = TestEnv::from_env() else { return };
+    let Some(env) = TestEnv::from_env() else {
+        return;
+    };
     let key = unique_key("sc-rm");
     let (cfg_path, _) = sidecar_cfg(&key);
 
-    env.rooz().args(["system", "init", "--force"]).assert().success();
+    env.rooz()
+        .args(["system", "init", "--force"])
+        .assert()
+        .success();
     env.rooz()
         .args(["new", &key, "--config", &cfg_path])
         .assert()
@@ -107,11 +119,16 @@ async fn sidecar_removed_with_workspace() {
 
 #[tokio::test]
 async fn sidecar_stops_and_starts_with_workspace() {
-    let Some(env) = TestEnv::from_env() else { return };
+    let Some(env) = TestEnv::from_env() else {
+        return;
+    };
     let key = unique_key("sc-stop");
     let (cfg_path, _) = sidecar_cfg(&key);
 
-    env.rooz().args(["system", "init", "--force"]).assert().success();
+    env.rooz()
+        .args(["system", "init", "--force"])
+        .assert()
+        .success();
     env.rooz()
         .args(["new", &key, "--config", &cfg_path])
         .assert()

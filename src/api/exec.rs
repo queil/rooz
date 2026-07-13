@@ -242,29 +242,56 @@ impl<'a> ExecApi<'a> {
         &self,
         container_name: &str,
         container_id: &str,
-        cmd: String,
+        steps: Vec<(String, String)>,
     ) -> Result<(), AnyError> {
-        let script = if cmd.starts_with("#!") {
-            cmd.splitn(2, '\n').nth(1).unwrap_or(&cmd)
-        } else {
-            &cmd
-        };
-        let cmd = format!(
-            r#"#!/bin/sh
-echo '[install] {}'
+        let step_names = steps
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        println!("[install] {} steps: {}", container_name, step_names);
+        for (idx, (name, cmd)) in steps.iter().enumerate() {
+            let script = if cmd.starts_with("#!") {
+                cmd.splitn(2, '\n').nth(1).unwrap_or(cmd)
+            } else {
+                cmd
+            };
+            let cmd = format!(
+                r#"#!/bin/sh
+set -e
+echo '[install] {}: {}'
 {}"#,
-            container_name, script
-        );
-        let install_cmd = inject(cmd.as_str(), "install.sh");
-        let v = install_cmd.iter().map(|x| x.as_str()).collect::<Vec<_>>();
-        self.tty(
-            "install",
-            container_id,
-            None,
-            Some(constants::ROOT_UID),
-            Some(v),
-        )
-        .await
+                container_name, name, script
+            );
+            let install_cmd = inject(cmd.as_str(), &format!("install-{}.sh", idx));
+            let v = install_cmd.iter().map(|x| x.as_str()).collect::<Vec<_>>();
+            let exec_id = self
+                .create_exec(
+                    "install",
+                    container_id,
+                    None,
+                    Some(constants::ROOT_UID),
+                    Some(v),
+                )
+                .await?;
+            self.start_tty(&exec_id).await.map_err(|e| -> AnyError {
+                format!("install step '{}' failed: {}", name, e).into()
+            })?;
+            if let ExecInspectResponse {
+                exit_code: Some(exit_code),
+                ..
+            } = self.client.inspect_exec(&exec_id).await?
+            {
+                if exit_code != 0 {
+                    return Err(format!(
+                        "install step '{}' failed with exit code {}",
+                        name, exit_code
+                    )
+                    .into());
+                }
+            }
+        }
+        Ok(())
     }
 
     pub async fn chown(&self, container_id: &str, uid: &i32, dir: &str) -> Result<(), AnyError> {

@@ -1,6 +1,6 @@
-use super::config::{DataValue, MountSource, RoozCfg, RoozSidecar};
-use crate::model::types::AnyError;
+use super::config::{DataValue, InstallSpec, MountSource, RoozCfg, RoozSidecar};
 use crate::constants;
+use crate::model::types::AnyError;
 use crate::model::types::{TargetDir, VolumeFilesSpec};
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
@@ -24,7 +24,7 @@ pub struct RoozSidecarRuntime {
     pub user: Option<String>,
     pub uid: Option<i32>,
     pub egress: bool,
-    pub install: Option<String>,
+    pub install: Option<InstallSpec>,
 }
 
 impl<'a> From<&'a RoozSidecar> for RoozSidecarRuntime {
@@ -81,7 +81,7 @@ pub struct RuntimeConfig {
     pub data: HashMap<String, DataValue>,
     pub mounts: HashMap<String, MountSource>,
     pub real_mounts: HashMap<TargetDir, VolumeFilesSpec>,
-    pub install: Option<String>,
+    pub install: Option<InstallSpec>,
     pub egress: bool,
 }
 
@@ -136,6 +136,35 @@ impl RuntimeConfig {
                 })
             }))
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn old_persisted_string_install_still_parses() {
+        let mut yaml = RuntimeConfig::default().to_string().unwrap();
+        yaml.push_str("install: apk add jq\n");
+        let parsed = RuntimeConfig::from_string(yaml).unwrap();
+        assert!(matches!(
+            parsed.install,
+            Some(InstallSpec::Script(s)) if s == "apk add jq"
+        ));
+    }
+
+    #[test]
+    fn step_map_install_roundtrips() {
+        let mut steps = indexmap::IndexMap::new();
+        steps.insert("10-a".to_string(), Some("echo a".to_string()));
+        steps.insert("20-b".to_string(), None);
+        let cfg = RuntimeConfig {
+            install: Some(InstallSpec::Steps(steps.clone())),
+            ..Default::default()
+        };
+        let parsed = RuntimeConfig::from_string(cfg.to_string().unwrap()).unwrap();
+        assert_eq!(parsed.install, Some(InstallSpec::Steps(steps)));
     }
 }
 

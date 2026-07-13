@@ -1,6 +1,6 @@
 use crate::config::config::DataEntry;
 use crate::{
-    config::config::RoozCfg,
+    config::config::{InstallSpec, RoozCfg},
     util::{git::RootRepoCloneResult, labels::Labels},
 };
 use bollard::service::Mount;
@@ -50,7 +50,7 @@ pub struct WorkSpec<'a> {
     pub command: Option<Vec<&'a str>>,
     pub args: Option<Vec<&'a str>>,
     pub mounts: Vec<Mount>,
-    pub install: Option<String>,
+    pub install: Option<InstallSpec>,
 }
 
 impl Default for WorkSpec<'_> {

@@ -608,8 +608,7 @@ mod tests {
 
     #[test]
     fn implicit_work_added_when_no_mounts() {
-        let specs =
-            VolumeApi::create_volume_specs("ws", &HashMap::new(), &HashMap::new(), true);
+        let specs = VolumeApi::create_volume_specs("ws", &HashMap::new(), &HashMap::new(), true);
         assert_eq!(specs.len(), 1);
         let work = specs.get(&DataEntryKey("work".to_string())).unwrap();
         assert_eq!(work.volume.name, "rooz-ws-work");
@@ -617,8 +616,7 @@ mod tests {
 
     #[test]
     fn no_implicit_work_empty_result() {
-        let specs =
-            VolumeApi::create_volume_specs("ws", &HashMap::new(), &HashMap::new(), false);
+        let specs = VolumeApi::create_volume_specs("ws", &HashMap::new(), &HashMap::new(), false);
         assert!(specs.is_empty());
     }
 
@@ -678,8 +676,13 @@ mod tests {
         mounts.insert(
             TargetPath("/work".to_string()),
             DataEntryVolumeSpec {
-                data: DataEntry::Dir { name: "work".to_string() },
-                volume: VolumeSpec { name: "rooz-ws-work".to_string(), labels: None },
+                data: DataEntry::Dir {
+                    name: "work".to_string(),
+                },
+                volume: VolumeSpec {
+                    name: "rooz-ws-work".to_string(),
+                    labels: None,
+                },
             },
         );
 
@@ -700,12 +703,17 @@ mod tests {
                     generator: ContentGenerator::Inline("content".to_string()),
                     executable: false,
                 },
-                volume: VolumeSpec { name: "rooz-ws-inline".to_string(), labels: None },
+                volume: VolumeSpec {
+                    name: "rooz-ws-inline".to_string(),
+                    labels: None,
+                },
             },
         );
 
         let real = VolumeApi::real_mounts_v2(mounts, Some("/home/user"));
-        let entry = real.get(&TargetDir("/home/user/.myconfig".to_string())).unwrap();
+        let entry = real
+            .get(&TargetDir("/home/user/.myconfig".to_string()))
+            .unwrap();
         assert_eq!(entry.volume_name.as_str(), "rooz-ws-inline");
         assert_eq!(entry.files.len(), 1);
         let f = &entry.files[0];

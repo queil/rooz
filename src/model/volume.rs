@@ -238,14 +238,22 @@ mod tests {
     use super::*;
 
     fn vol(role: RoozVolumeRole, sharing: RoozVolumeSharing, path: &str) -> RoozVolume {
-        RoozVolume { path: path.to_string(), role, sharing, files: None, labels: None }
+        RoozVolume {
+            path: path.to_string(),
+            role,
+            sharing,
+            files: None,
+            labels: None,
+        }
     }
 
     #[test]
     fn work_exclusive_uses_dashes() {
         let name = vol(
             RoozVolumeRole::Work,
-            RoozVolumeSharing::Exclusive { key: "my-ws".to_string() },
+            RoozVolumeSharing::Exclusive {
+                key: "my-ws".to_string(),
+            },
             "/work",
         )
         .safe_volume_name();
@@ -254,8 +262,8 @@ mod tests {
 
     #[test]
     fn cache_shared_uses_underscores() {
-        let name = vol(RoozVolumeRole::Cache, RoozVolumeSharing::Shared, "~/.cargo")
-            .safe_volume_name();
+        let name =
+            vol(RoozVolumeRole::Cache, RoozVolumeSharing::Shared, "~/.cargo").safe_volume_name();
         assert_eq!(name, "rooz_cache_---cargo");
     }
 
@@ -263,7 +271,9 @@ mod tests {
     fn data_exclusive_uses_underscores() {
         let name = vol(
             RoozVolumeRole::Data,
-            RoozVolumeSharing::Exclusive { key: "ws1".to_string() },
+            RoozVolumeSharing::Exclusive {
+                key: "ws1".to_string(),
+            },
             "/data/stuff",
         )
         .safe_volume_name();
@@ -272,8 +282,12 @@ mod tests {
 
     #[test]
     fn shared_non_cache_uses_underscores() {
-        let name = vol(RoozVolumeRole::SystemConfig, RoozVolumeSharing::Shared, "/tmp/sys")
-            .safe_volume_name();
+        let name = vol(
+            RoozVolumeRole::SystemConfig,
+            RoozVolumeSharing::Shared,
+            "/tmp/sys",
+        )
+        .safe_volume_name();
         assert_eq!(name, "rooz_sys-config");
     }
 
