@@ -10,11 +10,19 @@ const CARGO_CACHE_VOL: &str = "rooz_cache_---cargo";
 
 #[tokio::test]
 async fn workspace_volumes_carry_workspace_label() {
-    let Some(env) = TestEnv::from_env() else { return };
+    let Some(env) = TestEnv::from_env() else {
+        return;
+    };
     let key = unique_key("vol-lbl");
 
-    env.rooz().args(["system", "init", "--force"]).assert().success();
-    env.rooz().args(["new", &key, "--image", "alpine:latest"]).assert().success();
+    env.rooz()
+        .args(["system", "init", "--force"])
+        .assert()
+        .success();
+    env.rooz()
+        .args(["new", &key, "--image", "alpine:latest"])
+        .assert()
+        .success();
 
     let vols = env.volumes_by_workspace(&key).await;
     assert!(!vols.is_empty(), "expected at least one workspace volume");
@@ -35,23 +43,41 @@ async fn workspace_volumes_carry_workspace_label() {
     }
 
     env.rooz().args(["rm", &key, "--force"]).assert().success();
-    assert!(env.volumes_by_workspace(&key).await.is_empty(), "workspace volumes remain after rm");
+    assert!(
+        env.volumes_by_workspace(&key).await.is_empty(),
+        "workspace volumes remain after rm"
+    );
 }
 
 // ── cache volumes ────────────────────────────────────────────────────────────
 
 #[tokio::test]
 async fn cache_volume_survives_workspace_rm() {
-    let Some(env) = TestEnv::from_env() else { return };
+    let Some(env) = TestEnv::from_env() else {
+        return;
+    };
     let key = unique_key("vol-cache");
 
-    env.rooz().args(["system", "init", "--force"]).assert().success();
     env.rooz()
-        .args(["new", &key, "--image", "alpine:latest", "--caches", "~/.cargo"])
+        .args(["system", "init", "--force"])
+        .assert()
+        .success();
+    env.rooz()
+        .args([
+            "new",
+            &key,
+            "--image",
+            "alpine:latest",
+            "--caches",
+            "~/.cargo",
+        ])
         .assert()
         .success();
 
-    assert!(env.volume_exists(CARGO_CACHE_VOL).await, "cache volume not created");
+    assert!(
+        env.volume_exists(CARGO_CACHE_VOL).await,
+        "cache volume not created"
+    );
 
     env.rooz().args(["rm", &key, "--force"]).assert().success();
 
@@ -69,24 +95,51 @@ async fn cache_volume_survives_workspace_rm() {
 
 #[tokio::test]
 async fn cache_volume_shared_across_workspaces() {
-    let Some(env) = TestEnv::from_env() else { return };
+    let Some(env) = TestEnv::from_env() else {
+        return;
+    };
     let key1 = unique_key("vol-sh1");
     let key2 = unique_key("vol-sh2");
 
-    env.rooz().args(["system", "init", "--force"]).assert().success();
     env.rooz()
-        .args(["new", &key1, "--image", "alpine:latest", "--caches", "~/.cargo"])
+        .args(["system", "init", "--force"])
         .assert()
         .success();
     env.rooz()
-        .args(["new", &key2, "--image", "alpine:latest", "--caches", "~/.cargo"])
+        .args([
+            "new",
+            &key1,
+            "--image",
+            "alpine:latest",
+            "--caches",
+            "~/.cargo",
+        ])
+        .assert()
+        .success();
+    env.rooz()
+        .args([
+            "new",
+            &key2,
+            "--image",
+            "alpine:latest",
+            "--caches",
+            "~/.cargo",
+        ])
         .assert()
         .success();
 
     // One cache volume, not two
     let all_rooz = env.all_rooz_volumes().await;
-    let cache_vols: Vec<_> = all_rooz.iter().filter(|v| v.name == CARGO_CACHE_VOL).collect();
-    assert_eq!(cache_vols.len(), 1, "expected exactly one shared cache volume, got {}", cache_vols.len());
+    let cache_vols: Vec<_> = all_rooz
+        .iter()
+        .filter(|v| v.name == CARGO_CACHE_VOL)
+        .collect();
+    assert_eq!(
+        cache_vols.len(),
+        1,
+        "expected exactly one shared cache volume, got {}",
+        cache_vols.len()
+    );
 
     // Cache volume has no workspace label — it belongs to all workspaces
     let cache_labels = &cache_vols[0].labels;
@@ -110,7 +163,9 @@ async fn cache_volume_shared_across_workspaces() {
 
 #[tokio::test]
 async fn inline_data_content_written_to_volume() {
-    let Some(env) = TestEnv::from_env() else { return };
+    let Some(env) = TestEnv::from_env() else {
+        return;
+    };
     let key = unique_key("vol-inline");
 
     // Volume name: rooz-{key}-greeting  (volume_name fn: "rooz-{sanitize(key)}-{sanitize(entry)}")
@@ -126,13 +181,27 @@ async fn inline_data_content_written_to_volume() {
         f.write_all(cfg.as_bytes()).unwrap();
     }
 
-    env.rooz().args(["system", "init", "--force"]).assert().success();
     env.rooz()
-        .args(["new", &key, "--image", "alpine:latest", "--config", &cfg_path])
+        .args(["system", "init", "--force"])
+        .assert()
+        .success();
+    env.rooz()
+        .args([
+            "new",
+            &key,
+            "--image",
+            "alpine:latest",
+            "--config",
+            &cfg_path,
+        ])
         .assert()
         .success();
 
-    assert!(env.volume_exists(&data_vol).await, "data volume {} not found", data_vol);
+    assert!(
+        env.volume_exists(&data_vol).await,
+        "data volume {} not found",
+        data_vol
+    );
 
     // Content is written at greeting.data inside the volume (shadow-path convention).
     let content = env.volume_file(&data_vol, "greeting.data").await;

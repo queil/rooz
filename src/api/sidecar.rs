@@ -117,11 +117,7 @@ impl<'a> WorkspaceApi<'a> {
                 ..Default::default()
             };
 
-            let install_steps = s
-                .install
-                .as_ref()
-                .map(|i| i.resolved())
-                .unwrap_or_default();
+            let install_steps = s.install.as_ref().map(|i| i.resolved()).unwrap_or_default();
             if !install_steps.is_empty() {
                 let runtime_image = format!("localhost/rooz/{}/{}", &workspace_key, &name);
 

@@ -575,9 +575,7 @@ fn render_install(
     val.as_ref()
         .map(|spec| {
             Ok(match spec {
-                InstallSpec::Script(script) => {
-                    InstallSpec::Script(render_str(reg, script, vars)?)
-                }
+                InstallSpec::Script(script) => InstallSpec::Script(render_str(reg, script, vars)?),
                 InstallSpec::Steps(steps) => InstallSpec::Steps(
                     steps
                         .iter()
@@ -830,10 +828,7 @@ mod tests {
 
     #[test]
     fn install_merge_tombstone_cascades_across_layers() {
-        let l1 = Some(steps(&[
-            ("10-a", Some("echo a")),
-            ("20-b", Some("echo b")),
-        ]));
+        let l1 = Some(steps(&[("10-a", Some("echo a")), ("20-b", Some("echo b"))]));
         let l2 = Some(steps(&[("20-b", None)]));
         let l3 = Some(steps(&[("30-c", Some("echo c"))]));
         let merged12 = InstallSpec::merged(&l1, &l2);
@@ -939,10 +934,7 @@ mod tests {
     #[test]
     fn install_templating_renders_step_values() {
         let mut cfg = RoozCfg {
-            vars: Some(IndexMap::from_iter([(
-                "pkg".to_string(),
-                "jq".to_string(),
-            )])),
+            vars: Some(IndexMap::from_iter([("pkg".to_string(), "jq".to_string())])),
             install: Some(steps(&[
                 ("10-a", Some("apk add {{pkg}}")),
                 ("20-gone", None),
@@ -959,26 +951,18 @@ mod tests {
     #[test]
     fn install_templating_renders_script_variant() {
         let mut cfg = RoozCfg {
-            vars: Some(IndexMap::from_iter([(
-                "pkg".to_string(),
-                "jq".to_string(),
-            )])),
+            vars: Some(IndexMap::from_iter([("pkg".to_string(), "jq".to_string())])),
             install: Some(InstallSpec::Script("apk add {{pkg}}".into())),
             ..RoozCfg::none()
         };
         cfg.expand_vars().unwrap();
-        assert_eq!(
-            cfg.install,
-            Some(InstallSpec::Script("apk add jq".into()))
-        );
+        assert_eq!(cfg.install, Some(InstallSpec::Script("apk add jq".into())));
     }
 
     #[test]
     fn deny_unknown_fields_on_parent_structs() {
         assert!(serde_yaml::from_str::<RoozCfg>("bogus_field: x\n").is_err());
-        assert!(
-            serde_yaml::from_str::<RoozSidecar>("image: alpine\nbogus_field: x\n").is_err()
-        );
+        assert!(serde_yaml::from_str::<RoozSidecar>("image: alpine\nbogus_field: x\n").is_err());
     }
 
     #[test]

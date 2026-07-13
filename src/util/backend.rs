@@ -22,11 +22,7 @@ pub fn check_version_floor(
     };
 
     if !ok {
-        return Err(format!(
-            "rooz requires Docker 29.5+ / Podman 6+ (found {})",
-            ver_str
-        )
-        .into());
+        return Err(format!("rooz requires Docker 29.5+ / Podman 6+ (found {})", ver_str).into());
     }
     Ok(())
 }
@@ -138,11 +134,17 @@ mod tests {
     }
 
     fn backend(engine: ContainerEngine) -> ContainerBackend {
-        ContainerBackend { engine, platform: "linux/amd64".to_string() }
+        ContainerBackend {
+            engine,
+            platform: "linux/amd64".to_string(),
+        }
     }
 
     fn ver_str(v: &str) -> SystemVersion {
-        SystemVersion { version: Some(v.to_string()), ..Default::default() }
+        SystemVersion {
+            version: Some(v.to_string()),
+            ..Default::default()
+        }
     }
 
     #[test]
@@ -196,7 +198,8 @@ mod tests {
         let err = check_version_floor(&ver_str("26.1.0"), &backend(ContainerEngine::Unknown))
             .unwrap_err();
         assert!(
-            err.to_string().contains("rooz requires Docker 29.5+ / Podman 6+"),
+            err.to_string()
+                .contains("rooz requires Docker 29.5+ / Podman 6+"),
             "unexpected error: {}",
             err
         );
@@ -207,11 +210,23 @@ mod tests {
         use ContainerEngine::*;
         let cases: Vec<(SystemVersion, bollard::service::SystemInfo, ContainerEngine)> = vec![
             (ver("linux", "amd64"), info("Docker Desktop"), DockerDesktop),
-            (ver("linux", "amd64"), info("Rancher Desktop WSL Distribution"), RancherDesktop),
-            (ver_with_component("linux", "amd64", "Podman Engine"), info("linux"), Podman),
-            (ver_with_component("linux", "amd64", "Engine"), info("linux"), Unknown),
-            (ver("linux", "amd64"), info("Alpine Linux v3.20"), Unknown),   // Colima
-            (ver("linux", "aarch64"), info("OrbStack"), Unknown),           // OrbStack
+            (
+                ver("linux", "amd64"),
+                info("Rancher Desktop WSL Distribution"),
+                RancherDesktop,
+            ),
+            (
+                ver_with_component("linux", "amd64", "Podman Engine"),
+                info("linux"),
+                Podman,
+            ),
+            (
+                ver_with_component("linux", "amd64", "Engine"),
+                info("linux"),
+                Unknown,
+            ),
+            (ver("linux", "amd64"), info("Alpine Linux v3.20"), Unknown), // Colima
+            (ver("linux", "aarch64"), info("OrbStack"), Unknown),         // OrbStack
         ];
 
         for (v, i, expected) in cases {

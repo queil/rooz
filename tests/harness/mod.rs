@@ -3,9 +3,8 @@ use bollard::{
     API_DEFAULT_VERSION, Docker,
     models::{ContainerCreateBody, HostConfig, Mount, VolumeCreateRequest},
     query_parameters::{
-        CreateContainerOptions, ListContainersOptions, ListVolumesOptions,
-        LogsOptions, RemoveContainerOptions, RemoveVolumeOptions, StartContainerOptions,
-        WaitContainerOptions,
+        CreateContainerOptions, ListContainersOptions, ListVolumesOptions, LogsOptions,
+        RemoveContainerOptions, RemoveVolumeOptions, StartContainerOptions, WaitContainerOptions,
     },
 };
 use bollard_stubs::models::{ContainerSummary, ContainerSummaryStateEnum, MountType, Volume};
@@ -23,7 +22,11 @@ impl TestEnv {
         let docker_host = env::var("ROOZ_TEST_DOCKER_HOST").ok()?;
         let engine = env::var("ROOZ_TEST_ENGINE").ok()?;
         let docker = connect(&docker_host).ok()?;
-        Some(Self { docker_host, engine, docker })
+        Some(Self {
+            docker_host,
+            engine,
+            docker,
+        })
     }
 
     pub fn rooz(&self) -> Command {
@@ -45,7 +48,10 @@ impl TestEnv {
             filters: Some(filters),
             ..Default::default()
         };
-        self.docker.list_containers(Some(opts)).await.unwrap_or_default()
+        self.docker
+            .list_containers(Some(opts))
+            .await
+            .unwrap_or_default()
     }
 
     pub async fn volumes_by_workspace(&self, key: &str) -> Vec<Volume> {
@@ -67,10 +73,7 @@ impl TestEnv {
     }
 
     pub async fn volume_file(&self, volume_name: &str, file_path: &str) -> String {
-        let cname = format!(
-            "rooz-test-cat-{}",
-            volume_name.replace(['/', ':'], "-")
-        );
+        let cname = format!("rooz-test-cat-{}", volume_name.replace(['/', ':'], "-"));
         let mount = Mount {
             target: Some("/mnt".to_string()),
             source: Some(volume_name.to_string()),
@@ -89,7 +92,10 @@ impl TestEnv {
         };
         self.docker
             .create_container(
-                Some(CreateContainerOptions { name: Some(cname.clone()), ..Default::default() }),
+                Some(CreateContainerOptions {
+                    name: Some(cname.clone()),
+                    ..Default::default()
+                }),
                 body,
             )
             .await
@@ -106,7 +112,12 @@ impl TestEnv {
         let mut output = String::new();
         let mut logs = self.docker.logs(
             &cname,
-            Some(LogsOptions { stdout: true, stderr: false, follow: false, ..Default::default() }),
+            Some(LogsOptions {
+                stdout: true,
+                stderr: false,
+                follow: false,
+                ..Default::default()
+            }),
         );
         while let Some(Ok(msg)) = logs.next().await {
             output.push_str(&msg.to_string());
@@ -114,7 +125,10 @@ impl TestEnv {
         self.docker
             .remove_container(
                 &cname,
-                Some(RemoveContainerOptions { force: true, ..Default::default() }),
+                Some(RemoveContainerOptions {
+                    force: true,
+                    ..Default::default()
+                }),
             )
             .await
             .ok();
@@ -129,7 +143,10 @@ impl TestEnv {
         };
         self.docker
             .create_container(
-                Some(CreateContainerOptions { name: Some(name.to_string()), ..Default::default() }),
+                Some(CreateContainerOptions {
+                    name: Some(name.to_string()),
+                    ..Default::default()
+                }),
                 body,
             )
             .await
@@ -138,14 +155,23 @@ impl TestEnv {
 
     pub async fn create_decoy_volume(&self, name: &str) {
         self.docker
-            .create_volume(VolumeCreateRequest { name: Some(name.to_string()), ..Default::default() })
+            .create_volume(VolumeCreateRequest {
+                name: Some(name.to_string()),
+                ..Default::default()
+            })
             .await
             .unwrap();
     }
 
     pub async fn remove_decoy_container(&self, name: &str) {
         self.docker
-            .remove_container(name, Some(RemoveContainerOptions { force: true, ..Default::default() }))
+            .remove_container(
+                name,
+                Some(RemoveContainerOptions {
+                    force: true,
+                    ..Default::default()
+                }),
+            )
             .await
             .ok();
     }
@@ -160,14 +186,26 @@ impl TestEnv {
     pub async fn container_exists(&self, name: &str) -> bool {
         let mut filters = HashMap::new();
         filters.insert("name".to_string(), vec![format!("^/{}$", name)]);
-        let opts = ListContainersOptions { all: true, filters: Some(filters), ..Default::default() };
-        !self.docker.list_containers(Some(opts)).await.unwrap_or_default().is_empty()
+        let opts = ListContainersOptions {
+            all: true,
+            filters: Some(filters),
+            ..Default::default()
+        };
+        !self
+            .docker
+            .list_containers(Some(opts))
+            .await
+            .unwrap_or_default()
+            .is_empty()
     }
 
     pub async fn volume_exists(&self, name: &str) -> bool {
         let mut filters = HashMap::new();
         filters.insert("name".to_string(), vec![name.to_string()]);
-        let opts = ListVolumesOptions { filters: Some(filters), ..Default::default() };
+        let opts = ListVolumesOptions {
+            filters: Some(filters),
+            ..Default::default()
+        };
         self.docker
             .list_volumes(Some(opts))
             .await
@@ -188,7 +226,10 @@ impl TestEnv {
     pub async fn all_rooz_volumes(&self) -> Vec<Volume> {
         let mut filters = HashMap::new();
         filters.insert("label".to_string(), vec!["dev.rooz=true".to_string()]);
-        let opts = ListVolumesOptions { filters: Some(filters), ..Default::default() };
+        let opts = ListVolumesOptions {
+            filters: Some(filters),
+            ..Default::default()
+        };
         self.docker
             .list_volumes(Some(opts))
             .await
