@@ -148,7 +148,7 @@ impl InstallSpec {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct RoozSidecar {
-    pub image: String,
+    pub image: Option<String>,
     pub env: Option<IndexMap<String, String>>,
     pub command: Option<Vec<String>>,
     pub args: Option<Vec<String>>,
@@ -171,7 +171,7 @@ impl RoozSidecar {
         vars: &IndexMap<String, String>,
     ) -> Result<Self, AnyError> {
         Ok(Self {
-            image: render_str(reg, &self.image, vars)?,
+            image: render_opt(reg, &self.image, vars)?,
             env: render_map(reg, &self.env, vars)?,
             command: render_vec(reg, &self.command, vars)?,
             args: render_vec(reg, &self.args, vars)?,
@@ -520,7 +520,7 @@ fn merge_sidecars(
 
 impl RoozSidecar {
     pub fn merge_from(&mut self, other: &RoozSidecar) {
-        self.image = other.image.clone();
+        self.image = other.image.clone().or(self.image.take());
         self.env = extend_if_any(self.env.clone(), other.env.clone());
         self.command = other.command.clone().or(self.command.clone());
         self.args = other.args.clone().or(self.args.clone());
@@ -896,6 +896,47 @@ mod tests {
                 ("20-b".to_string(), "echo b".to_string())
             ]
         );
+    }
+
+    #[test]
+    fn sidecar_without_image_parses() {
+        let yaml = "sidecars:\n  svc:\n    env:\n      A: b\n";
+        let cfg: RoozCfg = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(cfg.sidecars.unwrap()["svc"].image, None);
+    }
+
+    #[test]
+    fn sidecar_merge_overlay_without_image_keeps_base_image() {
+        let base_yaml = "sidecars:\n  svc:\n    image: alpine\n";
+        let overlay_yaml = "sidecars:\n  svc:\n    env:\n      A: b\n";
+        let mut base: RoozCfg = serde_yaml::from_str(base_yaml).unwrap();
+        let overlay: RoozCfg = serde_yaml::from_str(overlay_yaml).unwrap();
+        base.from_config(&overlay);
+        let svc = &base.sidecars.unwrap()["svc"];
+        assert_eq!(svc.image, Some("alpine".to_string()));
+        assert_eq!(svc.env.as_ref().unwrap()["A"], "b");
+    }
+
+    #[test]
+    fn sidecar_merge_overlay_image_wins() {
+        let base_yaml = "sidecars:\n  svc:\n    image: alpine\n";
+        let overlay_yaml = "sidecars:\n  svc:\n    image: debian\n";
+        let mut base: RoozCfg = serde_yaml::from_str(base_yaml).unwrap();
+        let overlay: RoozCfg = serde_yaml::from_str(overlay_yaml).unwrap();
+        base.from_config(&overlay);
+        assert_eq!(
+            base.sidecars.unwrap()["svc"].image,
+            Some("debian".to_string())
+        );
+    }
+
+    #[test]
+    fn sidecar_none_image_not_serialized() {
+        let cfg: RoozCfg = serde_yaml::from_str("sidecars:\n  svc:\n    uid: 1000\n").unwrap();
+        let yaml = cfg.to_string(FileFormat::Yaml).unwrap();
+        assert!(!yaml.contains("image"), "unexpected image key in: {}", yaml);
+        let reparsed = RoozCfg::from_string(&yaml, FileFormat::Yaml).unwrap();
+        assert_eq!(reparsed.sidecars.unwrap()["svc"].image, None);
     }
 
     #[test]

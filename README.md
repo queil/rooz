@@ -266,6 +266,8 @@ rooz enter secrets-test
       image: my:tools
   
   ```
+  `image` may be omitted in individual config layers (e.g. an overlay extending a sidecar defined in a base via `bases:`) but must be set for each sidecar once all layers are merged, otherwise creating the workspace fails.
+
   All containers within a workspace are connected to a workspace-wide network. They can *talk* to each other using sidecar names. In the above examples that would be `sql` and `tools`. Also the usual container ID and IP works too, but it is not as convenient.
 
 * the `enter` command lets you specify `--container` to enter (otherwise it enters the work container).
