@@ -27,10 +27,18 @@ pub struct RoozSidecarRuntime {
     pub install: Option<InstallSpec>,
 }
 
-impl<'a> From<&'a RoozSidecar> for RoozSidecarRuntime {
-    fn from(value: &'a RoozSidecar) -> Self {
-        RoozSidecarRuntime {
-            image: value.image.clone(),
+impl<'a> TryFrom<(&'a str, &'a RoozSidecar)> for RoozSidecarRuntime {
+    type Error = AnyError;
+
+    fn try_from((name, value): (&'a str, &'a RoozSidecar)) -> Result<Self, Self::Error> {
+        Ok(RoozSidecarRuntime {
+            image: value.image.clone().ok_or_else(|| -> AnyError {
+                format!(
+                    "sidecar '{}': 'image' is required after merging all config layers",
+                    name
+                )
+                .into()
+            })?,
             env: value
                 .env
                 .clone()
@@ -57,7 +65,7 @@ impl<'a> From<&'a RoozSidecar> for RoozSidecarRuntime {
             egress: value.egress.clone().unwrap_or(false),
             install: value.install.clone(),
             uid: value.uid.clone(),
-        }
+        })
     }
 }
 #[serde_with::skip_serializing_none]
@@ -155,6 +163,23 @@ mod tests {
     }
 
     #[test]
+    fn sidecar_with_image_converts() {
+        let yaml = "sidecars:\n  svc:\n    image: alpine\n";
+        let cfg: RoozCfg = serde_yaml::from_str(yaml).unwrap();
+        let runtime = RuntimeConfig::try_from(&cfg).unwrap();
+        assert_eq!(runtime.sidecars["svc"].image, "alpine");
+    }
+
+    #[test]
+    fn sidecar_without_image_fails_conversion_naming_sidecar() {
+        let yaml = "sidecars:\n  svc:\n    env:\n      A: b\n";
+        let cfg: RoozCfg = serde_yaml::from_str(yaml).unwrap();
+        let err = RuntimeConfig::try_from(&cfg).unwrap_err().to_string();
+        assert!(err.contains("sidecar 'svc'"), "unexpected error: {}", err);
+        assert!(err.contains("'image' is required"), "unexpected error: {}", err);
+    }
+
+    #[test]
     fn step_map_install_roundtrips() {
         let mut steps = indexmap::IndexMap::new();
         steps.insert("10-a".to_string(), Some("echo a".to_string()));
@@ -168,14 +193,16 @@ mod tests {
     }
 }
 
-impl<'a> From<&'a RoozCfg> for RuntimeConfig {
-    fn from(value: &'a RoozCfg) -> Self {
+impl<'a> TryFrom<&'a RoozCfg> for RuntimeConfig {
+    type Error = AnyError;
+
+    fn try_from(value: &'a RoozCfg) -> Result<Self, Self::Error> {
         let default = RuntimeConfig::default();
 
         let mut ports = HashMap::<String, Option<String>>::new();
         RoozCfg::parse_ports(&mut ports, value.clone().ports.unwrap_or_default());
 
-        RuntimeConfig {
+        Ok(RuntimeConfig {
             git_ssh_url: value.git_ssh_url.clone(),
             extra_repos: value
                 .extra_repos
@@ -195,8 +222,8 @@ impl<'a> From<&'a RoozCfg> for RuntimeConfig {
                 .clone()
                 .unwrap_or_default()
                 .into_iter()
-                .map(|(k, v)| (k, RoozSidecarRuntime::from(&v)))
-                .collect(),
+                .map(|(k, v)| Ok((k.clone(), (k.as_str(), &v).try_into()?)))
+                .collect::<Result<HashMap<_, _>, AnyError>>()?,
             env: value.env.clone().unwrap_or_default().into_iter().collect(),
             ports,
             privileged: value.privileged.unwrap_or(default.privileged),
@@ -216,6 +243,6 @@ impl<'a> From<&'a RoozCfg> for RuntimeConfig {
                 .collect(),
             install: value.install.clone(),
             ..default
-        }
+        })
     }
 }
