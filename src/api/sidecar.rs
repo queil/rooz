@@ -117,7 +117,12 @@ impl<'a> WorkspaceApi<'a> {
                 ..Default::default()
             };
 
-            if let Some(install) = s.install.clone() {
+            let install_steps = s
+                .install
+                .as_ref()
+                .map(|i| i.resolved())
+                .unwrap_or_default();
+            if !install_steps.is_empty() {
                 let runtime_image = format!("localhost/rooz/{}/{}", &workspace_key, &name);
 
                 if !self.api.image.exists(&runtime_image).await? {
@@ -140,7 +145,7 @@ impl<'a> WorkspaceApi<'a> {
                         self.api.container.start(&container_id).await?;
                         self.api
                             .exec
-                            .install(&container_name, &container_id, install)
+                            .install(&container_name, &container_id, install_steps)
                             .await?;
                         self.api
                             .container

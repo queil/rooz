@@ -100,6 +100,49 @@ impl FileFormat {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[serde(untagged)]
+pub enum InstallSpec {
+    Script(String),
+    Steps(IndexMap<String, Option<String>>),
+}
+
+impl InstallSpec {
+    pub fn normalize(&self) -> IndexMap<String, Option<String>> {
+        match self {
+            InstallSpec::Script(script) => {
+                let mut steps = IndexMap::new();
+                steps.insert("00-inline".to_string(), Some(script.clone()));
+                steps
+            }
+            InstallSpec::Steps(steps) => steps.clone(),
+        }
+    }
+
+    pub fn merged(base: &Option<InstallSpec>, over: &Option<InstallSpec>) -> Option<InstallSpec> {
+        match (base, over) {
+            (None, None) => None,
+            (Some(b), None) => Some(b.clone()),
+            (None, Some(o)) => Some(o.clone()),
+            (Some(b), Some(o)) => {
+                let mut steps = b.normalize();
+                steps.extend(o.normalize());
+                Some(InstallSpec::Steps(steps))
+            }
+        }
+    }
+
+    pub fn resolved(&self) -> Vec<(String, String)> {
+        let mut steps = self
+            .normalize()
+            .into_iter()
+            .filter_map(|(name, script)| script.map(|s| (name, s)))
+            .collect::<Vec<_>>();
+        steps.sort_by(|(a, _), (b, _)| a.cmp(b));
+        steps
+    }
+}
+
 #[serde_with::skip_serializing_none]
 #[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -113,7 +156,7 @@ pub struct RoozSidecar {
     pub ports: Option<Vec<String>>,
     pub privileged: Option<bool>,
     pub init: Option<bool>,
-    pub install: Option<String>,
+    pub install: Option<InstallSpec>,
     pub work_dir: Option<String>,
     pub user: Option<String>,
     pub uid: Option<i32>,
@@ -134,7 +177,7 @@ impl RoozSidecar {
             args: render_vec(reg, &self.args, vars)?,
             shell: render_vec(reg, &self.shell, vars)?,
             ports: render_vec(reg, &self.ports, vars)?,
-            install: render_opt(reg, &self.install, vars)?,
+            install: render_install(reg, &self.install, vars)?,
             work_dir: render_opt(reg, &self.work_dir, vars)?,
             user: render_opt(reg, &self.user, vars)?,
             mounts: self
@@ -171,7 +214,7 @@ pub struct RoozCfg {
     pub ports: Option<Vec<String>>,
     pub privileged: Option<bool>,
     pub init: Option<bool>,
-    pub install: Option<String>,
+    pub install: Option<InstallSpec>,
     pub command: Option<Vec<String>>,
     pub args: Option<Vec<String>>,
     pub env: Option<IndexMap<String, String>>,
@@ -275,7 +318,7 @@ impl RoozCfg {
             sidecars: merge_sidecars(self.sidecars.clone(), config.sidecars.clone()),
             data: extend_if_any(self.data.clone(), config.data.clone()),
             mounts: extend_if_any(self.mounts.clone(), config.mounts.clone()),
-            install: config.install.clone().or(self.install.clone()),
+            install: InstallSpec::merged(&self.install, &config.install),
         }
     }
 
@@ -379,7 +422,7 @@ impl RoozCfg {
         self.git_ssh_url = render_opt(&reg, &self.git_ssh_url, &built_vars)?;
         self.image = render_opt(&reg, &self.image, &built_vars)?;
         self.user = render_opt(&reg, &self.user, &built_vars)?;
-        self.install = render_opt(&reg, &self.install, &built_vars)?;
+        self.install = render_install(&reg, &self.install, &built_vars)?;
         self.shell = render_vec(&reg, &self.shell, &built_vars)?;
         self.command = render_vec(&reg, &self.command, &built_vars)?;
         self.args = render_vec(&reg, &self.args, &built_vars)?;
@@ -486,7 +529,7 @@ impl RoozSidecar {
         self.ports = extend_if_any(self.ports.clone(), other.ports.clone());
         self.privileged = other.privileged.or(self.privileged);
         self.init = other.init.or(self.init);
-        self.install = other.install.clone().or(self.install.clone());
+        self.install = InstallSpec::merged(&self.install, &other.install);
         self.work_dir = other.work_dir.clone().or(self.work_dir.clone());
         self.user = other.user.clone().or(self.user.clone());
         self.uid = other.uid.or(self.uid);
@@ -520,6 +563,36 @@ fn render_map(
             m.iter()
                 .map(|(k, v)| Ok((k.clone(), render_str(reg, v, vars)?)))
                 .collect()
+        })
+        .transpose()
+}
+
+fn render_install(
+    reg: &Handlebars,
+    val: &Option<InstallSpec>,
+    vars: &IndexMap<String, String>,
+) -> Result<Option<InstallSpec>, AnyError> {
+    val.as_ref()
+        .map(|spec| {
+            Ok(match spec {
+                InstallSpec::Script(script) => {
+                    InstallSpec::Script(render_str(reg, script, vars)?)
+                }
+                InstallSpec::Steps(steps) => InstallSpec::Steps(
+                    steps
+                        .iter()
+                        .map(|(name, script)| {
+                            Ok((
+                                name.clone(),
+                                script
+                                    .as_ref()
+                                    .map(|s| render_str(reg, s, vars))
+                                    .transpose()?,
+                            ))
+                        })
+                        .collect::<Result<IndexMap<_, _>, AnyError>>()?,
+                ),
+            })
         })
         .transpose()
 }
@@ -696,6 +769,228 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn steps(entries: &[(&str, Option<&str>)]) -> InstallSpec {
+        InstallSpec::Steps(
+            entries
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.map(String::from)))
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn install_normalize_script_to_inline_step() {
+        let normalized = InstallSpec::Script("echo hi".into()).normalize();
+        assert_eq!(normalized.len(), 1);
+        assert_eq!(
+            normalized.get("00-inline"),
+            Some(&Some("echo hi".to_string()))
+        );
+    }
+
+    #[test]
+    fn install_merge_layer_adds_steps() {
+        let base = Some(steps(&[("10-base", Some("apt-get update"))]));
+        let over = Some(steps(&[("20-extra", Some("apt-get install -y jq"))]));
+        let merged = InstallSpec::merged(&base, &over).unwrap();
+        assert_eq!(
+            merged.resolved(),
+            vec![
+                ("10-base".to_string(), "apt-get update".to_string()),
+                ("20-extra".to_string(), "apt-get install -y jq".to_string())
+            ]
+        );
+    }
+
+    #[test]
+    fn install_merge_layer_overrides_same_key() {
+        let base = Some(steps(&[("10-base", Some("echo old"))]));
+        let over = Some(steps(&[("10-base", Some("echo new"))]));
+        let merged = InstallSpec::merged(&base, &over).unwrap();
+        assert_eq!(
+            merged.resolved(),
+            vec![("10-base".to_string(), "echo new".to_string())]
+        );
+    }
+
+    #[test]
+    fn install_merge_tombstone_deletes_step() {
+        let base = Some(steps(&[
+            ("10-base", Some("echo keep")),
+            ("20-gone", Some("echo drop")),
+        ]));
+        let over = Some(steps(&[("20-gone", None)]));
+        let merged = InstallSpec::merged(&base, &over).unwrap();
+        assert_eq!(
+            merged.resolved(),
+            vec![("10-base".to_string(), "echo keep".to_string())]
+        );
+    }
+
+    #[test]
+    fn install_merge_tombstone_cascades_across_layers() {
+        let l1 = Some(steps(&[
+            ("10-a", Some("echo a")),
+            ("20-b", Some("echo b")),
+        ]));
+        let l2 = Some(steps(&[("20-b", None)]));
+        let l3 = Some(steps(&[("30-c", Some("echo c"))]));
+        let merged12 = InstallSpec::merged(&l1, &l2);
+        assert_eq!(
+            merged12.as_ref().unwrap().normalize().get("20-b"),
+            Some(&None)
+        );
+        let merged = InstallSpec::merged(&merged12, &l3).unwrap();
+        assert_eq!(
+            merged.resolved(),
+            vec![
+                ("10-a".to_string(), "echo a".to_string()),
+                ("30-c".to_string(), "echo c".to_string())
+            ]
+        );
+    }
+
+    #[test]
+    fn install_merge_string_base_map_over() {
+        let base = Some(InstallSpec::Script("echo base".into()));
+        let over = Some(steps(&[("10-extra", Some("echo extra"))]));
+        let merged = InstallSpec::merged(&base, &over).unwrap();
+        assert_eq!(
+            merged.resolved(),
+            vec![
+                ("00-inline".to_string(), "echo base".to_string()),
+                ("10-extra".to_string(), "echo extra".to_string())
+            ]
+        );
+    }
+
+    #[test]
+    fn install_merge_map_base_string_over() {
+        let base = Some(steps(&[("10-extra", Some("echo extra"))]));
+        let over = Some(InstallSpec::Script("echo over".into()));
+        let merged = InstallSpec::merged(&base, &over).unwrap();
+        assert_eq!(
+            merged.resolved(),
+            vec![
+                ("00-inline".to_string(), "echo over".to_string()),
+                ("10-extra".to_string(), "echo extra".to_string())
+            ]
+        );
+    }
+
+    #[test]
+    fn install_merge_none_sides() {
+        let some = Some(InstallSpec::Script("echo hi".into()));
+        assert_eq!(InstallSpec::merged(&None, &None), None);
+        assert_eq!(InstallSpec::merged(&some, &None), some);
+        assert_eq!(InstallSpec::merged(&None, &some), some);
+    }
+
+    #[test]
+    fn install_resolved_sorts_lexicographically_and_drops_tombstones() {
+        let spec = steps(&[
+            ("20-b", Some("echo b")),
+            ("10-a", Some("echo a")),
+            ("15-gone", None),
+        ]);
+        assert_eq!(
+            spec.resolved(),
+            vec![
+                ("10-a".to_string(), "echo a".to_string()),
+                ("20-b".to_string(), "echo b".to_string())
+            ]
+        );
+    }
+
+    #[test]
+    fn install_serde_bare_string() {
+        let yaml = "install: |\n  echo hi\n";
+        let cfg: RoozCfg = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(cfg.install, Some(InstallSpec::Script("echo hi\n".into())));
+    }
+
+    #[test]
+    fn install_serde_map_with_tombstone() {
+        let yaml = "install:\n  10-a: echo a\n  20-b: null\n";
+        let cfg: RoozCfg = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(
+            cfg.install,
+            Some(steps(&[("10-a", Some("echo a")), ("20-b", None)]))
+        );
+    }
+
+    #[test]
+    fn install_serde_roundtrip() {
+        for spec in [
+            InstallSpec::Script("echo hi".into()),
+            steps(&[("10-a", Some("echo a")), ("20-b", None)]),
+        ] {
+            let cfg = RoozCfg {
+                install: Some(spec.clone()),
+                ..RoozCfg::none()
+            };
+            let yaml = cfg.to_string(FileFormat::Yaml).unwrap();
+            let parsed = RoozCfg::from_string(&yaml, FileFormat::Yaml).unwrap();
+            assert_eq!(parsed.install, Some(spec));
+        }
+    }
+
+    #[test]
+    fn install_templating_renders_step_values() {
+        let mut cfg = RoozCfg {
+            vars: Some(IndexMap::from_iter([(
+                "pkg".to_string(),
+                "jq".to_string(),
+            )])),
+            install: Some(steps(&[
+                ("10-a", Some("apk add {{pkg}}")),
+                ("20-gone", None),
+            ])),
+            ..RoozCfg::none()
+        };
+        cfg.expand_vars().unwrap();
+        assert_eq!(
+            cfg.install,
+            Some(steps(&[("10-a", Some("apk add jq")), ("20-gone", None)]))
+        );
+    }
+
+    #[test]
+    fn install_templating_renders_script_variant() {
+        let mut cfg = RoozCfg {
+            vars: Some(IndexMap::from_iter([(
+                "pkg".to_string(),
+                "jq".to_string(),
+            )])),
+            install: Some(InstallSpec::Script("apk add {{pkg}}".into())),
+            ..RoozCfg::none()
+        };
+        cfg.expand_vars().unwrap();
+        assert_eq!(
+            cfg.install,
+            Some(InstallSpec::Script("apk add jq".into()))
+        );
+    }
+
+    #[test]
+    fn deny_unknown_fields_on_parent_structs() {
+        assert!(serde_yaml::from_str::<RoozCfg>("bogus_field: x\n").is_err());
+        assert!(
+            serde_yaml::from_str::<RoozSidecar>("image: alpine\nbogus_field: x\n").is_err()
+        );
+    }
+
+    #[test]
+    fn install_example_parses() {
+        let yaml = include_str!("../../examples/install/install.yaml");
+        let cfg: RoozCfg = serde_yaml::from_str(yaml).unwrap();
+        let resolved = cfg.install.unwrap().resolved();
+        assert_eq!(resolved.len(), 2);
+        assert_eq!(resolved[0].0, "00-tools");
+        let sidecar_install = cfg.sidecars.unwrap()["test"].install.clone().unwrap();
+        assert_eq!(sidecar_install.resolved()[0].0, "00-inline");
+    }
 
     #[test]
     fn parse_all_variants() {

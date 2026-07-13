@@ -70,11 +70,16 @@ impl<'a> WorkspaceApi<'a> {
 
         match self.api.container.create(run_spec).await? {
             ContainerResult::Created { id: container_id } => {
-                if let Some(install) = spec.install.clone() {
+                let install_steps = spec
+                    .install
+                    .as_ref()
+                    .map(|i| i.resolved())
+                    .unwrap_or_default();
+                if !install_steps.is_empty() {
                     self.api.container.start(&container_id).await?;
                     self.api
                         .exec
-                        .install(spec.container_name, &container_id, install)
+                        .install(spec.container_name, &container_id, install_steps)
                         .await?;
                 }
 
