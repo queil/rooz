@@ -176,7 +176,11 @@ mod tests {
         let cfg: RoozCfg = serde_yaml::from_str(yaml).unwrap();
         let err = RuntimeConfig::try_from(&cfg).unwrap_err().to_string();
         assert!(err.contains("sidecar 'svc'"), "unexpected error: {}", err);
-        assert!(err.contains("'image' is required"), "unexpected error: {}", err);
+        assert!(
+            err.contains("'image' is required"),
+            "unexpected error: {}",
+            err
+        );
     }
 
     #[test]
