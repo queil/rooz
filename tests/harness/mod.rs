@@ -75,6 +75,30 @@ impl TestEnv {
     }
 
     pub async fn volume_file(&self, volume_name: &str, file_path: &str) -> String {
+        self.volume_cmd(
+            volume_name,
+            vec!["cat".to_string(), format!("/mnt/{}", file_path)],
+        )
+        .await
+    }
+
+    /// Returns "<octal mode> <owner uid>" of a file inside a volume, e.g. "755 1000".
+    pub async fn volume_stat(&self, volume_name: &str, file_path: &str) -> String {
+        self.volume_cmd(
+            volume_name,
+            vec![
+                "stat".to_string(),
+                "-c".to_string(),
+                "%a %u".to_string(),
+                format!("/mnt/{}", file_path),
+            ],
+        )
+        .await
+        .trim()
+        .to_string()
+    }
+
+    async fn volume_cmd(&self, volume_name: &str, cmd: Vec<String>) -> String {
         let cname = format!("rooz-test-cat-{}", volume_name.replace(['/', ':'], "-"));
         let mount = Mount {
             target: Some("/mnt".to_string()),
@@ -85,7 +109,7 @@ impl TestEnv {
         };
         let body = ContainerCreateBody {
             image: Some("alpine:latest".to_string()),
-            cmd: Some(vec!["cat".to_string(), format!("/mnt/{}", file_path)]),
+            cmd: Some(cmd),
             host_config: Some(HostConfig {
                 mounts: Some(vec![mount]),
                 ..Default::default()

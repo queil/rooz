@@ -298,4 +298,86 @@ mod tests {
         let b = vol(RoozVolumeRole::Cache, RoozVolumeSharing::Shared, "~/a_txt").safe_volume_name();
         assert_eq!(a, b);
     }
+
+    #[test]
+    fn workspace_config_exclusive_name() {
+        let name = vol(
+            RoozVolumeRole::WorkspaceConfig,
+            RoozVolumeSharing::Exclusive {
+                key: "xr7".to_string(),
+            },
+            "/etc/rooz",
+        )
+        .safe_volume_name();
+        assert_eq!(name, "rooz-xr7-workspace-config");
+    }
+
+    #[test]
+    fn to_mount_expands_tilde() {
+        let mount = vol(
+            RoozVolumeRole::Work,
+            RoozVolumeSharing::Exclusive {
+                key: "ws".to_string(),
+            },
+            "~/work",
+        )
+        .to_mount(Some("/home/user"));
+        assert_eq!(mount.target.as_deref(), Some("/home/user/work"));
+        assert_eq!(mount.source.as_deref(), Some("rooz-ws-work"));
+    }
+
+    #[test]
+    fn to_mount_keeps_tilde_without_replacement() {
+        let mount = vol(
+            RoozVolumeRole::Work,
+            RoozVolumeSharing::Exclusive {
+                key: "ws".to_string(),
+            },
+            "~/work",
+        )
+        .to_mount(None);
+        assert_eq!(mount.target.as_deref(), Some("~/work"));
+    }
+
+    #[test]
+    fn config_data_builds_files() {
+        let mut files = HashMap::new();
+        files.insert(
+            "workspace.config".to_string(),
+            "image: alpine\n".to_string(),
+        );
+
+        let v = RoozVolume::config_data(
+            "ws",
+            "/etc/rooz",
+            Some(files),
+            None,
+            Some(RoozVolumeRole::WorkspaceConfig),
+        );
+
+        assert_eq!(v.path, "/etc/rooz");
+        assert_eq!(v.safe_volume_name(), "rooz-ws-workspace-config");
+        let files = v.files.expect("files expected");
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].file_path, "workspace.config");
+        // data is stored verbatim here; trimming happens later in ensure_file
+        assert_eq!(files[0].data, "image: alpine\n");
+    }
+
+    #[test]
+    fn config_data_without_files() {
+        let v = RoozVolume::config_data("ws", "/etc/rooz", None, None, None);
+        assert!(v.files.is_none());
+        assert_eq!(v.safe_volume_name(), "rooz_ws_-etc-rooz_data");
+    }
+
+    #[test]
+    fn system_config_carries_rooz_config_file() {
+        let v = RoozVolume::system_config("/tmp/sys", "cfg-body".to_string());
+        assert_eq!(v.safe_volume_name(), "rooz_sys-config");
+        let files = v.files.expect("files expected");
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].file_path, "rooz.config");
+        assert_eq!(files[0].data, "cfg-body");
+    }
 }

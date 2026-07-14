@@ -591,7 +591,8 @@ mod tests {
     use crate::api::VolumeApi;
     use crate::config::config::{DataEntry, DataValue, MountSource};
     use crate::model::types::{
-        ContentGenerator, DataEntryKey, DataEntryVolumeSpec, TargetDir, TargetPath, VolumeSpec,
+        ContentGenerator, DataEntryKey, DataEntryVolumeSpec, FileSpec, TargetDir, TargetFile,
+        TargetPath, UserFile, VolumeFilesSpec, VolumeName, VolumeSpec,
     };
     use std::collections::HashMap;
 
@@ -719,5 +720,167 @@ mod tests {
         let f = &entry.files[0];
         assert_eq!(f.user_file.as_str(), "/home/user/.myconfig");
         assert_eq!(f.target_file.as_str(), "/var/lib/rooz/myconfig.data");
+    }
+
+    #[test]
+    fn real_mounts_no_home_keeps_tilde() {
+        let mut mounts = HashMap::new();
+        mounts.insert(
+            TargetPath("~/.myconfig".to_string()),
+            DataEntryVolumeSpec {
+                data: DataEntry::File {
+                    name: "myconfig".to_string(),
+                    generator: ContentGenerator::Inline("content".to_string()),
+                    executable: false,
+                },
+                volume: VolumeSpec {
+                    name: "rooz-ws-inline".to_string(),
+                    labels: None,
+                },
+            },
+        );
+
+        let real = VolumeApi::real_mounts_v2(mounts, None);
+        assert!(
+            real.contains_key(&TargetDir("~/.myconfig".to_string())),
+            "without a home dir the tilde must be left as-is"
+        );
+    }
+
+    #[test]
+    fn real_mounts_shadow_path_replaces_existing_extension() {
+        // known wart: .with_extension("data") replaces an existing extension,
+        // so entries 'app.yaml' and 'app.json' collide on /var/lib/rooz/app.data
+        let mut mounts = HashMap::new();
+        mounts.insert(
+            TargetPath("/etc/app.yaml".to_string()),
+            DataEntryVolumeSpec {
+                data: DataEntry::File {
+                    name: "app.yaml".to_string(),
+                    generator: ContentGenerator::Inline("content".to_string()),
+                    executable: false,
+                },
+                volume: VolumeSpec {
+                    name: "rooz-ws-inline".to_string(),
+                    labels: None,
+                },
+            },
+        );
+
+        let real = VolumeApi::real_mounts_v2(mounts, None);
+        let entry = real.get(&TargetDir("/etc/app.yaml".to_string())).unwrap();
+        assert_eq!(
+            entry.files[0].target_file.as_str(),
+            "/var/lib/rooz/app.data"
+        );
+    }
+
+    #[test]
+    fn real_mounts_same_volume_distinct_targets() {
+        let spec = |name: &str| DataEntryVolumeSpec {
+            data: DataEntry::File {
+                name: name.to_string(),
+                generator: ContentGenerator::Inline("content".to_string()),
+                executable: false,
+            },
+            volume: VolumeSpec {
+                name: "rooz-ws-inline".to_string(),
+                labels: None,
+            },
+        };
+        let mut mounts = HashMap::new();
+        mounts.insert(TargetPath("/etc/file-a".to_string()), spec("file-a"));
+        mounts.insert(TargetPath("/etc/file-b".to_string()), spec("file-b"));
+
+        let real = VolumeApi::real_mounts_v2(mounts, None);
+        assert_eq!(real.len(), 2);
+        for entry in real.values() {
+            assert_eq!(entry.volume_name.as_str(), "rooz-ws-inline");
+            assert_eq!(entry.files.len(), 1);
+        }
+    }
+
+    #[test]
+    fn spec_carries_generator_and_executable() {
+        let mut data = HashMap::new();
+        data.insert(
+            "gen".to_string(),
+            DataValue::GeneratedContent {
+                generate: "echo hi".to_string(),
+                image: Some("alpine:latest".to_string()),
+                executable: Some(true),
+            },
+        );
+
+        let mut mounts = HashMap::new();
+        mounts.insert(
+            ("work".to_string(), "/gen".to_string()),
+            MountSource::DataEntryReference(DataEntryKey("gen".to_string())),
+        );
+
+        let specs = VolumeApi::create_volume_specs("ws", &data, &mounts, false);
+        let entry = specs.get(&DataEntryKey("gen".to_string())).unwrap();
+        match &entry.data {
+            DataEntry::File {
+                generator: ContentGenerator::Script { script, image },
+                executable,
+                ..
+            } => {
+                assert_eq!(script, "echo hi");
+                assert_eq!(image.as_deref(), Some("alpine:latest"));
+                assert!(executable);
+            }
+            other => panic!("expected a script-generated file entry, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn mount_with_file_sets_subpath() {
+        let spec = VolumeFilesSpec {
+            volume_name: VolumeName("rooz-ws-inline".to_string()),
+            files: vec![FileSpec {
+                target_file: TargetFile("/var/lib/rooz/myconfig.data".to_string()),
+                user_file: UserFile("/home/user/.myconfig".to_string()),
+                generator: ContentGenerator::Inline("x".to_string()),
+                executable: false,
+            }],
+        };
+        let target = TargetDir("/home/user/.myconfig".to_string());
+
+        let m = VolumeApi::mount(&target, &spec);
+        assert_eq!(m.target.as_deref(), Some("/home/user/.myconfig"));
+        assert_eq!(m.source.as_deref(), Some("rooz-ws-inline"));
+        let subpath = m.volume_options.expect("volume options expected").subpath;
+        assert_eq!(subpath.as_deref(), Some("myconfig.data"));
+    }
+
+    #[test]
+    fn mount_without_files_has_no_subpath() {
+        let spec = VolumeFilesSpec {
+            volume_name: VolumeName("rooz-ws-work".to_string()),
+            files: vec![],
+        };
+        let target = TargetDir("/work".to_string());
+
+        let m = VolumeApi::mount(&target, &spec);
+        assert!(m.volume_options.is_none());
+    }
+
+    #[test]
+    fn populate_mount_mounts_volume_root() {
+        let spec = VolumeFilesSpec {
+            volume_name: VolumeName("rooz-ws-inline".to_string()),
+            files: vec![FileSpec {
+                target_file: TargetFile("/var/lib/rooz/myconfig.data".to_string()),
+                user_file: UserFile("/home/user/.myconfig".to_string()),
+                generator: ContentGenerator::Inline("x".to_string()),
+                executable: false,
+            }],
+        };
+        let target = TargetDir("/var/lib/rooz".to_string());
+
+        let m = VolumeApi::populate_mount(&target, &spec);
+        assert_eq!(m.target.as_deref(), Some("/var/lib/rooz"));
+        assert!(m.volume_options.is_none());
     }
 }
