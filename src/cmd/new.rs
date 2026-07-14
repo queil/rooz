@@ -45,7 +45,7 @@ impl<'a> WorkspaceApi<'a> {
             .await?;
         cfg_builder.expand_vars()?;
 
-        let cfg = RuntimeConfig::from(&*cfg_builder);
+        let cfg = RuntimeConfig::try_from(&*cfg_builder)?;
 
         self.api
             .image
@@ -435,10 +435,10 @@ impl<'a> WorkspaceApi<'a> {
             .map(|v| (&v).dir.to_string())
             .or(Some(workspace.working_dir));
 
-        let cfg = RuntimeConfig::from(&RoozCfg {
+        let cfg = RuntimeConfig::try_from(&RoozCfg {
             shell: Some(vec![shell.into()]),
             ..config
-        });
+        })?;
 
         let container_id = self
             .enter(
