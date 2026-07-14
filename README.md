@@ -272,8 +272,8 @@ rooz enter secrets-test
 
 Workspace networking follows a hub-and-spoke model:
 
-* the main (work) container can reach every sidecar — it shares a dedicated pair network with each one
-* a sidecar can always reach the main container (pair-network reachability is symmetric; keep listeners in the main container minimal)
+* the work container can reach every sidecar — it shares a dedicated pair network with each one
+* a sidecar can always reach the work container (pair-network reachability is symmetric; keep listeners in the work container minimal)
 * sidecars cannot reach each other unless explicitly connected via `peers:`
 * workspaces are isolated from each other
 
@@ -284,7 +284,7 @@ Workspace networking follows a hub-and-spoke model:
     claude:
       peers: [proxy]   # claude's only egress path is the proxy
     proxy:
-      egress: true     # reachable only by the main container and claude
+      egress: true     # reachable only by the work container and claude
     dkr:
       peers: [images]  # docker-in-docker pulling via the mirror
     images:
@@ -295,7 +295,7 @@ Workspace networking follows a hub-and-spoke model:
 
   :warning: rooz creates one network per sidecar plus one per peer relation. Docker's default address pools allow only ~31 networks host-wide; if network creation fails with an address-pool error, configure `default-address-pools` with a smaller subnet size (e.g. `"size": 24`) in `daemon.json`. Podman (netavark) is not affected.
 
-  The main container addresses sidecars by their names (`sql` and `tools` in the first example above). The usual container ID and IP work too, but are not as convenient.
+  The work container addresses sidecars by their names (`sql` and `tools` in the first example above). The usual container ID and IP work too, but are not as convenient.
 
 * the `enter` command lets you specify `--container` to enter (otherwise it enters the work container).
 
