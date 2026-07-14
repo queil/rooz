@@ -14,3 +14,6 @@
 
 # Test files
 test.rooz.yaml
+
+# Local test daemon config
+/.cargo/
