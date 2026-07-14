@@ -208,7 +208,7 @@ pub struct StartParams {
 }
 
 #[derive(Parser, Debug)]
-#[command(about = "Restarts a workspace's main container")]
+#[command(about = "Restarts a workspace's work container")]
 pub struct RestartParams {
     pub name: String,
     #[arg(long, default_value = "false", help = "")]

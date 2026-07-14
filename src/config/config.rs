@@ -162,6 +162,7 @@ pub struct RoozSidecar {
     pub uid: Option<i32>,
     pub egress: Option<bool>,
     pub shell: Option<Vec<String>>,
+    pub peers: Option<Vec<String>>,
 }
 
 impl RoozSidecar {
@@ -177,6 +178,7 @@ impl RoozSidecar {
             args: render_vec(reg, &self.args, vars)?,
             shell: render_vec(reg, &self.shell, vars)?,
             ports: render_vec(reg, &self.ports, vars)?,
+            peers: render_vec(reg, &self.peers, vars)?,
             install: render_install(reg, &self.install, vars)?,
             work_dir: render_opt(reg, &self.work_dir, vars)?,
             user: render_opt(reg, &self.user, vars)?,
@@ -534,6 +536,20 @@ impl RoozSidecar {
         self.user = other.user.clone().or(self.user.clone());
         self.uid = other.uid.or(self.uid);
         self.egress = other.egress.or(self.egress);
+        self.peers = union_sorted(self.peers.take(), other.peers.clone());
+    }
+}
+
+fn union_sorted(target: Option<Vec<String>>, other: Option<Vec<String>>) -> Option<Vec<String>> {
+    match (target, other) {
+        (Some(mut t), Some(o)) => {
+            t.extend(o);
+            t.sort();
+            t.dedup();
+            Some(t)
+        }
+        (t, None) => t,
+        (None, o) => o,
     }
 }
 
@@ -937,6 +953,56 @@ mod tests {
         assert!(!yaml.contains("image"), "unexpected image key in: {}", yaml);
         let reparsed = RoozCfg::from_string(&yaml, FileFormat::Yaml).unwrap();
         assert_eq!(reparsed.sidecars.unwrap()["svc"].image, None);
+    }
+
+    #[test]
+    fn sidecar_peers_parse_and_render() {
+        let yaml = "vars:\n  mirror: images\nsidecars:\n  dkr:\n    image: a\n    peers: [\"{{ mirror }}\"]\n  images:\n    image: b\n";
+        let mut cfg: RoozCfg = serde_yaml::from_str(yaml).unwrap();
+        cfg.expand_vars().unwrap();
+        assert_eq!(
+            cfg.sidecars.unwrap()["dkr"].peers,
+            Some(vec!["images".to_string()])
+        );
+    }
+
+    #[test]
+    fn sidecar_peers_merge_as_union() {
+        let base_yaml = "sidecars:\n  dkr:\n    image: a\n    peers: [images]\n";
+        let overlay_yaml = "sidecars:\n  dkr:\n    peers: [cache]\n";
+        let mut base: RoozCfg = serde_yaml::from_str(base_yaml).unwrap();
+        let overlay: RoozCfg = serde_yaml::from_str(overlay_yaml).unwrap();
+        base.from_config(&overlay);
+        assert_eq!(
+            base.sidecars.unwrap()["dkr"].peers,
+            Some(vec!["cache".to_string(), "images".to_string()])
+        );
+    }
+
+    #[test]
+    fn sidecar_peers_deduped_across_layers() {
+        let base_yaml = "sidecars:\n  dkr:\n    image: a\n    peers: [images, cache]\n";
+        let overlay_yaml = "sidecars:\n  dkr:\n    peers: [images]\n";
+        let mut base: RoozCfg = serde_yaml::from_str(base_yaml).unwrap();
+        let overlay: RoozCfg = serde_yaml::from_str(overlay_yaml).unwrap();
+        base.from_config(&overlay);
+        assert_eq!(
+            base.sidecars.unwrap()["dkr"].peers,
+            Some(vec!["cache".to_string(), "images".to_string()])
+        );
+    }
+
+    #[test]
+    fn sidecar_peers_preserved_when_overlay_has_none() {
+        let base_yaml = "sidecars:\n  dkr:\n    image: a\n    peers: [images]\n";
+        let overlay_yaml = "sidecars:\n  dkr:\n    env:\n      A: b\n";
+        let mut base: RoozCfg = serde_yaml::from_str(base_yaml).unwrap();
+        let overlay: RoozCfg = serde_yaml::from_str(overlay_yaml).unwrap();
+        base.from_config(&overlay);
+        assert_eq!(
+            base.sidecars.unwrap()["dkr"].peers,
+            Some(vec!["images".to_string()])
+        );
     }
 
     #[test]
