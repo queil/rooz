@@ -627,7 +627,7 @@ mod tests {
 
         let mut mounts = HashMap::new();
         mounts.insert(
-            ("main".to_string(), "/mydir".to_string()),
+            ("work".to_string(), "/mydir".to_string()),
             MountSource::DataEntryReference(DataEntryKey("mydir".to_string())),
         );
 
@@ -640,7 +640,7 @@ mod tests {
     fn inline_file_mount_gets_inline_fallback_volume() {
         let mut mounts = HashMap::new();
         mounts.insert(
-            ("main".to_string(), "/config".to_string()),
+            ("work".to_string(), "/config".to_string()),
             MountSource::InlineDataValue(inline("hello")),
         );
 
@@ -654,11 +654,11 @@ mod tests {
     fn multiple_inline_files_share_inline_volume() {
         let mut mounts = HashMap::new();
         mounts.insert(
-            ("main".to_string(), "/file-a".to_string()),
+            ("work".to_string(), "/file-a".to_string()),
             MountSource::InlineDataValue(inline("aaa")),
         );
         mounts.insert(
-            ("main".to_string(), "/file-b".to_string()),
+            ("work".to_string(), "/file-b".to_string()),
             MountSource::InlineDataValue(inline("bbb")),
         );
 
