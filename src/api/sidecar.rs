@@ -24,6 +24,7 @@ impl<'a> WorkspaceApi<'a> {
     ) -> Result<RuntimeConfig, AnyError> {
         let mut cfg = config.clone();
         let labels = Labels::from(&[Labels::workspace(workspace_key)]);
+        let (_, peer_relations) = RuntimeConfig::workspace_networks(&config.sidecars);
 
         for (name, s) in &mut cfg.sidecars {
             log::debug!("Process sidecar: {}", name);
@@ -79,8 +80,16 @@ impl<'a> WorkspaceApi<'a> {
                 .map(|x| x.to_string())
                 .unwrap_or(constants::ROOT_UID.to_string());
 
-            let internal_network = &constants::internal_network(workspace_key);
+            let pair_network = &constants::pair_network(workspace_key, name);
             let egress_network = &constants::egress_network(workspace_key);
+            let mut extra_networks = peer_relations
+                .iter()
+                .filter(|(a, b)| a == name || b == name)
+                .map(|(a, b)| constants::peer_network(workspace_key, a, b))
+                .collect::<Vec<_>>();
+            if s.egress {
+                extra_networks.push(egress_network.to_string());
+            }
             let run_spec = RunSpec {
                 reason: &container_name,
                 container_name: &container_name,
@@ -90,11 +99,11 @@ impl<'a> WorkspaceApi<'a> {
                 workspace_key: &workspace_key,
                 labels: labels.clone(),
                 env: Some(s.env.clone()),
-                default_network: Some(internal_network),
-                additional_networks: if s.egress {
-                    Some(vec![egress_network])
-                } else {
+                default_network: Some(pair_network),
+                additional_networks: if extra_networks.is_empty() {
                     None
+                } else {
+                    Some(extra_networks.iter().map(|n| n.as_str()).collect())
                 },
                 network_aliases: Some(vec![name.into()]),
                 command: if cmd.is_empty() {
@@ -128,6 +137,7 @@ impl<'a> WorkspaceApi<'a> {
                         .create(RunSpec {
                             run_mode: RunMode::SidecarInstall,
                             default_network: Some(egress_network),
+                            additional_networks: None,
                             // IMPORTANT: do not inject the sidecar env so it doesn't get baked into
                             // the runtime image. It also ensures unaltered behavior of the base image
                             // during the installation stage

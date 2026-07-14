@@ -25,6 +25,8 @@ pub struct RoozSidecarRuntime {
     pub uid: Option<i32>,
     pub egress: bool,
     pub install: Option<InstallSpec>,
+    #[serde(default)]
+    pub peers: Vec<String>,
 }
 
 impl<'a> TryFrom<(&'a str, &'a RoozSidecar)> for RoozSidecarRuntime {
@@ -65,6 +67,7 @@ impl<'a> TryFrom<(&'a str, &'a RoozSidecar)> for RoozSidecarRuntime {
             egress: value.egress.clone().unwrap_or(false),
             install: value.install.clone(),
             uid: value.uid.clone(),
+            peers: value.peers.clone().unwrap_or_default(),
         })
     }
 }
@@ -134,6 +137,28 @@ impl RuntimeConfig {
         }
     }
 
+    pub fn workspace_networks(
+        sidecars: &HashMap<String, RoozSidecarRuntime>,
+    ) -> (Vec<String>, Vec<(String, String)>) {
+        let mut pairs: Vec<String> = sidecars.keys().cloned().collect();
+        pairs.sort();
+        let mut peers = sidecars
+            .iter()
+            .flat_map(|(name, s)| {
+                s.peers.iter().map(move |p| {
+                    if name < p {
+                        (name.clone(), p.clone())
+                    } else {
+                        (p.clone(), name.clone())
+                    }
+                })
+            })
+            .collect::<Vec<_>>();
+        peers.sort();
+        peers.dedup();
+        (pairs, peers)
+    }
+
     pub fn all_mounts(&self) -> HashMap<(String, String), MountSource> {
         self.mounts
             .iter()
@@ -184,6 +209,86 @@ mod tests {
     }
 
     #[test]
+    fn unknown_peer_fails_conversion() {
+        let yaml = "sidecars:\n  dkr:\n    image: a\n    peers: [bogus]\n";
+        let cfg: RoozCfg = serde_yaml::from_str(yaml).unwrap();
+        let err = RuntimeConfig::try_from(&cfg).unwrap_err().to_string();
+        assert!(err.contains("sidecar 'dkr'"), "unexpected error: {}", err);
+        assert!(err.contains("unknown peer 'bogus'"), "unexpected error: {}", err);
+    }
+
+    #[test]
+    fn self_peer_fails_conversion() {
+        let yaml = "sidecars:\n  dkr:\n    image: a\n    peers: [dkr]\n";
+        let cfg: RoozCfg = serde_yaml::from_str(yaml).unwrap();
+        let err = RuntimeConfig::try_from(&cfg).unwrap_err().to_string();
+        assert!(
+            err.contains("sidecar 'dkr'") && err.contains("itself"),
+            "unexpected error: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn old_persisted_sidecar_without_peers_parses() {
+        let yaml = "sidecars:\n  svc:\n    image: alpine\n";
+        let cfg: RoozCfg = serde_yaml::from_str(yaml).unwrap();
+        let runtime = RuntimeConfig::try_from(&cfg).unwrap();
+        let mut persisted = runtime.to_string().unwrap();
+        persisted = persisted
+            .lines()
+            .filter(|l| !l.contains("peers"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let parsed = RuntimeConfig::from_string(persisted).unwrap();
+        assert!(parsed.sidecars["svc"].peers.is_empty());
+    }
+
+    #[test]
+    fn workspace_networks_no_peers() {
+        let yaml = "sidecars:\n  a:\n    image: x\n  b:\n    image: x\n";
+        let cfg: RoozCfg = serde_yaml::from_str(yaml).unwrap();
+        let runtime = RuntimeConfig::try_from(&cfg).unwrap();
+        let (pairs, peers) = RuntimeConfig::workspace_networks(&runtime.sidecars);
+        assert_eq!(pairs, vec!["a".to_string(), "b".to_string()]);
+        assert!(peers.is_empty());
+    }
+
+    #[test]
+    fn workspace_networks_peer_dedup_bidirectional() {
+        let yaml =
+            "sidecars:\n  a:\n    image: x\n    peers: [b]\n  b:\n    image: x\n    peers: [a]\n";
+        let cfg: RoozCfg = serde_yaml::from_str(yaml).unwrap();
+        let runtime = RuntimeConfig::try_from(&cfg).unwrap();
+        let (_, peers) = RuntimeConfig::workspace_networks(&runtime.sidecars);
+        assert_eq!(peers, vec![("a".to_string(), "b".to_string())]);
+    }
+
+    #[test]
+    fn workspace_networks_example_topology() {
+        let yaml = "sidecars:\n  claude:\n    image: x\n    peers: [proxy]\n  proxy:\n    image: x\n    egress: true\n  dkr:\n    image: x\n    peers: [images]\n  images:\n    image: x\n    egress: true\n";
+        let cfg: RoozCfg = serde_yaml::from_str(yaml).unwrap();
+        let runtime = RuntimeConfig::try_from(&cfg).unwrap();
+        let (pairs, peers) = RuntimeConfig::workspace_networks(&runtime.sidecars);
+        assert_eq!(
+            pairs,
+            vec![
+                "claude".to_string(),
+                "dkr".to_string(),
+                "images".to_string(),
+                "proxy".to_string()
+            ]
+        );
+        assert_eq!(
+            peers,
+            vec![
+                ("claude".to_string(), "proxy".to_string()),
+                ("dkr".to_string(), "images".to_string())
+            ]
+        );
+    }
+
+    #[test]
     fn step_map_install_roundtrips() {
         let mut steps = indexmap::IndexMap::new();
         steps.insert("10-a".to_string(), Some("echo a".to_string()));
@@ -203,6 +308,26 @@ impl<'a> TryFrom<&'a RoozCfg> for RuntimeConfig {
     fn try_from(value: &'a RoozCfg) -> Result<Self, Self::Error> {
         let default = RuntimeConfig::default();
 
+        let sidecar_cfgs = value.sidecars.clone().unwrap_or_default();
+        for (name, s) in &sidecar_cfgs {
+            for peer in s.peers.iter().flatten() {
+                if peer == name {
+                    return Err(format!(
+                        "sidecar '{}': cannot declare itself as a peer",
+                        name
+                    )
+                    .into());
+                }
+                if !sidecar_cfgs.contains_key(peer) {
+                    return Err(format!(
+                        "sidecar '{}': unknown peer '{}' (peers must name sidecars defined in this workspace)",
+                        name, peer
+                    )
+                    .into());
+                }
+            }
+        }
+
         let mut ports = HashMap::<String, Option<String>>::new();
         RoozCfg::parse_ports(&mut ports, value.clone().ports.unwrap_or_default());
 
@@ -221,10 +346,7 @@ impl<'a> TryFrom<&'a RoozCfg> for RuntimeConfig {
                 val.dedup();
                 val
             },
-            sidecars: value
-                .sidecars
-                .clone()
-                .unwrap_or_default()
+            sidecars: sidecar_cfgs
                 .into_iter()
                 .map(|(k, v)| Ok((k.clone(), (k.as_str(), &v).try_into()?)))
                 .collect::<Result<HashMap<_, _>, AnyError>>()?,

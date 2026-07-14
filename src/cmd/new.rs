@@ -22,6 +22,44 @@ use std::collections::HashMap;
 use std::fs;
 
 impl<'a> WorkspaceApi<'a> {
+    async fn ensure_network(
+        &self,
+        name: &str,
+        internal: bool,
+        labels: &Labels,
+    ) -> Result<(), AnyError> {
+        match self
+            .api
+            .client
+            .create_network(NetworkCreateRequest {
+                name: name.to_string(),
+                internal: if internal { Some(true) } else { None },
+                labels: Some(labels.clone().into()),
+                ..Default::default()
+            })
+            .await
+        {
+            Ok(_) => Ok(()),
+            Err(Error::DockerResponseServerError {
+                status_code: 409, ..
+            }) => {
+                log::debug!("Network already exists: {}. Skipping", name);
+                Ok(())
+            }
+            Err(e) if e.to_string().contains("non-overlapping IPv4 address pool") => {
+                Err(format!(
+                    "Could not create network '{}': the daemon ran out of address pools. \
+                     Rooz creates one network per sidecar plus one per peer relation. \
+                     Configure 'default-address-pools' with a smaller subnet size (e.g. \"size\": 24) \
+                     in the daemon config to allow more networks. Original error: {}",
+                    name, e
+                )
+                .into())
+            }
+            Err(e) => Err(e.into()),
+        }
+    }
+
     async fn new_core(
         &self,
         cfg_builder: &mut RoozCfg,
@@ -92,48 +130,21 @@ impl<'a> WorkspaceApi<'a> {
 
         let mut labels = work_spec.labels.clone();
 
-        let internal_network = &constants::internal_network(workspace_key);
         let egress_network = &constants::egress_network(workspace_key);
 
-        match self
-            .api
-            .client
-            .create_network(NetworkCreateRequest {
-                name: egress_network.to_string(),
-                labels: Some(labels.clone().into()),
-                ..Default::default()
-            })
-            .await
-        {
-            Ok(_) => {}
-            Err(Error::DockerResponseServerError {
-                status_code: 409, ..
-            }) => {
-                log::debug!("Network already exists: {}. Skipping", egress_network);
-            }
-            Err(e) => return Err(e.into()),
-        };
+        self.ensure_network(egress_network, false, &labels).await?;
 
-        if !cfg2.sidecars.is_empty() {
-            match self
-                .api
-                .client
-                .create_network(NetworkCreateRequest {
-                    name: internal_network.to_string(),
-                    internal: Some(true),
-                    labels: Some(labels.clone().into()),
-                    ..Default::default()
-                })
-                .await
-            {
-                Ok(_) => {}
-                Err(Error::DockerResponseServerError {
-                    status_code: 409, ..
-                }) => {
-                    log::debug!("Network already exists: {}. Skipping", internal_network);
-                }
-                Err(e) => return Err(e.into()),
-            };
+        let (pair_keys, peer_keys) = RuntimeConfig::workspace_networks(&cfg2.sidecars);
+        let pair_networks = pair_keys
+            .iter()
+            .map(|s| constants::pair_network(workspace_key, s))
+            .collect::<Vec<_>>();
+        for n in &pair_networks {
+            self.ensure_network(n, true, &labels).await?;
+        }
+        for (a, b) in &peer_keys {
+            self.ensure_network(&constants::peer_network(workspace_key, a, b), true, &labels)
+                .await?;
         }
 
         let cfg2 = self
@@ -157,8 +168,8 @@ impl<'a> WorkspaceApi<'a> {
                 .map(|r| r.dir)
                 .unwrap_or(constants::WORK_DIR.to_string()),
             default_network: Some(egress_network.as_str()),
-            additional_networks: if !cfg2.sidecars.is_empty() {
-                Some(vec![internal_network.as_str()])
+            additional_networks: if !pair_networks.is_empty() {
+                Some(pair_networks.iter().map(|n| n.as_str()).collect())
             } else {
                 None
             },

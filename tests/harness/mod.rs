@@ -1,10 +1,12 @@
 use assert_cmd::Command;
 use bollard::{
     API_DEFAULT_VERSION, Docker,
+    exec::{CreateExecOptions, StartExecResults},
     models::{ContainerCreateBody, HostConfig, Mount, VolumeCreateRequest},
     query_parameters::{
-        CreateContainerOptions, ListContainersOptions, ListVolumesOptions, LogsOptions,
-        RemoveContainerOptions, RemoveVolumeOptions, StartContainerOptions, WaitContainerOptions,
+        CreateContainerOptions, ListContainersOptions, ListNetworksOptions, ListVolumesOptions,
+        LogsOptions, RemoveContainerOptions, RemoveVolumeOptions, StartContainerOptions,
+        WaitContainerOptions,
     },
 };
 use bollard_stubs::models::{ContainerSummary, ContainerSummaryStateEnum, MountType, Volume};
@@ -221,6 +223,59 @@ impl TestEnv {
             .into_iter()
             .filter_map(|c| c.state)
             .collect()
+    }
+
+    pub async fn exec_code(&self, container: &str, cmd: Vec<&str>) -> i64 {
+        let exec = self
+            .docker
+            .create_exec(
+                container,
+                CreateExecOptions {
+                    cmd: Some(cmd.iter().map(|s| s.to_string()).collect()),
+                    user: Some("0".to_string()),
+                    attach_stdout: Some(true),
+                    attach_stderr: Some(true),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        if let StartExecResults::Attached { mut output, .. } =
+            self.docker.start_exec(&exec.id, None).await.unwrap()
+        {
+            while output.next().await.is_some() {}
+        }
+        self.docker
+            .inspect_exec(&exec.id)
+            .await
+            .unwrap()
+            .exit_code
+            .unwrap_or(-1)
+    }
+
+    pub async fn ping(&self, from: &str, to: &str) -> i64 {
+        self.exec_code(from, vec!["ping", "-c1", "-w2", to]).await
+    }
+
+    pub async fn network_names_by_workspace(&self, key: &str) -> Vec<String> {
+        let mut filters = HashMap::new();
+        filters.insert(
+            "label".to_string(),
+            vec![format!("dev.rooz.workspace={}", key)],
+        );
+        let opts = ListNetworksOptions {
+            filters: Some(filters),
+        };
+        let mut names = self
+            .docker
+            .list_networks(Some(opts))
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|n| n.name)
+            .collect::<Vec<_>>();
+        names.sort();
+        names
     }
 
     pub async fn all_rooz_volumes(&self) -> Vec<Volume> {

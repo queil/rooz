@@ -123,6 +123,7 @@ impl<'a> ContainerApi<'a> {
         {
             Ok(_) => {
                 log::debug!("Removed container: {}{}", &container_id, &force_display);
+                self.wait_removed(container_id).await;
                 Ok(())
             }
             Err(DockerResponseServerError {
@@ -143,6 +144,7 @@ impl<'a> ContainerApi<'a> {
                     &container_id,
                     &force_display
                 );
+                self.wait_removed(container_id).await;
                 Ok(())
             }
             Err(DockerResponseServerError {
@@ -156,6 +158,22 @@ impl<'a> ContainerApi<'a> {
             .into()),
             Err(e) => panic!("{}", e),
         }
+    }
+
+    async fn wait_removed(&self, container_id: &str) {
+        let _ = timeout(Duration::from_secs(30), async {
+            loop {
+                match self
+                    .client
+                    .inspect_container(container_id, None::<InspectContainerOptions>)
+                    .await
+                {
+                    Ok(_) => sleep(Duration::from_millis(100)).await,
+                    Err(_) => break,
+                }
+            }
+        })
+        .await;
     }
 
     pub async fn kill(&self, container_id: &str, wait_for_remove: bool) -> Result<(), AnyError> {

@@ -7,7 +7,7 @@
 #
 # After "up", eval the printed exports to configure the test environment:
 #   eval "$(scripts/test-daemon.sh up docker)"
-#   cargo test --test smoke --test lifecycle --test volumes --test sidecars -- --test-threads=1
+#   cargo test --test smoke --test lifecycle --test volumes --test sidecars --test networks -- --test-threads=1
 #
 # Requires:
 #   - docker available on PATH
