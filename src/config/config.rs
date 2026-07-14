@@ -961,8 +961,7 @@ mod tests {
 
     #[test]
     fn sidecar_peers_parse_and_render() {
-        let yaml =
-            "vars:\n  mirror: images\nsidecars:\n  dkr:\n    image: a\n    peers: [\"{{ mirror }}\"]\n  images:\n    image: b\n";
+        let yaml = "vars:\n  mirror: images\nsidecars:\n  dkr:\n    image: a\n    peers: [\"{{ mirror }}\"]\n  images:\n    image: b\n";
         let mut cfg: RoozCfg = serde_yaml::from_str(yaml).unwrap();
         cfg.expand_vars().unwrap();
         assert_eq!(

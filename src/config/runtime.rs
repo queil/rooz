@@ -214,7 +214,11 @@ mod tests {
         let cfg: RoozCfg = serde_yaml::from_str(yaml).unwrap();
         let err = RuntimeConfig::try_from(&cfg).unwrap_err().to_string();
         assert!(err.contains("sidecar 'dkr'"), "unexpected error: {}", err);
-        assert!(err.contains("unknown peer 'bogus'"), "unexpected error: {}", err);
+        assert!(
+            err.contains("unknown peer 'bogus'"),
+            "unexpected error: {}",
+            err
+        );
     }
 
     #[test]
@@ -312,11 +316,9 @@ impl<'a> TryFrom<&'a RoozCfg> for RuntimeConfig {
         for (name, s) in &sidecar_cfgs {
             for peer in s.peers.iter().flatten() {
                 if peer == name {
-                    return Err(format!(
-                        "sidecar '{}': cannot declare itself as a peer",
-                        name
-                    )
-                    .into());
+                    return Err(
+                        format!("sidecar '{}': cannot declare itself as a peer", name).into(),
+                    );
                 }
                 if !sidecar_cfgs.contains_key(peer) {
                     return Err(format!(
