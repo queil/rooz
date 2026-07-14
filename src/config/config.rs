@@ -162,10 +162,6 @@ pub struct RoozSidecar {
     pub uid: Option<i32>,
     pub egress: Option<bool>,
     pub shell: Option<Vec<String>>,
-    /// Sidecar names this sidecar can reach over dedicated peer networks.
-    /// Unlike other list fields (which are replaced by higher layers), peers
-    /// merge as a deduplicated union across config layers, so a layer can add
-    /// reachability edges but never remove inherited ones.
     pub peers: Option<Vec<String>>,
 }
 
