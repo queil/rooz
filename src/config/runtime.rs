@@ -162,7 +162,15 @@ impl RuntimeConfig {
     pub fn all_mounts(&self) -> HashMap<(String, String), MountSource> {
         self.mounts
             .iter()
-            .map(|(target, source)| (("main".to_string(), target.clone()), source.clone()))
+            .map(|(target, source)| {
+                (
+                    (
+                        constants::DEFAULT_CONTAINER_NAME.to_string(),
+                        target.clone(),
+                    ),
+                    source.clone(),
+                )
+            })
             .chain(self.sidecars.iter().flat_map(|(sidecar_name, sidecar)| {
                 sidecar.mounts.iter().map(|(target, source)| {
                     ((sidecar_name.clone(), target.clone()), source.clone())

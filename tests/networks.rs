@@ -71,7 +71,7 @@ async fn hub_and_spoke_topology() {
         assert_eq!(
             env.ping(&key, sidecar).await,
             0,
-            "main cannot reach sidecar '{}'",
+            "work container cannot reach sidecar '{}'",
             sidecar
         );
     }
