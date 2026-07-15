@@ -26,7 +26,7 @@ use bollard::{
 };
 
 use bollard_stubs::models::{MountType, NetworkingConfig};
-use bollard_stubs::query_parameters::WaitContainerOptions;
+use bollard_stubs::query_parameters::{WaitContainerOptions, WaitContainerOptionsBuilder};
 use futures::{StreamExt, TryStreamExt, future};
 use std::{collections::HashMap, time::Duration};
 use tokio::time::{sleep, timeout};
@@ -652,24 +652,38 @@ echo start > /tmp/exec_start
             .await
             .map(|r| r.id().to_string())?;
 
-        if let Some(tar) = tar {
-            if let Err(e) = self.upload(&id, dest_path, tar).await {
-                self.remove(&id, true).await?;
-                return Err(format!("{}: uploading files failed: {}", name, e).into());
+        // subscribed before start so the exit can't be missed; once the
+        // container is started auto-remove (RunMode::OneShot) owns cleanup -
+        // until then failures must remove the created container manually
+        let client = self.client.clone();
+        let wait_id = id.clone();
+        let wait_handle = tokio::spawn(async move {
+            let next_exit = WaitContainerOptionsBuilder::new()
+                .condition("next-exit")
+                .build();
+            client
+                .wait_container(&wait_id, Some(next_exit))
+                .try_collect::<Vec<_>>()
+                .await
+        });
+
+        let upload_and_start: Result<(), AnyError> = async {
+            if let Some(tar) = tar {
+                self.upload(&id, dest_path, tar)
+                    .await
+                    .map_err(|e| format!("{}: uploading files failed: {}", name, e))?;
             }
+            Ok(self.start(&id).await?)
+        }
+        .await;
+
+        if let Err(e) = upload_and_start {
+            wait_handle.abort();
+            self.remove(&id, true).await.ok();
+            return Err(e);
         }
 
-        self.start(&id).await?;
-
-        let wait_result = self
-            .client
-            .wait_container(&id, None::<WaitContainerOptions>)
-            .try_collect::<Vec<_>>()
-            .await;
-
-        self.remove(&id, true).await?;
-
-        match wait_result {
+        match wait_handle.await? {
             Ok(_) => Ok(()),
             Err(Error::DockerContainerWaitError { code, .. }) => {
                 Err(format!("{}: one-shot command failed (exit {})", name, code).into())
