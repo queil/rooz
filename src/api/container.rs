@@ -11,6 +11,7 @@ use crate::{
 use base64::{Engine as _, engine::general_purpose};
 
 use bollard::{
+    body_full,
     errors::Error::{self, DockerResponseServerError},
     models::{
         ContainerCreateBody, ContainerCreateResponse, ContainerInspectResponse, ContainerState,
@@ -20,7 +21,7 @@ use bollard::{
     query_parameters::{
         CreateContainerOptions, InspectContainerOptions, KillContainerOptions,
         ListContainersOptions, LogsOptions, RemoveContainerOptions, StartContainerOptions,
-        StopContainerOptions,
+        StopContainerOptions, UploadToContainerOptionsBuilder,
     },
 };
 
@@ -612,5 +613,68 @@ echo start > /tmp/exec_start
         let cmd = Self::format_cmd(command);
         let cmd = cmd.iter().map(|x| x.as_str()).collect::<Vec<_>>();
         self.exec.run(name, &id, uid, Some(cmd)).await
+    }
+
+    pub async fn upload(
+        &self,
+        container_id: &str,
+        dest_path: &str,
+        tar: Vec<u8>,
+    ) -> Result<(), AnyError> {
+        let options = UploadToContainerOptionsBuilder::default()
+            .path(dest_path)
+            .build();
+        self.client
+            .upload_to_container(container_id, Some(options), body_full(tar.into()))
+            .await?;
+        Ok(())
+    }
+
+    pub async fn one_shot_upload(
+        &self,
+        name: &str,
+        mounts: Vec<Mount>,
+        dest_path: &str,
+        tar: Option<Vec<u8>>,
+        command: Option<String>,
+    ) -> Result<(), AnyError> {
+        let cmd = command.unwrap_or("true".to_string());
+        let id = self
+            .create(RunSpec {
+                reason: name,
+                image: constants::DEFAULT_IMAGE,
+                container_name: &id::random_suffix("one-shot"),
+                command: Some(vec!["sh", "-c", &cmd]),
+                mounts: Some(mounts),
+                uid: constants::ROOT_UID,
+                ..Default::default()
+            })
+            .await
+            .map(|r| r.id().to_string())?;
+
+        if let Some(tar) = tar {
+            if let Err(e) = self.upload(&id, dest_path, tar).await {
+                self.remove(&id, true).await?;
+                return Err(format!("{}: uploading files failed: {}", name, e).into());
+            }
+        }
+
+        self.start(&id).await?;
+
+        let wait_result = self
+            .client
+            .wait_container(&id, None::<WaitContainerOptions>)
+            .try_collect::<Vec<_>>()
+            .await;
+
+        self.remove(&id, true).await?;
+
+        match wait_result {
+            Ok(_) => Ok(()),
+            Err(Error::DockerContainerWaitError { code, .. }) => {
+                Err(format!("{}: one-shot command failed (exit {})", name, code).into())
+            }
+            Err(e) => Err(e.into()),
+        }
     }
 }

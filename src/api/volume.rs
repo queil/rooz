@@ -17,7 +17,6 @@ use crate::{
     },
     util::labels::Labels,
 };
-use base64::{Engine as _, engine::general_purpose};
 use bollard::{
     errors::Error::DockerResponseServerError,
     models::{MountVolumeOptions, Volume},
@@ -28,6 +27,12 @@ use bollard_stubs::models::MountType::VOLUME;
 use bollard_stubs::models::VolumeCreateRequest;
 
 const SHADOW_ROOT_DIR: &str = "/var/lib/rooz";
+
+struct TarFile {
+    path: String,
+    content: String,
+    executable: bool,
+}
 
 impl<'a> VolumeApi<'a> {
     pub async fn get_all(&self, labels: &Labels) -> Result<Vec<Volume>, AnyError> {
@@ -455,6 +460,58 @@ impl<'a> VolumeApi<'a> {
         Ok(mount)
     }
 
+    fn files_tar(files: &[TarFile], uid: Option<i32>) -> Result<Vec<u8>, AnyError> {
+        let mut builder = tar::Builder::new(Vec::new());
+        for f in files {
+            let mut header = tar::Header::new_gnu();
+            header.set_size(f.content.len() as u64);
+            header.set_mode(if f.executable { 0o755 } else { 0o644 });
+            let uid = uid.unwrap_or(constants::ROOT_UID_INT) as u64;
+            header.set_uid(uid);
+            header.set_gid(uid);
+            builder.append_data(&mut header, &f.path, f.content.as_bytes())?;
+        }
+        Ok(builder.into_inner()?)
+    }
+
+    async fn populate(
+        &self,
+        volume_name: &str,
+        root_dir: &str,
+        files: &[TarFile],
+        mount: Mount,
+        uid: Option<i32>,
+    ) -> Result<(), AnyError> {
+        let tar = if files.is_empty() {
+            None
+        } else {
+            Some(Self::files_tar(files, uid)?)
+        };
+
+        // the tar carries file ownership already but the volume root dir
+        // still needs chowning so the workspace user can write to it
+        let chown = match uid {
+            Some(uid) if uid != constants::ROOT_UID_INT => {
+                Some(format!("chown -R {}:{} {}", uid, uid, root_dir))
+            }
+            _ => None,
+        };
+
+        if tar.is_none() && chown.is_none() {
+            return Ok(());
+        }
+
+        self.container
+            .one_shot_upload(
+                &format!("populate volume: {}", volume_name),
+                vec![mount],
+                root_dir,
+                tar,
+                chown,
+            )
+            .await
+    }
+
     async fn ensure_file_v2(
         &self,
         root_dir: &str,
@@ -462,14 +519,8 @@ impl<'a> VolumeApi<'a> {
         mount: Mount,
         uid: Option<i32>,
     ) -> Result<(), AnyError> {
-        let mut cmds = Vec::new();
+        let mut tar_files = Vec::new();
         for f in &spec.files {
-            let parent_dir = Path::new(f.target_file.as_str())
-                .parent()
-                .unwrap()
-                .to_string_lossy()
-                .into_owned();
-
             let content = match &f.generator {
                 ContentGenerator::Inline(content) => content.to_string(),
                 ContentGenerator::Script { script, image } => {
@@ -497,47 +548,22 @@ impl<'a> VolumeApi<'a> {
                 }
             };
 
-            cmds.push(format!(
-                "mkdir -p {} && echo '{}' | base64 -d > {}{}",
-                parent_dir,
+            tar_files.push(TarFile {
+                path: Path::new(f.target_file.as_str())
+                    .strip_prefix(root_dir)?
+                    .to_string_lossy()
+                    .into_owned(),
                 // IMPORTANT: never trim content so YAML multi-line strings are respected and can
                 // control whitespace and most importantly EOLs
-                general_purpose::STANDARD.encode(content),
-                f.target_file.as_str(),
-                if f.executable {
-                    format!(" && chmod +x {}", f.target_file.as_str())
-                } else {
-                    "".to_string()
-                }
-            ));
+                content,
+                executable: f.executable,
+            });
         }
 
-        let mut cmd = cmds.join(" && ".into());
-
-        if let Some(uid) = uid
-            && uid != constants::ROOT_UID_INT
-        {
-            let chown = format!("chown -R {}:{} {}", uid, uid, root_dir);
-            cmd = format!(
-                "{}{}{}",
-                cmd,
-                if cmd.is_empty() { "" } else { " && " },
-                chown
-            )
-        }
-
-        self.container
-            .one_shot(
-                &format!("populate volume: {}", &spec.volume_name.as_str()),
-                cmd,
-                Some(vec![mount]),
-                None,
-                None,
-            )
-            .await?;
-
-        Ok(())
+        self.populate(spec.volume_name.as_str(), root_dir, &tar_files, mount, uid)
+            .await
     }
+
     async fn ensure_file(
         &self,
         volume_name: &str,
@@ -546,43 +572,19 @@ impl<'a> VolumeApi<'a> {
         mount: Mount,
         uid: Option<&str>,
     ) -> Result<(), AnyError> {
-        let mut cmd = files
+        let tar_files = files
             .iter()
-            .map(|f| {
-                let p = Path::new(parent_dir)
-                    .join(&f.file_path)
-                    .to_string_lossy()
-                    .to_string();
-                format!(
-                    "echo '{}' | base64 -d > {}",
-                    general_purpose::STANDARD.encode(f.data.trim()),
-                    p,
-                )
+            .map(|f| TarFile {
+                path: f.file_path.to_string(),
+                content: f.data.trim().to_string(),
+                executable: false,
             })
-            .collect::<Vec<_>>()
-            .join(" && ".into());
+            .collect::<Vec<_>>();
 
-        if let Some(uid) = uid {
-            let chown = format!("chown -R {}:{} {}", uid, uid, parent_dir);
-            cmd = format!(
-                "{}{}{}",
-                cmd,
-                if cmd.is_empty() { "" } else { " && " },
-                chown
-            )
-        }
+        let uid = uid.map(|u| u.parse::<i32>()).transpose()?;
 
-        self.container
-            .one_shot(
-                &format!("populate volume: {}", &volume_name),
-                cmd,
-                Some(vec![mount]),
-                None,
-                None,
-            )
-            .await?;
-
-        Ok(())
+        self.populate(volume_name, parent_dir, &tar_files, mount, uid)
+            .await
     }
 }
 
@@ -864,6 +866,72 @@ mod tests {
 
         let m = VolumeApi::mount(&target, &spec);
         assert!(m.volume_options.is_none());
+    }
+
+    fn untar(bytes: &[u8]) -> Vec<(String, u32, u64, u64, String)> {
+        use std::io::Read;
+        let mut archive = tar::Archive::new(bytes);
+        archive
+            .entries()
+            .unwrap()
+            .map(|e| {
+                let mut e = e.unwrap();
+                let path = e.path().unwrap().to_string_lossy().into_owned();
+                let header = e.header();
+                let (mode, uid, gid) = (
+                    header.mode().unwrap(),
+                    header.uid().unwrap(),
+                    header.gid().unwrap(),
+                );
+                let mut content = String::new();
+                e.read_to_string(&mut content).unwrap();
+                (path, mode, uid, gid, content)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn files_tar_roundtrip() {
+        let files = vec![
+            super::TarFile {
+                path: "plain.data".to_string(),
+                content: "line1\n\nline3\n".to_string(),
+                executable: false,
+            },
+            super::TarFile {
+                path: "script.data".to_string(),
+                content: "#!/bin/sh\necho hi\n".to_string(),
+                executable: true,
+            },
+        ];
+
+        let bytes = VolumeApi::files_tar(&files, Some(1000)).unwrap();
+        let entries = untar(&bytes);
+
+        assert_eq!(entries.len(), 2);
+        let (path, mode, uid, gid, content) = &entries[0];
+        assert_eq!(path, "plain.data");
+        assert_eq!(*mode, 0o644);
+        assert_eq!((*uid, *gid), (1000, 1000));
+        assert_eq!(content, "line1\n\nline3\n");
+
+        let (path, mode, _, _, content) = &entries[1];
+        assert_eq!(path, "script.data");
+        assert_eq!(*mode, 0o755);
+        assert_eq!(content, "#!/bin/sh\necho hi\n");
+    }
+
+    #[test]
+    fn files_tar_defaults_to_root_ownership() {
+        let files = vec![super::TarFile {
+            path: "cfg".to_string(),
+            content: "x".to_string(),
+            executable: false,
+        }];
+
+        let bytes = VolumeApi::files_tar(&files, None).unwrap();
+        let (_, _, uid, gid, _) = &untar(&bytes)[0];
+        assert_eq!((*uid, *gid), (0, 0));
     }
 
     #[test]
