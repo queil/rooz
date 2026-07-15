@@ -11,6 +11,7 @@ use crate::{
 use base64::{Engine as _, engine::general_purpose};
 
 use bollard::{
+    body_full,
     errors::Error::{self, DockerResponseServerError},
     models::{
         ContainerCreateBody, ContainerCreateResponse, ContainerInspectResponse, ContainerState,
@@ -20,12 +21,12 @@ use bollard::{
     query_parameters::{
         CreateContainerOptions, InspectContainerOptions, KillContainerOptions,
         ListContainersOptions, LogsOptions, RemoveContainerOptions, StartContainerOptions,
-        StopContainerOptions,
+        StopContainerOptions, UploadToContainerOptionsBuilder,
     },
 };
 
 use bollard_stubs::models::{MountType, NetworkingConfig};
-use bollard_stubs::query_parameters::WaitContainerOptions;
+use bollard_stubs::query_parameters::{WaitContainerOptions, WaitContainerOptionsBuilder};
 use futures::{StreamExt, TryStreamExt, future};
 use std::{collections::HashMap, time::Duration};
 use tokio::time::{sleep, timeout};
@@ -612,5 +613,79 @@ echo start > /tmp/exec_start
         let cmd = Self::format_cmd(command);
         let cmd = cmd.iter().map(|x| x.as_str()).collect::<Vec<_>>();
         self.exec.run(name, &id, uid, Some(cmd)).await
+    }
+
+    pub async fn upload(
+        &self,
+        container_id: &str,
+        dest_path: &str,
+        tar: Vec<u8>,
+    ) -> Result<(), AnyError> {
+        let options = UploadToContainerOptionsBuilder::default()
+            .path(dest_path)
+            .build();
+        self.client
+            .upload_to_container(container_id, Some(options), body_full(tar.into()))
+            .await?;
+        Ok(())
+    }
+
+    pub async fn one_shot_upload(
+        &self,
+        name: &str,
+        mounts: Vec<Mount>,
+        dest_path: &str,
+        tar: Option<Vec<u8>>,
+        command: Option<String>,
+    ) -> Result<(), AnyError> {
+        let cmd = command.unwrap_or("true".to_string());
+        let id = self
+            .create(RunSpec {
+                reason: name,
+                image: constants::DEFAULT_IMAGE,
+                container_name: &id::random_suffix("one-shot"),
+                command: Some(vec!["sh", "-c", &cmd]),
+                mounts: Some(mounts),
+                uid: constants::ROOT_UID,
+                ..Default::default()
+            })
+            .await
+            .map(|r| r.id().to_string())?;
+
+        let client = self.client.clone();
+        let wait_id = id.clone();
+        let wait_handle = tokio::spawn(async move {
+            let next_exit = WaitContainerOptionsBuilder::new()
+                .condition("next-exit")
+                .build();
+            client
+                .wait_container(&wait_id, Some(next_exit))
+                .try_collect::<Vec<_>>()
+                .await
+        });
+
+        let upload_and_start: Result<(), AnyError> = async {
+            if let Some(tar) = tar {
+                self.upload(&id, dest_path, tar)
+                    .await
+                    .map_err(|e| format!("{}: uploading files failed: {}", name, e))?;
+            }
+            Ok(self.start(&id).await?)
+        }
+        .await;
+
+        if let Err(e) = upload_and_start {
+            wait_handle.abort();
+            self.remove(&id, true).await.ok();
+            return Err(e);
+        }
+
+        match wait_handle.await? {
+            Ok(_) => Ok(()),
+            Err(Error::DockerContainerWaitError { code, .. }) => {
+                Err(format!("{}: one-shot command failed (exit {})", name, code).into())
+            }
+            Err(e) => Err(e.into()),
+        }
     }
 }

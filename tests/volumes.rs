@@ -285,14 +285,19 @@ async fn data_file_modes_ownership_and_eols() {
     let script_vol = format!("rooz-{}-script", key);
     let plain_vol = format!("rooz-{}-plain", key);
 
-    // executable entries get +x; owner is the workspace uid (default 1000).
-    // Pins current behavior: the populate one-shot runs with umask 000, so
-    // files come out world-writable (666/777 instead of 644/755).
+    // executable entries are 755, plain files 644; owner is the workspace uid
+    // (default 1000)
     assert_eq!(
         env.volume_stat(&script_vol, "script.data").await,
-        "777 1000"
+        "755 1000"
     );
-    assert_eq!(env.volume_stat(&plain_vol, "plain.data").await, "666 1000");
+    assert_eq!(env.volume_stat(&plain_vol, "plain.data").await, "644 1000");
+
+    // the volume root dir must be workspace-user writable
+    assert!(
+        env.volume_stat(&plain_vol, ".").await.ends_with(" 1000"),
+        "volume root dir not owned by the workspace uid"
+    );
 
     // content must round-trip byte-exact: empty lines and the trailing EOL preserved
     assert_eq!(
@@ -364,12 +369,10 @@ async fn sidecar_mount_populates_data_volume() {
     cleanup(&env, &key, &cfg_path);
 }
 
-// Reproduces the argv-size limit (E2BIG): file content travels base64-encoded
-// inside a single `sh -c` argument, capped at 128KiB by the kernel
-// (MAX_ARG_STRLEN). The generator keeps the config body itself small so this
+// Content beyond the kernel argv-size limit (128KiB MAX_ARG_STRLEN) must
+// round-trip; the generator keeps the config body itself small so this
 // exercises only the v2 populate path.
 #[tokio::test]
-#[ignore = "known failure: E2BIG on large content — unignore with the put_archive migration"]
 async fn large_generated_data_file() {
     let Some(env) = TestEnv::from_env() else {
         return;
@@ -415,10 +418,11 @@ async fn workspace_config_volume_stores_body() {
     // pins current v1 behavior: the body is trimmed before storing
     assert_eq!(stored, body.trim());
 
-    // Pins current behavior: root-owned and, due to umask 000 in the populate
-    // one-shot, world-writable.
     let stat = env.volume_stat(&vol, "workspace.config").await;
-    assert_eq!(stat, "666 0");
+    assert_eq!(
+        stat, "644 0",
+        "config files are root-owned, not world-writable"
+    );
 
     cleanup(&env, &key, &cfg_path);
 }
@@ -441,10 +445,10 @@ async fn system_config_volume_stores_rooz_config() {
     );
 }
 
-// Reproduces the user-facing E2BIG on `populate volume: rooz-*-workspace-config`:
-// the whole config body is base64-encoded into a single `sh -c` argument.
+// The whole config body used to be base64-encoded into a single `sh -c`
+// argument, failing with E2BIG on `populate volume: rooz-*-workspace-config`
+// for bodies beyond ~72KB.
 #[tokio::test]
-#[ignore = "known failure: E2BIG on large config body — unignore with the put_archive migration"]
 async fn large_workspace_config_body() {
     let Some(env) = TestEnv::from_env() else {
         return;
