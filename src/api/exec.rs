@@ -18,19 +18,25 @@ use tokio::{
 };
 
 async fn collect(stream: impl Stream<Item = Result<LogOutput, Error>>) -> Result<String, AnyError> {
-    let out = stream
-        .map(|x| match x {
-            Ok(r) => std::str::from_utf8(r.into_bytes().as_ref())
-                .unwrap()
-                .to_string(),
-            Err(err) => panic!("{}", err),
-        })
-        .collect::<Vec<_>>()
-        .await
-        .join("");
+    let mut stream = std::pin::pin!(stream);
+    let mut out: Vec<u8> = Vec::new();
 
-    let trimmed = out.trim();
-    Ok(trimmed.to_string())
+    while let Some(item) = stream.next().await {
+        match item {
+            // IMPORTANT: stdout is returned byte-exact (no trimming, no tty
+            // CRLF translation) so generated file content round-trips
+            Ok(LogOutput::StdOut { message }) | Ok(LogOutput::Console { message }) => {
+                out.extend_from_slice(&message)
+            }
+            Ok(LogOutput::StdErr { message }) => {
+                log::debug!("stderr | {}", String::from_utf8_lossy(&message).trim_end())
+            }
+            Ok(_) => {}
+            Err(err) => return Err(err.into()),
+        }
+    }
+
+    Ok(String::from_utf8(out)?)
 }
 
 async fn log(stream: impl Stream<Item = Result<LogOutput, Error>>) -> Result<(), AnyError> {
@@ -154,6 +160,7 @@ impl<'a> ExecApi<'a> {
         working_dir: Option<&str>,
         user: Option<&str>,
         cmd: Option<Vec<&str>>,
+        interactive: bool,
     ) -> Result<String, AnyError> {
         #[cfg(not(windows))]
         {
@@ -171,8 +178,8 @@ impl<'a> ExecApi<'a> {
                     CreateExecOptions {
                         attach_stdout: Some(true),
                         attach_stderr: Some(true),
-                        attach_stdin: Some(true),
-                        tty: Some(true),
+                        attach_stdin: Some(interactive),
+                        tty: Some(interactive),
                         cmd,
                         working_dir,
                         user,
@@ -193,7 +200,7 @@ impl<'a> ExecApi<'a> {
         cmd: Option<Vec<&str>>,
     ) -> Result<(), AnyError> {
         let exec_id = self
-            .create_exec(reason, container_id, working_dir, user, cmd)
+            .create_exec(reason, container_id, working_dir, user, cmd, true)
             .await?;
 
         self.start_tty(&exec_id).await
@@ -207,7 +214,7 @@ impl<'a> ExecApi<'a> {
         cmd: Option<Vec<&str>>,
     ) -> Result<String, AnyError> {
         let exec_id = self
-            .create_exec(reason, container_id, None, user, cmd)
+            .create_exec(reason, container_id, None, user, cmd, false)
             .await?;
         if let StartExecResults::Attached { output, .. } =
             self.client.start_exec(&exec_id, None).await?
@@ -226,16 +233,25 @@ impl<'a> ExecApi<'a> {
         cmd: Option<Vec<&str>>,
     ) -> Result<(), AnyError> {
         let exec_id = self
-            .create_exec(reason, container_id, None, user, cmd)
+            .create_exec(reason, container_id, None, user, cmd, false)
             .await?;
         if let StartExecResults::Attached { output, .. } =
             self.client.start_exec(&exec_id, None).await?
         {
             log(output).await?;
-            Ok(())
         } else {
             panic!("Could not start exec");
         }
+
+        if let ExecInspectResponse {
+            exit_code: Some(exit_code),
+            ..
+        } = self.client.inspect_exec(&exec_id).await?
+            && exit_code != 0
+        {
+            return Err(format!("{}: exec failed with exit code {}", reason, exit_code).into());
+        }
+        Ok(())
     }
 
     pub async fn install(
@@ -265,31 +281,11 @@ echo '[install] {}: {}'
             );
             let install_cmd = inject(cmd.as_str(), &format!("install-{}.sh", idx));
             let v = install_cmd.iter().map(|x| x.as_str()).collect::<Vec<_>>();
-            let exec_id = self
-                .create_exec(
-                    "install",
-                    container_id,
-                    None,
-                    Some(constants::ROOT_UID),
-                    Some(v),
-                )
-                .await?;
-            self.start_tty(&exec_id).await.map_err(|e| -> AnyError {
-                format!("install step '{}' failed: {}", name, e).into()
-            })?;
-            if let ExecInspectResponse {
-                exit_code: Some(exit_code),
-                ..
-            } = self.client.inspect_exec(&exec_id).await?
-            {
-                if exit_code != 0 {
-                    return Err(format!(
-                        "install step '{}' failed with exit code {}",
-                        name, exit_code
-                    )
-                    .into());
-                }
-            }
+            self.run("install", container_id, Some(constants::ROOT_UID), Some(v))
+                .await
+                .map_err(|e| -> AnyError {
+                    format!("install step '{}' failed: {}", name, e).into()
+                })?;
         }
         Ok(())
     }

@@ -342,10 +342,27 @@ async fn generated_multiline_data_file() {
 
     let vol = format!("rooz-{}-genml", key);
     let content = env.volume_file(&vol, "genml.data").await;
-    // Pins current behavior: generator output is captured through a tty exec
-    // (LF becomes CRLF) and trimmed (trailing EOL lost). Inline content is
-    // preserved byte-exact; generated content is not.
-    assert_eq!(content, "l1\r\nl2");
+    // generated content must round-trip byte-exact, same as inline content
+    assert_eq!(content, "l1\nl2\n");
+
+    cleanup(&env, &key, &cfg_path);
+}
+
+#[tokio::test]
+async fn generated_data_file_excludes_stderr() {
+    let Some(env) = TestEnv::from_env() else {
+        return;
+    };
+    let key = unique_key("vol-generr");
+    let cfg_path = write_cfg(
+        &key,
+        "data:\n  gen:\n    generate: echo warning >&2 && printf clean-output\nmounts:\n  ~/gen: gen\n",
+    );
+
+    new_workspace(&env, &key, &cfg_path);
+
+    let vol = format!("rooz-{}-gen", key);
+    assert_eq!(env.volume_file(&vol, "gen.data").await, "clean-output");
 
     cleanup(&env, &key, &cfg_path);
 }
