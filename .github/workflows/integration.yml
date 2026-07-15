@@ -66,6 +66,7 @@ jobs:
             --test volumes \
             --test sidecars \
             --test networks \
+            --test interactive \
             -- --test-threads=1
 
       - name: Stop daemon

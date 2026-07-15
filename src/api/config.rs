@@ -82,7 +82,7 @@ impl<'a> ConfigApi<'a> {
             .one_shot_output(
                 "read-workspace-config",
                 format!(
-                    "ls /etc/rooz/{} > /dev/null 2>&1 && cat /etc/rooz/{} || echo ''",
+                    "ls /etc/rooz/{} > /dev/null 2>&1 && cat /etc/rooz/{} || true",
                     config_path, config_path
                 )
                 .into(),

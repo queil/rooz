@@ -12,7 +12,7 @@ impl<'a> Api<'a> {
             .container
             .one_shot_output(
                 "read-sys-config",
-                "ls /tmp/sys/rooz.config > /dev/null 2>&1 && cat /tmp/sys/rooz.config || echo ''"
+                "ls /tmp/sys/rooz.config > /dev/null 2>&1 && cat /tmp/sys/rooz.config || true"
                     .into(),
                 Some(vec![
                     RoozVolume::system_config_read("/tmp/sys").to_mount(None),

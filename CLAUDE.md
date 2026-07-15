@@ -14,7 +14,7 @@ This workspace runs in a restricted container (rooz with podman backend):
 Run locally, straight against `dkr` (no dind):
 
 ```sh
-cargo test --test smoke --test lifecycle --test volumes --test sidecars --test networks -- --test-threads=1
+cargo test --test smoke --test lifecycle --test volumes --test sidecars --test networks --test interactive -- --test-threads=1
 ```
 
 This works because a gitignored `.cargo/config.toml` supplies the test env. Recreate it if missing:
