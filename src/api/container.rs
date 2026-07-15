@@ -652,9 +652,6 @@ echo start > /tmp/exec_start
             .await
             .map(|r| r.id().to_string())?;
 
-        // subscribed before start so the exit can't be missed; once the
-        // container is started auto-remove (RunMode::OneShot) owns cleanup -
-        // until then failures must remove the created container manually
         let client = self.client.clone();
         let wait_id = id.clone();
         let wait_handle = tokio::spawn(async move {
