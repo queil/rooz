@@ -612,7 +612,7 @@ mod tests {
     }
 
     #[test]
-    fn real_mounts_file_has_shadow_path_and_user_path() {
+    fn real_mounts_file_has_file_name_and_user_path() {
         let mut mounts = HashMap::new();
         mounts.insert(
             TargetPath("~/.myconfig".to_string()),
@@ -663,31 +663,6 @@ mod tests {
             real.contains_key(&TargetDir("~/.myconfig".to_string())),
             "without a home dir the tilde must be left as-is"
         );
-    }
-
-    #[test]
-    fn real_mounts_file_keeps_entry_name() {
-        // files keep the entry name verbatim so entries like
-        // 'app.yaml' and 'app.json' cannot collide
-        let mut mounts = HashMap::new();
-        mounts.insert(
-            TargetPath("/etc/app.yaml".to_string()),
-            DataEntryVolumeSpec {
-                data: DataEntry::File {
-                    name: "app.yaml".to_string(),
-                    generator: ContentGenerator::Inline("content".to_string()),
-                    executable: false,
-                },
-                volume: VolumeSpec {
-                    name: "rooz-ws-inline".to_string(),
-                    labels: None,
-                },
-            },
-        );
-
-        let real = VolumeApi::real_mounts(mounts, None);
-        let entry = real.get(&TargetDir("/etc/app.yaml".to_string())).unwrap();
-        assert_eq!(entry.files[0].file_name.as_str(), "app.yaml");
     }
 
     #[test]
