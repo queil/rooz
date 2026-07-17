@@ -203,8 +203,8 @@ async fn inline_data_content_written_to_volume() {
         data_vol
     );
 
-    // Content is written at greeting.data inside the volume (shadow-path convention).
-    let content = env.volume_file(&data_vol, "greeting.data").await;
+    // Content is written under the entry name inside the volume.
+    let content = env.volume_file(&data_vol, "greeting").await;
     assert_eq!(
         content.trim(),
         "hello from rooz",
@@ -255,14 +255,14 @@ async fn inline_mounts_share_inline_volume() {
     new_workspace(&env, &key, &cfg_path);
 
     // Both inline mounts land in the shared inline volume; file names are
-    // sanitized target paths (shadow-path convention).
+    // sanitized target paths.
     let inline_vol = format!("rooz-{}-inline", key);
     assert_eq!(
-        env.volume_file(&inline_vol, "---cfg-a.data").await,
+        env.volume_file(&inline_vol, "---cfg-a").await,
         "content-a\n"
     );
     assert_eq!(
-        env.volume_file(&inline_vol, "---cfg-b.data").await,
+        env.volume_file(&inline_vol, "---cfg-b").await,
         "content-b\n"
     );
 
@@ -287,11 +287,8 @@ async fn data_file_modes_ownership_and_eols() {
 
     // executable entries are 755, plain files 644; owner is the workspace uid
     // (default 1000)
-    assert_eq!(
-        env.volume_stat(&script_vol, "script.data").await,
-        "755 1000"
-    );
-    assert_eq!(env.volume_stat(&plain_vol, "plain.data").await, "644 1000");
+    assert_eq!(env.volume_stat(&script_vol, "script").await, "755 1000");
+    assert_eq!(env.volume_stat(&plain_vol, "plain").await, "644 1000");
 
     // the volume root dir must be workspace-user writable
     assert!(
@@ -301,7 +298,7 @@ async fn data_file_modes_ownership_and_eols() {
 
     // content must round-trip byte-exact: empty lines and the trailing EOL preserved
     assert_eq!(
-        env.volume_file(&plain_vol, "plain.data").await,
+        env.volume_file(&plain_vol, "plain").await,
         "line1\n\nline3\n"
     );
 
@@ -322,7 +319,7 @@ async fn generated_data_file_content() {
     new_workspace(&env, &key, &cfg_path);
 
     let gen_vol = format!("rooz-{}-gen", key);
-    assert_eq!(env.volume_file(&gen_vol, "gen.data").await, "gen-output");
+    assert_eq!(env.volume_file(&gen_vol, "gen").await, "gen-output");
 
     cleanup(&env, &key, &cfg_path);
 }
@@ -341,7 +338,7 @@ async fn generated_multiline_data_file() {
     new_workspace(&env, &key, &cfg_path);
 
     let vol = format!("rooz-{}-genml", key);
-    let content = env.volume_file(&vol, "genml.data").await;
+    let content = env.volume_file(&vol, "genml").await;
     // generated content must round-trip byte-exact, same as inline content
     assert_eq!(content, "l1\nl2\n");
 
@@ -362,7 +359,7 @@ async fn generated_data_file_excludes_stderr() {
     new_workspace(&env, &key, &cfg_path);
 
     let vol = format!("rooz-{}-gen", key);
-    assert_eq!(env.volume_file(&vol, "gen.data").await, "clean-output");
+    assert_eq!(env.volume_file(&vol, "gen").await, "clean-output");
 
     cleanup(&env, &key, &cfg_path);
 }
@@ -381,7 +378,7 @@ async fn sidecar_mount_populates_data_volume() {
     new_workspace(&env, &key, &cfg_path);
 
     let vol = format!("rooz-{}-svc-cfg", key);
-    assert_eq!(env.volume_file(&vol, "svc-cfg.data").await, "svc-config\n");
+    assert_eq!(env.volume_file(&vol, "svc-cfg").await, "svc-config\n");
 
     cleanup(&env, &key, &cfg_path);
 }
@@ -403,7 +400,7 @@ async fn large_generated_data_file() {
     new_workspace(&env, &key, &cfg_path);
 
     let vol = format!("rooz-{}-big", key);
-    let content = env.volume_file(&vol, "big.data").await;
+    let content = env.volume_file(&vol, "big").await;
     assert_eq!(content.len(), 200000);
     assert!(content.chars().all(|c| c == 'x'));
 
@@ -432,8 +429,7 @@ async fn workspace_config_volume_stores_body() {
 
     let vol = format!("rooz-{}-workspace-config", key);
     let stored = env.volume_file(&vol, "workspace.config").await;
-    // pins current v1 behavior: the body is trimmed before storing
-    assert_eq!(stored, body.trim());
+    assert_eq!(stored, body, "config body must be stored byte-exact");
 
     let stat = env.volume_stat(&vol, "workspace.config").await;
     assert_eq!(
@@ -488,7 +484,7 @@ async fn large_workspace_config_body() {
 
     let vol = format!("rooz-{}-workspace-config", key);
     let stored = env.volume_file(&vol, "workspace.config").await;
-    assert_eq!(stored, body.trim());
+    assert_eq!(stored, body);
 
     cleanup(&env, &key, &cfg_path);
 }

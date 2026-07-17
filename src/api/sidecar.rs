@@ -39,16 +39,16 @@ impl<'a> WorkspaceApi<'a> {
 
             let mounts: HashMap<String, MountSource> = s.mounts.clone();
 
-            let volumes_v2 = VolumeApi::create_volume_specs(
+            let volume_specs = VolumeApi::create_volume_specs(
                 workspace_key,
                 &config.data,
                 &config.all_mounts(),
                 false,
             );
 
-            self.api.volume.ensure_volumes_v2(&volumes_v2).await?;
+            self.api.volume.ensure_volumes(&volume_specs).await?;
 
-            let mut mounts_v2 = Vec::new();
+            let mut container_mounts = Vec::new();
 
             let mounts_all = mounts
                 .iter()
@@ -58,13 +58,14 @@ impl<'a> WorkspaceApi<'a> {
             let mounts_config =
                 self.api
                     .volume
-                    .mounts_with_sources(&volumes_v2, &mounts_all, false);
+                    .mounts_with_sources(&volume_specs, &mounts_all, false);
 
             //TODO: not setting home dir as it depends on the user. When using uid the user might not
             // exist so it hard to make it work predictably. Consider marking as not supported by design
-            let real_mounts = VolumeApi::real_mounts_v2(mounts_config.clone(), None);
+            let real_mounts = VolumeApi::real_mounts(mounts_config.clone(), None);
 
-            mounts_v2.extend_from_slice(self.api.volume.mounts_v2(&real_mounts).await?.as_slice());
+            container_mounts
+                .extend_from_slice(self.api.volume.mounts(&real_mounts).await?.as_slice());
 
             for (t, m) in real_mounts.clone() {
                 s.real_mounts.insert(t.clone(), m.clone());
@@ -116,7 +117,7 @@ impl<'a> WorkspaceApi<'a> {
                 } else {
                     Some(args.clone())
                 },
-                mounts: Some(mounts_v2),
+                mounts: Some(container_mounts),
                 ports: Some(ports),
                 work_dir: Some(s.work_dir.as_str()),
                 run_mode: RunMode::Sidecar,

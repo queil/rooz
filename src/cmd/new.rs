@@ -90,7 +90,7 @@ impl<'a> WorkspaceApi<'a> {
             .ensure(&cfg.image, cli_params.pull_image)
             .await?;
 
-        let volumes_v2 =
+        let volume_specs =
             VolumeApi::create_volume_specs(workspace_key, &cfg.data, &cfg.all_mounts(), true);
 
         let mounts_all = &cfg
@@ -99,15 +99,15 @@ impl<'a> WorkspaceApi<'a> {
             .map(|(target, source)| (target.to_string(), source.resolve_key(target)))
             .collect::<HashMap<String, String>>();
 
-        let volume_results = self.api.volume.ensure_volumes_v2(&volumes_v2).await?;
+        let volume_results = self.api.volume.ensure_volumes(&volume_specs).await?;
 
         let home_dir = format!("/home/{}", &cfg.user);
         let mounts_config = self
             .api
             .volume
-            .mounts_with_sources(&volumes_v2, mounts_all, true);
+            .mounts_with_sources(&volume_specs, mounts_all, true);
 
-        let real_mounts = VolumeApi::real_mounts_v2(mounts_config.clone(), Some(&home_dir));
+        let real_mounts = VolumeApi::real_mounts(mounts_config.clone(), Some(&home_dir));
 
         let cfg = RuntimeConfig {
             real_mounts: real_mounts.clone(),
@@ -116,7 +116,7 @@ impl<'a> WorkspaceApi<'a> {
 
         let mut cfg2 = cfg.clone();
 
-        let mounts_v2 = self.api.volume.mounts_v2(&real_mounts).await?;
+        let container_mounts = self.api.volume.mounts(&real_mounts).await?;
         for (_, m) in real_mounts.clone() {
             //TODO: when initializing volumes both here in sidecars we should verify
             // if each file exists and if not create them
@@ -190,7 +190,7 @@ impl<'a> WorkspaceApi<'a> {
             })
             .as_ref()
             .map(|x| x.iter().map(|z| z.as_ref()).collect()),
-            mounts: mounts_v2,
+            mounts: container_mounts,
             install: cfg2.install,
             ..*work_spec
         };

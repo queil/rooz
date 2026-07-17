@@ -31,7 +31,7 @@ impl<'a> WorkspaceApi<'a> {
         let mut mounts = self
             .api
             .volume
-            .ensure_mounts(&volumes, Some(&home_dir), Some(&spec.uid))
+            .ensure_mounts(&volumes, Some(&home_dir))
             .await?;
 
         mounts.push(ssh::mount(

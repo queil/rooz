@@ -7,6 +7,7 @@ pub const ROOT_UID: &'static str = "0";
 pub const ROOT_UID_INT: i32 = 0;
 pub const ROOT_USER: &'static str = "root";
 pub const WORK_DIR: &'static str = "/work";
+pub const SYSTEM_CONFIG_FILE: &'static str = "rooz.config";
 pub fn default_command<'a>() -> Option<Vec<&'a str>> {
     Some(vec!["cat"])
 }

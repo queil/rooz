@@ -1,10 +1,9 @@
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
 
 use crate::config::config::{DataEntry, DataExt, DataValue, MountSource};
 use crate::model::types::{
-    ContentGenerator, DataEntryKey, DataEntryVolumeSpec, FileSpec, OneShotResult, TargetDir,
-    TargetFile, TargetPath, UserFile, VolumeFilesSpec, VolumeName, VolumeSpec,
+    ContentGenerator, DataEntryKey, DataEntryVolumeSpec, FileName, FileSpec, OneShotResult,
+    TargetDir, TargetPath, UserFile, VolumeFilesSpec, VolumeName, VolumeSpec,
 };
 use crate::util::id;
 use crate::util::labels::DATA_ROLE;
@@ -13,7 +12,7 @@ use crate::{
     constants,
     model::{
         types::{AnyError, VolumeResult},
-        volume::{RoozVolume, RoozVolumeFile},
+        volume::{RoozVolume, VolumeFile},
     },
     util::labels::Labels,
 };
@@ -26,13 +25,8 @@ use bollard::{
 use bollard_stubs::models::MountType::VOLUME;
 use bollard_stubs::models::VolumeCreateRequest;
 
-const SHADOW_ROOT_DIR: &str = "/var/lib/rooz";
-
-struct TarFile {
-    path: String,
-    content: String,
-    executable: bool,
-}
+// where the volume gets mounted inside the populate one-shot container
+const POPULATE_DIR: &str = "/var/lib/rooz";
 
 impl<'a> VolumeApi<'a> {
     pub async fn get_all(&self, labels: &Labels) -> Result<Vec<Volume>, AnyError> {
@@ -79,7 +73,7 @@ impl<'a> VolumeApi<'a> {
         }
     }
 
-    pub async fn ensure_volume_v2(&self, spec: &VolumeSpec) -> Result<VolumeResult, AnyError> {
+    pub async fn ensure_volume(&self, spec: &VolumeSpec) -> Result<VolumeResult, AnyError> {
         match self.client.inspect_volume(&spec.name).await {
             Ok(_) => {
                 log::debug!("Reusing an existing {} volume", &spec.name);
@@ -252,7 +246,7 @@ impl<'a> VolumeApi<'a> {
             .collect::<HashMap<_, _>>()
     }
 
-    pub fn real_mounts_v2(
+    pub fn real_mounts(
         mounts: HashMap<TargetPath, DataEntryVolumeSpec>,
         home_dir: Option<&str>,
     ) -> HashMap<TargetDir, VolumeFilesSpec> {
@@ -265,21 +259,15 @@ impl<'a> VolumeApi<'a> {
                         generator,
                         executable,
                         ..
-                    } => {
-                        let shadow_file = Path::new(SHADOW_ROOT_DIR)
-                            .join(&source_entry.data.clone().name())
-                            .with_extension("data");
-
-                        (
-                            expanded_target.clone(),
-                            Some(FileSpec {
-                                target_file: TargetFile(shadow_file.to_string_lossy().to_string()),
-                                user_file: UserFile(expanded_target),
-                                generator,
-                                executable,
-                            }),
-                        )
-                    }
+                    } => (
+                        expanded_target.clone(),
+                        Some(FileSpec {
+                            file_name: FileName(source_entry.data.clone().name()),
+                            user_file: UserFile(expanded_target),
+                            generator,
+                            executable,
+                        }),
+                    ),
                     _ => (expanded_target, None),
                 };
                 (
@@ -302,7 +290,7 @@ impl<'a> VolumeApi<'a> {
                 },
             )
     }
-    pub async fn ensure_volumes_v2(
+    pub async fn ensure_volumes(
         &self,
         data_entries: &HashMap<DataEntryKey, DataEntryVolumeSpec>,
     ) -> Result<HashMap<VolumeName, VolumeResult>, AnyError> {
@@ -312,7 +300,7 @@ impl<'a> VolumeApi<'a> {
             .map(|(_, v)| (v.volume.name.clone(), v.volume.clone()))
             .collect::<HashMap<_, _>>()
         {
-            let volume_result = self.ensure_volume_v2(&v).await?;
+            let volume_result = self.ensure_volume(&v).await?;
             result.insert(VolumeName(k), volume_result);
         }
         Ok(result)
@@ -323,9 +311,9 @@ impl<'a> VolumeApi<'a> {
         volume_file: VolumeFilesSpec,
         uid: Option<i32>,
     ) -> Result<(), AnyError> {
-        let populate_target = TargetDir(SHADOW_ROOT_DIR.to_string());
-        self.ensure_file_v2(
-            SHADOW_ROOT_DIR,
+        let populate_target = TargetDir(POPULATE_DIR.to_string());
+        self.ensure_files(
+            POPULATE_DIR,
             &volume_file.clone(),
             Self::populate_mount(&populate_target, &volume_file),
             uid,
@@ -341,13 +329,10 @@ impl<'a> VolumeApi<'a> {
             target.as_str()
         );
 
-        let subpath = source.files.first().map(|f| {
-            Path::new(f.target_file.as_str())
-                .file_name()
-                .unwrap()
-                .to_string_lossy()
-                .into_owned()
-        });
+        let subpath = source
+            .files
+            .first()
+            .map(|f| f.file_name.as_str().to_string());
 
         Mount {
             target: Some(target.as_str().to_string()),
@@ -372,14 +357,14 @@ impl<'a> VolumeApi<'a> {
         }
     }
 
-    pub async fn mounts_v2(
+    pub async fn mounts(
         &self,
         real_mounts: &HashMap<TargetDir, VolumeFilesSpec>,
     ) -> Result<Vec<Mount>, AnyError> {
         let mut mount_entries = HashMap::new();
         mount_entries.extend(real_mounts.clone());
 
-        let mounts_v2 = mount_entries
+        let mounts = mount_entries
             .into_iter()
             .map(|(target, source)| Self::mount(&target, &source))
             .map(|v| (v.target.clone().unwrap().to_string(), v.clone()))
@@ -387,80 +372,36 @@ impl<'a> VolumeApi<'a> {
             .into_values()
             .collect::<Vec<_>>();
 
-        Ok(mounts_v2)
-    }
-
-    pub async fn ensure_volume(
-        &self,
-        name: &str,
-        force_recreate: bool,
-        labels: Option<Labels>,
-    ) -> Result<VolumeResult, AnyError> {
-        let create_vol_options = VolumeCreateRequest {
-            name: Some(name.into()),
-            labels: labels.map(|x| x.into()),
-            ..Default::default()
-        };
-
-        match self.client.inspect_volume(&name).await {
-            Ok(_) if force_recreate => {
-                let options = RemoveVolumeOptions { force: true };
-                self.client.remove_volume(&name, Some(options)).await?;
-                self.create_volume(create_vol_options).await
-            }
-            Ok(_) => {
-                log::debug!("Reusing an existing {} volume", &name);
-                Ok(VolumeResult::AlreadyExists)
-            }
-            Err(DockerResponseServerError {
-                status_code: 404,
-                message: _,
-            }) => self.create_volume(create_vol_options).await,
-            Err(e) => panic!("{}", e),
-        }
+        Ok(mounts)
     }
 
     pub async fn ensure_mounts(
         &self,
         volumes: &Vec<RoozVolume>,
         tilde_replacement: Option<&str>,
-        uid: Option<&str>,
     ) -> Result<Vec<Mount>, AnyError> {
         let mut mounts = vec![];
         for v in volumes {
-            let mount = self
-                .ensure_mount(&v, tilde_replacement, v.labels.clone())
-                .await?;
-            if let RoozVolume {
-                path,
-                files: Some(files),
-                ..
-            } = v
-            {
-                self.ensure_file(&v.safe_volume_name(), path, &files, mount.clone(), uid)
-                    .await?
-            };
-
-            mounts.push(mount);
+            log::debug!("Process volume: {:?}", &v);
+            self.ensure_volume(&v.to_spec()).await?;
+            mounts.push(v.to_mount(tilde_replacement));
         }
-        Ok(mounts.clone())
+        Ok(mounts)
     }
 
-    async fn ensure_mount(
+    pub async fn write_files(
         &self,
         volume: &RoozVolume,
-        tilde_replacement: Option<&str>,
-        labels: Option<Labels>,
-    ) -> Result<Mount, AnyError> {
-        log::debug!("Process volume: {:?}", &volume);
-        let mount = volume.to_mount(tilde_replacement);
-        if let Some(name) = &mount.source {
-            self.ensure_volume(&name, false, labels).await?;
-        }
-        Ok(mount)
+        files: &[VolumeFile],
+        uid: Option<i32>,
+    ) -> Result<(), AnyError> {
+        let spec = volume.to_spec();
+        self.ensure_volume(&spec).await?;
+        self.populate(&spec.name, &volume.path, files, volume.to_mount(None), uid)
+            .await
     }
 
-    fn files_tar(files: &[TarFile], uid: Option<i32>) -> Result<Vec<u8>, AnyError> {
+    fn files_tar(files: &[VolumeFile], uid: Option<i32>) -> Result<Vec<u8>, AnyError> {
         let mut builder = tar::Builder::new(Vec::new());
         for f in files {
             let mut header = tar::Header::new_gnu();
@@ -478,7 +419,7 @@ impl<'a> VolumeApi<'a> {
         &self,
         volume_name: &str,
         root_dir: &str,
-        files: &[TarFile],
+        files: &[VolumeFile],
         mount: Mount,
         uid: Option<i32>,
     ) -> Result<(), AnyError> {
@@ -512,7 +453,7 @@ impl<'a> VolumeApi<'a> {
             .await
     }
 
-    async fn ensure_file_v2(
+    async fn ensure_files(
         &self,
         root_dir: &str,
         spec: &VolumeFilesSpec,
@@ -548,11 +489,8 @@ impl<'a> VolumeApi<'a> {
                 }
             };
 
-            tar_files.push(TarFile {
-                path: Path::new(f.target_file.as_str())
-                    .strip_prefix(root_dir)?
-                    .to_string_lossy()
-                    .into_owned(),
+            tar_files.push(VolumeFile {
+                path: f.file_name.as_str().to_string(),
                 // IMPORTANT: never trim content so YAML multi-line strings are respected and can
                 // control whitespace and most importantly EOLs
                 content,
@@ -563,29 +501,6 @@ impl<'a> VolumeApi<'a> {
         self.populate(spec.volume_name.as_str(), root_dir, &tar_files, mount, uid)
             .await
     }
-
-    async fn ensure_file(
-        &self,
-        volume_name: &str,
-        parent_dir: &str,
-        files: &Vec<RoozVolumeFile>,
-        mount: Mount,
-        uid: Option<&str>,
-    ) -> Result<(), AnyError> {
-        let tar_files = files
-            .iter()
-            .map(|f| TarFile {
-                path: f.file_path.to_string(),
-                content: f.data.trim().to_string(),
-                executable: false,
-            })
-            .collect::<Vec<_>>();
-
-        let uid = uid.map(|u| u.parse::<i32>()).transpose()?;
-
-        self.populate(volume_name, parent_dir, &tar_files, mount, uid)
-            .await
-    }
 }
 
 #[cfg(test)]
@@ -593,9 +508,10 @@ mod tests {
     use crate::api::VolumeApi;
     use crate::config::config::{DataEntry, DataValue, MountSource};
     use crate::model::types::{
-        ContentGenerator, DataEntryKey, DataEntryVolumeSpec, FileSpec, TargetDir, TargetFile,
+        ContentGenerator, DataEntryKey, DataEntryVolumeSpec, FileName, FileSpec, TargetDir,
         TargetPath, UserFile, VolumeFilesSpec, VolumeName, VolumeSpec,
     };
+    use crate::model::volume::VolumeFile;
     use std::collections::HashMap;
 
     fn dir() -> DataValue {
@@ -689,7 +605,7 @@ mod tests {
             },
         );
 
-        let real = VolumeApi::real_mounts_v2(mounts, None);
+        let real = VolumeApi::real_mounts(mounts, None);
         let entry = real.get(&TargetDir("/work".to_string())).unwrap();
         assert_eq!(entry.volume_name.as_str(), "rooz-ws-work");
         assert!(entry.files.is_empty());
@@ -713,7 +629,7 @@ mod tests {
             },
         );
 
-        let real = VolumeApi::real_mounts_v2(mounts, Some("/home/user"));
+        let real = VolumeApi::real_mounts(mounts, Some("/home/user"));
         let entry = real
             .get(&TargetDir("/home/user/.myconfig".to_string()))
             .unwrap();
@@ -721,7 +637,7 @@ mod tests {
         assert_eq!(entry.files.len(), 1);
         let f = &entry.files[0];
         assert_eq!(f.user_file.as_str(), "/home/user/.myconfig");
-        assert_eq!(f.target_file.as_str(), "/var/lib/rooz/myconfig.data");
+        assert_eq!(f.file_name.as_str(), "myconfig");
     }
 
     #[test]
@@ -742,7 +658,7 @@ mod tests {
             },
         );
 
-        let real = VolumeApi::real_mounts_v2(mounts, None);
+        let real = VolumeApi::real_mounts(mounts, None);
         assert!(
             real.contains_key(&TargetDir("~/.myconfig".to_string())),
             "without a home dir the tilde must be left as-is"
@@ -750,9 +666,9 @@ mod tests {
     }
 
     #[test]
-    fn real_mounts_shadow_path_replaces_existing_extension() {
-        // known wart: .with_extension("data") replaces an existing extension,
-        // so entries 'app.yaml' and 'app.json' collide on /var/lib/rooz/app.data
+    fn real_mounts_file_keeps_entry_name() {
+        // files keep the entry name verbatim so entries like
+        // 'app.yaml' and 'app.json' cannot collide
         let mut mounts = HashMap::new();
         mounts.insert(
             TargetPath("/etc/app.yaml".to_string()),
@@ -769,12 +685,9 @@ mod tests {
             },
         );
 
-        let real = VolumeApi::real_mounts_v2(mounts, None);
+        let real = VolumeApi::real_mounts(mounts, None);
         let entry = real.get(&TargetDir("/etc/app.yaml".to_string())).unwrap();
-        assert_eq!(
-            entry.files[0].target_file.as_str(),
-            "/var/lib/rooz/app.data"
-        );
+        assert_eq!(entry.files[0].file_name.as_str(), "app.yaml");
     }
 
     #[test]
@@ -794,7 +707,7 @@ mod tests {
         mounts.insert(TargetPath("/etc/file-a".to_string()), spec("file-a"));
         mounts.insert(TargetPath("/etc/file-b".to_string()), spec("file-b"));
 
-        let real = VolumeApi::real_mounts_v2(mounts, None);
+        let real = VolumeApi::real_mounts(mounts, None);
         assert_eq!(real.len(), 2);
         for entry in real.values() {
             assert_eq!(entry.volume_name.as_str(), "rooz-ws-inline");
@@ -841,7 +754,7 @@ mod tests {
         let spec = VolumeFilesSpec {
             volume_name: VolumeName("rooz-ws-inline".to_string()),
             files: vec![FileSpec {
-                target_file: TargetFile("/var/lib/rooz/myconfig.data".to_string()),
+                file_name: FileName("myconfig".to_string()),
                 user_file: UserFile("/home/user/.myconfig".to_string()),
                 generator: ContentGenerator::Inline("x".to_string()),
                 executable: false,
@@ -853,7 +766,7 @@ mod tests {
         assert_eq!(m.target.as_deref(), Some("/home/user/.myconfig"));
         assert_eq!(m.source.as_deref(), Some("rooz-ws-inline"));
         let subpath = m.volume_options.expect("volume options expected").subpath;
-        assert_eq!(subpath.as_deref(), Some("myconfig.data"));
+        assert_eq!(subpath.as_deref(), Some("myconfig"));
     }
 
     #[test]
@@ -893,12 +806,12 @@ mod tests {
     #[test]
     fn files_tar_roundtrip() {
         let files = vec![
-            super::TarFile {
+            VolumeFile {
                 path: "plain.data".to_string(),
                 content: "line1\n\nline3\n".to_string(),
                 executable: false,
             },
-            super::TarFile {
+            VolumeFile {
                 path: "script.data".to_string(),
                 content: "#!/bin/sh\necho hi\n".to_string(),
                 executable: true,
@@ -923,7 +836,7 @@ mod tests {
 
     #[test]
     fn files_tar_defaults_to_root_ownership() {
-        let files = vec![super::TarFile {
+        let files = vec![VolumeFile {
             path: "cfg".to_string(),
             content: "x".to_string(),
             executable: false,
@@ -939,7 +852,7 @@ mod tests {
         let spec = VolumeFilesSpec {
             volume_name: VolumeName("rooz-ws-inline".to_string()),
             files: vec![FileSpec {
-                target_file: TargetFile("/var/lib/rooz/myconfig.data".to_string()),
+                file_name: FileName("myconfig".to_string()),
                 user_file: UserFile("/home/user/.myconfig".to_string()),
                 generator: ContentGenerator::Inline("x".to_string()),
                 executable: false,

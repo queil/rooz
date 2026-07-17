@@ -2,10 +2,9 @@ use std::io;
 
 use crate::{
     config::config::{ConfigType, FileFormat, RoozCfg, SystemConfig},
-    constants,
     model::{
         types::AnyError,
-        volume::{RoozVolume, RoozVolumeRole},
+        volume::{RoozVolume, RoozVolumeRole, VolumeFile},
     },
     util::labels::Labels,
 };
@@ -27,47 +26,47 @@ pub trait ConfigReader {
 }
 
 impl<'a> ConfigApi<'a> {
+    async fn store_config_file(
+        &self,
+        workspace_key: &str,
+        config_type: &ConfigType,
+        content: &str,
+        labels: Option<Labels>,
+    ) -> Result<(), AnyError> {
+        let config_vol = RoozVolume::config_data(
+            workspace_key,
+            "/etc/rooz",
+            labels,
+            Some(RoozVolumeRole::WorkspaceConfig),
+        );
+        self.api
+            .volume
+            .write_files(
+                &config_vol,
+                &[VolumeFile::new(config_type.file_path(), content)],
+                None,
+            )
+            .await
+    }
+
     pub async fn store(
         &self,
         workspace_key: &str,
         origin: &str,
         body: &str,
     ) -> Result<(), AnyError> {
-        let config_vol = RoozVolume::config_data(
+        self.store_config_file(
             workspace_key,
-            "/etc/rooz",
-            Some(
-                [(ConfigType::Body.file_path().to_string(), body.to_string())]
-                    .into_iter()
-                    .collect(),
-            ),
+            &ConfigType::Body,
+            body,
             Some(Labels::from(&[Labels::config_origin(origin)])),
-            Some(RoozVolumeRole::WorkspaceConfig),
-        );
-        self.api
-            .volume
-            .ensure_mounts(&vec![config_vol], None, Some(constants::ROOT_UID))
-            .await?;
-        Ok(())
+        )
+        .await
     }
 
     pub async fn store_bases(&self, workspace_key: &str, body: &str) -> Result<(), AnyError> {
-        let config_vol = RoozVolume::config_data(
-            workspace_key,
-            "/etc/rooz",
-            Some(
-                [(ConfigType::Bases.file_path().to_string(), body.to_string())]
-                    .into_iter()
-                    .collect(),
-            ),
-            None,
-            Some(RoozVolumeRole::WorkspaceConfig),
-        );
-        self.api
-            .volume
-            .ensure_mounts(&vec![config_vol], None, Some(constants::ROOT_UID))
-            .await?;
-        Ok(())
+        self.store_config_file(workspace_key, &ConfigType::Bases, body, None)
+            .await
     }
 
     pub async fn read(
@@ -97,25 +96,8 @@ impl<'a> ConfigApi<'a> {
     }
 
     pub async fn store_runtime(&self, workspace_key: &str, data: &str) -> Result<(), AnyError> {
-        let config_vol = RoozVolume::config_data(
-            workspace_key,
-            "/etc/rooz",
-            Some(
-                [(
-                    ConfigType::Runtime.file_path().to_string(),
-                    data.to_string(),
-                )]
-                .into_iter()
-                .collect(),
-            ),
-            None,
-            Some(RoozVolumeRole::WorkspaceConfig),
-        );
-        self.api
-            .volume
-            .ensure_mounts(&vec![config_vol], None, Some(constants::ROOT_UID))
-            .await?;
-        Ok(())
+        self.store_config_file(workspace_key, &ConfigType::Runtime, data, None)
+            .await
     }
 
     fn edit_error(&self, message: &str) -> () {
