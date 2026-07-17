@@ -1,8 +1,5 @@
-use std::collections::HashMap;
-
 use crate::{
-    config::config::SystemConfig,
-    model::types::AnyError,
+    model::types::VolumeSpec,
     util::{
         id::sanitize,
         labels::{
@@ -43,16 +40,28 @@ impl RoozVolumeRole {
 }
 
 #[derive(Clone)]
-pub struct RoozVolumeFile {
-    pub file_path: String,
-    pub data: String,
+pub struct VolumeFile {
+    pub path: String,
+    pub content: String,
+    pub executable: bool,
 }
 
-impl std::fmt::Debug for RoozVolumeFile {
+impl VolumeFile {
+    pub fn new(path: &str, content: &str) -> VolumeFile {
+        VolumeFile {
+            path: path.to_string(),
+            content: content.to_string(),
+            executable: false,
+        }
+    }
+}
+
+impl std::fmt::Debug for VolumeFile {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("RoozVolumeFile")
-            .field("file_path", &self.file_path)
-            .field("data", &format!("<{} bytes>", self.data.len()))
+        f.debug_struct("VolumeFile")
+            .field("path", &self.path)
+            .field("content", &format!("<{} bytes>", self.content.len()))
+            .field("executable", &self.executable)
             .finish()
     }
 }
@@ -62,7 +71,6 @@ pub struct RoozVolume {
     pub path: String,
     pub role: RoozVolumeRole,
     pub sharing: RoozVolumeSharing,
-    pub files: Option<Vec<RoozVolumeFile>>,
     pub labels: Option<Labels>,
 }
 
@@ -115,12 +123,18 @@ impl RoozVolume {
         }
     }
 
+    pub fn to_spec(&self) -> VolumeSpec {
+        VolumeSpec {
+            name: self.safe_volume_name(),
+            labels: self.labels.clone(),
+        }
+    }
+
     pub fn work(key: &str, path: &str) -> RoozVolume {
         RoozVolume {
             path: path.into(),
             sharing: RoozVolumeSharing::Exclusive { key: key.into() },
             role: RoozVolumeRole::Work,
-            files: None,
             labels: Some(Labels::from(&[
                 Labels::workspace(key),
                 Labels::role(RoozVolumeRole::Work.as_str()),
@@ -133,7 +147,6 @@ impl RoozVolume {
             path: path.into(),
             sharing: RoozVolumeSharing::Shared,
             role: RoozVolumeRole::Cache,
-            files: None,
             labels: Some(Labels::from(&[Labels::role(
                 RoozVolumeRole::Cache.as_str(),
             )])),
@@ -143,7 +156,6 @@ impl RoozVolume {
     pub fn config_data(
         workspace_key: &str,
         path: &str,
-        files: Option<HashMap<String, String>>,
         labels: Option<Labels>,
         role: Option<RoozVolumeRole>,
     ) -> RoozVolume {
@@ -156,33 +168,13 @@ impl RoozVolume {
         if let Some(items) = labels {
             all_labels.extend_with_labels(items);
         }
-        match files {
-            Some(files) => RoozVolume {
-                path: path.to_string(),
-                role: role,
-                sharing: RoozVolumeSharing::Exclusive {
-                    key: workspace_key.into(),
-                },
-                files: Some(
-                    files
-                        .iter()
-                        .map(|(file_name, data)| RoozVolumeFile {
-                            file_path: file_name.to_string(),
-                            data: data.to_string(),
-                        })
-                        .collect::<Vec<_>>(),
-                ),
-                labels: Some(all_labels),
+        RoozVolume {
+            path: path.into(),
+            role,
+            sharing: RoozVolumeSharing::Exclusive {
+                key: workspace_key.into(),
             },
-            None => RoozVolume {
-                path: path.into(),
-                role,
-                sharing: RoozVolumeSharing::Exclusive {
-                    key: workspace_key.into(),
-                },
-                files: None,
-                labels: Some(all_labels),
-            },
+            labels: Some(all_labels),
         }
     }
 
@@ -193,43 +185,19 @@ impl RoozVolume {
                 key: workspace_key.to_string(),
             },
             role: RoozVolumeRole::WorkspaceConfig,
-            files: None,
             labels: None,
         }
     }
 
-    pub fn system_config_read(path: &str) -> RoozVolume {
+    pub fn system_config(path: &str) -> RoozVolume {
         RoozVolume {
             path: path.into(),
             sharing: RoozVolumeSharing::Shared,
             role: RoozVolumeRole::SystemConfig,
-            files: None,
             labels: Some(Labels::from(&[Labels::role(
                 RoozVolumeRole::SystemConfig.as_str(),
             )])),
         }
-    }
-
-    pub fn system_config(path: &str, data: String) -> RoozVolume {
-        RoozVolume {
-            path: path.into(),
-            sharing: RoozVolumeSharing::Shared,
-            role: RoozVolumeRole::SystemConfig,
-            files: Some(vec![RoozVolumeFile {
-                file_path: "rooz.config".to_string(),
-                data: data,
-            }]),
-            labels: Some(Labels::from(&[Labels::role(
-                RoozVolumeRole::SystemConfig.as_str(),
-            )])),
-        }
-    }
-
-    pub fn system_config_init(path: &str, data: SystemConfig) -> Result<RoozVolume, AnyError> {
-        Ok(RoozVolume::system_config(
-            path,
-            SystemConfig::to_string(&data)?,
-        ))
     }
 }
 
@@ -242,7 +210,6 @@ mod tests {
             path: path.to_string(),
             role,
             sharing,
-            files: None,
             labels: None,
         }
     }
@@ -340,44 +307,34 @@ mod tests {
     }
 
     #[test]
-    fn config_data_builds_files() {
-        let mut files = HashMap::new();
-        files.insert(
-            "workspace.config".to_string(),
-            "image: alpine\n".to_string(),
-        );
-
+    fn config_data_workspace_config_name() {
         let v = RoozVolume::config_data(
             "ws",
             "/etc/rooz",
-            Some(files),
             None,
             Some(RoozVolumeRole::WorkspaceConfig),
         );
-
         assert_eq!(v.path, "/etc/rooz");
         assert_eq!(v.safe_volume_name(), "rooz-ws-workspace-config");
-        let files = v.files.expect("files expected");
-        assert_eq!(files.len(), 1);
-        assert_eq!(files[0].file_path, "workspace.config");
-        // data is stored verbatim here; trimming happens later in ensure_file
-        assert_eq!(files[0].data, "image: alpine\n");
     }
 
     #[test]
-    fn config_data_without_files() {
-        let v = RoozVolume::config_data("ws", "/etc/rooz", None, None, None);
-        assert!(v.files.is_none());
+    fn config_data_default_role_name() {
+        let v = RoozVolume::config_data("ws", "/etc/rooz", None, None);
         assert_eq!(v.safe_volume_name(), "rooz_ws_-etc-rooz_data");
     }
 
     #[test]
-    fn system_config_carries_rooz_config_file() {
-        let v = RoozVolume::system_config("/tmp/sys", "cfg-body".to_string());
+    fn system_config_name() {
+        let v = RoozVolume::system_config("/tmp/sys");
         assert_eq!(v.safe_volume_name(), "rooz_sys-config");
-        let files = v.files.expect("files expected");
-        assert_eq!(files.len(), 1);
-        assert_eq!(files[0].file_path, "rooz.config");
-        assert_eq!(files[0].data, "cfg-body");
+    }
+
+    #[test]
+    fn to_spec_carries_name_and_labels() {
+        let v = RoozVolume::system_config("/tmp/sys");
+        let spec = v.to_spec();
+        assert_eq!(spec.name, "rooz_sys-config");
+        assert!(spec.labels.is_some());
     }
 }

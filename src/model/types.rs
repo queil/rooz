@@ -203,15 +203,15 @@ impl From<String> for TargetDir {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct TargetFile(pub String);
+pub struct FileName(pub String);
 
-impl TargetFile {
+impl FileName {
     pub fn as_str(&self) -> &str {
         &self.0
     }
 }
 
-impl From<String> for TargetFile {
+impl From<String> for FileName {
     fn from(s: String) -> Self {
         Self(s)
     }
@@ -273,7 +273,7 @@ pub enum ContentGenerator {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileSpec {
-    pub target_file: TargetFile,
+    pub file_name: FileName,
     pub user_file: UserFile,
     pub generator: ContentGenerator,
     pub executable: bool,

@@ -3,6 +3,7 @@ use std::sync::OnceLock;
 use crate::{
     api::Api,
     config::config::SystemConfig,
+    constants,
     model::{types::AnyError, volume::RoozVolume},
 };
 
@@ -12,11 +13,11 @@ impl<'a> Api<'a> {
             .container
             .one_shot_output(
                 "read-sys-config",
-                "ls /tmp/sys/rooz.config > /dev/null 2>&1 && cat /tmp/sys/rooz.config || true"
-                    .into(),
-                Some(vec![
-                    RoozVolume::system_config_read("/tmp/sys").to_mount(None),
-                ]),
+                format!(
+                    "ls /tmp/sys/{f} > /dev/null 2>&1 && cat /tmp/sys/{f} || true",
+                    f = constants::SYSTEM_CONFIG_FILE
+                ),
+                Some(vec![RoozVolume::system_config("/tmp/sys").to_mount(None)]),
                 None,
                 None,
             )

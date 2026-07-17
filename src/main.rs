@@ -12,7 +12,10 @@ use rooz::{
         StopParams, TmpParams,
     },
     cmd::remote,
-    model::{types::AnyError, volume::RoozVolume},
+    model::{
+        types::AnyError,
+        volume::{RoozVolume, VolumeFile},
+    },
     util::backend::{ContainerBackend, check_version_floor},
 };
 
@@ -371,10 +374,13 @@ async fn main() -> Result<(), AnyError> {
                 .system_edit_string(rooz.get_system_config_string().await?.clone())
                 .await?;
             volume_api
-                .ensure_mounts(
-                    &vec![RoozVolume::system_config("/tmp/sys", config_string)],
+                .write_files(
+                    &RoozVolume::system_config("/tmp/sys"),
+                    &[VolumeFile::new(
+                        constants::SYSTEM_CONFIG_FILE,
+                        &config_string,
+                    )],
                     None,
-                    Some(constants::ROOT_UID),
                 )
                 .await?;
         }

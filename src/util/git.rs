@@ -1,5 +1,4 @@
 use gix_config::File;
-use std::collections::HashMap;
 
 use crate::{
     api::{GitApi, config::ConfigBody, container},
@@ -7,7 +6,7 @@ use crate::{
     constants,
     model::{
         types::{AnyError, ContainerResult, RunMode, RunSpec},
-        volume::RoozVolume,
+        volume::{RoozVolume, VolumeFile},
     },
 };
 
@@ -143,24 +142,22 @@ impl<'a> GitApi<'a> {
         let mut volumes: Vec<RoozVolume> = vec![];
 
         if let Some(gitconfig) = &self.api.get_system_config().await?.gitconfig {
-            let mut config_hashmap = HashMap::<String, String>::new();
-            config_hashmap.insert(".gitconfig".into(), gitconfig.to_string());
-            let git_config_vol = RoozVolume::config_data(
-                &spec.workspace_key,
-                "/tmp/rooz/",
-                Some(config_hashmap),
-                None,
-                None,
-            );
-            volumes.push(git_config_vol.clone());
+            let git_config_vol =
+                RoozVolume::config_data(&spec.workspace_key, "/tmp/rooz/", None, None);
+            self.api
+                .volume
+                .write_files(
+                    &git_config_vol,
+                    &[VolumeFile::new(".gitconfig", gitconfig)],
+                    Some(spec.uid.parse::<i32>()?),
+                )
+                .await?;
+            volumes.push(git_config_vol);
         }
 
         volumes.push(RoozVolume::work(&spec.workspace_key, &spec.working_dir));
 
-        self.api
-            .volume
-            .ensure_mounts(&volumes, None, Some(&spec.uid))
-            .await?;
+        self.api.volume.ensure_mounts(&volumes, None).await?;
 
         for vol in &volumes {
             mounts.push(vol.to_mount(None));

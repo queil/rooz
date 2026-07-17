@@ -6,8 +6,8 @@ use crate::{
     config::config::SystemConfig,
     constants,
     model::{
-        types::{AnyError, VolumeResult},
-        volume::{RoozVolume, RoozVolumeRole},
+        types::{AnyError, VolumeResult, VolumeSpec},
+        volume::{RoozVolume, RoozVolumeRole, VolumeFile},
     },
     util::{labels::Labels, ssh},
 };
@@ -45,36 +45,38 @@ impl<'a> InitApi<'a> {
             Some(identity) => age::x25519::Identity::from_str(&identity)?,
         };
         if spec.force {
-            self.volume
-                .ensure_mounts(
-                    &vec![RoozVolume::system_config_init(
-                        "/tmp/sys",
-                        SystemConfig {
-                            age_key: Some(age_key.to_string().expose_secret().to_string()),
-                            gitconfig: Some(
-                                r#"
+            let config = SystemConfig {
+                age_key: Some(age_key.to_string().expose_secret().to_string()),
+                gitconfig: Some(
+                    r#"
 [core]
   sshCommand = ssh -i /tmp/.ssh/id_ed25519 -o UserKnownHostsFile=/tmp/.ssh/known_hosts
 "#
-                                .trim()
-                                .to_string(),
-                            ),
-                        },
-                    )?],
+                    .trim()
+                    .to_string(),
+                ),
+            };
+            self.volume
+                .write_files(
+                    &RoozVolume::system_config("/tmp/sys"),
+                    &[VolumeFile::new(
+                        constants::SYSTEM_CONFIG_FILE,
+                        &SystemConfig::to_string(&config)?,
+                    )],
                     None,
-                    Some(constants::ROOT_UID),
                 )
                 .await?;
         }
+        // the ssh-key volume is never recreated (even on --force) as it may be
+        // used by existing workspaces
         match self
             .volume
-            .ensure_volume(
-                ssh::VOLUME_NAME.into(),
-                false, // can't really recreate the volume if it is used by workspaces without dropping the workspaces
-                Some(Labels::from(&[Labels::role(
+            .ensure_volume(&VolumeSpec {
+                name: ssh::VOLUME_NAME.into(),
+                labels: Some(Labels::from(&[Labels::role(
                     RoozVolumeRole::SshKey.as_str(),
                 )])),
-            )
+            })
             .await?
         {
             VolumeResult::Created { .. } => self.init_ssh(&image_id, uid).await?,
