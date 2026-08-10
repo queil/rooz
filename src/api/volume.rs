@@ -400,13 +400,16 @@ impl<'a> VolumeApi<'a> {
         self.populate(&spec.name, &volume.path, files, volume.to_mount(None), uid)
             .await
     }
-
     fn files_tar(files: &[VolumeFile], uid: Option<i32>) -> Result<Vec<u8>, AnyError> {
         let mut builder = tar::Builder::new(Vec::new());
+        let mtime = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())?;
         for f in files {
             let mut header = tar::Header::new_gnu();
             header.set_size(f.content.len() as u64);
             header.set_mode(if f.executable { 0o755 } else { 0o644 });
+            header.set_mtime(mtime);
             let uid = uid.unwrap_or(constants::ROOT_UID_INT) as u64;
             header.set_uid(uid);
             header.set_gid(uid);
