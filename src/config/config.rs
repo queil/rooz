@@ -343,7 +343,7 @@ impl RoozCfg {
         if paths.len() > MAX_BASE_PATHS_PER_LEVEL {
             return Err(format!(
                 "at most {} base paths allowed per level, got {}",
-                MAX_BASE_PATHS_PER_LEVEL
+                MAX_BASE_PATHS_PER_LEVEL,
                 paths.len()
             )
             .into());
