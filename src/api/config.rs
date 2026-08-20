@@ -178,7 +178,7 @@ impl<'a> ConfigApi<'a> {
         Ok((edited_config, edited_body))
     }
 
-    const MAX_EXTENDS_DEPTH: usize = 2;
+    const MAX_BASES_DEPTH: usize = 2;
 
     pub async fn resolve_extends_chain<R: ConfigReader + Sync>(
         &self,
@@ -192,9 +192,9 @@ impl<'a> ConfigApi<'a> {
             _ => return Ok((child, vec![])),
         };
 
-        if depth >= Self::MAX_EXTENDS_DEPTH {
+        if depth >= Self::MAX_BASES_DEPTH {
             return Err(
-                format!("bases nesting too deep (limit {})", Self::MAX_EXTENDS_DEPTH).into(),
+                format!("bases nesting too deep (limit {})", Self::MAX_BASES_DEPTH).into(),
             );
         }
 
