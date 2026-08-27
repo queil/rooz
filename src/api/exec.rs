@@ -324,6 +324,13 @@ echo '[install] {}: {}'
         Ok(())
     }
 
+    pub async fn default_uid(&self, container_id: &str) -> Result<i32, AnyError> {
+        let output = self
+            .output("default-uid", container_id, None, Some(vec!["id", "-u"]))
+            .await?;
+        Ok(output.trim().parse::<i32>()?)
+    }
+
     pub async fn ensure_user(&self, container_id: &str) -> Result<(), AnyError> {
         let ensure_user_cmd = inject(
             format!(

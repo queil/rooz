@@ -166,6 +166,7 @@ async fn main() -> Result<(), AnyError> {
                     root,
                     work_dir,
                     container,
+                    chown,
                 }),
             ..
         } => {
@@ -176,6 +177,7 @@ async fn main() -> Result<(), AnyError> {
                     shell.as_deref().map(|v| vec![v.as_ref()]),
                     container.as_deref(),
                     root,
+                    chown,
                 )
                 .await?;
         }

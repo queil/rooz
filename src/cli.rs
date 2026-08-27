@@ -199,6 +199,11 @@ pub struct EnterParams {
     pub work_dir: Option<String>,
     #[arg(short, long)]
     pub container: Option<String>,
+    #[arg(
+        long,
+        help = "Chowns the container's volume mounts to the user the container runs as"
+    )]
+    pub chown: bool,
 }
 
 #[derive(Parser, Debug)]

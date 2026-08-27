@@ -458,6 +458,7 @@ impl<'a> WorkspaceApi<'a> {
                 Some(cfg.shell.iter().map(|v| v.as_str()).collect::<Vec<_>>()),
                 None,
                 root,
+                false,
             )
             .await?;
 

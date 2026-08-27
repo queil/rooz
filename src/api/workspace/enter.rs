@@ -45,6 +45,7 @@ impl<'a> WorkspaceApi<'a> {
         shell: Option<Vec<&str>>,
         container_name: Option<&str>,
         root: bool,
+        chown: bool,
     ) -> Result<String, AnyError> {
         let container_name = container_name.unwrap_or(constants::DEFAULT_CONTAINER_NAME);
         let enter_labels = Labels::from(&[
@@ -101,25 +102,28 @@ impl<'a> WorkspaceApi<'a> {
                     self.api.exec.ensure_user(container_id).await?;
                 }
 
-                let real_mounts = if is_work_container {
-                    &config.real_mounts
-                } else {
-                    &config.sidecars[container_name].real_mounts
-                };
+                if chown {
+                    let real_mounts = if is_work_container {
+                        &config.real_mounts
+                    } else {
+                        &config.sidecars[container_name].real_mounts
+                    };
 
-                let chown_uid = if is_work_container {
-                    &config.uid
-                } else {
-                    &config.sidecars[container_name]
-                        .uid
-                        .unwrap_or_else(|| panic!("TODO: read default uid from the image"))
-                };
+                    let chown_uid = if is_work_container {
+                        config.uid
+                    } else {
+                        match config.sidecars[container_name].uid {
+                            Some(uid) => uid,
+                            None => self.api.exec.default_uid(container_id).await?,
+                        }
+                    };
 
-                for (target, _) in real_mounts {
-                    self.api
-                        .exec
-                        .chown(&container_id, chown_uid, target.as_str())
-                        .await?;
+                    for (target, _) in real_mounts {
+                        self.api
+                            .exec
+                            .chown(&container_id, &chown_uid, target.as_str())
+                            .await?;
+                    }
                 }
             }
 
