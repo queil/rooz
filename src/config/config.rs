@@ -339,7 +339,7 @@ impl RoozCfg {
     }
 
     pub fn validate_base_list(paths: &[String]) -> Result<(), AnyError> {
-        const MAX_BASE_PATHS_PER_LEVEL : usize = 7;
+        const MAX_BASE_PATHS_PER_LEVEL: usize = 7;
         if paths.len() > MAX_BASE_PATHS_PER_LEVEL {
             return Err(format!(
                 "at most {} base paths allowed per level, got {}",

@@ -262,16 +262,11 @@ pub struct ShowConfigParams {
     pub name: String,
     #[arg(long, short, value_enum, default_value = "body")]
     pub part: ConfigPart,
-    #[arg(long, short)]
-    pub output: Option<ConfigFormat>,
 }
 
 #[derive(Parser, Debug)]
 #[command(about = "Outputs a workspace configuration template")]
-pub struct TemplateConfigParams {
-    #[arg(long, short)]
-    pub format: ConfigFormat,
-}
+pub struct TemplateConfigParams {}
 
 #[derive(Parser, Debug)]
 #[command(about = "Edits a local configuration file")]

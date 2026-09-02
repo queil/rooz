@@ -193,9 +193,7 @@ impl<'a> ConfigApi<'a> {
         };
 
         if depth >= Self::MAX_BASES_DEPTH {
-            return Err(
-                format!("bases nesting too deep (limit {})", Self::MAX_BASES_DEPTH).into(),
-            );
+            return Err(format!("bases nesting too deep (limit {})", Self::MAX_BASES_DEPTH).into());
         }
 
         RoozCfg::validate_base_list(&base_paths)?;

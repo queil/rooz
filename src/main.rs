@@ -278,16 +278,11 @@ async fn main() -> Result<(), AnyError> {
         Cli {
             command:
                 Config(rooz::cli::Config {
-                    command: rooz::cli::ConfigCommands::Template(TemplateConfigParams { format }),
+                    command: rooz::cli::ConfigCommands::Template(TemplateConfigParams {}),
                 }),
             ..
         } => {
-            workspace
-                .config
-                .template(match format {
-                    rooz::cli::ConfigFormat::Yaml => FileFormat::Yaml,
-                })
-                .await?;
+            workspace.config.template(FileFormat::Yaml).await?;
         }
 
         Cli {
@@ -301,12 +296,11 @@ async fn main() -> Result<(), AnyError> {
         Cli {
             command:
                 Config(rooz::cli::Config {
-                    command:
-                        rooz::cli::ConfigCommands::Show(ShowConfigParams { name, part, output }),
+                    command: rooz::cli::ConfigCommands::Show(ShowConfigParams { name, part }),
                 }),
             ..
         } => {
-            workspace.config.show(&name, part, output).await?;
+            workspace.config.show(&name, part, None).await?;
         }
 
         Cli {
