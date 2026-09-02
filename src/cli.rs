@@ -124,7 +124,6 @@ pub struct WorkParams {
     #[arg(long)]
     pub uid: Option<u32>,
     #[arg(
-        short,
         long,
         use_value_delimiter = true,
         help = "Enables defining global shared caches"
