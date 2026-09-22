@@ -10,6 +10,43 @@ use crate::{
 };
 use bollard::models::{Mount, MountType};
 
+pub const CACHE_SCOPE_ENV: &str = "ROOZ_CACHE_SCOPE";
+
+#[cfg(unix)]
+fn current_uid() -> u32 {
+    // SAFETY: getuid() is always successful and touches no memory
+    unsafe { libc::getuid() }
+}
+
+#[cfg(not(unix))]
+fn current_uid() -> u32 {
+    0
+}
+
+fn cache_scope_from(configured: Option<String>, uid: u32) -> String {
+    match configured {
+        Some(v) if !v.trim().is_empty() => v.trim().to_string(),
+        _ => format!("uid-{}", uid),
+    }
+}
+
+// Cache volumes are shared by path across a single operator's workspaces, which is the
+// point of them. On an engine shared by several operators the path alone would also
+// share them *between* operators, so the name carries a scope: the operator's uid by
+// default, or an explicit key for teams whose local uids collide on one remote engine.
+pub fn cache_scope() -> String {
+    cache_scope_from(std::env::var(CACHE_SCOPE_ENV).ok(), current_uid())
+}
+
+pub fn cache_volume_name(scope: &str, path: &str) -> String {
+    format!(
+        "rooz_{}_{}_{}",
+        sanitize(CACHE_ROLE),
+        sanitize(scope),
+        sanitize(path)
+    )
+}
+
 #[derive(Debug, Clone)]
 pub enum RoozVolumeSharing {
     Shared,
@@ -95,7 +132,7 @@ impl RoozVolume {
                 sharing: RoozVolumeSharing::Shared,
                 role: RoozVolumeRole::Cache,
                 ..
-            } => format!("rooz_{}_{}", &role_segment, sanitize(&path)),
+            } => cache_volume_name(&cache_scope(), path),
             RoozVolume {
                 sharing: RoozVolumeSharing::Exclusive { key },
                 ..
@@ -228,10 +265,34 @@ mod tests {
     }
 
     #[test]
-    fn cache_shared_uses_underscores() {
+    fn cache_name_carries_role_scope_and_path() {
+        assert_eq!(
+            cache_volume_name("uid-1000", "~/.cargo"),
+            "rooz_cache_uid-1000_---cargo"
+        );
+    }
+
+    #[test]
+    fn cache_shared_uses_the_current_scope() {
         let name =
             vol(RoozVolumeRole::Cache, RoozVolumeSharing::Shared, "~/.cargo").safe_volume_name();
-        assert_eq!(name, "rooz_cache_---cargo");
+        assert_eq!(name, cache_volume_name(&cache_scope(), "~/.cargo"));
+    }
+
+    #[test]
+    fn different_operators_get_different_cache_volumes() {
+        assert_ne!(
+            cache_volume_name("uid-1000", "~/.cargo"),
+            cache_volume_name("uid-0", "~/.cargo")
+        );
+    }
+
+    #[test]
+    fn cache_scope_defaults_to_uid_and_honours_the_override() {
+        assert_eq!(cache_scope_from(None, 1000), "uid-1000");
+        assert_eq!(cache_scope_from(Some("   ".into()), 1000), "uid-1000");
+        assert_eq!(cache_scope_from(Some("".into()), 0), "uid-0");
+        assert_eq!(cache_scope_from(Some(" team-a ".into()), 1000), "team-a");
     }
 
     #[test]

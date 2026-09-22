@@ -156,6 +156,16 @@ caches:
 All the repos specifying a cache path will share a container volume mounted at that path enabling cache reuse.
 It also can be set globally via `ROOZ_CACHES` (comma-separated paths). The global paths get combined with repo-specific paths.
 
+:information_source: Cache volumes are scoped to the operator, not just the path. The scope defaults to the
+uid of the rooz process, so one person's workspaces share their caches while unrelated operators on a
+*shared* engine (a remote `DOCKER_HOST`, a multi-user socket) get separate volumes. Toolchain caches hold
+configuration that the toolchain executes (`~/.cargo/config.toml`, `~/.m2/settings.xml`, ...), so sharing
+them across operators means sharing code execution.
+
+If several machines share one remote engine and their local uids collide (both `1000`, say), set a
+distinct `ROOZ_CACHE_SCOPE` per operator. Note that the scope is a collision boundary, not an
+authorization boundary: anyone able to create workspaces on an engine can name any scope.
+
 ### Privileged containers
 
 A privileged container has full access to the host running the container engine, so rooz does not
@@ -356,6 +366,12 @@ Supported keywords:
 * if `rooz` misbehaves you can go nuclear and run `rooz system prune` to remove ALL the rooz containers and volumes. You can also remove just the workspaces, (leaving shared caches volumes, and the ssh volume untouched), by: `rooz rm --all --force`
 
   :warning: `rooz system prune` deletes all your state held with `rooz` so make sure anything important is stored before.
+
+## Upgrading
+
+* cache volumes gained an operator scope in their name (`rooz_cache_<scope>_<path>`), so caches created
+  by earlier versions are orphaned on first use of the new version. Caches are disposable - they get
+  repopulated, and `rooz system prune` removes the leftovers.
 
 ## Known issues
 
