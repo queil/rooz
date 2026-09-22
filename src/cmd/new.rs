@@ -21,6 +21,30 @@ use bollard_stubs::models::NetworkCreateRequest;
 use std::collections::HashMap;
 use std::fs;
 
+pub const ALLOW_PRIVILEGED_ENV: &str = "ROOZ_ALLOW_PRIVILEGED";
+
+fn privileged_consented(cli_privileged: Option<bool>) -> bool {
+    cli_privileged == Some(true) || std::env::var(ALLOW_PRIVILEGED_ENV).is_ok_and(|v| v == "true")
+}
+
+// A privileged container has full access to the host, so the request has to come
+// from the operator - config files (in-repo or --config) are authored by whoever
+// owns the repository, which is not the same trust level as the operator's machine.
+fn check_privileged(containers: &[String], cli_privileged: Option<bool>) -> Result<(), AnyError> {
+    if containers.is_empty() || privileged_consented(cli_privileged) {
+        return Ok(());
+    }
+    Err(format!(
+        "This configuration requests privileged containers: {}. A privileged container has \
+         full access to the host running the container engine. Rooz does not grant that on a \
+         config file's say-so. If you trust this configuration, re-run with '--privileged true' \
+         or set {}=true.",
+        containers.join(", "),
+        ALLOW_PRIVILEGED_ENV
+    )
+    .into())
+}
+
 impl<'a> WorkspaceApi<'a> {
     async fn ensure_network(
         &self,
@@ -84,6 +108,9 @@ impl<'a> WorkspaceApi<'a> {
         cfg_builder.expand_vars()?;
 
         let cfg = RuntimeConfig::try_from(&*cfg_builder)?;
+
+        // gate before any image, volume, network or container work happens
+        check_privileged(&cfg.privileged_containers(), cli_params.privileged)?;
 
         self.api
             .image
@@ -479,5 +506,75 @@ impl<'a> WorkspaceApi<'a> {
             .filter_map(|v| Some(async move { volume_api.remove_volume(&v.name, true).await }));
         futures::future::try_join_all(futures).await?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::runtime::{RoozSidecarRuntime, RuntimeConfig};
+    use std::collections::HashMap;
+
+    fn sidecar(privileged: bool) -> RoozSidecarRuntime {
+        let cfg: RoozCfg = serde_yaml::from_str("sidecars:\n  s:\n    image: alpine\n").unwrap();
+        let mut s = RuntimeConfig::try_from(&cfg).unwrap().sidecars["s"].clone();
+        s.privileged = privileged;
+        s
+    }
+
+    fn with_sidecars(pairs: &[(&str, bool)]) -> HashMap<String, RoozSidecarRuntime> {
+        pairs
+            .iter()
+            .map(|(n, p)| (n.to_string(), sidecar(*p)))
+            .collect()
+    }
+
+    #[test]
+    fn nothing_privileged_needs_no_consent() {
+        let cfg = RuntimeConfig {
+            sidecars: with_sidecars(&[("db", false)]),
+            ..Default::default()
+        };
+        assert!(cfg.privileged_containers().is_empty());
+        assert!(check_privileged(&cfg.privileged_containers(), None).is_ok());
+    }
+
+    #[test]
+    fn privileged_workspace_and_sidecars_are_all_listed() {
+        let cfg = RuntimeConfig {
+            privileged: true,
+            sidecars: with_sidecars(&[("pwn", true), ("db", false)]),
+            ..Default::default()
+        };
+        assert_eq!(cfg.privileged_containers(), vec!["pwn", "work"]);
+    }
+
+    #[test]
+    fn config_requested_privileged_is_refused_without_consent() {
+        let cfg = RuntimeConfig {
+            sidecars: with_sidecars(&[("pwn", true)]),
+            ..Default::default()
+        };
+        let err = check_privileged(&cfg.privileged_containers(), None)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("pwn"), "offender not named: {}", err);
+        assert!(
+            err.contains(ALLOW_PRIVILEGED_ENV),
+            "no remedy given: {}",
+            err
+        );
+        // an explicit `--privileged false` is not consent either
+        assert!(check_privileged(&cfg.privileged_containers(), Some(false)).is_err());
+    }
+
+    #[test]
+    fn explicit_cli_flag_is_consent() {
+        let cfg = RuntimeConfig {
+            privileged: true,
+            sidecars: with_sidecars(&[("pwn", true)]),
+            ..Default::default()
+        };
+        assert!(check_privileged(&cfg.privileged_containers(), Some(true)).is_ok());
     }
 }

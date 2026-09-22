@@ -156,6 +156,19 @@ caches:
 All the repos specifying a cache path will share a container volume mounted at that path enabling cache reuse.
 It also can be set globally via `ROOZ_CACHES` (comma-separated paths). The global paths get combined with repo-specific paths.
 
+### Privileged containers
+
+A privileged container has full access to the host running the container engine, so rooz does not
+grant it on a config file's say-so. If `privileged: true` appears in a config file (in-repo `.rooz.yaml`,
+a `--config` file, or a sidecar), workspace creation aborts and names the containers involved. To go
+ahead, confirm explicitly with either:
+
+* `--privileged true` on the command line, or
+* `ROOZ_ALLOW_PRIVILEGED=true` in the environment (for non-interactive use)
+
+:warning: Only do this for configurations you trust. When opening repositories you do not control,
+prefer rootless Podman, which confines the grant to your own user namespace.
+
 ### Port mappings
 
 Port mappings for the work container can be specified via `.rooz.yaml` only:
