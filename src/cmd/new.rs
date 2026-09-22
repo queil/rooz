@@ -23,24 +23,66 @@ use std::fs;
 
 pub const ALLOW_PRIVILEGED_ENV: &str = "ROOZ_ALLOW_PRIVILEGED";
 
-fn privileged_consented(cli_privileged: Option<bool>) -> bool {
-    cli_privileged == Some(true) || std::env::var(ALLOW_PRIVILEGED_ENV).is_ok_and(|v| v == "true")
+// What the operator has agreed to. Naming the containers keeps the gate useful for
+// operators who legitimately need one privileged sidecar: a standing blanket consent
+// would wave through a hostile repo config privileging anything else.
+#[derive(Debug, PartialEq)]
+pub enum PrivilegedConsent {
+    None,
+    All,
+    Named(Vec<String>),
+}
+
+impl PrivilegedConsent {
+    pub fn resolve(cli_privileged: Option<bool>, env: Option<String>) -> Self {
+        // --privileged true is the operator asking for it outright
+        if cli_privileged == Some(true) {
+            return Self::All;
+        }
+        match env.as_deref().map(str::trim) {
+            None | Some("") | Some("false") => Self::None,
+            Some("true") => Self::All,
+            Some(list) => Self::Named(
+                list.split(',')
+                    .map(|n| n.trim().to_string())
+                    .filter(|n| !n.is_empty())
+                    .collect(),
+            ),
+        }
+    }
+
+    fn allows(&self, container: &str) -> bool {
+        match self {
+            Self::None => false,
+            Self::All => true,
+            Self::Named(names) => names.iter().any(|n| n == container),
+        }
+    }
 }
 
 // A privileged container has full access to the host, so the request has to come
 // from the operator - config files (in-repo or --config) are authored by whoever
 // owns the repository, which is not the same trust level as the operator's machine.
-fn check_privileged(containers: &[String], cli_privileged: Option<bool>) -> Result<(), AnyError> {
-    if containers.is_empty() || privileged_consented(cli_privileged) {
+fn check_privileged(containers: &[String], consent: &PrivilegedConsent) -> Result<(), AnyError> {
+    let refused = containers
+        .iter()
+        .filter(|c| !consent.allows(c))
+        .cloned()
+        .collect::<Vec<_>>();
+
+    if refused.is_empty() {
         return Ok(());
     }
+
     Err(format!(
         "This configuration requests privileged containers: {}. A privileged container has \
          full access to the host running the container engine. Rooz does not grant that on a \
-         config file's say-so. If you trust this configuration, set {}=true to allow it exactly \
-         as configured. ('--privileged true' also works, but it additionally makes the work \
-         container privileged, which a sidecar-only configuration does not need.)",
-        containers.join(", "),
+         config file's say-so. If you trust these specific containers, name them: {}={}. \
+         ('{}=true' allows any container the configuration privileges, and '--privileged true' \
+         additionally makes the work container privileged - prefer naming them.)",
+        refused.join(", "),
+        ALLOW_PRIVILEGED_ENV,
+        refused.join(","),
         ALLOW_PRIVILEGED_ENV
     )
     .into())
@@ -111,7 +153,13 @@ impl<'a> WorkspaceApi<'a> {
         let cfg = RuntimeConfig::try_from(&*cfg_builder)?;
 
         // gate before any image, volume, network or container work happens
-        check_privileged(&cfg.privileged_containers(), cli_params.privileged)?;
+        check_privileged(
+            &cfg.privileged_containers(),
+            &PrivilegedConsent::resolve(
+                cli_params.privileged,
+                std::env::var(ALLOW_PRIVILEGED_ENV).ok(),
+            ),
+        )?;
 
         self.api
             .image
@@ -523,40 +571,38 @@ mod tests {
         s
     }
 
-    fn with_sidecars(pairs: &[(&str, bool)]) -> HashMap<String, RoozSidecarRuntime> {
-        pairs
-            .iter()
-            .map(|(n, p)| (n.to_string(), sidecar(*p)))
-            .collect()
+    fn cfg(privileged_work: bool, sidecars: &[(&str, bool)]) -> RuntimeConfig {
+        RuntimeConfig {
+            privileged: privileged_work,
+            sidecars: sidecars
+                .iter()
+                .map(|(n, p)| (n.to_string(), sidecar(*p)))
+                .collect::<HashMap<_, _>>(),
+            ..Default::default()
+        }
+    }
+
+    fn consent(env: Option<&str>) -> PrivilegedConsent {
+        PrivilegedConsent::resolve(None, env.map(String::from))
     }
 
     #[test]
     fn nothing_privileged_needs_no_consent() {
-        let cfg = RuntimeConfig {
-            sidecars: with_sidecars(&[("db", false)]),
-            ..Default::default()
-        };
-        assert!(cfg.privileged_containers().is_empty());
-        assert!(check_privileged(&cfg.privileged_containers(), None).is_ok());
+        let c = cfg(false, &[("db", false)]);
+        assert!(c.privileged_containers().is_empty());
+        assert!(check_privileged(&c.privileged_containers(), &consent(None)).is_ok());
     }
 
     #[test]
     fn privileged_workspace_and_sidecars_are_all_listed() {
-        let cfg = RuntimeConfig {
-            privileged: true,
-            sidecars: with_sidecars(&[("pwn", true), ("db", false)]),
-            ..Default::default()
-        };
-        assert_eq!(cfg.privileged_containers(), vec!["pwn", "work"]);
+        let c = cfg(true, &[("pwn", true), ("db", false)]);
+        assert_eq!(c.privileged_containers(), vec!["pwn", "work"]);
     }
 
     #[test]
     fn config_requested_privileged_is_refused_without_consent() {
-        let cfg = RuntimeConfig {
-            sidecars: with_sidecars(&[("pwn", true)]),
-            ..Default::default()
-        };
-        let err = check_privileged(&cfg.privileged_containers(), None)
+        let c = cfg(false, &[("pwn", true)]);
+        let err = check_privileged(&c.privileged_containers(), &consent(None))
             .unwrap_err()
             .to_string();
         assert!(err.contains("pwn"), "offender not named: {}", err);
@@ -566,16 +612,73 @@ mod tests {
             err
         );
         // an explicit `--privileged false` is not consent either
-        assert!(check_privileged(&cfg.privileged_containers(), Some(false)).is_err());
+        let explicit_false = PrivilegedConsent::resolve(Some(false), None);
+        assert!(check_privileged(&c.privileged_containers(), &explicit_false).is_err());
+        assert!(check_privileged(&c.privileged_containers(), &consent(Some("false"))).is_err());
     }
 
     #[test]
-    fn explicit_cli_flag_is_consent() {
-        let cfg = RuntimeConfig {
-            privileged: true,
-            sidecars: with_sidecars(&[("pwn", true)]),
-            ..Default::default()
-        };
-        assert!(check_privileged(&cfg.privileged_containers(), Some(true)).is_ok());
+    fn naming_a_container_consents_to_only_that_container() {
+        // the real shape: a trusted overlay privileges `dkr`, the repo's own config must
+        // not be able to smuggle in anything else under that standing consent
+        let allow_dkr = consent(Some("dkr"));
+        assert!(
+            check_privileged(
+                &cfg(false, &[("dkr", true)]).privileged_containers(),
+                &allow_dkr
+            )
+            .is_ok()
+        );
+
+        for hostile in [
+            cfg(true, &[("dkr", true)]),
+            cfg(false, &[("dkr", true), ("pwn", true)]),
+        ] {
+            let err = check_privileged(&hostile.privileged_containers(), &allow_dkr)
+                .unwrap_err()
+                .to_string();
+            assert!(
+                !err.contains("dkr"),
+                "consented container was refused: {}",
+                err
+            );
+        }
+    }
+
+    #[test]
+    fn named_consent_lists_only_the_unconsented_containers() {
+        let c = cfg(true, &[("dkr", true)]);
+        let err = check_privileged(&c.privileged_containers(), &consent(Some("dkr")))
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("work"), "{}", err);
+        assert!(
+            err.contains(&format!("{}=work", ALLOW_PRIVILEGED_ENV)),
+            "remedy should name only what was refused: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn consent_parsing() {
+        assert_eq!(consent(None), PrivilegedConsent::None);
+        assert_eq!(consent(Some("")), PrivilegedConsent::None);
+        assert_eq!(consent(Some("false")), PrivilegedConsent::None);
+        assert_eq!(consent(Some("true")), PrivilegedConsent::All);
+        assert_eq!(
+            consent(Some(" dkr , images ,")),
+            PrivilegedConsent::Named(vec!["dkr".into(), "images".into()])
+        );
+        // the CLI flag is an outright request, so it consents to everything
+        assert_eq!(
+            PrivilegedConsent::resolve(Some(true), None),
+            PrivilegedConsent::All
+        );
+    }
+
+    #[test]
+    fn blanket_consent_still_works_for_non_interactive_use() {
+        let c = cfg(true, &[("pwn", true)]);
+        assert!(check_privileged(&c.privileged_containers(), &consent(Some("true"))).is_ok());
     }
 }
