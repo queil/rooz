@@ -284,6 +284,21 @@ rooz enter secrets-test
 1744420283158995
 ```
 
+### Where secrets may be used
+
+Secrets are expanded only when the **whole** configuration is operator-provided - a local file passed
+with `--config`. If the workspace also merges configuration authored by the repository being opened
+(its in-repo `.rooz.yaml`, or a `--config git:...` source), rooz refuses to expand secrets and fails
+with an explanation.
+
+The reason: every templated field - `env`, `install`, `command`, `data` content, sidecar `env` - can
+be written by the repository. A repo shipping `env: {LEAK: "{{ MY_SECRET }}"}` would otherwise receive
+your decrypted secret inside a container whose image and entrypoint it also controls. `vars` keep
+working everywhere, since they are not sensitive.
+
+If you hit this, move the settings you need out of the repository's `.rooz.yaml` and into your own
+`--config` file.
+
 ### Secrets at rest
 
 Decrypted secret values are never written to the workspace-config volume. The container's environment
