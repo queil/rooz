@@ -3,8 +3,11 @@ mod harness;
 use harness::{TestEnv, unique_key};
 use std::{fs, io::Write};
 
-// Cache volume name is deterministic from the path. sanitize("~/.cargo") == "---cargo".
-const CARGO_CACHE_VOL: &str = "rooz_cache_---cargo";
+// Cache volume name is deterministic from the operator scope and the path.
+// sanitize("~/.cargo") == "---cargo".
+fn cargo_cache_vol() -> String {
+    rooz::model::volume::cache_volume_name(&rooz::model::volume::cache_scope(), "~/.cargo")
+}
 
 // ── label correctness ────────────────────────────────────────────────────────
 
@@ -75,7 +78,7 @@ async fn cache_volume_survives_workspace_rm() {
         .success();
 
     assert!(
-        env.volume_exists(CARGO_CACHE_VOL).await,
+        env.volume_exists(cargo_cache_vol().as_str()).await,
         "cache volume not created"
     );
 
@@ -86,11 +89,11 @@ async fn cache_volume_survives_workspace_rm() {
         "workspace volumes remain after rm"
     );
     assert!(
-        env.volume_exists(CARGO_CACHE_VOL).await,
+        env.volume_exists(cargo_cache_vol().as_str()).await,
         "cache volume was removed by rooz rm — it should persist"
     );
 
-    env.remove_decoy_volume(CARGO_CACHE_VOL).await;
+    env.remove_decoy_volume(cargo_cache_vol().as_str()).await;
 }
 
 #[tokio::test]
@@ -132,7 +135,7 @@ async fn cache_volume_shared_across_workspaces() {
     let all_rooz = env.all_rooz_volumes().await;
     let cache_vols: Vec<_> = all_rooz
         .iter()
-        .filter(|v| v.name == CARGO_CACHE_VOL)
+        .filter(|v| v.name == cargo_cache_vol())
         .collect();
     assert_eq!(
         cache_vols.len(),
@@ -152,11 +155,11 @@ async fn cache_volume_shared_across_workspaces() {
     env.rooz().args(["rm", &key2, "--force"]).assert().success();
 
     assert!(
-        env.volume_exists(CARGO_CACHE_VOL).await,
+        env.volume_exists(cargo_cache_vol().as_str()).await,
         "cache volume was removed when both workspaces were deleted — it should persist"
     );
 
-    env.remove_decoy_volume(CARGO_CACHE_VOL).await;
+    env.remove_decoy_volume(cargo_cache_vol().as_str()).await;
 }
 
 // ── inline data ──────────────────────────────────────────────────────────────
