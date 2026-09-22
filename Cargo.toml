@@ -41,5 +41,6 @@ serde_with = "3.18.0"
 async-trait = "0.1.89"
 
 [dev-dependencies]
+age = { version = "0.12.0", features = ["armor"] }
 assert_cmd = "2.0"
 predicates = "3.0"

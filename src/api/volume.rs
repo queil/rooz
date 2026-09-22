@@ -465,7 +465,11 @@ impl<'a> VolumeApi<'a> {
         for f in files {
             let mut header = tar::Header::new_gnu();
             header.set_size(f.content.len() as u64);
-            header.set_mode(if f.executable { 0o755 } else { 0o644 });
+            header.set_mode(match (f.executable, f.private) {
+                (true, _) => 0o755,
+                (false, true) => 0o600,
+                (false, false) => 0o644,
+            });
             header.set_mtime(mtime);
             let uid = uid.unwrap_or(constants::ROOT_UID_INT) as u64;
             header.set_uid(uid);
@@ -550,6 +554,7 @@ impl<'a> VolumeApi<'a> {
             };
 
             tar_files.push(VolumeFile {
+                private: false,
                 path: f.file_name.as_str().to_string(),
                 // IMPORTANT: never trim content so YAML multi-line strings are respected and can
                 // control whitespace and most importantly EOLs
@@ -952,11 +957,13 @@ mod tests {
                 path: "plain.data".to_string(),
                 content: "line1\n\nline3\n".to_string(),
                 executable: false,
+                private: false,
             },
             VolumeFile {
                 path: "script.data".to_string(),
                 content: "#!/bin/sh\necho hi\n".to_string(),
                 executable: true,
+                private: false,
             },
         ];
 
@@ -977,11 +984,21 @@ mod tests {
     }
 
     #[test]
+    fn private_files_are_owner_only() {
+        let files = vec![VolumeFile::new_private("runtime.config", "env: {}")];
+        let bytes = VolumeApi::files_tar(&files, None).unwrap();
+        let (path, mode, _, _, _) = &untar(&bytes)[0];
+        assert_eq!(path, "runtime.config");
+        assert_eq!(*mode, 0o600);
+    }
+
+    #[test]
     fn files_tar_defaults_to_root_ownership() {
         let files = vec![VolumeFile {
             path: "cfg".to_string(),
             content: "x".to_string(),
             executable: false,
+            private: false,
         }];
 
         let bytes = VolumeApi::files_tar(&files, None).unwrap();

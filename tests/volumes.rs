@@ -435,10 +435,7 @@ async fn workspace_config_volume_stores_body() {
     assert_eq!(stored, body, "config body must be stored byte-exact");
 
     let stat = env.volume_stat(&vol, "workspace.config").await;
-    assert_eq!(
-        stat, "644 0",
-        "config files are root-owned, not world-writable"
-    );
+    assert_eq!(stat, "600 0", "config files are root-owned and owner-only");
 
     cleanup(&env, &key, &cfg_path);
 }
@@ -562,4 +559,90 @@ async fn ssh_key_volume_is_read_only_in_the_workspace() {
     );
 
     env.rooz().args(["rm", &key, "--force"]).assert().success();
+}
+
+// ── secrets at rest ──────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn secrets_are_masked_in_the_persisted_runtime_config() {
+    use age::secrecy::ExposeSecret;
+    use rooz::api::CryptApi;
+
+    let Some(env) = TestEnv::from_env() else {
+        return;
+    };
+    let key = unique_key("vol-secret");
+    let marker = "e2e-secret-MARKER-7f3a";
+
+    let identity = age::x25519::Identity::generate();
+    let encrypted = CryptApi {}
+        .encrypt(marker.to_string(), &identity.to_public())
+        .expect("encrypt");
+
+    let cfg_path = write_cfg(
+        &key,
+        &format!(
+            "image: alpine:latest\n\
+             command: [\"sleep\", \"infinity\"]\n\
+             secrets:\n  MY_SECRET: \"{}\"\n\
+             env:\n  LEAK: \"{{{{ MY_SECRET }}}}\"\n\
+             data:\n  secretfile:\n    content: \"leak={{{{ MY_SECRET }}}}\"\n\
+             mounts:\n  ~/leak.txt: secretfile\n",
+            encrypted
+        ),
+    );
+
+    env.rooz()
+        .args([
+            "system",
+            "init",
+            "--force",
+            "--age-identity",
+            identity.to_string().expose_secret(),
+        ])
+        .assert()
+        .success();
+    env.rooz()
+        .args(["new", &key, "--config", &cfg_path])
+        .assert()
+        .success();
+
+    // at rest: no plaintext anywhere in the persisted runtime config
+    let vol = format!("rooz-{}-workspace-config", key);
+    let runtime = env.volume_file(&vol, "runtime.config").await;
+    assert!(
+        !runtime.contains(marker),
+        "plaintext secret persisted to the workspace-config volume:\n{}",
+        runtime
+    );
+    assert!(
+        runtime.contains("***"),
+        "expected a masked value in:\n{}",
+        runtime
+    );
+
+    // in the container: the real value, so behaviour is unchanged
+    let containers = env.containers_by_workspace(&key).await;
+    let work = containers
+        .iter()
+        .find(|c| {
+            c.labels
+                .as_ref()
+                .and_then(|l| l.get("dev.rooz.workspace.container"))
+                .map(String::as_str)
+                == Some("work")
+        })
+        .expect("work container not found");
+    let id = work.id.as_deref().expect("container has no id");
+    assert_eq!(
+        env.exec_code(
+            id,
+            vec!["sh", "-c", &format!("test \"$LEAK\" = '{}'", marker)]
+        )
+        .await,
+        0,
+        "the container must still receive the real secret"
+    );
+
+    cleanup(&env, &key, &cfg_path);
 }
