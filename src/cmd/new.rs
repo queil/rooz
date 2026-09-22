@@ -37,8 +37,9 @@ fn check_privileged(containers: &[String], cli_privileged: Option<bool>) -> Resu
     Err(format!(
         "This configuration requests privileged containers: {}. A privileged container has \
          full access to the host running the container engine. Rooz does not grant that on a \
-         config file's say-so. If you trust this configuration, re-run with '--privileged true' \
-         or set {}=true.",
+         config file's say-so. If you trust this configuration, set {}=true to allow it exactly \
+         as configured. ('--privileged true' also works, but it additionally makes the work \
+         container privileged, which a sidecar-only configuration does not need.)",
         containers.join(", "),
         ALLOW_PRIVILEGED_ENV
     )
