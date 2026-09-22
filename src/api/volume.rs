@@ -6,7 +6,7 @@ use crate::model::types::{
     TargetDir, TargetPath, UserFile, VolumeFilesSpec, VolumeName, VolumeSpec,
 };
 use crate::util::id;
-use crate::util::labels::DATA_ROLE;
+use crate::util::labels::{self, DATA_ROLE, WORK_ROLE};
 use crate::{
     api::VolumeApi,
     constants,
@@ -27,6 +27,62 @@ use bollard_stubs::models::VolumeCreateRequest;
 
 // where the volume gets mounted inside the populate one-shot container
 const POPULATE_DIR: &str = "/var/lib/rooz";
+
+// Volume names are derived from operator- and config-supplied strings, so different
+// name grammars can collide (e.g. a data entry can spell out the global ssh-key
+// volume's name). Reusing an existing volume is only safe when it is the same kind of
+// volume, belonging to the same workspace, as the one we are about to create.
+fn validate_reuse(spec: &VolumeSpec, existing: &HashMap<String, String>) -> Result<(), AnyError> {
+    let expected: HashMap<String, String> = match spec.labels.clone() {
+        Some(labels) => labels.into(),
+        // no expectation recorded - nothing to check against
+        None => return Ok(()),
+    };
+
+    let refuse = |reason: String| -> Result<(), AnyError> {
+        Err(format!("Refusing to reuse volume '{}': {}", spec.name, reason).into())
+    };
+
+    if !existing.contains_key(labels::ROOZ) {
+        return refuse("it was not created by rooz".to_string());
+    }
+
+    let (expected_ws, existing_ws) = (
+        expected.get(labels::WORKSPACE_KEY),
+        existing.get(labels::WORKSPACE_KEY),
+    );
+    if expected_ws != existing_ws {
+        return refuse(format!(
+            "workspace mismatch (existing: {}, expected: {})",
+            describe(existing_ws),
+            describe(expected_ws)
+        ));
+    }
+
+    let (expected_role, existing_role) = (expected.get(labels::ROLE), existing.get(labels::ROLE));
+    if expected_role != existing_role && !work_data_interchange(expected_role, existing_role) {
+        return refuse(format!(
+            "role mismatch (existing: {}, expected: {})",
+            describe(existing_role),
+            describe(expected_role)
+        ));
+    }
+
+    Ok(())
+}
+
+// The implicit `work` data entry and the work volume are deliberately the same
+// volume; which of the two roles it ends up labelled with depends on whether the
+// workspace was created from a git repo. This is the only permitted role swap.
+fn work_data_interchange(a: Option<&String>, b: Option<&String>) -> bool {
+    let is_work_or_data =
+        |r: Option<&String>| matches!(r.map(String::as_str), Some(WORK_ROLE) | Some(DATA_ROLE));
+    is_work_or_data(a) && is_work_or_data(b)
+}
+
+fn describe(value: Option<&String>) -> String {
+    value.map(|v| format!("'{}'", v)).unwrap_or("none".into())
+}
 
 impl<'a> VolumeApi<'a> {
     pub async fn get_all(&self, labels: &Labels) -> Result<Vec<Volume>, AnyError> {
@@ -75,7 +131,8 @@ impl<'a> VolumeApi<'a> {
 
     pub async fn ensure_volume(&self, spec: &VolumeSpec) -> Result<VolumeResult, AnyError> {
         match self.client.inspect_volume(&spec.name).await {
-            Ok(_) => {
+            Ok(volume) => {
+                validate_reuse(spec, &volume.labels)?;
                 log::debug!("Reusing an existing {} volume", &spec.name);
                 Ok(VolumeResult::AlreadyExists)
             }
@@ -516,6 +573,113 @@ mod tests {
     };
     use crate::model::volume::VolumeFile;
     use std::collections::HashMap;
+
+    use crate::api::volume::validate_reuse;
+    use crate::util::labels::{
+        CACHE_ROLE, DATA_ROLE, Labels, SSH_KEY_ROLE, WORK_ROLE, WORKSPACE_CONFIG_ROLE,
+    };
+
+    fn spec(name: &str, labels: &[(&str, &str)]) -> VolumeSpec {
+        VolumeSpec {
+            name: name.to_string(),
+            labels: Some(Labels::from(labels)),
+        }
+    }
+
+    fn existing(labels: &[(&str, &str)]) -> HashMap<String, String> {
+        Labels::from(labels).into()
+    }
+
+    #[test]
+    fn reuse_allowed_for_matching_workspace_and_role() {
+        let s = spec(
+            "rooz-ws-mydir",
+            &[Labels::workspace("ws"), Labels::role(DATA_ROLE)],
+        );
+        let v = existing(&[Labels::workspace("ws"), Labels::role(DATA_ROLE)]);
+        assert!(validate_reuse(&s, &v).is_ok());
+    }
+
+    #[test]
+    fn reuse_allowed_for_shared_cache() {
+        let s = spec("rooz_cache_---cargo", &[Labels::role(CACHE_ROLE)]);
+        let v = existing(&[Labels::role(CACHE_ROLE)]);
+        assert!(validate_reuse(&s, &v).is_ok());
+    }
+
+    #[test]
+    fn data_entry_cannot_alias_the_global_ssh_key_volume() {
+        // workspace `ssh` + data key `key-vol` spells out `rooz-ssh-key-vol`
+        let s = spec(
+            "rooz-ssh-key-vol",
+            &[Labels::workspace("ssh"), Labels::role(DATA_ROLE)],
+        );
+        let v = existing(&[Labels::role(SSH_KEY_ROLE)]);
+        let err = validate_reuse(&s, &v).unwrap_err().to_string();
+        assert!(err.contains("rooz-ssh-key-vol"), "{}", err);
+        assert!(err.contains("mismatch"), "{}", err);
+    }
+
+    #[test]
+    fn data_entry_cannot_alias_a_workspace_config_volume() {
+        let s = spec(
+            "rooz-victim-workspace-config",
+            &[Labels::workspace("victim"), Labels::role(DATA_ROLE)],
+        );
+        let v = existing(&[
+            Labels::workspace("victim"),
+            Labels::role(WORKSPACE_CONFIG_ROLE),
+        ]);
+        let err = validate_reuse(&s, &v).unwrap_err().to_string();
+        assert!(err.contains("role mismatch"), "{}", err);
+    }
+
+    #[test]
+    fn another_workspaces_volume_is_refused() {
+        let s = spec(
+            "rooz-victim-work",
+            &[Labels::workspace("attacker"), Labels::role(DATA_ROLE)],
+        );
+        let v = existing(&[Labels::workspace("victim"), Labels::role(WORK_ROLE)]);
+        let err = validate_reuse(&s, &v).unwrap_err().to_string();
+        assert!(err.contains("workspace mismatch"), "{}", err);
+    }
+
+    #[test]
+    fn implicit_work_entry_may_reuse_the_work_role_volume() {
+        // the git-clone path creates it as `work`, create_volume_specs expects `data`
+        let s = spec(
+            "rooz-ws-work",
+            &[Labels::workspace("ws"), Labels::role(DATA_ROLE)],
+        );
+        let v = existing(&[Labels::workspace("ws"), Labels::role(WORK_ROLE)]);
+        assert!(validate_reuse(&s, &v).is_ok());
+        let s = spec(
+            "rooz-ws-work",
+            &[Labels::workspace("ws"), Labels::role(WORK_ROLE)],
+        );
+        let v = existing(&[Labels::workspace("ws"), Labels::role(DATA_ROLE)]);
+        assert!(validate_reuse(&s, &v).is_ok());
+    }
+
+    #[test]
+    fn foreign_volume_is_refused() {
+        let s = spec(
+            "rooz-ws-mydir",
+            &[Labels::workspace("ws"), Labels::role(DATA_ROLE)],
+        );
+        let err = validate_reuse(&s, &HashMap::new()).unwrap_err().to_string();
+        assert!(err.contains("not created by rooz"), "{}", err);
+    }
+
+    #[test]
+    fn unlabelled_spec_skips_validation() {
+        let s = VolumeSpec {
+            name: "rooz-ws-work".to_string(),
+            labels: None,
+        };
+        assert!(validate_reuse(&s, &HashMap::new()).is_ok());
+    }
 
     fn dir() -> DataValue {
         DataValue::Dir {}
