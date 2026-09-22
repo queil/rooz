@@ -18,6 +18,7 @@ use crate::{
 };
 use bollard::errors::Error;
 use bollard_stubs::models::NetworkCreateRequest;
+use colored::Colorize;
 use std::collections::HashMap;
 use std::fs;
 
@@ -88,6 +89,19 @@ fn check_privileged(containers: &[String], consent: &PrivilegedConsent) -> Resul
     .into())
 }
 
+// Configuration the operator wrote on their own machine is trusted with secrets;
+// anything the repository being opened supplies is not. A remote `--config git:...`
+// source is repository-authored too, even though the operator typed the URL.
+fn config_is_operator_local(source: &Option<ConfigSource>) -> bool {
+    match source {
+        Some(ConfigSource::Path { value }) => matches!(value, ConfigPath::File { .. }),
+        Some(ConfigSource::Update { origin, .. }) => {
+            matches!(ConfigPath::from_str(origin), Ok(ConfigPath::File { .. }))
+        }
+        None => false,
+    }
+}
+
 impl<'a> WorkspaceApi<'a> {
     async fn ensure_network(
         &self,
@@ -137,11 +151,19 @@ impl<'a> WorkspaceApi<'a> {
         root_git_repo: Option<RootRepoCloneResult>,
         workspace_key: &str,
         force: bool,
+        secrets_allowed: bool,
     ) -> Result<EnterSpec, AnyError> {
         if let Some(c) = &cli_config {
             cfg_builder.from_config(c);
         }
         cfg_builder.from_cli(cli_params, None);
+
+        // refuse before decrypting: nothing should be in plaintext in this process if the
+        // merged configuration is not wholly operator-authored
+        if !secrets_allowed && cfg_builder.secrets.as_ref().is_some_and(|s| !s.is_empty()) {
+            return Err(crate::config::config::SECRETS_NOT_ALLOWED.into());
+        }
+
         self.config
             .decrypt(
                 cfg_builder,
@@ -158,7 +180,7 @@ impl<'a> WorkspaceApi<'a> {
             .into_values()
             .collect::<Vec<String>>();
 
-        cfg_builder.expand_vars()?;
+        cfg_builder.expand_vars(secrets_allowed)?;
 
         let cfg = RuntimeConfig::try_from(&*cfg_builder)?;
 
@@ -466,6 +488,7 @@ impl<'a> WorkspaceApi<'a> {
             ..Default::default()
         };
         let mut cfg_builder = RoozCfg::default().from_cli_env(cli_params.clone());
+        let mut repo_config_applied = false;
         let root_repo_result = match &RoozCfg::git_ssh_url(cli_params, &cli_cfg) {
             Some(url) => {
                 let result = self.git.clone_root_repo(&url, &clone_env).await?;
@@ -480,6 +503,13 @@ impl<'a> WorkspaceApi<'a> {
                                     return Err("'bases' is not supported in in-repo config (.rooz.yaml); use it in a --config file instead".into());
                                 }
                                 cfg_builder.from_config(&c);
+                                repo_config_applied = true;
+                                eprintln!(
+                                    "{}",
+                                    "NOTE: applying the configuration provided by this repository (.rooz.yaml). \
+                                     It controls the image, mounts and commands of your workspace."
+                                        .yellow()
+                                );
                                 log::debug!("Config file applied.");
                                 let origin = format!("{}//.rooz.{}", url, format.to_string());
                                 self.config.store(workspace_key, &origin, &body).await?;
@@ -512,6 +542,7 @@ impl<'a> WorkspaceApi<'a> {
                 root_repo_result,
                 &workspace_key,
                 false,
+                config_is_operator_local(&cli_config_path) && !repo_config_applied,
             )
             .await?;
 

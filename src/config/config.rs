@@ -11,6 +11,13 @@ use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::path::Path;
 
+pub const SECRETS_NOT_ALLOWED: &str = "Refusing to expand 'secrets': this workspace merges configuration authored by the \
+     repository being opened, which could reference any of your secrets and read the plaintext \
+     from inside a container it also controls. Secrets are only expanded when the whole \
+     configuration is operator-provided via a local '--config' file. Move the settings you need \
+     out of the repository's in-repo config into your own '--config' file, or remove 'secrets' \
+     from this workspace's configuration.";
+
 #[derive(Debug, Clone)]
 pub enum ConfigSource {
     Update {
@@ -390,7 +397,15 @@ impl RoozCfg {
         }
     }
 
-    pub fn expand_vars(&mut self) -> Result<(), AnyError> {
+    /// `allow_secrets` gates whether decrypted secrets join the render context. Every
+    /// field here can be authored by the repository being opened, so a repo-provided
+    /// `env: {LEAK: "{{ MY_SECRET }}"}` would otherwise hand the operator's plaintext
+    /// secret to a container the repo also controls.
+    pub fn expand_vars(&mut self, allow_secrets: bool) -> Result<(), AnyError> {
+        if !allow_secrets && self.secrets.as_ref().is_some_and(|s| !s.is_empty()) {
+            return Err(SECRETS_NOT_ALLOWED.into());
+        }
+
         let vars_and_secrets = match (&self.vars, &self.secrets) {
             (None, None) => IndexMap::<String, String>::new(),
             (None, Some(secrets)) => secrets.clone(),
@@ -833,6 +848,88 @@ mod tests {
     }
 
     #[test]
+    fn repo_authored_config_cannot_expand_secrets() {
+        // the reported payload: a repo .rooz.yaml referencing an operator secret
+        let mut cfg = RoozCfg {
+            secrets: Some(IndexMap::from_iter([(
+                "MY_SECRET".to_string(),
+                "e2e-secret-MARKER".to_string(),
+            )])),
+            env: Some(IndexMap::from_iter([(
+                "LEAK".to_string(),
+                "{{ MY_SECRET }}".to_string(),
+            )])),
+            ..RoozCfg::none()
+        };
+        let err = cfg.expand_vars(false).unwrap_err().to_string();
+        assert!(err.contains("Refusing to expand 'secrets'"), "{}", err);
+        assert!(err.contains("--config"), "no remedy given: {}", err);
+    }
+
+    #[test]
+    fn operator_config_still_expands_secrets() {
+        let mut cfg = RoozCfg {
+            secrets: Some(IndexMap::from_iter([(
+                "MY_SECRET".to_string(),
+                "s3cret".to_string(),
+            )])),
+            env: Some(IndexMap::from_iter([(
+                "LEAK".to_string(),
+                "{{ MY_SECRET }}".to_string(),
+            )])),
+            ..RoozCfg::none()
+        };
+        cfg.expand_vars(true).unwrap();
+        assert_eq!(cfg.env.unwrap()["LEAK"], "s3cret");
+    }
+
+    #[test]
+    fn vars_still_expand_for_repo_authored_config() {
+        // vars are not sensitive, so repo templating keeps working
+        let mut cfg = RoozCfg {
+            vars: Some(IndexMap::from_iter([(
+                "tag".to_string(),
+                "1.2.3".to_string(),
+            )])),
+            image: Some("alpine:{{ tag }}".to_string()),
+            ..RoozCfg::none()
+        };
+        cfg.expand_vars(false).unwrap();
+        assert_eq!(cfg.image.unwrap(), "alpine:1.2.3");
+    }
+
+    #[test]
+    fn an_empty_secrets_map_is_not_a_secret() {
+        let mut cfg = RoozCfg {
+            secrets: Some(IndexMap::new()),
+            image: Some("alpine".to_string()),
+            ..RoozCfg::none()
+        };
+        assert!(cfg.expand_vars(false).is_ok());
+    }
+
+    #[test]
+    fn escaped_handlebars_cannot_smuggle_a_secret_through() {
+        // handlebars-rust honours \{{ }} as a literal; with secrets absent from the
+        // context there is no second pass that could substitute it
+        let mut cfg = RoozCfg {
+            vars: Some(IndexMap::from_iter([("v".to_string(), "x".to_string())])),
+            env: Some(IndexMap::from_iter([(
+                "LEAK".to_string(),
+                "\\{{ MY_SECRET }}".to_string(),
+            )])),
+            ..RoozCfg::none()
+        };
+        cfg.expand_vars(false).unwrap();
+        let rendered = cfg.env.unwrap()["LEAK"].clone();
+        assert!(
+            !rendered.contains("e2e-secret"),
+            "unexpected substitution: {}",
+            rendered
+        );
+    }
+
+    #[test]
     fn hostile_config_path_fragment_is_rejected() {
         // the reported payload: `--config 'git@host:repo//cfg.yaml; touch /work/PWNED.yaml'`
         // reached `sh -c "ls {path} ... cat `ls {path} | head -1`"` in the clone container
@@ -1089,7 +1186,7 @@ mod tests {
     fn sidecar_peers_parse_and_render() {
         let yaml = "vars:\n  mirror: images\nsidecars:\n  dkr:\n    image: a\n    peers: [\"{{ mirror }}\"]\n  images:\n    image: b\n";
         let mut cfg: RoozCfg = serde_yaml::from_str(yaml).unwrap();
-        cfg.expand_vars().unwrap();
+        cfg.expand_vars(true).unwrap();
         assert_eq!(
             cfg.sidecars.unwrap()["dkr"].peers,
             Some(vec!["images".to_string()])
@@ -1178,7 +1275,7 @@ mod tests {
             ])),
             ..RoozCfg::none()
         };
-        cfg.expand_vars().unwrap();
+        cfg.expand_vars(true).unwrap();
         assert_eq!(
             cfg.install,
             Some(steps(&[("10-a", Some("apk add jq")), ("20-gone", None)]))
@@ -1192,7 +1289,7 @@ mod tests {
             install: Some(InstallSpec::Script("apk add {{pkg}}".into())),
             ..RoozCfg::none()
         };
-        cfg.expand_vars().unwrap();
+        cfg.expand_vars(true).unwrap();
         assert_eq!(cfg.install, Some(InstallSpec::Script("apk add jq".into())));
     }
 
