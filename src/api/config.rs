@@ -1,12 +1,14 @@
 use std::io;
 
 use crate::{
-    config::config::{ConfigType, FileFormat, RoozCfg, SystemConfig},
+    config::config::{
+        ConfigType, FileFormat, RoozCfg, SystemConfig, validate_relative_config_path,
+    },
     model::{
         types::AnyError,
         volume::{RoozVolume, RoozVolumeRole, VolumeFile},
     },
-    util::labels::Labels,
+    util::{labels::Labels, sh},
 };
 
 use age::x25519::Identity;
@@ -239,13 +241,17 @@ impl<'a> ConfigApi<'a> {
         exact_path: Option<&str>,
     ) -> Result<Option<ConfigBody>, AnyError> {
         let file_path = match exact_path {
-            Some(p) => format!("{}/{}", clone_dir, p.to_string()),
+            Some(p) => {
+                validate_relative_config_path(p, "config path")?;
+                format!("{}/{}", clone_dir, p)
+            }
             None => format!("{}/.rooz.{}", clone_dir, file_format.to_string()),
         };
 
+        let quoted_path = sh::quote(&file_path);
         let ls_cmd = format!(
-            "ls {} > /dev/null 2>&1 && cat `ls {} | head -1`",
-            file_path, file_path
+            "ls -- {} > /dev/null 2>&1 && cat -- {}",
+            quoted_path, quoted_path
         );
         let body = self
             .api
@@ -340,7 +346,7 @@ pub struct ContainerReader<'a> {
 #[async_trait::async_trait]
 impl<'a> ConfigReader for ContainerReader<'a> {
     async fn read_file(&self, path: &str) -> Result<String, AnyError> {
-        let cat_cmd = format!("cat '{}'", path);
+        let cat_cmd = format!("cat -- {}", sh::quote(path));
         self.api
             .exec
             .output(
