@@ -45,7 +45,7 @@ impl<'a> ConfigApi<'a> {
             .volume
             .write_files(
                 &config_vol,
-                &[VolumeFile::new(config_type.file_path(), content)],
+                &[VolumeFile::new_private(config_type.file_path(), content)],
                 None,
             )
             .await

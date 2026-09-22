@@ -59,7 +59,7 @@ impl<'a> InitApi<'a> {
             self.volume
                 .write_files(
                     &RoozVolume::system_config("/tmp/sys"),
-                    &[VolumeFile::new(
+                    &[VolumeFile::new_private(
                         constants::SYSTEM_CONFIG_FILE,
                         &SystemConfig::to_string(&config)?,
                     )],

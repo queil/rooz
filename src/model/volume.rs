@@ -81,6 +81,8 @@ pub struct VolumeFile {
     pub path: String,
     pub content: String,
     pub executable: bool,
+    /// written owner-only; for files holding credentials or configuration
+    pub private: bool,
 }
 
 impl VolumeFile {
@@ -89,6 +91,14 @@ impl VolumeFile {
             path: path.to_string(),
             content: content.to_string(),
             executable: false,
+            private: false,
+        }
+    }
+
+    pub fn new_private(path: &str, content: &str) -> VolumeFile {
+        VolumeFile {
+            private: true,
+            ..VolumeFile::new(path, content)
         }
     }
 }
@@ -99,6 +109,7 @@ impl std::fmt::Debug for VolumeFile {
             .field("path", &self.path)
             .field("content", &format!("<{} bytes>", self.content.len()))
             .field("executable", &self.executable)
+            .field("private", &self.private)
             .finish()
     }
 }

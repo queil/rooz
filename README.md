@@ -284,6 +284,16 @@ rooz enter secrets-test
 1744420283158995
 ```
 
+### Secrets at rest
+
+Decrypted secret values are never written to the workspace-config volume. The container's environment
+and generated files are populated from the real values at creation time, but the persisted
+`runtime.config` - the file `rooz config show <ws> --part runtime` prints - has every occurrence of a
+secret replaced with `***`. Config files in that volume are written owner-only.
+
+:information_source: `shell` is the one field left unmasked, because `rooz enter` executes it. Do not
+reference secrets from `shell`.
+
 ## Sidecars
 
 *It's similar to docker-compose but super simple and limited to bare minimum.*

@@ -1,6 +1,7 @@
 use super::config::{DataValue, InstallSpec, MountSource, RoozCfg, RoozSidecar};
 use crate::constants;
 use crate::model::types::AnyError;
+use crate::model::types::ContentGenerator;
 use crate::model::types::{TargetDir, VolumeFilesSpec};
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
@@ -122,6 +123,93 @@ impl Default for RuntimeConfig {
     }
 }
 
+pub const SECRET_MASK: &str = "***";
+
+fn mask_in(value: &mut String, secrets: &[&String]) {
+    for secret in secrets {
+        if value.contains(secret.as_str()) {
+            *value = value.replace(secret.as_str(), SECRET_MASK);
+        }
+    }
+}
+
+fn mask_opt(value: &mut Option<String>, secrets: &[&String]) {
+    if let Some(v) = value {
+        mask_in(v, secrets);
+    }
+}
+
+fn mask_vec(values: &mut [String], secrets: &[&String]) {
+    for v in values.iter_mut() {
+        mask_in(v, secrets);
+    }
+}
+
+fn mask_map(values: &mut HashMap<String, String>, secrets: &[&String]) {
+    for (_, v) in values.iter_mut() {
+        mask_in(v, secrets);
+    }
+}
+
+fn mask_generator(generator: &mut ContentGenerator, secrets: &[&String]) {
+    match generator {
+        ContentGenerator::Inline(content) => mask_in(content, secrets),
+        ContentGenerator::Script { script, image } => {
+            mask_in(script, secrets);
+            mask_opt(image, secrets);
+        }
+    }
+}
+
+fn mask_real_mounts(mounts: &mut HashMap<TargetDir, VolumeFilesSpec>, secrets: &[&String]) {
+    for (_, spec) in mounts.iter_mut() {
+        for file in spec.files.iter_mut() {
+            mask_generator(&mut file.generator, secrets);
+        }
+    }
+}
+
+fn mask_data_value(value: &mut DataValue, secrets: &[&String]) {
+    match value {
+        DataValue::Dir {} => {}
+        DataValue::InlineContent { content, .. } => mask_in(content, secrets),
+        DataValue::GeneratedContent {
+            generate, image, ..
+        } => {
+            mask_in(generate, secrets);
+            mask_opt(image, secrets);
+        }
+    }
+}
+
+fn mask_data(data: &mut HashMap<String, DataValue>, secrets: &[&String]) {
+    for (_, v) in data.iter_mut() {
+        mask_data_value(v, secrets);
+    }
+}
+
+fn mask_mounts(mounts: &mut HashMap<String, MountSource>, secrets: &[&String]) {
+    for (_, v) in mounts.iter_mut() {
+        if let MountSource::InlineDataValue(dv) = v {
+            mask_data_value(dv, secrets);
+        }
+    }
+}
+
+fn mask_install(install: &mut Option<InstallSpec>, secrets: &[&String]) {
+    match install {
+        Some(InstallSpec::Script(script)) => mask_in(script, secrets),
+        Some(InstallSpec::Steps(steps)) => {
+            for (_, step) in steps.iter_mut() {
+                if let Some(script) = step {
+                    mask_in(script, secrets);
+                }
+            }
+        }
+        None => {}
+    }
+}
+
 impl RuntimeConfig {
     pub fn from_string(config: String) -> Result<RuntimeConfig, AnyError> {
         match serde_yaml::from_str(&config) {
@@ -175,6 +263,52 @@ impl RuntimeConfig {
         names
     }
 
+    /// A copy with every occurrence of the given secret values replaced by a marker,
+    /// for persisting to the workspace-config volume. The container's environment is set
+    /// at creation time from the unmasked values, so behaviour is unchanged.
+    ///
+    /// `shell` is deliberately left alone on both the workspace and its sidecars: `rooz
+    /// enter` executes it. Nothing else in the persisted file is read back for its value.
+    pub fn mask_secrets(&self, secret_values: &[String]) -> Self {
+        let secrets = secret_values
+            .iter()
+            .filter(|v| !v.is_empty())
+            .collect::<Vec<_>>();
+
+        let mut masked = self.clone();
+        if secrets.is_empty() {
+            return masked;
+        }
+
+        mask_opt(&mut masked.git_ssh_url, &secrets);
+        mask_vec(&mut masked.extra_repos, &secrets);
+        mask_in(&mut masked.image, &secrets);
+        mask_vec(&mut masked.caches, &secrets);
+        mask_in(&mut masked.user, &secrets);
+        mask_vec(&mut masked.command, &secrets);
+        mask_vec(&mut masked.args, &secrets);
+        mask_map(&mut masked.env, &secrets);
+        mask_data(&mut masked.data, &secrets);
+        mask_mounts(&mut masked.mounts, &secrets);
+        mask_real_mounts(&mut masked.real_mounts, &secrets);
+        mask_install(&mut masked.install, &secrets);
+
+        for (_, sidecar) in masked.sidecars.iter_mut() {
+            mask_in(&mut sidecar.image, &secrets);
+            mask_map(&mut sidecar.env, &secrets);
+            mask_vec(&mut sidecar.command, &secrets);
+            mask_vec(&mut sidecar.args, &secrets);
+            mask_vec(&mut sidecar.ports, &secrets);
+            mask_in(&mut sidecar.work_dir, &secrets);
+            mask_opt(&mut sidecar.user, &secrets);
+            mask_mounts(&mut sidecar.mounts, &secrets);
+            mask_real_mounts(&mut sidecar.real_mounts, &secrets);
+            mask_install(&mut sidecar.install, &secrets);
+        }
+
+        masked
+    }
+
     pub fn all_mounts(&self) -> HashMap<(String, String), MountSource> {
         self.mounts
             .iter()
@@ -199,6 +333,79 @@ impl RuntimeConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn runtime(yaml: &str) -> RuntimeConfig {
+        let cfg: RoozCfg = serde_yaml::from_str(yaml).unwrap();
+        RuntimeConfig::try_from(&cfg).unwrap()
+    }
+
+    #[test]
+    fn masks_secrets_everywhere_they_can_land() {
+        let secret = "e2e-secret-MARKER-7f3a";
+        let yaml = format!(
+            concat!(
+                "image: alpine\n",
+                "user: rooz_user\n",
+                "command: [\"sh\", \"-c\", \"echo {s}\"]\n",
+                "args: [\"--token={s}\"]\n",
+                "git_ssh_url: \"https://x:{s}@host/repo.git\"\n",
+                "install: \"export T={s}\"\n",
+                "env:\n  LEAK: \"{s}\"\n",
+                "data:\n",
+                "  secretfile:\n    content: \"leak={s}\"\n",
+                "  gen:\n    generate: \"echo {s}\"\n",
+                "sidecars:\n",
+                "  db:\n    image: postgres\n    env:\n      PW: \"{s}\"\n    args: [\"--pw={s}\"]\n",
+            ),
+            s = secret
+        );
+        let cfg = runtime(&yaml);
+        let masked = cfg.mask_secrets(&[secret.to_string()]);
+        let persisted = masked.to_string().unwrap();
+
+        assert!(
+            !persisted.contains(secret),
+            "secret survived masking:\n{}",
+            persisted
+        );
+        assert!(
+            persisted.contains(SECRET_MASK),
+            "nothing masked:\n{}",
+            persisted
+        );
+        // the unmasked config is what the container is created from
+        assert_eq!(cfg.env["LEAK"], secret);
+        assert_eq!(cfg.sidecars["db"].env["PW"], secret);
+    }
+
+    #[test]
+    fn masks_inside_larger_strings_not_just_whole_values() {
+        let cfg = runtime("image: alpine\nenv:\n  URL: \"https://u:hunter2@host/p\"\n");
+        let masked = cfg.mask_secrets(&["hunter2".to_string()]);
+        assert_eq!(masked.env["URL"], "https://u:***@host/p");
+    }
+
+    #[test]
+    fn shell_is_left_alone_so_enter_keeps_working() {
+        let cfg = runtime("image: alpine\nshell: [\"/bin/bash\"]\nenv:\n  A: bash\n");
+        let masked = cfg.mask_secrets(&["bash".to_string()]);
+        assert_eq!(masked.shell, vec!["/bin/bash".to_string()]);
+        assert_eq!(masked.env["A"], SECRET_MASK);
+    }
+
+    #[test]
+    fn masking_is_a_no_op_without_secrets() {
+        let cfg = runtime("image: alpine\nenv:\n  A: b\n");
+        assert_eq!(
+            cfg.mask_secrets(&[]).to_string().unwrap(),
+            cfg.to_string().unwrap()
+        );
+        // an empty secret value must not mask every character
+        assert_eq!(
+            cfg.mask_secrets(&["".to_string()]).to_string().unwrap(),
+            cfg.to_string().unwrap()
+        );
+    }
 
     #[test]
     fn old_persisted_string_install_still_parses() {

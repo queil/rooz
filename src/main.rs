@@ -375,7 +375,7 @@ async fn main() -> Result<(), AnyError> {
             volume_api
                 .write_files(
                     &RoozVolume::system_config("/tmp/sys"),
-                    &[VolumeFile::new(
+                    &[VolumeFile::new_private(
                         constants::SYSTEM_CONFIG_FILE,
                         &config_string,
                     )],

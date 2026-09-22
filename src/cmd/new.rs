@@ -148,6 +148,16 @@ impl<'a> WorkspaceApi<'a> {
                 &self.api.get_system_config().await?.age_identity()?,
             )
             .await?;
+
+        // captured before expansion: these plaintext values get substituted all over the
+        // config, and must not reach the persisted copy
+        let decrypted_secrets = cfg_builder
+            .secrets
+            .clone()
+            .unwrap_or_default()
+            .into_values()
+            .collect::<Vec<String>>();
+
         cfg_builder.expand_vars()?;
 
         let cfg = RuntimeConfig::try_from(&*cfg_builder)?;
@@ -230,7 +240,10 @@ impl<'a> WorkspaceApi<'a> {
         labels.extend(&[Labels::container(constants::DEFAULT_CONTAINER_NAME)]);
 
         self.config
-            .store_runtime(workspace_key, &cfg2.clone().to_string()?)
+            .store_runtime(
+                workspace_key,
+                &cfg2.mask_secrets(&decrypted_secrets).to_string()?,
+            )
             .await?;
 
         let work_spec = WorkSpec {
