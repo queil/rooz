@@ -190,7 +190,7 @@ impl<'a> GitApi<'a> {
         // IMPORTANT: no workspace label here as those do not really belong to workspace
         // it will get refactored to use one shot
         let labels = Labels::from(&[Labels::role("git")]);
-        let mut mounts = vec![ssh::mount("/tmp/.ssh")];
+        let mut mounts = vec![ssh::mount("/tmp/.ssh", false)];
 
         let mut volumes: Vec<RoozVolume> = vec![];
 

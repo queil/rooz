@@ -491,3 +491,75 @@ async fn large_workspace_config_body() {
 
     cleanup(&env, &key, &cfg_path);
 }
+
+// ── ssh key volume ───────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn ssh_key_volume_is_read_only_in_the_workspace() {
+    let Some(env) = TestEnv::from_env() else {
+        return;
+    };
+    let key = unique_key("vol-ssh-ro");
+    let key_file = "/home/rooz_user/.ssh/id_ed25519";
+
+    env.rooz()
+        .args(["system", "init", "--force"])
+        .assert()
+        .success();
+    env.rooz()
+        .args(["new", &key, "--image", "alpine:latest"])
+        .assert()
+        .success();
+
+    let containers = env.containers_by_workspace(&key).await;
+    let work = containers
+        .iter()
+        .find(|c| {
+            c.labels
+                .as_ref()
+                .and_then(|l| l.get("dev.rooz.workspace.container"))
+                .map(String::as_str)
+                == Some("work")
+        })
+        .expect("work container not found");
+
+    let ssh_mount = work
+        .mounts
+        .as_ref()
+        .expect("container has no mounts")
+        .iter()
+        .find(|m| m.name.as_deref() == Some("rooz-ssh-key-vol"))
+        .expect("ssh key volume not mounted");
+    assert_eq!(
+        ssh_mount.rw,
+        Some(false),
+        "ssh key volume must be mounted read-only"
+    );
+
+    // even as root: a read-only mount is enforced by the kernel, not by file modes
+    let id = work.id.as_deref().expect("container has no id");
+    assert_ne!(
+        env.exec_code(id, vec!["sh", "-c", &format!("echo tamper > {}", key_file)])
+            .await,
+        0,
+        "overwriting the operator's key must fail"
+    );
+    assert_ne!(
+        env.exec_code(id, vec!["sh", "-c", &format!("rm -f {}", key_file)])
+            .await,
+        0,
+        "deleting the operator's key must fail"
+    );
+    // reading it is the documented behaviour and must still work
+    assert_eq!(
+        env.exec_code(
+            id,
+            vec!["sh", "-c", &format!("cat {} > /dev/null", key_file)]
+        )
+        .await,
+        0,
+        "reading the key must still work"
+    );
+
+    env.rooz().args(["rm", &key, "--force"]).assert().success();
+}
