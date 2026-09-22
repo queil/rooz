@@ -156,6 +156,30 @@ caches:
 All the repos specifying a cache path will share a container volume mounted at that path enabling cache reuse.
 It also can be set globally via `ROOZ_CACHES` (comma-separated paths). The global paths get combined with repo-specific paths.
 
+### Privileged containers
+
+A privileged container has full access to the host running the container engine, so rooz does not
+grant it on a config file's say-so. If `privileged: true` appears in a config file (in-repo `.rooz.yaml`,
+a `--config` file, or a sidecar), workspace creation aborts and names the containers involved. To go
+ahead, confirm explicitly with either:
+
+* `ROOZ_ALLOW_PRIVILEGED=<names>` - a comma-separated list of the container names you are allowing,
+  e.g. `ROOZ_ALLOW_PRIVILEGED=dkr`. Pure consent: the configuration is applied exactly as written,
+  and anything *not* named is still refused.
+* `ROOZ_ALLOW_PRIVILEGED=true` - allows whatever the configuration privileges. Convenient for CI,
+  blunt everywhere else.
+* `--privileged true` - consents *and* makes the work container privileged whether or not the
+  configuration asked for it.
+
+Name the containers rather than reaching for `true`. The common case is a container-engine sidecar
+(docker-in-docker and friends): the daemon's container needs the privilege, the workspace talking to
+it over `DOCKER_HOST` does not. Naming it keeps the setting safe to leave in your shell profile - a
+standing `=true` would wave through a privileged container that a repository's own `.rooz.yaml`
+slipped into the merged configuration, which is exactly what this check exists to stop.
+
+:warning: Only do this for configurations you trust. When opening repositories you do not control,
+prefer rootless Podman, which confines the grant to your own user namespace.
+
 ### Port mappings
 
 Port mappings for the work container can be specified via `.rooz.yaml` only:

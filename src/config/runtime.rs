@@ -159,6 +159,22 @@ impl RuntimeConfig {
         (pairs, peers)
     }
 
+    /// Names of the containers this config would create with host-level privileges.
+    pub fn privileged_containers(&self) -> Vec<String> {
+        let mut names = Vec::new();
+        if self.privileged {
+            names.push(constants::DEFAULT_CONTAINER_NAME.to_string());
+        }
+        names.extend(
+            self.sidecars
+                .iter()
+                .filter(|(_, s)| s.privileged)
+                .map(|(name, _)| name.clone()),
+        );
+        names.sort();
+        names
+    }
+
     pub fn all_mounts(&self) -> HashMap<(String, String), MountSource> {
         self.mounts
             .iter()
