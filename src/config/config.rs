@@ -34,10 +34,16 @@ impl<'a> ConfigPath {
         if value.contains(":") {
             let chunks = value.split("//").collect::<Vec<_>>();
             match chunks.as_slice() {
-                &[url, file_path] => Ok(Self::Git {
-                    url: url.to_string(),
-                    file_path: file_path.to_string(),
-                }),
+                &[url, file_path] => {
+                    // reject the fragment here rather than at the sink: it reaches a shell
+                    // in the clone container, and FileFormat::from_path would otherwise
+                    // panic on it first
+                    validate_relative_config_path(file_path, "config path")?;
+                    Ok(Self::Git {
+                        url: url.to_string(),
+                        file_path: file_path.to_string(),
+                    })
+                }
                 _ => Err(format!("Invalid remote config spec URL {}", value).into()),
             }
         } else {
@@ -325,17 +331,7 @@ impl RoozCfg {
     }
 
     pub fn validate_base_path(path: &str) -> Result<(), AnyError> {
-        if path.contains(':') {
-            return Err(format!(
-                "base path must be a local relative path (no URLs): '{}'",
-                path
-            )
-            .into());
-        }
-        if path.starts_with('/') {
-            return Err(format!("base path must be relative, not absolute: '{}'", path).into());
-        }
-        Ok(())
+        validate_relative_config_path(path, "base path")
     }
 
     pub fn validate_base_list(paths: &[String]) -> Result<(), AnyError> {
@@ -487,6 +483,47 @@ impl RoozCfg {
         }
     }
 }
+// Config paths sourced from a config file (bases) or from a `--config <url>//<path>`
+// fragment end up both in a shell command inside the clone container and, for local
+// configs, in a host-side read. They are restricted to plain relative paths below the
+// referring config's directory: no traversal, no absolute paths, no shell metacharacters.
+pub fn validate_relative_config_path(path: &str, what: &str) -> Result<(), AnyError> {
+    if path.is_empty() {
+        return Err(format!("{} must not be empty", what).into());
+    }
+    if path.contains(':') {
+        return Err(format!(
+            "{} must be a local relative path (no URLs): '{}'",
+            what, path
+        )
+        .into());
+    }
+    if path.starts_with('/') {
+        return Err(format!("{} must be relative, not absolute: '{}'", what, path).into());
+    }
+    if path
+        .chars()
+        .any(|c| !(c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '/')))
+    {
+        return Err(format!(
+            "{} may only contain letters, digits, '.', '_', '-' and '/': '{}'",
+            what, path
+        )
+        .into());
+    }
+    if path
+        .split('/')
+        .any(|segment| segment == ".." || segment.is_empty())
+    {
+        return Err(format!(
+            "{} must not traverse outside the config's directory: '{}'",
+            what, path
+        )
+        .into());
+    }
+    Ok(())
+}
+
 fn extend_if_any<A, T: Extend<A> + IntoIterator<Item = A>>(
     target: Option<T>,
     other: Option<T>,
@@ -793,6 +830,97 @@ mod tests {
                 .map(|(k, v)| (k.to_string(), v.map(String::from)))
                 .collect(),
         )
+    }
+
+    #[test]
+    fn hostile_config_path_fragment_is_rejected() {
+        // the reported payload: `--config 'git@host:repo//cfg.yaml; touch /work/PWNED.yaml'`
+        // reached `sh -c "ls {path} ... cat `ls {path} | head -1`"` in the clone container
+        for spec in [
+            "git@127.0.0.1:poc/repo//cfg.yaml; touch /work/PWNED6.yaml",
+            "git@127.0.0.1:poc/repo//cfg.yaml; cat /tmp/.ssh/id_ed25519 > /work/key-leak.yaml",
+            "git@127.0.0.1:poc/repo//x'; touch /work/PWNED.yaml; #",
+            "git@127.0.0.1:poc/repo//`id`.yaml",
+            "git@127.0.0.1:poc/repo//$(id).yaml",
+            "git@127.0.0.1:poc/repo//../../../etc/passwd",
+        ] {
+            let err = ConfigPath::from_str(spec).unwrap_err().to_string();
+            assert!(err.contains("config path"), "accepted {:?}: {}", spec, err);
+        }
+    }
+
+    #[test]
+    fn benign_config_path_fragment_is_accepted() {
+        match ConfigPath::from_str("git@github.com:my/configs//path/in/repo/config.rooz.yaml") {
+            Ok(ConfigPath::Git { url, file_path }) => {
+                assert_eq!(url, "git@github.com:my/configs");
+                assert_eq!(file_path, "path/in/repo/config.rooz.yaml");
+            }
+            other => panic!("expected a git config path, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn local_config_paths_stay_unrestricted() {
+        // these are operator-typed host paths, not shell input - absolute and .. are fine
+        for spec in ["../configs/my.yaml", "/home/me/my.yaml", "./my.yaml"] {
+            assert!(
+                matches!(ConfigPath::from_str(spec), Ok(ConfigPath::File { .. })),
+                "rejected local path: {}",
+                spec
+            );
+        }
+    }
+
+    #[test]
+    fn base_path_accepts_plain_relative_paths() {
+        for p in [
+            "base.yaml",
+            "layers/base.yaml",
+            "a-b_c.1/base.yaml",
+            "./base.yaml",
+        ] {
+            assert!(RoozCfg::validate_base_path(p).is_ok(), "rejected: {}", p);
+        }
+    }
+
+    #[test]
+    fn base_path_rejects_shell_metacharacters() {
+        for p in [
+            "x'; cp /tmp/.ssh/id_ed25519 /workspace/pwned; #",
+            "x`id`.yaml",
+            "x$(id).yaml",
+            "a;b.yaml",
+            "a|b.yaml",
+            "a&b.yaml",
+            "a b.yaml",
+            "a\\b.yaml",
+            "a\nb.yaml",
+        ] {
+            assert!(RoozCfg::validate_base_path(p).is_err(), "accepted: {:?}", p);
+        }
+    }
+
+    #[test]
+    fn base_path_rejects_traversal_and_absolute() {
+        for p in [
+            "",
+            "../outside/host-secret.yaml",
+            "../../../../etc/attacker-chosen.yaml",
+            "layers/../../escape.yaml",
+            "/etc/passwd",
+            "https://evil/base.yaml",
+            "a//b.yaml",
+        ] {
+            assert!(RoozCfg::validate_base_path(p).is_err(), "accepted: {:?}", p);
+        }
+    }
+
+    #[test]
+    fn base_list_validates_every_entry() {
+        let hostile = vec!["base.yaml".to_string(), "../secret.yaml".to_string()];
+        assert!(RoozCfg::validate_base_list(&hostile).is_err());
+        assert!(RoozCfg::validate_base_list(&["base.yaml".to_string()]).is_ok());
     }
 
     #[test]
