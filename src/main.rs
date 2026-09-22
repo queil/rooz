@@ -30,6 +30,7 @@ use rooz::cli::{
 use rooz::cmd::update::UpdateMode;
 use rooz::config::config::{ConfigPath, ConfigSource, FileFormat};
 use rooz::constants;
+use rooz::util::id;
 use rooz::util::labels::{self, Labels};
 
 #[tokio::main]
@@ -137,6 +138,8 @@ async fn main() -> Result<(), AnyError> {
                 }),
                 None => None,
             };
+
+            id::validate_workspace_name(&name)?;
 
             let labels = Labels::from(&[
                 Labels::workspace(&name),
