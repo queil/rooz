@@ -30,7 +30,7 @@ impl<'a> InitApi<'a> {
             .one_shot(
                 "init",
                 init_ssh,
-                Some(vec![ssh::mount("/tmp/.ssh")]),
+                Some(vec![ssh::mount("/tmp/.ssh", false)]),
                 None,
                 Some(&image_id),
             )

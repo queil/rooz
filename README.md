@@ -43,7 +43,10 @@ The command creates:
 
 * an SSH key pair (ed25519) intended to use for auth wherever SSH keys can be used (like github.com)
   
-  The generated key gets stored in a volume and then mounted under `~/.ssh` to all rooz workspace containers.
+  The generated key gets stored in a volume and then mounted **read-only** under `~/.ssh` to all rooz
+  workspace containers, so a workspace cannot overwrite or delete it. Note that workspace containers
+  can still *read* the key - that is the point of mounting it - and the workspace image and user come
+  from the repository's configuration. Do not open repositories you would not trust with that key.
 
 * an age encryption key pair intended to use for encryption of sensitive config data (i.e. secrets)
 

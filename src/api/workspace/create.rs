@@ -36,6 +36,7 @@ impl<'a> WorkspaceApi<'a> {
 
         mounts.push(ssh::mount(
             Path::new(&home_dir).join(".ssh").to_string_lossy().as_ref(),
+            true,
         ));
 
         mounts.extend(spec.mounts.clone());
