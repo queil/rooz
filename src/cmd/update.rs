@@ -52,8 +52,6 @@ impl<'a> WorkspaceApi<'a> {
                         ConfigPath::Git { url, file_path } => {
                             let clone_env = CloneEnv {
                                 workspace_key: workspace_key.to_string(),
-                                depth_override: Some(1),
-                                force_pull: true,
                                 ..Default::default()
                             };
 

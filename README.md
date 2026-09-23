@@ -56,7 +56,10 @@ The command creates:
   If the key is lost all the existing config files with encrypted vars won't decrypt and re-encrypting will be required.
   To init rooz with an existing age identity use the `--age-identity` switch.
 
-You can regenerate the keys by specifying the `--force` parameter. Please note that the existing keys will be wiped out.
+You can regenerate the age identity by specifying the `--force` parameter. Please note that the existing
+age key will be wiped out. The SSH key pair is deliberately kept - existing workspaces depend on it - so
+`--force` does not rotate it. To get a new SSH key pair (e.g. after you believe the old one leaked),
+remove the `rooz-ssh-key-vol` volume, or run `rooz system prune`, and init again.
 
 ### Configure
 

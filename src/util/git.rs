@@ -1,3 +1,5 @@
+use bollard::models::MountType;
+use bollard::service::Mount;
 use gix_config::File;
 use lazy_static::lazy_static;
 use regex::Regex;
@@ -62,7 +64,9 @@ pub struct CloneEnv {
     pub workspace_key: String,
     pub working_dir: String,
     pub depth_override: Option<i64>,
-    pub force_pull: bool,
+    // When set, the clone lands on a throw-away tmpfs instead of the workspace's work
+    // volume, so git never touches a repository the workspace itself can write.
+    pub isolated: bool,
 }
 
 impl Default for CloneEnv {
@@ -73,7 +77,7 @@ impl Default for CloneEnv {
             workspace_key: Default::default(),
             working_dir: constants::WORK_DIR.to_string(),
             depth_override: None,
-            force_pull: false,
+            isolated: false,
         }
     }
 }
@@ -137,23 +141,30 @@ fn get_clone_dir(
     Ok(work_dir)
 }
 
+// A repository decides what git executes on its behalf: hooks, core.fsmonitor, the pager.
+// rooz's own git runs are non-interactive and want none of that, so they switch it off.
+const NO_REPO_EXEC: &str = "-c core.hooksPath=/dev/null -c core.fsmonitor=false -c core.pager=cat";
+
 // `--` stops git from parsing a URL as an option; the shell quoting keeps the
 // whole value a single argument.
 fn clone_line(clone_dir: &str, depth: &str, url: &str) -> String {
     format!(
-        "ls {}/.git > /dev/null 2>&1 || git -c include.path=/tmp/rooz/.gitconfig clone --filter=blob:none {} -- {}\n",
+        "ls {}/.git > /dev/null 2>&1 || git {} -c include.path=/tmp/rooz/.gitconfig clone --filter=blob:none {} -- {}\n",
         sh::quote(clone_dir),
+        NO_REPO_EXEC,
         depth,
         sh::quote(url)
     )
 }
 
-fn pull_line(clone_dir: &str) -> String {
-    let dir = sh::quote(clone_dir);
-    format!(
-        "ls {}/.git > /dev/null 2>&1 && git -C {} -c include.path=/tmp/rooz/.gitconfig pull\n",
-        dir, dir
-    )
+// Scratch space for clones rooz reads itself: container-local, dropped with the container,
+// and unreachable from the workspace.
+fn scratch_mount(target: &str) -> Mount {
+    Mount {
+        typ: Some(MountType::TMPFS),
+        target: Some(target.into()),
+        ..Default::default()
+    }
 }
 
 impl<'a> GitApi<'a> {
@@ -180,10 +191,6 @@ impl<'a> GitApi<'a> {
                 &self.api.get_system_config().await?.gitconfig,
             )?;
             clone_script.push_str(&clone_line(&clone_dir, &depth, &url));
-
-            if spec.force_pull {
-                clone_script.push_str(&pull_line(&clone_dir));
-            }
         }
 
         let clone_cmd = container::inject(&clone_script, "clone.sh");
@@ -208,7 +215,11 @@ impl<'a> GitApi<'a> {
             volumes.push(git_config_vol);
         }
 
-        volumes.push(RoozVolume::work(&spec.workspace_key, &spec.working_dir));
+        if spec.isolated {
+            mounts.push(scratch_mount(&spec.working_dir));
+        } else {
+            volumes.push(RoozVolume::work(&spec.workspace_key, &spec.working_dir));
+        }
 
         self.api.volume.ensure_mounts(&volumes, None).await?;
 
@@ -299,12 +310,18 @@ impl<'a> GitApi<'a> {
         url: &str,
         path: &str,
     ) -> Result<(Option<ConfigBody>, String), AnyError> {
+        // Configuration is read from a clone that shares nothing with the workspace. Re-using
+        // (or pulling) a checkout in the work volume would let workspace-planted git hooks and
+        // repo config run in this container - which mounts the operator's ssh key volume.
+        let spec = CloneEnv {
+            depth_override: Some(1),
+            working_dir: constants::CONFIG_CLONE_DIR.to_string(),
+            isolated: true,
+            ..spec
+        };
         let container_id = self
             .clone_from_spec(
-                &CloneEnv {
-                    depth_override: Some(1),
-                    ..spec.clone()
-                },
+                &spec,
                 &CloneUrls::Extra {
                     urls: vec![url.into()],
                 },
@@ -365,9 +382,32 @@ mod tests {
     }
 
     #[test]
-    fn pull_line_quotes_dir() {
-        let line = pull_line("/work/re'po");
-        assert_eq!(line.matches(r"'/work/re'\''po'").count(), 2, "{}", line);
+    fn clone_line_disables_repo_controlled_execution() {
+        let line = clone_line("/work/repo", "", "https://h/a.git");
+        for flag in [
+            "-c core.hooksPath=/dev/null",
+            "-c core.fsmonitor=false",
+            "-c core.pager=cat",
+        ] {
+            assert!(line.contains(flag), "missing {}: {}", flag, line);
+        }
+    }
+
+    #[test]
+    fn config_clones_never_land_in_the_work_volume() {
+        // the work volume is workspace-writable; a config clone rooz reads itself must not
+        // share it (see clone_config_repo)
+        let dir = get_clone_dir(constants::CONFIG_CLONE_DIR, "https://h/cfg.git", &None).unwrap();
+        assert_eq!(dir, "/tmp/rooz-config/cfg");
+        assert!(!dir.starts_with(constants::WORK_DIR));
+    }
+
+    #[test]
+    fn scratch_mount_is_container_local() {
+        let m = scratch_mount(constants::CONFIG_CLONE_DIR);
+        assert_eq!(m.typ, Some(MountType::TMPFS));
+        assert_eq!(m.target.as_deref(), Some(constants::CONFIG_CLONE_DIR));
+        assert_eq!(m.source, None);
     }
 
     #[test]
@@ -381,7 +421,10 @@ mod tests {
         let out = std::process::Command::new("sh")
             .arg("-c")
             .arg(line.replace(
-                "git -c include.path=/tmp/rooz/.gitconfig clone",
+                &format!(
+                    "git {} -c include.path=/tmp/rooz/.gitconfig clone",
+                    NO_REPO_EXEC
+                ),
                 "printf '%s\\n'",
             ))
             .output()
