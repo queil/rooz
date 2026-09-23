@@ -10,6 +10,7 @@ use crossterm::style::{Color, Print, ResetColor, SetForegroundColor};
 use crossterm::{QueueableCommand, cursor, terminal};
 use futures::StreamExt;
 use indexmap::IndexMap;
+use std::collections::HashMap;
 use std::io::{Write, stdout};
 
 #[derive(Debug)]
@@ -203,6 +204,36 @@ impl<'a> ImageApi<'a> {
         })
     }
 
+    // Images rooz builds live under a predictable name in the engine's shared image
+    // namespace, which anyone with engine access can tag. Reusing one is only safe when it
+    // carries the labels rooz put there when it committed it - same reasoning as volume
+    // ownership. Anything else counts as absent, so the image gets rebuilt over the tag.
+    pub async fn is_committed_by_rooz(
+        &self,
+        image: &str,
+        expected: &Labels,
+    ) -> Result<bool, AnyError> {
+        let found: HashMap<String, String> = match self.client.inspect_image(&image).await {
+            Ok(inspect) => inspect
+                .config
+                .and_then(|c| c.labels)
+                .unwrap_or_default()
+                .into_iter()
+                .collect(),
+            Err(_) => return Ok(false),
+        };
+
+        let matches = labels_match(&found, expected);
+
+        if !matches {
+            log::debug!(
+                "Image {} was not committed by rooz for this workspace - rebuilding it",
+                image
+            );
+        }
+        Ok(matches)
+    }
+
     pub async fn ensure(&self, image: &str, always_pull: bool) -> Result<ImageInfo, AnyError> {
         log::debug!("Ensuring image: {}", &image);
 
@@ -277,5 +308,68 @@ impl<'a> ImageApi<'a> {
             .into()),
             Err(e) => panic!("{}", e),
         }
+    }
+}
+
+fn labels_match(found: &HashMap<String, String>, expected: &Labels) -> bool {
+    let expected: HashMap<String, String> = expected.clone().into();
+    expected
+        .iter()
+        .all(|(k, v)| found.get(k).map(|f| f == v).unwrap_or(false))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::util::labels;
+
+    fn expected() -> Labels {
+        Labels::from(&[
+            Labels::workspace("ws"),
+            Labels::role(labels::SIDECAR_RUNTIME_ROLE),
+            Labels::container("svc"),
+        ])
+    }
+
+    fn found(pairs: &[(&str, &str)]) -> HashMap<String, String> {
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn an_image_rooz_committed_for_this_sidecar_is_reused() {
+        let mine: HashMap<String, String> = expected().into();
+        assert!(labels_match(&mine, &expected()));
+        // extra labels on the image are fine
+        let mut extra = mine.clone();
+        extra.insert("org.opencontainers.created".into(), "yesterday".into());
+        assert!(labels_match(&extra, &expected()));
+    }
+
+    #[test]
+    fn a_squatted_tag_is_not_reused() {
+        // no labels at all - the plain `docker tag` case from the report
+        assert!(!labels_match(&found(&[]), &expected()));
+        // forged rooz labels naming a different workspace or sidecar
+        assert!(!labels_match(
+            &found(&[
+                (labels::ROOZ, "true"),
+                (labels::WORKSPACE_KEY, "someone-else"),
+                (labels::ROLE, labels::SIDECAR_RUNTIME_ROLE),
+                (labels::CONTAINER, "svc"),
+            ]),
+            &expected()
+        ));
+        assert!(!labels_match(
+            &found(&[
+                (labels::ROOZ, "true"),
+                (labels::WORKSPACE_KEY, "ws"),
+                (labels::ROLE, labels::SIDECAR_RUNTIME_ROLE),
+                (labels::CONTAINER, "other-sidecar"),
+            ]),
+            &expected()
+        ));
     }
 }

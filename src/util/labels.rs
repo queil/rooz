@@ -18,6 +18,7 @@ pub const WORKSPACE_CONFIG_ROLE: &'static str = "workspace-config";
 pub const SYSTEM_CONFIG_ROLE: &'static str = "sys-config";
 pub const CACHE_ROLE: &'static str = "cache";
 pub const SIDECAR_ROLE: &'static str = "sidecar";
+pub const SIDECAR_RUNTIME_ROLE: &'static str = "sidecar-runtime";
 
 #[derive(Clone, Debug)]
 pub struct KeyValue {

@@ -206,6 +206,15 @@ If several machines share one remote engine and their local uids collide (both `
 distinct `ROOZ_CACHE_SCOPE` per operator. Note that the scope is a collision boundary, not an
 authorization boundary: anyone able to create workspaces on an engine can name any scope.
 
+### Sidecars
+
+A sidecar with `install` steps is built once: rooz runs the steps in a container and commits the
+result as `localhost/rooz/<workspace>/<sidecar>:latest`, then starts the sidecar from that image.
+Only an image rooz itself committed for that workspace and sidecar is reused - it has to carry the
+`dev.rooz` labels rooz stamps on it. An image someone else tagged under that name is treated as
+absent and rebuilt over, so a predictable tag in the engine's shared image namespace cannot be used
+to slip code into a workspace. Removing a workspace removes the images rooz built for it.
+
 ### Privileged containers
 
 A privileged container has full access to the host running the container engine, so rooz does not

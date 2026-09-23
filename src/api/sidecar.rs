@@ -130,8 +130,20 @@ impl<'a> WorkspaceApi<'a> {
             let install_steps = s.install.as_ref().map(|i| i.resolved()).unwrap_or_default();
             if !install_steps.is_empty() {
                 let runtime_image = format!("localhost/rooz/{}/{}", &workspace_key, &name);
+                // the tag is predictable and the image namespace is shared with every user of
+                // the engine, so only an image rooz committed for this sidecar is reused
+                let runtime_image_labels = Labels::from(&[
+                    Labels::workspace(&workspace_key),
+                    Labels::role(labels::SIDECAR_RUNTIME_ROLE),
+                    Labels::container(&name),
+                ]);
 
-                if !self.api.image.exists(&runtime_image).await? {
+                if !self
+                    .api
+                    .image
+                    .is_committed_by_rooz(&runtime_image, &runtime_image_labels)
+                    .await?
+                {
                     if let ContainerResult::Created { id: container_id } = self
                         .api
                         .container
@@ -166,6 +178,7 @@ impl<'a> WorkspaceApi<'a> {
                                     ..Default::default()
                                 },
                                 ContainerConfig {
+                                    labels: Some(runtime_image_labels.clone().into()),
                                     cmd: if s.args.is_empty() {
                                         None
                                     } else {
