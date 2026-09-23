@@ -67,9 +67,21 @@ The command creates:
   `rooz system init --force` and re-encrypt your secrets.
 
 You can regenerate the age identity by specifying the `--force` parameter. Please note that the existing
-age key will be wiped out. The SSH key pair is deliberately kept - existing workspaces depend on it - so
-`--force` does not rotate it. To get a new SSH key pair (e.g. after you believe the old one leaked),
-remove the `rooz-ssh-key-vol` volume, or run `rooz system prune`, and init again.
+age key will be wiped out.
+
+The SSH key pair is deliberately kept across re-inits - every existing workspace mounts it - so `--force`
+does not touch it. To replace it (the remediation if you believe it leaked) run:
+
+```sh
+rooz system init --rotate-ssh-key
+```
+
+That generates a new pair in place and prints the new public key. Register it wherever you used the old
+one and de-register the old one; running workspaces pick the new key up on their next start.
+
+:warning: The ssh key is the engine's single git identity and every workspace can read it (see above), so
+a repository you open can take it. Rotation limits the damage after the fact; it does not prevent the
+theft. Treat opening an untrusted repository as handing over that key.
 
 ### Configure
 

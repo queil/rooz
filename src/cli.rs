@@ -15,6 +15,11 @@ pub struct InitParams {
         help = "Initializes rooz with the provided age identity rather than generating a new one"
     )]
     pub age_identity: Option<String>,
+    #[arg(
+        long,
+        help = "Generates a new ssh key pair, replacing the current one. Every workspace on this engine gets the new key, and the old one must be de-registered wherever you added it"
+    )]
+    pub rotate_ssh_key: bool,
 }
 
 #[derive(Parser, Debug)]

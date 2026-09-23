@@ -15,16 +15,26 @@ use age::secrecy::ExposeSecret;
 use colored::Colorize;
 
 impl<'a> InitApi<'a> {
-    async fn init_ssh(&self, image_id: &str, uid: &str) -> Result<(), AnyError> {
+    // The key pair is kept across re-inits because every existing workspace mounts it; only an
+    // explicit rotation replaces it. Rotation is the remediation path for a leaked key: the
+    // volume cannot simply be deleted while workspaces are using it.
+    async fn init_ssh(&self, image_id: &str, uid: &str, rotate: bool) -> Result<(), AnyError> {
         let hostname = self.client.info().await?.name.unwrap_or("unknown".into());
         let init_ssh = format!(
             r#"mkdir -p /tmp/.ssh
                        KEYFILE=/tmp/.ssh/id_ed25519
-                       ls "$KEYFILE.pub" > /dev/null 2>&1 || ssh-keygen -t ed25519 -N '' -f $KEYFILE -C rooz@{}
+                       {rotate}
+                       ls "$KEYFILE.pub" > /dev/null 2>&1 || ssh-keygen -t ed25519 -N '' -f $KEYFILE -C rooz@{hostname}
                        cat "$KEYFILE.pub"
-                       chmod 400 $KEYFILE && chown -R {} /tmp/.ssh
+                       chmod 400 $KEYFILE && chown -R {uid} /tmp/.ssh
                     "#,
-            &hostname, &uid,
+            rotate = if rotate {
+                r#"rm -f "$KEYFILE" "$KEYFILE.pub""#
+            } else {
+                ""
+            },
+            hostname = &hostname,
+            uid = &uid,
         );
 
         self.container
@@ -130,10 +140,22 @@ impl<'a> InitApi<'a> {
             })
             .await?
         {
-            VolumeResult::Created { .. } => self.init_ssh(&image_id, uid).await?,
-            VolumeResult::AlreadyExists if spec.force => self.init_ssh(&image_id, uid).await?,
+            VolumeResult::Created { .. } => self.init_ssh(&image_id, uid, false).await?,
+            VolumeResult::AlreadyExists if spec.rotate_ssh_key => {
+                println!(
+                    "Rotating the rooz ssh key pair. Register the new public key below wherever \
+                     you used the old one, and de-register the old one - running workspaces pick \
+                     up the new key on their next start."
+                );
+                self.init_ssh(&image_id, uid, true).await?
+            }
+            VolumeResult::AlreadyExists if spec.force => {
+                self.init_ssh(&image_id, uid, false).await?
+            }
             VolumeResult::AlreadyExists => {
-                println!("The rooz ssh key is already initialized.")
+                println!(
+                    "The rooz ssh key is already initialized. Use --rotate-ssh-key to replace it."
+                )
             }
         }
         Ok(())
