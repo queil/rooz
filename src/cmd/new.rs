@@ -135,6 +135,37 @@ fn check_caches(caches: &[String], consented: &[String]) -> Result<(), AnyError>
     .into())
 }
 
+// The single gate on configuration the operator did not author. Which fields those may set
+// is decided in one place (RoozCfg's operator_only_fields), so a field added to the config
+// does not become repo-controllable by default; this function only applies each refused
+// field's consent rule.
+fn check_repo_authored(cfg: &RoozCfg, consented_caches: &[String]) -> Result<(), AnyError> {
+    for field in crate::config::config::operator_only_fields(cfg) {
+        match field {
+            "caches" => check_caches(cfg.caches.as_deref().unwrap_or_default(), consented_caches)?,
+            // secrets from a repo-authored config are never expanded, consent or not
+            "secrets" => return Err(crate::config::config::SECRETS_NOT_ALLOWED.into()),
+            other => {
+                return Err(format!(
+                    "Refusing '{}': this configuration is authored by the repository being \
+                     opened, and '{}' is the operator's to set.",
+                    other, other
+                )
+                .into());
+            }
+        }
+    }
+    Ok(())
+}
+
+// A resolved '--config' source. A 'bases' layer is a separate file the operator pointed at -
+// a team overlay, something copied out of a repository - not content they wrote, and the merge
+// drops the 'bases' field, so the fact has to travel with the result.
+struct CliConfig {
+    cfg: Option<RoozCfg>,
+    bases_merged: bool,
+}
+
 // Configuration the operator wrote on their own machine is trusted with secrets;
 // anything the repository being opened supplies is not. A remote `--config git:...`
 // source is repository-authored too, even though the operator typed the URL.
@@ -198,7 +229,6 @@ impl<'a> WorkspaceApi<'a> {
         workspace_key: &str,
         force: bool,
         operator_authored: bool,
-        consented_caches: &[String],
     ) -> Result<EnterSpec, AnyError> {
         if let Some(c) = &cli_config {
             cfg_builder.from_config(c);
@@ -239,10 +269,6 @@ impl<'a> WorkspaceApi<'a> {
                 std::env::var(ALLOW_PRIVILEGED_ENV).ok(),
             ),
         )?;
-
-        if !operator_authored {
-            check_caches(&cfg.caches, consented_caches)?;
-        }
 
         self.api
             .image
@@ -375,7 +401,7 @@ impl<'a> WorkspaceApi<'a> {
         workspace_key: &str,
         cli_config_path: &Option<ConfigSource>,
         clone_env: &CloneEnv,
-    ) -> Result<Option<RoozCfg>, AnyError> {
+    ) -> Result<CliConfig, AnyError> {
         let val = if let Some(source) = &cli_config_path {
             let (origin, body, extends_body, rooz_cfg): (
                 String,
@@ -486,9 +512,15 @@ impl<'a> WorkspaceApi<'a> {
                 .store_bases(workspace_key, extends_body.as_deref().unwrap_or(""))
                 .await?;
 
-            rooz_cfg
+            CliConfig {
+                bases_merged: extends_body.is_some(),
+                cfg: rooz_cfg,
+            }
         } else {
-            None
+            CliConfig {
+                cfg: None,
+                bases_merged: false,
+            }
         };
 
         Ok(val)
@@ -525,9 +557,30 @@ impl<'a> WorkspaceApi<'a> {
             ..Default::default()
         };
 
-        let cli_cfg = self
+        let CliConfig {
+            cfg: cli_cfg,
+            bases_merged,
+        } = self
             .get_cli_config(workspace_key, &cli_config_path, &clone_env)
             .await?;
+
+        let operator_local = config_is_operator_local(&cli_config_path);
+        let consented_caches = operator_caches(
+            cli_params,
+            if operator_local {
+                cli_cfg.as_ref()
+            } else {
+                None
+            },
+        );
+
+        // a '--config git:...' source is the repository's configuration, wherever the
+        // operator typed its URL
+        if !operator_local {
+            if let Some(c) = &cli_cfg {
+                check_repo_authored(c, &consented_caches)?;
+            }
+        }
 
         let work_spec = WorkSpec {
             uid: &orig_uid,
@@ -553,6 +606,7 @@ impl<'a> WorkspaceApi<'a> {
                                 if c.bases.is_some() {
                                     return Err("'bases' is not supported in in-repo config (.rooz.yaml); use it in a --config file instead".into());
                                 }
+                                check_repo_authored(&c, &consented_caches)?;
                                 cfg_builder.from_config(&c);
                                 repo_config_applied = true;
                                 eprintln!(
@@ -580,16 +634,6 @@ impl<'a> WorkspaceApi<'a> {
             None => None,
         };
 
-        let operator_local = config_is_operator_local(&cli_config_path);
-        let consented_caches = operator_caches(
-            cli_params,
-            if operator_local {
-                cli_cfg.as_ref()
-            } else {
-                None
-            },
-        );
-
         let enter_spec = self
             .new_core(
                 &mut cfg_builder,
@@ -603,8 +647,9 @@ impl<'a> WorkspaceApi<'a> {
                 root_repo_result,
                 &workspace_key,
                 false,
-                operator_local && !repo_config_applied,
-                &consented_caches,
+                // base layers are merged content the operator did not write, so they carry
+                // the same weight as the repository's own config here
+                operator_local && !repo_config_applied && !bases_merged,
             )
             .await?;
 
@@ -694,6 +739,42 @@ mod tests {
 
     fn caches(paths: &[&str]) -> Vec<String> {
         paths.iter().map(|p| p.to_string()).collect()
+    }
+
+    #[test]
+    fn contained_fields_are_repo_authorable() {
+        // everything a repository may set: it only shapes the container that already runs
+        // that repository's code
+        let cfg: RoozCfg = serde_yaml::from_str(
+            "image: alpine\nshell: [sh]\nuser: someone\nports: ['8080:8080']\n\
+             env: {A: b}\ninstall: 'echo hi'\ncommand: [sh]\nargs: [-c]\n\
+             extra_repos: ['git@h:a/b.git']\nvars: {v: '1'}\ninit: true\n\
+             sidecars:\n  s:\n    image: alpine\n",
+        )
+        .unwrap();
+        assert!(crate::config::config::operator_only_fields(&cfg).is_empty());
+        assert!(check_repo_authored(&cfg, &[]).is_ok());
+    }
+
+    #[test]
+    fn repo_authored_secrets_are_refused() {
+        let cfg: RoozCfg = serde_yaml::from_str("secrets:\n  token: age-encrypted\n").unwrap();
+        assert_eq!(
+            crate::config::config::operator_only_fields(&cfg),
+            vec!["secrets"]
+        );
+        assert!(check_repo_authored(&cfg, &[]).is_err());
+    }
+
+    #[test]
+    fn repo_authored_caches_follow_the_consent_rule() {
+        let cfg: RoozCfg = serde_yaml::from_str("caches:\n  - ~/.cargo\n").unwrap();
+        assert_eq!(
+            crate::config::config::operator_only_fields(&cfg),
+            vec!["caches"]
+        );
+        assert!(check_repo_authored(&cfg, &[]).is_err());
+        assert!(check_repo_authored(&cfg, &caches(&["~/.cargo"])).is_ok());
     }
 
     #[test]

@@ -123,6 +123,21 @@ Most of the settings can be configured via:
 
 The configuration file provides the most options: [example](examples/dotnet-nats.rooz.yaml)
 
+### What a repository's configuration may set
+
+Configuration authored by the repository being opened (its in-repo `.rooz.yaml`, or a `--config git:...`
+source) may set anything that only shapes the workspace container - `image`, `shell`, `command`, `args`,
+`env`, `install`, `ports`, `data`, `mounts`, `sidecars`, `extra_repos`, `vars`, `user`, `init`. That
+grants the repository nothing it does not already have: the workspace runs its code either way.
+
+Fields that reach past the workspace - your host, your other workspaces, your secrets - are yours to set:
+
+| field | why | how to allow it anyway |
+| --- | --- | --- |
+| `secrets` | plaintext would land in a container the repository controls | not possible - move the settings into your own `--config` file |
+| `caches` | a cache volume is shared with your other workspaces | list the same paths in `--caches` / `ROOZ_CACHES` |
+| `privileged` | full access to the host running the engine | `ROOZ_ALLOW_PRIVILEGED=<names>` (refused on *any* config file's say-so, including your own) |
+
 ### Images
 
 :information_source: the default image is `docker.io/chainguard/git:latest-dev`
@@ -298,18 +313,24 @@ rooz enter secrets-test
 
 ### Where secrets may be used
 
-Secrets are expanded only when the **whole** configuration is operator-provided - a local file passed
-with `--config`. If the workspace also merges configuration authored by the repository being opened
-(its in-repo `.rooz.yaml`, or a `--config git:...` source), rooz refuses to expand secrets and fails
-with an explanation.
+Secrets are expanded only when the **whole** configuration is one you wrote - a local file passed
+with `--config`, with nothing else merged into it. Rooz refuses to expand secrets and fails with an
+explanation if the workspace also merges:
 
-The reason: every templated field - `env`, `install`, `command`, `data` content, sidecar `env` - can
-be written by the repository. A repo shipping `env: {LEAK: "{{ MY_SECRET }}"}` would otherwise receive
-your decrypted secret inside a container whose image and entrypoint it also controls. `vars` keep
-working everywhere, since they are not sensitive.
+* the repository's own configuration - its in-repo `.rooz.yaml`, or a `--config git:...` source;
+* a `bases` layer. A base layer is a separate file your config points at; it may be a team overlay or
+  something copied out of a repository, and after the merge nothing can tell its fields apart from
+  yours. Inline the base layer into your own file if you need secrets in that workspace.
 
-If you hit this, move the settings you need out of the repository's `.rooz.yaml` and into your own
-`--config` file.
+The reason: every templated field - `env`, `install`, `command`, `shell`, `data` content, sidecar
+`env` - can be written by whoever authored that content. A layer shipping `env: {LEAK: "{{ MY_SECRET }}"}`
+would otherwise receive your decrypted secret inside a container whose image and entrypoint it also
+controls. `vars` keep working everywhere, since they are not sensitive.
+
+:warning: A local path is not proof of authorship. Rooz trusts your `--config` file because you wrote
+it - it cannot tell that from a file you copied out of a repository you are opening, or one the
+repository's README told you to pass. Never point `--config` at a file that came from the repository,
+and read a base layer before you include it.
 
 ### Secrets at rest
 

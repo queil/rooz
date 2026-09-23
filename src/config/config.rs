@@ -11,12 +11,13 @@ use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::path::Path;
 
-pub const SECRETS_NOT_ALLOWED: &str = "Refusing to expand 'secrets': this workspace merges configuration authored by the \
-     repository being opened, which could reference any of your secrets and read the plaintext \
-     from inside a container it also controls. Secrets are only expanded when the whole \
-     configuration is operator-provided via a local '--config' file. Move the settings you need \
-     out of the repository's in-repo config into your own '--config' file, or remove 'secrets' \
-     from this workspace's configuration.";
+pub const SECRETS_NOT_ALLOWED: &str = "Refusing to expand 'secrets': this workspace merges configuration the operator did not \
+     author, which could reference any of your secrets and read the plaintext from inside a \
+     container it also controls. Secrets are only expanded when the whole configuration comes \
+     from your own local '--config' file - not from the repository being opened (its in-repo \
+     config, or a '--config git:...' source), and not from a 'bases' layer, which is a separate \
+     file that may have come from anywhere. Move the settings you need into your own '--config' \
+     file (inlining any base layers), or remove 'secrets' from this workspace's configuration.";
 
 #[derive(Debug, Clone)]
 pub enum ConfigSource {
@@ -236,6 +237,72 @@ pub struct RoozCfg {
     pub sidecars: Option<IndexMap<String, RoozSidecar>>,
     pub data: Option<IndexMap<String, DataValue>>,
     pub mounts: Option<IndexMap<String, MountSource>>,
+}
+
+// Rooz can defend three things for an operator: their host, their other workspaces, and
+// their secrets. A field the repository being opened may author is one that reaches none of
+// them - it only shapes a container that already runs that repository's code, so letting the
+// repository pick the image, the shell or the install steps grants it nothing it does not
+// already have. Everything else is the operator's call and is listed here.
+//
+// Exhaustive by construction: adding a field to RoozCfg stops this compiling until the new
+// field is classified. Without that, every new feature silently becomes repo-controllable.
+//
+// ('privileged' is absent on purpose: rooz refuses it on any config file's say-so, including
+// the operator's own, so it is gated in check_privileged rather than by provenance.)
+pub fn operator_only_fields(cfg: &RoozCfg) -> Vec<&'static str> {
+    let RoozCfg {
+        // operator-only - reach beyond this workspace's container
+        secrets, // the operator's plaintext
+        caches,  // volumes shared with every other workspace of the same operator
+        // repo-authorable - contained to the workspace the repository already controls
+        bases,
+        vars,
+        git_ssh_url,
+        extra_repos,
+        image,
+        shell,
+        user,
+        ports, // published on the operator's loopback only
+        privileged,
+        init,
+        install,
+        command,
+        args,
+        env,
+        sidecars, // no ssh key mount; 'privileged' gated separately
+        data,
+        mounts, // rooz-managed volumes only, scoped to this workspace
+    } = cfg;
+
+    let _ = (
+        bases,
+        vars,
+        git_ssh_url,
+        extra_repos,
+        image,
+        shell,
+        user,
+        ports,
+        privileged,
+        init,
+        install,
+        command,
+        args,
+        env,
+        sidecars,
+        data,
+        mounts,
+    );
+
+    let mut fields = Vec::new();
+    if secrets.as_ref().is_some_and(|s| !s.is_empty()) {
+        fields.push("secrets");
+    }
+    if caches.as_ref().is_some_and(|c| !c.is_empty()) {
+        fields.push("caches");
+    }
+    fields
 }
 
 impl Default for RoozCfg {
