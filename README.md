@@ -50,11 +50,21 @@ The command creates:
 
 * an age encryption key pair intended to use for encryption of sensitive config data (i.e. secrets)
 
-  The generated key gets stored in the system config volume.
+  The identity is stored **on your machine**, at `~/.config/rooz/age.key` (`$XDG_CONFIG_HOME/rooz/age.key`
+  if set, or wherever `ROOZ_AGE_KEY_FILE` points), mode `0600`. It is never written to the engine: a
+  container engine hands the contents of every named volume to every one of its API users, and this key
+  decrypts every secret you have ever encrypted with rooz - including ciphertext you commit to a
+  repository. Only the CLI uses it; nothing inside a container ever needs it.
 
-  :information_source: It's important to back up the generated age identity. Run `rooz system configure` to view it.
+  :information_source: It's important to back up the generated age identity - copy that file somewhere safe.
   If the key is lost all the existing config files with encrypted vars won't decrypt and re-encrypting will be required.
-  To init rooz with an existing age identity use the `--age-identity` switch.
+  To init rooz with an existing age identity use the `--age-identity` switch. Working from a second machine
+  against the same engine means copying the identity file there.
+
+  :information_source: Upgrading: earlier versions kept the identity in the `rooz_sys-config` volume. The first
+  rooz command after upgrading moves it to your machine and strips it from the volume, printing where it went.
+  If that engine is shared with anyone, treat the identity as compromised: re-key with
+  `rooz system init --force` and re-encrypt your secrets.
 
 You can regenerate the age identity by specifying the `--force` parameter. Please note that the existing
 age key will be wiped out. The SSH key pair is deliberately kept - existing workspaces depend on it - so
@@ -80,7 +90,7 @@ export ROOZ_CACHES='~/.local/share/containers/storage/'
 
 ### System config
 
-Rooz exposes some system config via `rooz system configure`. At present it only allows to specify `.gitconfig` used by rooz for cloning. It can be used e.g. to specify aliases. This feature is new and may be extended in the future. It also contains the age key for secret's encryption/decryption.
+Rooz exposes some system config via `rooz system configure`. At present it only allows to specify `.gitconfig` used by rooz for cloning. It can be used e.g. to specify aliases. This feature is new and may be extended in the future. The age identity is *not* part of it - that lives on your machine (see [Init](#init)).
 
 ## Usage examples
 

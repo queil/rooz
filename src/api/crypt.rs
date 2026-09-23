@@ -6,7 +6,13 @@ use std::str::FromStr;
 
 impl SystemConfig {
     pub fn age_identity(&self) -> Result<Identity, AnyError> {
-        Ok(Identity::from_str(self.age_key.as_deref().unwrap())?)
+        let key = self.age_key.as_deref().ok_or(format!(
+            "No age identity found at {:?}. Run 'rooz system init' to create one, or point \
+             {} at an existing identity file.",
+            crate::util::identity::key_path()?,
+            crate::util::identity::AGE_KEY_FILE_ENV
+        ))?;
+        Ok(Identity::from_str(key)?)
     }
 }
 

@@ -753,6 +753,15 @@ pub struct SystemConfig {
 }
 
 impl SystemConfig {
+    // What may be stored on the engine: everything except the age identity, which stays on
+    // the operator's machine (see util::identity).
+    pub fn engine_view(&self) -> Self {
+        Self {
+            age_key: None,
+            gitconfig: self.gitconfig.clone(),
+        }
+    }
+
     pub fn from_string(config: &str) -> Result<Self, AnyError> {
         Ok(serde_yaml::from_str(&config)?)
     }

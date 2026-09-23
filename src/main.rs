@@ -12,10 +12,7 @@ use rooz::{
         StopParams, TmpParams,
     },
     cmd::remote,
-    model::{
-        types::AnyError,
-        volume::{RoozVolume, VolumeFile},
-    },
+    model::types::AnyError,
     util::backend::{ContainerBackend, check_version_floor},
 };
 
@@ -337,11 +334,14 @@ async fn main() -> Result<(), AnyError> {
             ..
         } => {
             let init = InitApi {
+                api: &rooz,
                 client: &docker,
                 image: &image_api,
                 volume: &volume_api,
                 container: &container_api,
             };
+            // takes a legacy engine-side identity off the engine before init touches anything
+            rooz.get_system_config().await?;
             init.init(
                 constants::DEFAULT_IMAGE,
                 constants::DEFAULT_UID,
@@ -369,19 +369,18 @@ async fn main() -> Result<(), AnyError> {
                     command: rooz::cli::SystemCommands::Configure(ConfigureParams {}),
                 }),
         } => {
-            let (_, config_string) = config_api
+            // reading first moves a legacy engine-side identity onto this machine
+            rooz.get_system_config().await?;
+            let (edited, _) = config_api
                 .system_edit_string(rooz.get_system_config_string().await?.clone())
                 .await?;
-            volume_api
-                .write_files(
-                    &RoozVolume::system_config("/tmp/sys"),
-                    &[VolumeFile::new_private(
-                        constants::SYSTEM_CONFIG_FILE,
-                        &config_string,
-                    )],
-                    None,
-                )
-                .await?;
+            if edited.age_key.is_some() {
+                eprintln!(
+                    "NOTE: 'age_key' is not stored on the engine - dropping it. Use \
+                     'rooz system init --age-identity <key>' to set the identity on this machine."
+                );
+            }
+            rooz.write_system_config(&edited).await?;
         }
     };
     Ok(())

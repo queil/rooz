@@ -34,6 +34,7 @@ pub struct VolumeApi<'a> {
 }
 
 pub struct InitApi<'a> {
+    pub api: &'a Api<'a>,
     pub client: &'a Docker,
     pub image: &'a ImageApi<'a>,
     pub volume: &'a VolumeApi<'a>,
