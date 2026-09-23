@@ -35,7 +35,13 @@ impl TestEnv {
         let mut cmd = Command::cargo_bin("rooz").unwrap();
         cmd.env("DOCKER_HOST", &self.docker_host)
             .env("http_proxy", "")
-            .env("HTTP_PROXY", "");
+            .env("HTTP_PROXY", "")
+            // the suite runs 'system init --force', which replaces the age identity - keep
+            // it away from the developer's own (~/.config/rooz/age.key)
+            .env(
+                "ROOZ_AGE_KEY_FILE",
+                env::temp_dir().join("rooz-test-identity").join("age.key"),
+            );
         cmd
     }
 

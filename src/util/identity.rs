@@ -46,11 +46,13 @@ pub fn read() -> Result<Option<String>, AnyError> {
 
 pub fn write(key: &str) -> Result<PathBuf, AnyError> {
     let path = key_path()?;
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
-    std::fs::write(&path, format!("{}\n", key.trim()))?;
-    set_private(&path)?;
+    write_private(&path, key).map_err(|e| {
+        format!(
+            "Could not write the age identity to {:?}: {}. Point {} somewhere writable if that \
+             location is not yours to write.",
+            path, e, AGE_KEY_FILE_ENV
+        )
+    })?;
     Ok(path)
 }
 
@@ -64,23 +66,27 @@ pub fn back_up(key: &str) -> Result<PathBuf, AnyError> {
         )
         .into());
     }
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
-    std::fs::write(&path, format!("{}\n", key.trim()))?;
-    set_private(&path)?;
+    write_private(&path, key)
+        .map_err(|e| format!("Could not write the identity backup to {:?}: {}", path, e))?;
     Ok(path)
 }
 
+fn write_private(path: &PathBuf, key: &str) -> Result<(), std::io::Error> {
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    std::fs::write(path, format!("{}\n", key.trim()))?;
+    set_private(path)
+}
+
 #[cfg(unix)]
-fn set_private(path: &PathBuf) -> Result<(), AnyError> {
+fn set_private(path: &PathBuf) -> Result<(), std::io::Error> {
     use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
-    Ok(())
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
 }
 
 #[cfg(not(unix))]
-fn set_private(_path: &PathBuf) -> Result<(), AnyError> {
+fn set_private(_path: &PathBuf) -> Result<(), std::io::Error> {
     Ok(())
 }
 
