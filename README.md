@@ -17,17 +17,32 @@ Rooz requires one of the following container backends:
 
 ### Install
 
-#### MacOs
+#### MacOs (Apple silicon)
 
 ```sh
 curl -sSL https://github.com/queil/rooz/releases/latest/download/rooz-aarch64-apple-darwin -o ./rooz && chmod +x ./rooz && sudo mv ./rooz /usr/local/bin
 ```
 
-#### Linux
+#### MacOs (Intel)
+
+```sh
+curl -sSL https://github.com/queil/rooz/releases/latest/download/rooz-x86_64-apple-darwin -o ./rooz && chmod +x ./rooz && sudo mv ./rooz /usr/local/bin
+```
+
+#### Linux (x86_64)
 
 ```sh
 curl -sSL https://github.com/queil/rooz/releases/latest/download/rooz-x86_64-unknown-linux-gnu -o ./rooz && chmod +x ./rooz && sudo mv ./rooz /usr/local/bin
 ```
+
+#### Linux (arm64)
+
+```sh
+curl -sSL https://github.com/queil/rooz/releases/latest/download/rooz-aarch64-unknown-linux-gnu -o ./rooz && chmod +x ./rooz && sudo mv ./rooz /usr/local/bin
+```
+
+Every release also carries `SHA256SUMS`, and the binaries have signed build provenance
+(`gh attestation verify ./rooz --repo queil/rooz`).
 
 ### Initialize
 

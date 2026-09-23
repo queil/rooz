@@ -1,53 +1,222 @@
-name: Release
+# Releases - a v* tag produces a DRAFT release carrying one bare binary per
+# platform plus SHA256SUMS. The gate runs the full battery first and nothing
+# builds if anything is red, the tag and Cargo.toml must agree, and every built
+# binary has to report that same version before it is uploaded. Assets are
+# uploaded separately from the release creation and retried, then the asset list
+# is machine-checked: an incomplete draft fails the job instead of waiting for a
+# human to notice. Publishing the draft stays manual.
+name: release
 
 on:
   push:
-    tags: '*'
+    tags: ["v[0-9]*"]
+
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  create-release:
+  gate:
     runs-on: ubuntu-latest
     steps:
-    - name: Create GitHub release
-      uses: softprops/action-gh-release@a74c6b72af54cfa997e81df42d94703d6313a2d0 # v2.0.6
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        name: ${{ env.RELEASE_TAG }}
-        tag_name: ${{ env.RELEASE_TAG }}
-        draft: ${{ env.DRAFT_RELEASE }}
-        prerelease: ${{ env.PRE_RELEASE }}
-        body: "Initial release"
+      - uses: actions/checkout@v7
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
 
-  build-release:
-    name: Build Release
-    needs: create-release
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-        include:
-          - os: ubuntu-latest
-            build_target: x86_64-unknown-linux-gnu
-          - os: macos-latest
-            build_target: aarch64-apple-darwin
-    runs-on: ${{ matrix.os }}
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v7
+      # the tag is the release's only input, so it has to agree with the crate
+      # version before anything is built - a forgotten `cargo set-version` ships
+      # a binary that reports the previous release
+      - name: tag matches Cargo.toml
+        run: |
+          tag="${{ github.ref_name }}"
+          crate="v$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')"
+          [ "$tag" = "$crate" ] || {
+            echo "RELEASE REFUSED: tag is '$tag', Cargo.toml says '$crate'" >&2
+            exit 1
+          }
+          echo "version: $tag"
 
-      - name: rustc add target
-        if: matrix.os == 'macos-latest'
-        run: rustup target add aarch64-apple-darwin
+      - name: formatting
+        run: cargo fmt --check
 
       - name: build
-        run: |
-          cargo build --release --verbose --target ${{ matrix.build_target }}
-          mv target/${{ matrix.build_target }}/release/rooz target/${{ matrix.build_target }}/release/rooz-${{ matrix.build_target }}
+        run: cargo build --locked
 
-      - name: Release
-        uses: softprops/action-gh-release@v1
+      - name: unit tests
+        run: cargo test --locked --lib --bins
+
+      # the same daemon-backed battery as CI: a release cannot publish from red
+      - name: start docker daemon
+        run: |
+          bash scripts/test-daemon.sh up docker \
+            | grep '^export ' \
+            | sed 's/^export //' \
+            >> "$GITHUB_ENV"
+
+      - name: integration tests
+        run: |
+          cargo test --locked \
+            --test smoke \
+            --test lifecycle \
+            --test volumes \
+            --test sidecars \
+            --test networks \
+            --test interactive \
+            -- --test-threads=1
+
+      - name: stop daemon
+        if: always()
+        run: bash scripts/test-daemon.sh down docker
+
+  build:
+    needs: gate
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+    runs-on: ${{ matrix.os }}
+    # attestation needs OIDC and the attestation store; the repo itself is only
+    # read here - contents: write lives in publish
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/cache@v6
         with:
-          tag_name: ${{ needs.create_release.outputs.tag-name }}
-          files: target/${{ matrix.build_target }}/release/rooz-${{ matrix.build_target }}
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-${{ matrix.target }}-cargo-
+
+      - name: add target
+        run: rustup target add ${{ matrix.target }}
+
+      - name: build
+        run: cargo build --release --locked --target ${{ matrix.target }}
+
+      # every runner is native, so the artifact can vouch for itself: the binary
+      # that ships must report the tag it ships under
+      - name: the binary reports the tag
+        run: |
+          bin="target/${{ matrix.target }}/release/rooz"
+          expected="rooz ${GITHUB_REF_NAME#v}"
+          actual="$("$bin" --version)"
+          [ "$actual" = "$expected" ] || {
+            echo "RELEASE REFUSED: --version says '$actual', expected '$expected'" >&2
+            exit 1
+          }
+          cp "$bin" "rooz-${{ matrix.target }}"
+
+      - uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: rooz-${{ matrix.target }}
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: rooz-${{ matrix.target }}
+          path: rooz-${{ matrix.target }}
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: checksums
+        run: |
+          cd dist
+          chmod +x rooz-*
+          sha256sum rooz-* > SHA256SUMS
+          cat SHA256SUMS
+
+      # created with no assets: an upload that dies half way through used to
+      # leave a release that looks complete. Uploads are their own retried step.
+      - name: draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            --repo "${{ github.repository }}" \
+            --draft \
+            --title "rooz ${{ github.ref_name }}" \
+            --generate-notes
+
+      - name: upload assets (retried, --clobber)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for attempt in 1 2 3; do
+            if gh release upload "${{ github.ref_name }}" --clobber \
+                 --repo "${{ github.repository }}" \
+                 dist/rooz-* dist/SHA256SUMS; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              echo "upload attempt $attempt failed; backing off $((attempt * 20))s" >&2
+              sleep $((attempt * 20))
+            fi
+          done
+          echo "asset upload failed after 3 attempts" >&2
+          exit 1
+
+      # the completeness gate: every expected asset present, uploaded and
+      # non-empty, before a human is asked to review a draft. The list here is
+      # the release's contract - the install URLs in README.md point at these
+      # exact names.
+      - name: verify the draft carries every expected asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          expected="rooz-x86_64-unknown-linux-gnu
+          rooz-aarch64-unknown-linux-gnu
+          rooz-aarch64-apple-darwin
+          rooz-x86_64-apple-darwin
+          SHA256SUMS"
+          gh release view "${{ github.ref_name }}" \
+            --repo "${{ github.repository }}" \
+            --json assets --jq '.assets[] | "\(.name) \(.state) \(.size)"' > assets.txt
+          cat assets.txt
+          missing=0
+          while read -r name; do
+            [ -n "$name" ] || continue
+            line="$(grep -E "^$name " assets.txt || true)"
+            state="$(echo "$line" | awk '{print $2}')"
+            size="$(echo "$line" | awk '{print $3}')"
+            if [ "$state" != "uploaded" ] || [ -z "$size" ] || [ "$size" -le 0 ]; then
+              echo "INCOMPLETE DRAFT: '$name' is ${state:-absent} (size ${size:-0})" >&2
+              missing=1
+            fi
+          done <<< "$(echo "$expected" | sed 's/^[[:space:]]*//')"
+          [ "$missing" -eq 0 ] || exit 1
+          echo "draft ${{ github.ref_name }} carries every expected asset - publish it when you are happy with the notes"
