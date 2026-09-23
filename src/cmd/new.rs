@@ -89,6 +89,52 @@ fn check_privileged(containers: &[String], consent: &PrivilegedConsent) -> Resul
     .into())
 }
 
+pub const CACHES_NOT_ALLOWED: &str = "This configuration declares shared caches, but it is \
+     authored by the repository being opened. A cache volume is shared with every other \
+     workspace of yours mounting the same path, so whatever this repository's build writes \
+     into it (a cargo registry source, a linker config, a crate with a build script) would \
+     later execute in those workspaces. Rooz shares only the cache paths you ask for \
+     yourself - if you want these shared, list them in ROOZ_CACHES (which also covers \
+     'rooz update'), or pass '--caches' to 'rooz new'.";
+
+// Cache volumes are shared by path across all of an operator's workspaces - that is what
+// they are for, and why the repository being opened must not be able to opt one of its own
+// build paths into that sharing. Only paths the operator named on their own machine (the
+// '--caches' flag, the ROOZ_CACHES variable, or a local '--config' file) are shared.
+fn operator_caches(cli: &WorkParams, operator_config: Option<&RoozCfg>) -> Vec<String> {
+    let mut caches = cli.caches.clone().unwrap_or_default();
+    caches.extend(cli.env.caches.clone().unwrap_or_default());
+    caches.extend(
+        operator_config
+            .and_then(|c| c.caches.clone())
+            .unwrap_or_default(),
+    );
+    caches
+}
+
+fn check_caches(caches: &[String], consented: &[String]) -> Result<(), AnyError> {
+    let refused = caches
+        .iter()
+        .filter(|c| !consented.contains(c))
+        .cloned()
+        .collect::<Vec<_>>();
+
+    if refused.is_empty() {
+        return Ok(());
+    }
+
+    Err(format!(
+        "{} Refusing cache paths: {}.",
+        CACHES_NOT_ALLOWED,
+        refused
+            .iter()
+            .map(|c| format!("'{}'", c))
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
+    .into())
+}
+
 // Configuration the operator wrote on their own machine is trusted with secrets;
 // anything the repository being opened supplies is not. A remote `--config git:...`
 // source is repository-authored too, even though the operator typed the URL.
@@ -151,7 +197,8 @@ impl<'a> WorkspaceApi<'a> {
         root_git_repo: Option<RootRepoCloneResult>,
         workspace_key: &str,
         force: bool,
-        secrets_allowed: bool,
+        operator_authored: bool,
+        consented_caches: &[String],
     ) -> Result<EnterSpec, AnyError> {
         if let Some(c) = &cli_config {
             cfg_builder.from_config(c);
@@ -160,7 +207,7 @@ impl<'a> WorkspaceApi<'a> {
 
         // refuse before decrypting: nothing should be in plaintext in this process if the
         // merged configuration is not wholly operator-authored
-        if !secrets_allowed && cfg_builder.secrets.as_ref().is_some_and(|s| !s.is_empty()) {
+        if !operator_authored && cfg_builder.secrets.as_ref().is_some_and(|s| !s.is_empty()) {
             return Err(crate::config::config::SECRETS_NOT_ALLOWED.into());
         }
 
@@ -180,7 +227,7 @@ impl<'a> WorkspaceApi<'a> {
             .into_values()
             .collect::<Vec<String>>();
 
-        cfg_builder.expand_vars(secrets_allowed)?;
+        cfg_builder.expand_vars(operator_authored)?;
 
         let cfg = RuntimeConfig::try_from(&*cfg_builder)?;
 
@@ -192,6 +239,10 @@ impl<'a> WorkspaceApi<'a> {
                 std::env::var(ALLOW_PRIVILEGED_ENV).ok(),
             ),
         )?;
+
+        if !operator_authored {
+            check_caches(&cfg.caches, consented_caches)?;
+        }
 
         self.api
             .image
@@ -529,6 +580,16 @@ impl<'a> WorkspaceApi<'a> {
             None => None,
         };
 
+        let operator_local = config_is_operator_local(&cli_config_path);
+        let consented_caches = operator_caches(
+            cli_params,
+            if operator_local {
+                cli_cfg.as_ref()
+            } else {
+                None
+            },
+        );
+
         let enter_spec = self
             .new_core(
                 &mut cfg_builder,
@@ -542,7 +603,8 @@ impl<'a> WorkspaceApi<'a> {
                 root_repo_result,
                 &workspace_key,
                 false,
-                config_is_operator_local(&cli_config_path) && !repo_config_applied,
+                operator_local && !repo_config_applied,
+                &consented_caches,
             )
             .await?;
 
@@ -628,6 +690,49 @@ mod tests {
 
     fn consent(env: Option<&str>) -> PrivilegedConsent {
         PrivilegedConsent::resolve(None, env.map(String::from))
+    }
+
+    fn caches(paths: &[&str]) -> Vec<String> {
+        paths.iter().map(|p| p.to_string()).collect()
+    }
+
+    #[test]
+    fn repo_declared_caches_are_refused_without_consent() {
+        let err = check_caches(&caches(&["~/.cargo"]), &[])
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("~/.cargo"), "path not named: {}", err);
+        assert!(err.contains("--caches"), "no remedy given: {}", err);
+        // consenting to one path is not consent for another
+        assert!(check_caches(&caches(&["~/.cargo"]), &caches(&["~/.nuget"])).is_err());
+    }
+
+    #[test]
+    fn caches_the_operator_asked_for_are_shared() {
+        assert!(check_caches(&caches(&["~/.cargo"]), &caches(&["~/.cargo"])).is_ok());
+        assert!(check_caches(&caches(&["~/.cargo"]), &caches(&["~/.nuget", "~/.cargo"])).is_ok());
+        assert!(check_caches(&[], &[]).is_ok());
+    }
+
+    #[test]
+    fn consent_comes_from_the_operator_flag_env_and_local_config() {
+        let cli = WorkParams {
+            caches: Some(caches(&["~/.cargo"])),
+            env: crate::cli::WorkEnvParams {
+                caches: Some(caches(&["~/.nuget"])),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let local_config = RoozCfg {
+            caches: Some(caches(&["~/.npm"])),
+            ..Default::default()
+        };
+        let consented = operator_caches(&cli, Some(&local_config));
+        assert!(check_caches(&caches(&["~/.cargo", "~/.nuget", "~/.npm"]), &consented).is_ok());
+        // the same config coming from the repository (not passed as operator-local) is not consent
+        let without = operator_caches(&cli, None);
+        assert!(check_caches(&caches(&["~/.npm"]), &without).is_err());
     }
 
     #[test]

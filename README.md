@@ -152,15 +152,24 @@ The default shell is `bash` but you can override it via:
 
 ### Caching
 
-`rooz` supports basic path-keyed shared caches. It can be set per-repo like:
+`rooz` supports basic path-keyed shared caches. It can be set in a config file like:
 
 ```yaml
 caches: 
 - ~/.nuget
 ```
 
-All the repos specifying a cache path will share a container volume mounted at that path enabling cache reuse.
-It also can be set globally via `ROOZ_CACHES` (comma-separated paths). The global paths get combined with repo-specific paths.
+All the workspaces specifying a cache path will share a container volume mounted at that path enabling cache reuse.
+It also can be set globally via `ROOZ_CACHES` (comma-separated paths), or per workspace with `--caches`.
+The global paths get combined with the config file's paths.
+
+:warning: A cache is shared with *every* workspace of yours mounting the same path, so whatever writes
+into it (a cargo registry source, a linker config, a crate with a build script) later executes in those
+workspaces. That makes a cache path an operator decision: if the configuration comes from the repository
+being opened (an in-repo `.rooz.yaml`, or a `--config git:...` source), rooz refuses its cache paths
+unless you list the same paths yourself with `--caches` (on `rooz new`) or `ROOZ_CACHES` - the latter also
+covers `rooz update`, which re-reads a repository-authored config on every run. Config files you wrote
+locally and pass with `--config` are unaffected.
 
 :information_source: Cache volumes are scoped to the operator, not just the path. The scope defaults to the
 uid of the rooz process, so one person's workspaces share their caches while unrelated operators on a
