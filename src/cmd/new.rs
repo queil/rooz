@@ -23,6 +23,7 @@ use std::collections::HashMap;
 use std::fs;
 
 pub const ALLOW_PRIVILEGED_ENV: &str = "ROOZ_ALLOW_PRIVILEGED";
+pub const ALLOW_SECRETS_ENV: &str = "ROOZ_ALLOW_SECRETS";
 
 // What the operator has agreed to. Naming the containers keeps the gate useful for
 // operators who legitimately need one privileged sidecar: a standing blanket consent
@@ -59,6 +60,77 @@ impl PrivilegedConsent {
             Self::Named(names) => names.iter().any(|n| n == container),
         }
     }
+}
+
+// Which of the operator's secrets may be expanded into this workspace. A local '--config'
+// path is not proof of authorship: a repository can ship the file and its README can tell the
+// operator to pass it ('rooz new ws --config ./setup.yaml'), and that file then picks the
+// image, entrypoint and environment the plaintext lands in. So the operator names the secrets,
+// the same way they name the containers they allow to run privileged.
+#[derive(Debug, PartialEq)]
+pub enum SecretsConsent {
+    None,
+    All,
+    Named(Vec<String>),
+}
+
+impl SecretsConsent {
+    pub fn resolve(cli_allow_secrets: Option<bool>, env: Option<String>) -> Self {
+        // --allow-secrets true is the operator asking for it outright
+        if cli_allow_secrets == Some(true) {
+            return Self::All;
+        }
+        match env.as_deref().map(str::trim) {
+            None | Some("") | Some("false") => Self::None,
+            Some("true") => Self::All,
+            Some(list) => Self::Named(
+                list.split(',')
+                    .map(|n| n.trim().to_string())
+                    .filter(|n| !n.is_empty())
+                    .collect(),
+            ),
+        }
+    }
+
+    fn allows(&self, secret: &str) -> bool {
+        match self {
+            Self::None => false,
+            Self::All => true,
+            Self::Named(names) => names.iter().any(|n| n == secret),
+        }
+    }
+}
+
+fn check_secrets(
+    secrets: Option<&indexmap::IndexMap<String, String>>,
+    consent: &SecretsConsent,
+) -> Result<(), AnyError> {
+    let refused = secrets
+        .map(|s| {
+            s.keys()
+                .filter(|k| !consent.allows(k))
+                .cloned()
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    if refused.is_empty() {
+        return Ok(());
+    }
+
+    Err(format!(
+        "This configuration expands secrets: {}. A secret's plaintext ends up inside a container \
+         whose image, entrypoint, environment and install steps the same configuration chooses, \
+         and a local '--config' path is not proof that you wrote it - repositories do ship config \
+         files and ask you to pass them. If this configuration is yours, name the secrets you are \
+         releasing to it: {}={}. ('{}=true' releases whatever the configuration declares, and \
+         '--allow-secrets true' does the same for a single run.)",
+        refused.join(", "),
+        ALLOW_SECRETS_ENV,
+        refused.join(","),
+        ALLOW_SECRETS_ENV
+    )
+    .into())
 }
 
 // A privileged container has full access to the host, so the request has to come
@@ -241,6 +313,16 @@ impl<'a> WorkspaceApi<'a> {
             return Err(crate::config::config::SECRETS_NOT_ALLOWED.into());
         }
 
+        // provenance says where the configuration came from; consent says whether the operator
+        // meant that configuration to have their secrets. Both are needed before decrypting.
+        check_secrets(
+            cfg_builder.secrets.as_ref(),
+            &SecretsConsent::resolve(
+                cli_params.allow_secrets,
+                std::env::var(ALLOW_SECRETS_ENV).ok(),
+            ),
+        )?;
+
         self.config
             .decrypt(
                 cfg_builder,
@@ -276,7 +358,7 @@ impl<'a> WorkspaceApi<'a> {
             .await?;
 
         let volume_specs =
-            VolumeApi::create_volume_specs(workspace_key, &cfg.data, &cfg.all_mounts(), true);
+            VolumeApi::create_volume_specs(workspace_key, &cfg.data, &cfg.all_mounts(), true)?;
 
         let mounts_all = &cfg
             .mounts
@@ -290,7 +372,7 @@ impl<'a> WorkspaceApi<'a> {
         let mounts_config = self
             .api
             .volume
-            .mounts_with_sources(&volume_specs, mounts_all, true);
+            .mounts_with_sources(&volume_specs, mounts_all, true)?;
 
         let real_mounts = VolumeApi::real_mounts(mounts_config.clone(), Some(&home_dir));
 
@@ -401,6 +483,7 @@ impl<'a> WorkspaceApi<'a> {
         workspace_key: &str,
         cli_config_path: &Option<ConfigSource>,
         clone_env: &CloneEnv,
+        secrets_consent: &SecretsConsent,
     ) -> Result<CliConfig, AnyError> {
         let val = if let Some(source) = &cli_config_path {
             let (origin, body, extends_body, rooz_cfg): (
@@ -451,7 +534,7 @@ impl<'a> WorkspaceApi<'a> {
                         let body = fs::read_to_string(&path)?;
                         let absolute_path =
                             std::path::absolute(path)?.to_string_lossy().into_owned();
-                        let fmt = FileFormat::from_path(&path);
+                        let fmt = FileFormat::from_path(&path)?;
                         let cfg = RoozCfg::deserialize_config(&body, fmt)?;
 
                         let (cfg, base_body) = match cfg {
@@ -491,7 +574,7 @@ impl<'a> WorkspaceApi<'a> {
                                 bases,
                                 merged,
                             }) => {
-                                let fmt = FileFormat::from_path(&file_path);
+                                let fmt = FileFormat::from_path(&file_path)?;
                                 let cfg = merged.map(Ok).unwrap_or_else(|| {
                                     RoozCfg::deserialize_config(&body, fmt).map(|o| o.unwrap())
                                 })?;
@@ -504,6 +587,13 @@ impl<'a> WorkspaceApi<'a> {
                     }
                 },
             };
+
+            // before the first write: a refusal must not leave a half-created workspace behind,
+            // or the operator cannot re-run the same command once they have consented
+            check_secrets(
+                rooz_cfg.as_ref().and_then(|c| c.secrets.as_ref()),
+                secrets_consent,
+            )?;
 
             self.config
                 .store(workspace_key, &origin, &body.unwrap())
@@ -561,7 +651,15 @@ impl<'a> WorkspaceApi<'a> {
             cfg: cli_cfg,
             bases_merged,
         } = self
-            .get_cli_config(workspace_key, &cli_config_path, &clone_env)
+            .get_cli_config(
+                workspace_key,
+                &cli_config_path,
+                &clone_env,
+                &SecretsConsent::resolve(
+                    cli_params.allow_secrets,
+                    std::env::var(ALLOW_SECRETS_ENV).ok(),
+                ),
+            )
             .await?;
 
         let operator_local = config_is_operator_local(&cli_config_path);
@@ -910,5 +1008,84 @@ mod tests {
     fn blanket_consent_still_works_for_non_interactive_use() {
         let c = cfg(true, &[("pwn", true)]);
         assert!(check_privileged(&c.privileged_containers(), &consent(Some("true"))).is_ok());
+    }
+
+    fn secrets(keys: &[&str]) -> indexmap::IndexMap<String, String> {
+        keys.iter()
+            .map(|k| (k.to_string(), "age-encrypted".to_string()))
+            .collect()
+    }
+
+    fn secrets_consent(env: Option<&str>) -> SecretsConsent {
+        SecretsConsent::resolve(None, env.map(String::from))
+    }
+
+    #[test]
+    fn a_config_without_secrets_needs_no_consent() {
+        assert!(check_secrets(None, &secrets_consent(None)).is_ok());
+        assert!(check_secrets(Some(&secrets(&[])), &secrets_consent(None)).is_ok());
+    }
+
+    #[test]
+    fn a_local_config_file_is_not_consent_on_its_own() {
+        // the bypass: a repository ships the file and its README says to pass it with --config
+        let err = check_secrets(Some(&secrets(&["opSecret"])), &secrets_consent(None))
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("opSecret"), "secret not named: {}", err);
+        assert!(err.contains(ALLOW_SECRETS_ENV), "no remedy given: {}", err);
+        // an explicit refusal is not consent either
+        assert!(
+            check_secrets(
+                Some(&secrets(&["opSecret"])),
+                &secrets_consent(Some("false"))
+            )
+            .is_err()
+        );
+        assert!(
+            check_secrets(
+                Some(&secrets(&["opSecret"])),
+                &SecretsConsent::resolve(Some(false), None)
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn naming_a_secret_consents_to_only_that_secret() {
+        let allow_db = secrets_consent(Some("dbPassword"));
+        assert!(check_secrets(Some(&secrets(&["dbPassword"])), &allow_db).is_ok());
+
+        let err = check_secrets(Some(&secrets(&["dbPassword", "opSecret"])), &allow_db)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            !err.contains("dbPassword"),
+            "consented secret was refused: {}",
+            err
+        );
+        assert!(
+            err.contains(&format!("{}=opSecret", ALLOW_SECRETS_ENV)),
+            "remedy should name only what was refused: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn secrets_consent_parsing() {
+        assert_eq!(secrets_consent(None), SecretsConsent::None);
+        assert_eq!(secrets_consent(Some("")), SecretsConsent::None);
+        assert_eq!(secrets_consent(Some("false")), SecretsConsent::None);
+        assert_eq!(secrets_consent(Some("true")), SecretsConsent::All);
+        assert_eq!(
+            secrets_consent(Some(" dbPassword , token ,")),
+            SecretsConsent::Named(vec!["dbPassword".into(), "token".into()])
+        );
+        assert_eq!(
+            SecretsConsent::resolve(Some(true), None),
+            SecretsConsent::All
+        );
+        // blanket consent for CI
+        assert!(check_secrets(Some(&secrets(&["a", "b"])), &secrets_consent(Some("true"))).is_ok());
     }
 }

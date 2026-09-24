@@ -13,6 +13,12 @@ Rooz requires one of the following container backends:
 * Podman >= 6
 * Rancher Desktop - untested atm
 
+The engine is assumed to be yours - a rootless daemon on your own machine, or a remote one only you
+use. Rooz defends your host, your other workspaces and your secrets against the repositories you
+open; it cannot defend a workspace against another tenant of the same engine. Anyone who can reach
+the engine API can read every volume, run containers on your networks, and name images and volumes
+whatever they like, so sharing one engine between people who do not trust each other is out of scope.
+
 ## Quick start
 
 ### Install
@@ -77,9 +83,13 @@ The command creates:
   against the same engine means copying the identity file there.
 
   :information_source: Upgrading: earlier versions kept the identity in the `rooz_sys-config` volume. The first
-  rooz command after upgrading moves it to your machine and strips it from the volume, printing where it went.
-  If that engine is shared with anyone, treat the identity as compromised: re-key with
-  `rooz system init --force` and re-encrypt your secrets.
+  rooz command after upgrading takes it out of the volume and keeps it aside at `age.engine.bak`, printing
+  where it went - it is **not** adopted as this machine's identity, because rooz cannot tell your own
+  upgraded key from one somebody else with engine access wrote there, and using theirs would encrypt
+  every secret you save afterwards to their recipient. Check the file, then install it yourself:
+  `rooz system init --force --age-identity "$(cat ~/.config/rooz/age.engine.bak)"`. If that engine is
+  shared with anyone, treat the identity as compromised instead: re-key with `rooz system init --force`
+  and re-encrypt your secrets.
 
 You can regenerate the age identity by specifying the `--force` parameter. Please note that the existing
 age key will be wiped out.
@@ -237,10 +247,14 @@ authorization boundary: anyone able to create workspaces on an engine can name a
 
 A sidecar with `install` steps is built once: rooz runs the steps in a container and commits the
 result as `localhost/rooz/<workspace>/<sidecar>:latest`, then starts the sidecar from that image.
-Only an image rooz itself committed for that workspace and sidecar is reused - it has to carry the
-`dev.rooz` labels rooz stamps on it. An image someone else tagged under that name is treated as
-absent and rebuilt over, so a predictable tag in the engine's shared image namespace cannot be used
-to slip code into a workspace. Removing a workspace removes the images rooz built for it.
+
+The sidecar is created from the image **id** rooz got back from that commit, never from the name -
+and the id is recorded on the sidecar container (`dev.rooz.runtime-image`), which is what a later
+run checks before skipping the install stage. A name in the engine's image namespace is not evidence
+of what carries it, and neither are the labels on it: anyone able to tag an image can write both. An
+id is the image's content, so it cannot be pointed at somebody else's image. If the recorded id is
+gone or no longer what rooz committed, the install stage runs again and the tag is rebuilt over.
+Removing a workspace removes the images rooz built for it.
 
 ### Privileged containers
 
@@ -359,9 +373,26 @@ rooz enter secrets-test
 
 ### Where secrets may be used
 
-Secrets are expanded only when the **whole** configuration is one you wrote - a local file passed
-with `--config`, with nothing else merged into it. Rooz refuses to expand secrets and fails with an
-explanation if the workspace also merges:
+Expanding a secret needs two things: a configuration that is yours, and your say-so.
+
+**Your say-so.** A secret is expanded only into a configuration you have released it to. Without
+that, `rooz new` aborts and names the secrets involved. Consent with either:
+
+* `ROOZ_ALLOW_SECRETS=<names>` - a comma-separated list of the secrets you are releasing, e.g.
+  `ROOZ_ALLOW_SECRETS=dbPassword`. Anything *not* named is still refused, which makes this safe to
+  leave in your shell profile, and it also covers `rooz update` (which re-renders the configuration
+  on every run).
+* `ROOZ_ALLOW_SECRETS=true` - releases whatever the configuration declares. Convenient for CI.
+* `--allow-secrets true` - the same, for a single `rooz new`.
+
+The reason is that a local `--config` path is not proof of authorship: a repository can ship a config
+file and its README can tell you to pass it (`rooz new ws --config ./setup.yaml`), and that file then
+picks the image, entrypoint, install steps and environment your plaintext lands in. Naming the
+secrets keeps a standing consent from covering a file you did not write.
+
+**A configuration that is yours.** Secrets are expanded only when the **whole** configuration is one
+you wrote - a local file passed with `--config`, with nothing else merged into it. Rooz refuses to
+expand secrets and fails with an explanation if the workspace also merges:
 
 * the repository's own configuration - its in-repo `.rooz.yaml`, or a `--config git:...` source;
 * a `bases` layer. A base layer is a separate file your config points at; it may be a team overlay or
@@ -373,10 +404,10 @@ The reason: every templated field - `env`, `install`, `command`, `shell`, `data`
 would otherwise receive your decrypted secret inside a container whose image and entrypoint it also
 controls. `vars` keep working everywhere, since they are not sensitive.
 
-:warning: A local path is not proof of authorship. Rooz trusts your `--config` file because you wrote
-it - it cannot tell that from a file you copied out of a repository you are opening, or one the
-repository's README told you to pass. Never point `--config` at a file that came from the repository,
-and read a base layer before you include it.
+:warning: Consent is a gate, not a review. Rooz cannot tell your own `--config` file from one you
+copied out of a repository you are opening, so releasing a secret to a configuration means you have
+read it. Never point `--config` at a file that came from the repository, and read a base layer before
+you include it.
 
 ### Secrets at rest
 

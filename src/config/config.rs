@@ -105,11 +105,21 @@ impl FileFormat {
         }
     }
 
-    pub fn from_path(path: &str) -> FileFormat {
+    // Paths reaching here come from config files as well as the command line, so an
+    // unsupported extension is a validation error, not a reason to abort the process.
+    pub fn from_path(path: &str) -> Result<FileFormat, AnyError> {
         match Path::new(path).extension().and_then(OsStr::to_str) {
-            Some("yaml") => FileFormat::Yaml,
-            Some(other) => panic!("Config file format: {} is not supported", other),
-            None => panic!("Only yaml config file format is supported."),
+            Some("yaml") => Ok(FileFormat::Yaml),
+            Some(other) => Err(format!(
+                "Config file format is not supported: '{}' ({})",
+                other, path
+            )
+            .into()),
+            None => Err(format!(
+                "Only the yaml config file format is supported - '{}' has no '.yaml' extension",
+                path
+            )
+            .into()),
         }
     }
 }
@@ -444,23 +454,32 @@ impl RoozCfg {
     pub fn parse_ports<'a>(
         map: &'a mut HashMap<String, Option<String>>,
         ports: Vec<String>,
-    ) -> &'a HashMap<String, Option<String>> {
-        match ports.as_slice() {
-            &[] => map,
-            ports => {
-                for (source, target) in ports.iter().map(RoozCfg::parse_port) {
-                    map.insert(source.to_string(), target.map(|p| p.to_string()));
-                }
-                map
-            }
+    ) -> Result<&'a HashMap<String, Option<String>>, AnyError> {
+        for mapping in ports.iter() {
+            let (source, target) = RoozCfg::parse_port(mapping)?;
+            map.insert(source.to_string(), target.map(|p| p.to_string()));
         }
+        Ok(map)
     }
 
-    fn parse_port(port_mapping: &String) -> (u16, Option<u16>) {
+    // 'ports' is a list of free-form strings the repository being opened can author, so a
+    // malformed mapping is a configuration error - it must not abort a run that has already
+    // created volumes and containers.
+    fn parse_port(port_mapping: &String) -> Result<(u16, Option<u16>), AnyError> {
+        let invalid = || -> AnyError {
+            format!(
+                "Invalid port mapping: '{}'. Expected '<containerPort>' or \
+                 '<containerPort>:<hostPort>' with ports in 0-65535.",
+                port_mapping
+            )
+            .into()
+        };
+        let port = |p: &str| p.parse::<u16>().map_err(|_| invalid());
+
         match port_mapping.split(":").collect::<Vec<_>>().as_slice() {
-            &[a] => (a.parse::<u16>().unwrap(), None),
-            &[a, b] => (a.parse::<u16>().unwrap(), Some(b.parse::<u16>().unwrap())),
-            _ => panic!("Invalid port mapping specification: {}", port_mapping),
+            &[a] => Ok((port(a)?, None)),
+            &[a, b] => Ok((port(a)?, Some(port(b)?))),
+            _ => Err(invalid()),
         }
     }
 
@@ -603,6 +622,14 @@ pub fn validate_relative_config_path(path: &str, what: &str) -> Result<(), AnyEr
         )
         .into());
     }
+    // the format is decided by the extension, so refuse an unsupported one here - before
+    // the path is handed to a clone container and read
+    FileFormat::from_path(path).map_err(|_| {
+        format!(
+            "{} must point to a YAML config file ('*.yaml'): '{}'",
+            what, path
+        )
+    })?;
     Ok(())
 }
 
@@ -1087,6 +1114,39 @@ mod tests {
         ] {
             assert!(RoozCfg::validate_base_path(p).is_err(), "accepted: {:?}", p);
         }
+    }
+
+    #[test]
+    fn a_non_yaml_base_is_refused_not_panicked_on() {
+        // the format is picked from the extension, so an unsupported one has to be refused
+        // before the file is read
+        let err = RoozCfg::validate_base_path("sub/base.toml")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("*.yaml"), "{}", err);
+        assert!(RoozCfg::validate_base_path("sub/base.yaml").is_ok());
+        assert!(FileFormat::from_path("base.toml").is_err());
+        assert!(FileFormat::from_path("base").is_err());
+        assert!(FileFormat::from_path("base.yaml").is_ok());
+    }
+
+    #[test]
+    fn malformed_port_mappings_are_refused() {
+        let mut map = HashMap::new();
+        for hostile in ["99999", "1:2:3", "", "a", "-1", "8080:", "8080:80/udp"] {
+            let err = RoozCfg::parse_ports(&mut map, vec![hostile.to_string()])
+                .unwrap_err()
+                .to_string();
+            assert!(err.contains(hostile), "mapping not named: {}", err);
+        }
+    }
+
+    #[test]
+    fn valid_port_mappings_still_parse() {
+        let mut map = HashMap::new();
+        RoozCfg::parse_ports(&mut map, vec!["8080".into(), "80:8081".into()]).unwrap();
+        assert_eq!(map.get("8080"), Some(&None));
+        assert_eq!(map.get("80"), Some(&Some("8081".to_string())));
     }
 
     #[test]

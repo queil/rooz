@@ -30,6 +30,38 @@ pub struct RoozSidecarRuntime {
     pub peers: Vec<String>,
 }
 
+pub const ROOZ_META_PREFIX: &str = "ROOZ_META_";
+
+// Env entries reach the engine as verbatim "KEY=value" strings, and the config declaring them
+// can be authored by the repository being opened. A key carrying '=' or a newline would add
+// assignments of its own, and one spelling a ROOZ_META_* name would displace the metadata rooz
+// injects and the operator's tooling reads back.
+pub fn validate_env_key(key: &str, origin: &str) -> Result<(), AnyError> {
+    let shaped = !key.is_empty()
+        && key
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+        && key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+
+    if !shaped {
+        return Err(format!(
+            "{}: env key '{}' is not a valid variable name - letters, digits and underscores \
+             only, not starting with a digit",
+            origin, key
+        )
+        .into());
+    }
+    if key.starts_with(ROOZ_META_PREFIX) {
+        return Err(format!(
+            "{}: env key '{}' is refused - the {}* names are rooz's own metadata",
+            origin, key, ROOZ_META_PREFIX
+        )
+        .into());
+    }
+    Ok(())
+}
+
 impl<'a> TryFrom<(&'a str, &'a RoozSidecar)> for RoozSidecarRuntime {
     type Error = AnyError;
 
@@ -47,8 +79,11 @@ impl<'a> TryFrom<(&'a str, &'a RoozSidecar)> for RoozSidecarRuntime {
                 .clone()
                 .unwrap_or_default()
                 .iter()
-                .map(|(k, v)| (k.to_string(), v.to_string()))
-                .collect(),
+                .map(|(k, v)| {
+                    validate_env_key(k, &format!("sidecar '{}'", name))?;
+                    Ok((k.to_string(), v.to_string()))
+                })
+                .collect::<Result<HashMap<_, _>, AnyError>>()?,
             command: value.command.clone().unwrap_or_default(),
             args: value.args.clone().unwrap_or_default(),
             shell: value.shell.clone(),
@@ -340,6 +375,50 @@ mod tests {
     }
 
     #[test]
+    fn hostile_env_keys_are_refused() {
+        // keys are concatenated into "KEY=value" for the engine, so '=' and newlines would
+        // smuggle in assignments of their own
+        for hostile in ["LD_PRELOAD=/x.so", "A\nB", "2FOO", "", "WITH SPACE"] {
+            let cfg = RoozCfg {
+                image: Some("alpine".to_string()),
+                env: Some(indexmap::IndexMap::from_iter([(
+                    hostile.to_string(),
+                    "v".to_string(),
+                )])),
+                ..RoozCfg::none()
+            };
+            assert!(
+                RuntimeConfig::try_from(&cfg).is_err(),
+                "accepted env key: {:?}",
+                hostile
+            );
+        }
+    }
+
+    #[test]
+    fn the_rooz_meta_namespace_is_reserved() {
+        let cfg: RoozCfg =
+            serde_yaml::from_str("image: alpine\nenv:\n  ROOZ_META_IMAGE: fake-image\n").unwrap();
+        let err = RuntimeConfig::try_from(&cfg).unwrap_err().to_string();
+        assert!(err.contains("ROOZ_META_"), "{}", err);
+
+        // and a sidecar cannot do it either
+        let cfg: RoozCfg = serde_yaml::from_str(
+            "image: alpine\nsidecars:\n  svc:\n    image: alpine\n    env:\n      ROOZ_META_USER: root\n",
+        )
+        .unwrap();
+        let err = RuntimeConfig::try_from(&cfg).unwrap_err().to_string();
+        assert!(err.contains("svc"), "sidecar not named: {}", err);
+    }
+
+    #[test]
+    fn ordinary_env_keys_still_pass() {
+        let cfg = runtime("image: alpine\nenv:\n  API_TOKEN: t\n  _private: x\n");
+        assert_eq!(cfg.env.get("API_TOKEN"), Some(&"t".to_string()));
+        assert_eq!(cfg.env.get("_private"), Some(&"x".to_string()));
+    }
+
+    #[test]
     fn masks_secrets_everywhere_they_can_land() {
         let secret = "e2e-secret-MARKER-7f3a";
         let yaml = format!(
@@ -562,7 +641,7 @@ impl<'a> TryFrom<&'a RoozCfg> for RuntimeConfig {
         }
 
         let mut ports = HashMap::<String, Option<String>>::new();
-        RoozCfg::parse_ports(&mut ports, value.clone().ports.unwrap_or_default());
+        RoozCfg::parse_ports(&mut ports, value.clone().ports.unwrap_or_default())?;
 
         Ok(RuntimeConfig {
             git_ssh_url: value.git_ssh_url.clone(),
@@ -583,7 +662,16 @@ impl<'a> TryFrom<&'a RoozCfg> for RuntimeConfig {
                 .into_iter()
                 .map(|(k, v)| Ok((k.clone(), (k.as_str(), &v).try_into()?)))
                 .collect::<Result<HashMap<_, _>, AnyError>>()?,
-            env: value.env.clone().unwrap_or_default().into_iter().collect(),
+            env: value
+                .env
+                .clone()
+                .unwrap_or_default()
+                .into_iter()
+                .map(|(k, v)| {
+                    validate_env_key(&k, "workspace")?;
+                    Ok((k, v))
+                })
+                .collect::<Result<HashMap<_, _>, AnyError>>()?,
             ports,
             privileged: value.privileged.unwrap_or(default.privileged),
             init: value.init.unwrap_or(default.init),

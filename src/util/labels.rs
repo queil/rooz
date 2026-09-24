@@ -7,6 +7,7 @@ pub const RUNTIME_CONFIG: &'static str = "dev.rooz.config.runtime";
 pub const CONFIG_ORIGIN: &'static str = "dev.rooz.config.origin";
 pub const CONFIG_BODY: &'static str = "dev.rooz.config.body";
 pub const FORWARD_PORTS: &'static str = "dev.rooz.forward-ports";
+pub const RUNTIME_IMAGE: &'static str = "dev.rooz.runtime-image";
 pub const ROOZ: &'static str = "dev.rooz";
 pub const LABEL_KEY: &'static str = "label";
 const TRUE: &'static str = "true";
@@ -110,6 +111,18 @@ impl Labels {
 
     pub fn role(role: &str) -> (&str, &str) {
         (ROLE, role)
+    }
+
+    pub fn runtime_image(image_id: &str) -> (&str, &str) {
+        (RUNTIME_IMAGE, image_id)
+    }
+
+    // Every label expected has to be present with the same value; extra labels on the object
+    // are fine (engines add their own, and rooz stamps more of them over time).
+    pub fn is_subset_of(&self, found: &HashMap<String, String>) -> bool {
+        self.0
+            .iter()
+            .all(|(k, v)| found.get(k).map(|f| f == v).unwrap_or(false))
     }
 }
 

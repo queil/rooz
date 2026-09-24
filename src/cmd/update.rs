@@ -39,7 +39,7 @@ impl<'a> WorkspaceApi<'a> {
 
         let (config_path, config_source) = {
             if let Some(config_source) = &volume.labels.get(labels::CONFIG_ORIGIN) {
-                let format = FileFormat::from_path(config_source);
+                let format = FileFormat::from_path(config_source)?;
                 let config_path = ConfigPath::from_str(&config_source)?;
                 let mut original_body = self.config.read(workspace_key, &ConfigType::Body).await?;
                 let mut pre_merged: Option<RoozCfg> = None;
@@ -110,7 +110,7 @@ impl<'a> WorkspaceApi<'a> {
         };
 
         self.new(
-            &volume.labels[labels::WORKSPACE_KEY],
+            workspace_key,
             &WorkParams {
                 git_ssh_url: config_path
                     .map(|c| match &c {

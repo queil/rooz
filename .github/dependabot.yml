@@ -1,0 +1,8 @@
+# Actions are pinned to commit SHAs (a tag is a mutable ref owned by the action's
+# repository), so upgrades have to arrive as reviewable PRs rather than silently.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

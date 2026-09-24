@@ -308,6 +308,80 @@ impl TestEnv {
         names
     }
 
+    // Plays the co-tenant: builds an image carrying whatever labels it likes and tags it
+    // under a name rooz derives from the workspace. Returns the squatted image's id.
+    pub async fn squat_image(&self, repo: &str, labels: &[(&str, &str)], marker: &str) -> String {
+        let name = format!("squat-{}", repo.replace(['/', ':', '.'], "-"));
+        let body = ContainerCreateBody {
+            image: Some("alpine:latest".to_string()),
+            cmd: Some(vec![
+                "sh".to_string(),
+                "-c".to_string(),
+                format!("echo squatted > {}", marker),
+            ]),
+            ..Default::default()
+        };
+        self.docker
+            .create_container(
+                Some(CreateContainerOptions {
+                    name: Some(name.clone()),
+                    ..Default::default()
+                }),
+                body,
+            )
+            .await
+            .unwrap();
+        self.docker
+            .start_container(&name, None::<StartContainerOptions>)
+            .await
+            .unwrap();
+        let mut wait = self
+            .docker
+            .wait_container(&name, None::<WaitContainerOptions>);
+        while wait.next().await.is_some() {}
+
+        let committed = self
+            .docker
+            .commit_container(
+                bollard_stubs::query_parameters::CommitContainerOptions {
+                    container: Some(name.clone()),
+                    repo: Some(repo.to_string()),
+                    tag: Some("latest".to_string()),
+                    pause: false,
+                    ..Default::default()
+                },
+                bollard_stubs::models::ContainerConfig {
+                    labels: Some(
+                        labels
+                            .iter()
+                            .map(|(k, v)| (k.to_string(), v.to_string()))
+                            .collect(),
+                    ),
+                    cmd: Some(vec!["sleep".to_string(), "infinity".to_string()]),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+
+        self.remove_decoy_container(&name).await;
+        committed.id
+    }
+
+    pub async fn remove_image(&self, image: &str) {
+        self.docker
+            .remove_image(
+                image,
+                Some(bollard_stubs::query_parameters::RemoveImageOptions {
+                    force: true,
+                    ..Default::default()
+                }),
+                None,
+            )
+            .await
+            .ok();
+    }
+
     pub async fn all_rooz_volumes(&self) -> Vec<Volume> {
         let mut filters = HashMap::new();
         filters.insert("label".to_string(), vec!["dev.rooz=true".to_string()]);

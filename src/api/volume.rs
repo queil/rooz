@@ -28,6 +28,30 @@ use bollard_stubs::models::VolumeCreateRequest;
 // where the volume gets mounted inside the populate one-shot container
 const POPULATE_DIR: &str = "/var/lib/rooz";
 
+// A mount naming a 'data:' entry that does not exist is a configuration mistake - and the
+// configuration can come from the repository being opened, so it must read as a refusal, not
+// abort the process half way through creating the workspace.
+fn unknown_data_key<'a>(
+    key: &str,
+    target: Option<&str>,
+    defined: impl Iterator<Item = &'a str>,
+) -> AnyError {
+    let mut keys = defined.collect::<Vec<_>>();
+    keys.sort();
+    format!(
+        "Mount{} refers to '{}', which is not defined under 'data:' in the workspace config. \
+         Defined keys: {}",
+        target.map(|t| format!(" '{}'", t)).unwrap_or_default(),
+        key,
+        if keys.is_empty() {
+            "none".to_string()
+        } else {
+            keys.join(", ")
+        }
+    )
+    .into()
+}
+
 // Volume names are derived from operator- and config-supplied strings, so different
 // name grammars can collide (e.g. a data entry can spell out the global ssh-key
 // volume's name). Reusing an existing volume is only safe when it is the same kind of
@@ -103,7 +127,20 @@ impl<'a> VolumeApi<'a> {
         match self.get_all(&labels).await?.as_slice() {
             [] => Ok(None),
             [volume] => Ok(Some(volume.clone())),
-            _ => panic!("Too many volumes found"),
+            // labels are engine metadata anyone with engine access can write, so more than
+            // one match is somebody else's doing - not a reason to abort with a panic
+            volumes => Err(format!(
+                "Expected one volume matching {:?}, found {}: {}. Remove the ones that are not \
+                 rooz's and try again.",
+                HashMap::<String, String>::from(labels.clone()),
+                volumes.len(),
+                volumes
+                    .iter()
+                    .map(|v| v.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+            .into()),
         }
     }
 
@@ -164,7 +201,7 @@ impl<'a> VolumeApi<'a> {
         volumes: &HashMap<DataEntryKey, DataEntryVolumeSpec>,
         mounts: &HashMap<String, String>,
         implicit_work: bool,
-    ) -> HashMap<TargetPath, DataEntryVolumeSpec> {
+    ) -> Result<HashMap<TargetPath, DataEntryVolumeSpec>, AnyError> {
         let mut result = HashMap::new();
 
         let mut mount_entries: HashMap<String, String> = HashMap::new();
@@ -175,13 +212,12 @@ impl<'a> VolumeApi<'a> {
         }
 
         for (target, source_key) in mount_entries {
-            let source_exists = &volumes.contains_key(&DataEntryKey(source_key.to_string()));
-            if !source_exists {
-                panic!(
-                    "Key '{}' not found under 'data:' in workspace config. Keys: {:?}",
-                    source_key.as_str(),
-                    &volumes.keys(),
-                );
+            if !volumes.contains_key(&DataEntryKey(source_key.to_string())) {
+                return Err(unknown_data_key(
+                    &source_key,
+                    Some(&target),
+                    volumes.keys().map(|k| k.as_str()),
+                ));
             }
 
             result.insert(
@@ -189,7 +225,7 @@ impl<'a> VolumeApi<'a> {
                 volumes[&DataEntryKey(source_key)].clone(),
             );
         }
-        result
+        Ok(result)
     }
     fn volume_name(workspace_key: &str, data_entry_name: &str) -> String {
         format!(
@@ -204,27 +240,23 @@ impl<'a> VolumeApi<'a> {
         data: &HashMap<String, DataValue>,
         mounts: &HashMap<(String, String), MountSource>,
         implicit_work: bool,
-    ) -> HashMap<DataEntryKey, DataEntryVolumeSpec> {
+    ) -> Result<HashMap<DataEntryKey, DataEntryVolumeSpec>, AnyError> {
         let data = &mounts
             .iter()
             .map(|((_, target_path), v)| match v {
-                MountSource::DataEntryReference(data_key) => (data_key.as_str().to_string(), {
-                    let source_exists = data.contains_key(data_key.as_str());
-                    if !source_exists {
-                        panic!(
-                            "Key '{}' not found under 'data:' in workspace config. Keys: {:?}",
-                            data_key.as_str(),
-                            &data.keys(),
-                        );
-                    }
-
-                    data[data_key.as_str()].clone()
-                }),
+                MountSource::DataEntryReference(data_key) => match data.get(data_key.as_str()) {
+                    Some(value) => Ok((data_key.as_str().to_string(), value.clone())),
+                    None => Err(unknown_data_key(
+                        data_key.as_str(),
+                        Some(target_path),
+                        data.keys().map(|k| k.as_str()),
+                    )),
+                },
                 MountSource::InlineDataValue(data_value) => {
-                    (id::sanitize(target_path), data_value.to_owned())
+                    Ok((id::sanitize(target_path), data_value.to_owned()))
                 }
             })
-            .collect::<HashMap<String, DataValue>>();
+            .collect::<Result<HashMap<String, DataValue>, AnyError>>()?;
 
         let mut data_entries = vec![];
         data_entries.extend_from_slice(data.clone().into_entries().as_slice());
@@ -263,7 +295,7 @@ impl<'a> VolumeApi<'a> {
             })
             .collect::<HashMap<_, _>>();
 
-        data_entries
+        Ok(data_entries
             .iter()
             .filter_map(|d| match d {
                 DataEntry::Dir { name } => Some((
@@ -300,7 +332,7 @@ impl<'a> VolumeApi<'a> {
                     ))
                 }
             })
-            .collect::<HashMap<_, _>>()
+            .collect::<HashMap<_, _>>())
     }
 
     pub fn real_mounts(
@@ -698,8 +730,25 @@ mod tests {
     }
 
     #[test]
+    fn a_mount_naming_an_undefined_data_key_is_refused() {
+        let mut mounts = HashMap::new();
+        mounts.insert(
+            ("work".to_string(), "/work".to_string()),
+            MountSource::DataEntryReference(DataEntryKey("does-not-exist".to_string())),
+        );
+
+        let err = match VolumeApi::create_volume_specs("ws", &HashMap::new(), &mounts, false) {
+            Err(e) => e.to_string(),
+            Ok(_) => panic!("an undefined data key must not create volume specs"),
+        };
+        assert!(err.contains("does-not-exist"), "key not named: {}", err);
+        assert!(err.contains("/work"), "mount not named: {}", err);
+    }
+
+    #[test]
     fn implicit_work_added_when_no_mounts() {
-        let specs = VolumeApi::create_volume_specs("ws", &HashMap::new(), &HashMap::new(), true);
+        let specs =
+            VolumeApi::create_volume_specs("ws", &HashMap::new(), &HashMap::new(), true).unwrap();
         assert_eq!(specs.len(), 1);
         let work = specs.get(&DataEntryKey("work".to_string())).unwrap();
         assert_eq!(work.volume.name, "rooz-ws-work");
@@ -707,7 +756,8 @@ mod tests {
 
     #[test]
     fn no_implicit_work_empty_result() {
-        let specs = VolumeApi::create_volume_specs("ws", &HashMap::new(), &HashMap::new(), false);
+        let specs =
+            VolumeApi::create_volume_specs("ws", &HashMap::new(), &HashMap::new(), false).unwrap();
         assert!(specs.is_empty());
     }
 
@@ -722,7 +772,7 @@ mod tests {
             MountSource::DataEntryReference(DataEntryKey("mydir".to_string())),
         );
 
-        let specs = VolumeApi::create_volume_specs("ws", &data, &mounts, false);
+        let specs = VolumeApi::create_volume_specs("ws", &data, &mounts, false).unwrap();
         let entry = specs.get(&DataEntryKey("mydir".to_string())).unwrap();
         assert_eq!(entry.volume.name, "rooz-ws-mydir");
     }
@@ -735,7 +785,7 @@ mod tests {
             MountSource::InlineDataValue(inline("hello")),
         );
 
-        let specs = VolumeApi::create_volume_specs("ws", &HashMap::new(), &mounts, false);
+        let specs = VolumeApi::create_volume_specs("ws", &HashMap::new(), &mounts, false).unwrap();
         // key = sanitize("/config") = "-config"
         let entry = specs.get(&DataEntryKey("-config".to_string())).unwrap();
         assert_eq!(entry.volume.name, "rooz-ws-inline");
@@ -753,7 +803,7 @@ mod tests {
             MountSource::InlineDataValue(inline("bbb")),
         );
 
-        let specs = VolumeApi::create_volume_specs("ws", &HashMap::new(), &mounts, false);
+        let specs = VolumeApi::create_volume_specs("ws", &HashMap::new(), &mounts, false).unwrap();
         assert_eq!(specs.len(), 2);
         let a = specs.get(&DataEntryKey("-file-a".to_string())).unwrap();
         let b = specs.get(&DataEntryKey("-file-b".to_string())).unwrap();
@@ -880,7 +930,7 @@ mod tests {
             MountSource::DataEntryReference(DataEntryKey("gen".to_string())),
         );
 
-        let specs = VolumeApi::create_volume_specs("ws", &data, &mounts, false);
+        let specs = VolumeApi::create_volume_specs("ws", &data, &mounts, false).unwrap();
         let entry = specs.get(&DataEntryKey("gen".to_string())).unwrap();
         match &entry.data {
             DataEntry::File {

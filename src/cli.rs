@@ -138,6 +138,11 @@ pub struct WorkParams {
     pub privileged: Option<bool>,
     #[arg(
         long,
+        help = "Consents to expanding the 'secrets' of the --config file into this workspace"
+    )]
+    pub allow_secrets: Option<bool>,
+    #[arg(
+        long,
         default_value = "true",
         help = "Starts the workspace immediately"
     )]
@@ -156,6 +161,7 @@ impl Default for WorkParams {
             user: Default::default(),
             caches: Default::default(),
             privileged: Default::default(),
+            allow_secrets: Default::default(),
             start: Default::default(),
             env: Default::default(),
             uid: Default::default(),
