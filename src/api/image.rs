@@ -204,34 +204,41 @@ impl<'a> ImageApi<'a> {
         })
     }
 
-    // Images rooz builds live under a predictable name in the engine's shared image
-    // namespace, which anyone with engine access can tag. Reusing one is only safe when it
-    // carries the labels rooz put there when it committed it - same reasoning as volume
-    // ownership. Anything else counts as absent, so the image gets rebuilt over the tag.
-    pub async fn is_committed_by_rooz(
-        &self,
-        image: &str,
-        expected: &Labels,
-    ) -> Result<bool, AnyError> {
-        let found: HashMap<String, String> = match self.client.inspect_image(&image).await {
-            Ok(inspect) => inspect
-                .config
-                .and_then(|c| c.labels)
-                .unwrap_or_default()
-                .into_iter()
-                .collect(),
-            Err(_) => return Ok(false),
+    // Images rooz builds live under a predictable name in the engine's shared image namespace,
+    // which anyone with engine access can tag - and label however they like, so labels alone
+    // prove nothing either. Reuse is therefore pinned to the id rooz recorded when it committed
+    // the image: an id is the image's content, so it cannot be made to point at somebody else's
+    // image. The labels are checked too, to catch an id that is no longer what rooz built.
+    // Anything else counts as absent and the image gets built again.
+    pub async fn is_pinned(&self, image_id: &str, expected: &Labels) -> Result<bool, AnyError> {
+        let refuse = |reason: &str| {
+            log::debug!("Not reusing image {}: {}", image_id, reason);
+            Ok(false)
         };
 
-        let matches = labels_match(&found, expected);
+        let inspect = match self.client.inspect_image(&image_id).await {
+            Ok(inspect) => inspect,
+            Err(_) => return refuse("no such image"),
+        };
 
-        if !matches {
-            log::debug!(
-                "Image {} was not committed by rooz for this workspace - rebuilding it",
-                image
-            );
+        // inspect resolves names as well as ids, so the id it reports has to be the pinned one
+        match &inspect.id {
+            Some(id) if digest_eq(id, image_id) => (),
+            _ => return refuse("the id does not resolve to itself"),
         }
-        Ok(matches)
+
+        let found: HashMap<String, String> = inspect
+            .config
+            .and_then(|c| c.labels)
+            .unwrap_or_default()
+            .into_iter()
+            .collect();
+
+        if !expected.is_subset_of(&found) {
+            return refuse("it was not committed by rooz for this workspace");
+        }
+
+        Ok(true)
     }
 
     pub async fn ensure(&self, image: &str, always_pull: bool) -> Result<ImageInfo, AnyError> {
@@ -311,11 +318,13 @@ impl<'a> ImageApi<'a> {
     }
 }
 
-fn labels_match(found: &HashMap<String, String>, expected: &Labels) -> bool {
-    let expected: HashMap<String, String> = expected.clone().into();
-    expected
-        .iter()
-        .all(|(k, v)| found.get(k).map(|f| f == v).unwrap_or(false))
+// Engines are inconsistent about the `sha256:` prefix: podman's commit returns the bare digest
+// while inspect reports the prefixed form.
+fn digest_eq(a: &str, b: &str) -> bool {
+    fn bare(v: &str) -> &str {
+        v.strip_prefix("sha256:").unwrap_or(v)
+    }
+    !bare(a).is_empty() && bare(a) == bare(b)
 }
 
 #[cfg(test)]
@@ -341,35 +350,41 @@ mod tests {
     #[test]
     fn an_image_rooz_committed_for_this_sidecar_is_reused() {
         let mine: HashMap<String, String> = expected().into();
-        assert!(labels_match(&mine, &expected()));
+        assert!(expected().is_subset_of(&mine));
         // extra labels on the image are fine
         let mut extra = mine.clone();
         extra.insert("org.opencontainers.created".into(), "yesterday".into());
-        assert!(labels_match(&extra, &expected()));
+        assert!(expected().is_subset_of(&extra));
     }
 
     #[test]
     fn a_squatted_tag_is_not_reused() {
         // no labels at all - the plain `docker tag` case from the report
-        assert!(!labels_match(&found(&[]), &expected()));
+        assert!(!expected().is_subset_of(&found(&[])));
         // forged rooz labels naming a different workspace or sidecar
-        assert!(!labels_match(
-            &found(&[
-                (labels::ROOZ, "true"),
-                (labels::WORKSPACE_KEY, "someone-else"),
-                (labels::ROLE, labels::SIDECAR_RUNTIME_ROLE),
-                (labels::CONTAINER, "svc"),
-            ]),
-            &expected()
-        ));
-        assert!(!labels_match(
-            &found(&[
-                (labels::ROOZ, "true"),
-                (labels::WORKSPACE_KEY, "ws"),
-                (labels::ROLE, labels::SIDECAR_RUNTIME_ROLE),
-                (labels::CONTAINER, "other-sidecar"),
-            ]),
-            &expected()
-        ));
+        assert!(!expected().is_subset_of(&found(&[
+            (labels::ROOZ, "true"),
+            (labels::WORKSPACE_KEY, "someone-else"),
+            (labels::ROLE, labels::SIDECAR_RUNTIME_ROLE),
+            (labels::CONTAINER, "svc"),
+        ])));
+        assert!(!expected().is_subset_of(&found(&[
+            (labels::ROOZ, "true"),
+            (labels::WORKSPACE_KEY, "ws"),
+            (labels::ROLE, labels::SIDECAR_RUNTIME_ROLE),
+            (labels::CONTAINER, "other-sidecar"),
+        ])));
+    }
+
+    #[test]
+    fn digests_compare_across_the_sha256_prefix() {
+        assert!(digest_eq("sha256:abc123", "abc123"));
+        assert!(digest_eq("abc123", "sha256:abc123"));
+        assert!(digest_eq("sha256:abc123", "sha256:abc123"));
+        assert!(!digest_eq("sha256:abc123", "sha256:def456"));
+        // a tag is not a digest: an empty or prefix-only value must never match
+        assert!(!digest_eq("sha256:", "sha256:"));
+        assert!(!digest_eq("", ""));
+        assert!(!digest_eq("localhost/rooz/ws/svc:latest", "sha256:abc123"));
     }
 }

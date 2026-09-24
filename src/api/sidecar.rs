@@ -130,20 +130,33 @@ impl<'a> WorkspaceApi<'a> {
             let install_steps = s.install.as_ref().map(|i| i.resolved()).unwrap_or_default();
             if !install_steps.is_empty() {
                 let runtime_image = format!("localhost/rooz/{}/{}", &workspace_key, &name);
-                // the tag is predictable and the image namespace is shared with every user of
-                // the engine, so only an image rooz committed for this sidecar is reused
                 let runtime_image_labels = Labels::from(&[
                     Labels::workspace(&workspace_key),
                     Labels::role(labels::SIDECAR_RUNTIME_ROLE),
                     Labels::container(&name),
                 ]);
 
-                if !self
-                    .api
-                    .image
-                    .is_committed_by_rooz(&runtime_image, &runtime_image_labels)
-                    .await?
-                {
+                // The tag is predictable and the image namespace is shared with every user of the
+                // engine, so the name is no evidence of what carries it - and neither are labels,
+                // which anyone tagging an image can write too. What rooz can rely on is the image
+                // id it recorded on this sidecar's container when it created it: an id is the
+                // image's content and cannot be pointed elsewhere. No recorded id (a new
+                // workspace, a removed container, a workspace from an older rooz) means the
+                // install stage runs again and the tag is rebuilt over.
+                let mut image_id = match self.api.container.labels_of(&container_name).await? {
+                    Some(found) if labels.is_subset_of(&found) => {
+                        found.get(labels::RUNTIME_IMAGE).cloned()
+                    }
+                    _ => None,
+                };
+
+                if let Some(id) = &image_id {
+                    if !self.api.image.is_pinned(id, &runtime_image_labels).await? {
+                        image_id = None;
+                    }
+                }
+
+                if image_id.is_none() {
                     if let ContainerResult::Created { id: container_id } = self
                         .api
                         .container
@@ -166,7 +179,8 @@ impl<'a> WorkspaceApi<'a> {
                             .exec
                             .install(&container_name, &container_id, install_steps)
                             .await?;
-                        self.api
+                        let committed = self
+                            .api
                             .container
                             .client
                             .commit_container(
@@ -195,17 +209,27 @@ impl<'a> WorkspaceApi<'a> {
                             .await?;
                         self.api.container.stop(&container_id).await?;
                         self.api.container.remove(&container_id, true).await?;
+                        image_id = Some(committed.id);
                     }
                 }
 
-                let latest_runtime_image = format!("{}:latest", runtime_image);
-                self.api
-                    .container
-                    .create(RunSpec {
-                        image: &latest_runtime_image,
-                        ..run_spec.clone()
-                    })
-                    .await?;
+                // nothing to point at means the sidecar container is already there and was not
+                // recreated - the install container returned it as-is
+                if let Some(image_id) = image_id {
+                    let mut labels = labels.clone();
+                    labels.append(Labels::runtime_image(&image_id));
+                    self.api
+                        .container
+                        .create(RunSpec {
+                            image: &image_id,
+                            labels,
+                            // the image is local and identified by its content - there is
+                            // nothing to pull and no tag a pull could move
+                            force_pull: false,
+                            ..run_spec.clone()
+                        })
+                        .await?;
+                }
             } else {
                 self.api.container.create(run_spec).await?;
             }

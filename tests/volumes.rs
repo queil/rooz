@@ -602,8 +602,22 @@ async fn secrets_are_masked_in_the_persisted_runtime_config() {
         ])
         .assert()
         .success();
+    // a local '--config' path is not consent on its own
+    let assert = env
+        .rooz()
+        .args(["new", &key, "--config", &cfg_path])
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&assert.get_output().stderr).to_string();
+    assert!(
+        stderr.contains("MY_SECRET") && stderr.contains("ROOZ_ALLOW_SECRETS"),
+        "expected the secret and the remedy to be named:\n{}",
+        stderr
+    );
+
     env.rooz()
         .args(["new", &key, "--config", &cfg_path])
+        .env("ROOZ_ALLOW_SECRETS", "MY_SECRET")
         .assert()
         .success();
 

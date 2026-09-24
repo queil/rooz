@@ -20,6 +20,25 @@ sidecars:
     (path, "svc".to_string())
 }
 
+fn install_sidecar_cfg(key: &str) -> (String, String) {
+    let path = format!("/tmp/rooz-test-sidecar-install-{}.yaml", key);
+    let yaml = "\
+image: alpine:latest
+sidecars:
+  svc:
+    image: alpine:latest
+    install:
+      01-mark: echo built-by-rooz > /rooz-install-marker
+    command:
+      - sleep
+    args:
+      - infinity
+";
+    let mut f = fs::File::create(&path).expect("write sidecar config");
+    f.write_all(yaml.as_bytes()).unwrap();
+    (path, "svc".to_string())
+}
+
 // ── creation and labelling ────────────────────────────────────────────────────
 
 #[tokio::test]
@@ -160,5 +179,93 @@ async fn sidecar_stops_and_starts_with_workspace() {
     );
 
     env.rooz().args(["rm", &key, "--force"]).assert().success();
+    let _ = fs::remove_file(&cfg_path);
+}
+
+// ── runtime image provenance ──────────────────────────────────────────────────
+
+// A sidecar with install steps is committed to localhost/rooz/<workspace>/<sidecar>:latest -
+// a name anyone with engine access can take, with any labels they like on the image behind
+// it. Rooz must run the sidecar from the image id it recorded itself, never from the name.
+#[tokio::test]
+async fn a_squatted_runtime_image_is_never_run() {
+    let Some(env) = TestEnv::from_env() else {
+        return;
+    };
+    let key = unique_key("sc-squat");
+    let (cfg_path, sidecar_name) = install_sidecar_cfg(&key);
+    let runtime_image = format!("localhost/rooz/{}/{}", key, sidecar_name);
+
+    env.rooz()
+        .args(["system", "init", "--force"])
+        .assert()
+        .success();
+
+    // the co-tenant gets there first, with rooz's own labels forged onto the image
+    let squatted = env
+        .squat_image(
+            &runtime_image,
+            &[
+                ("dev.rooz", "true"),
+                ("dev.rooz.workspace", &key),
+                ("dev.rooz.role", "sidecar-runtime"),
+                ("dev.rooz.workspace.container", &sidecar_name),
+            ],
+            "/squat-marker",
+        )
+        .await;
+
+    env.rooz()
+        .args(["new", &key, "--config", &cfg_path])
+        .assert()
+        .success();
+
+    let containers = env.containers_by_workspace(&key).await;
+    let sidecar = containers
+        .iter()
+        .find(|c| {
+            c.labels
+                .as_ref()
+                .and_then(|l| l.get("dev.rooz.role"))
+                .map(String::as_str)
+                == Some("sidecar")
+        })
+        .expect("sidecar container not found");
+    let id = sidecar.id.as_deref().expect("sidecar has no id");
+    let image_id = sidecar.image_id.as_deref().unwrap_or_default();
+    let bare = |v: &str| v.trim_start_matches("sha256:").to_string();
+
+    assert_ne!(
+        bare(image_id),
+        bare(&squatted),
+        "the sidecar was created from the squatted image"
+    );
+    assert_eq!(
+        env.exec_code(id, vec!["test", "-f", "/rooz-install-marker"])
+            .await,
+        0,
+        "the configured install step did not run"
+    );
+    assert_eq!(
+        env.exec_code(id, vec!["test", "-f", "/squat-marker"]).await,
+        1,
+        "the squatted image's content is inside the sidecar"
+    );
+
+    // what rooz built is recorded on the container, by id - that is what the next run reuses
+    let pinned = sidecar
+        .labels
+        .as_ref()
+        .and_then(|l| l.get("dev.rooz.runtime-image"))
+        .cloned()
+        .expect("no runtime image recorded on the sidecar");
+    assert_eq!(
+        bare(&pinned),
+        bare(image_id),
+        "the recorded image id is not the image the sidecar runs"
+    );
+
+    env.rooz().args(["rm", &key, "--force"]).assert().success();
+    env.remove_image(&squatted).await;
     let _ = fs::remove_file(&cfg_path);
 }

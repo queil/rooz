@@ -66,6 +66,33 @@ impl<'a> ContainerApi<'a> {
         Ok(self.client.list_containers(Some(list_options)).await?)
     }
 
+    // The labels of an existing container, or None when there is no such container. A container
+    // rooz created carries what rooz knew at creation time, which is how the next run finds out
+    // what it built - a name on its own says nothing about who created it.
+    pub async fn labels_of(
+        &self,
+        container_name: &str,
+    ) -> Result<Option<HashMap<String, String>>, AnyError> {
+        match self
+            .client
+            .inspect_container(container_name, None::<InspectContainerOptions>)
+            .await
+        {
+            Ok(response) => Ok(Some(
+                response
+                    .config
+                    .and_then(|c| c.labels)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .collect(),
+            )),
+            Err(DockerResponseServerError {
+                status_code: 404, ..
+            }) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
     pub async fn get_single(&self, labels: &Labels) -> Result<Option<ContainerSummary>, AnyError> {
         match self.get_all(&labels).await?.as_slice() {
             [] => Ok(None),
