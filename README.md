@@ -83,9 +83,13 @@ The command creates:
   against the same engine means copying the identity file there.
 
   :information_source: Upgrading: earlier versions kept the identity in the `rooz_sys-config` volume. The first
-  rooz command after upgrading moves it to your machine and strips it from the volume, printing where it went.
-  If that engine is shared with anyone, treat the identity as compromised: re-key with
-  `rooz system init --force` and re-encrypt your secrets.
+  rooz command after upgrading takes it out of the volume and keeps it aside at `age.engine.bak`, printing
+  where it went - it is **not** adopted as this machine's identity, because rooz cannot tell your own
+  upgraded key from one somebody else with engine access wrote there, and using theirs would encrypt
+  every secret you save afterwards to their recipient. Check the file, then install it yourself:
+  `rooz system init --force --age-identity "$(cat ~/.config/rooz/age.engine.bak)"`. If that engine is
+  shared with anyone, treat the identity as compromised instead: re-key with `rooz system init --force`
+  and re-encrypt your secrets.
 
 You can regenerate the age identity by specifying the `--force` parameter. Please note that the existing
 age key will be wiped out.

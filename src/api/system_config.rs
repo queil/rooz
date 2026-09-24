@@ -53,30 +53,50 @@ impl<'a> Api<'a> {
     }
 
     // Versions of rooz before the identity moved off the engine kept it in the system config
-    // volume, where every user of that engine can read it. Take it out on first contact.
+    // volume, where every user of that engine can read - and write - it. Take it out on first
+    // contact, but never adopt it as this machine's identity: rooz cannot tell the operator's
+    // own upgraded key from one a co-tenant put there, and adopting the latter would encrypt
+    // every secret the operator saves afterwards to somebody else's recipient. It is kept
+    // aside for the operator to recognise and install themselves.
     async fn evacuate_engine_identity(&self, engine_key: String) -> Result<(), AnyError> {
-        let kept = match identity::read()? {
-            None => identity::write(&engine_key)?,
-            Some(local) if local == engine_key => identity::key_path()?,
-            Some(_) => identity::back_up(&engine_key)?,
+        let local = identity::read()?;
+        let already_mine = local.as_deref() == Some(engine_key.as_str());
+        let kept = if already_mine {
+            identity::key_path()?
+        } else {
+            identity::back_up(&engine_key)?
         };
 
         let mut config = SystemConfig::from_string(&self.get_system_config_string().await?)?;
         config.age_key = None;
         self.write_system_config(&config).await?;
 
-        eprintln!(
-            "{}",
+        let volume = RoozVolume::system_config("/tmp/sys").safe_volume_name();
+        let message = if already_mine {
             format!(
-                "NOTE: moved the age identity out of the engine volume '{}' - it now lives at \
-                 {:?}. Every user of that engine could read it there: if the engine is shared, \
-                 treat the identity as compromised, re-key with 'rooz system init --force' and \
-                 re-encrypt your secrets.",
-                RoozVolume::system_config("/tmp/sys").safe_volume_name(),
-                kept
+                "NOTE: removed the age identity from the engine volume '{}' - it already lives \
+                 at {:?} on this machine. Every user of that engine could read it there: if the \
+                 engine is shared, treat the identity as compromised, re-key with 'rooz system \
+                 init --force' and re-encrypt your secrets.",
+                volume, kept
             )
-            .yellow()
-        );
+        } else {
+            format!(
+                "NOTE: an age identity was found in the engine volume '{}' and has been taken \
+                 out of it, to {:?}. Rooz does not adopt it: anyone with access to that engine \
+                 can write a key there, and using theirs would encrypt your secrets to them. If \
+                 you recognise it as your own (rooz kept it in that volume before v0.159), \
+                 install it with 'rooz system init --force --age-identity \"$(cat {})\"'{}.",
+                volume,
+                kept,
+                kept.display(),
+                match &local {
+                    Some(_) => " - which replaces the identity already on this machine",
+                    None => "",
+                }
+            )
+        };
+        eprintln!("{}", message.yellow());
         Ok(())
     }
 

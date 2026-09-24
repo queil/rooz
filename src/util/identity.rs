@@ -56,19 +56,35 @@ pub fn write(key: &str) -> Result<PathBuf, AnyError> {
     Ok(path)
 }
 
-// Keeps a copy that would otherwise be lost, without overwriting an existing one.
+// Keeps a copy that would otherwise be lost, without overwriting an existing one. A taken
+// slot holding something else gets a numbered neighbour rather than an error: this runs on
+// the way to removing a key from the engine, and anyone with engine access can put another
+// one there - that must not wedge every rooz command.
 pub fn back_up(key: &str) -> Result<PathBuf, AnyError> {
-    let path = key_path()?.with_extension("engine.bak");
-    if path.exists() {
-        return Err(format!(
-            "Refusing to overwrite the existing backup at {:?} - move it aside first",
-            path
-        )
-        .into());
+    const MAX_BACKUPS: usize = 100;
+    let base = key_path()?;
+    for n in 0..MAX_BACKUPS {
+        let path = match n {
+            0 => base.with_extension("engine.bak"),
+            n => base.with_extension(format!("engine.{}.bak", n)),
+        };
+        match std::fs::read_to_string(&path) {
+            Ok(existing) if existing.trim() == key.trim() => return Ok(path),
+            Ok(_) => continue,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                write_private(&path, key).map_err(|e| {
+                    format!("Could not write the identity backup to {:?}: {}", path, e)
+                })?;
+                return Ok(path);
+            }
+            Err(e) => return Err(format!("Could not read {:?}: {}", path, e).into()),
+        }
     }
-    write_private(&path, key)
-        .map_err(|e| format!("Could not write the identity backup to {:?}: {}", path, e))?;
-    Ok(path)
+    Err(format!(
+        "There are already {} identity backups next to {:?} - move them aside first",
+        MAX_BACKUPS, base
+    )
+    .into())
 }
 
 fn write_private(path: &PathBuf, key: &str) -> Result<(), std::io::Error> {
@@ -112,5 +128,26 @@ mod tests {
             key_path().unwrap(),
             PathBuf::from("/home/op/.config/rooz/age.key")
         );
+
+        // the same test because the env is process-global: a key taken out of the engine is
+        // kept aside, and a second, different one must not fail the command it runs inside of
+        let dir = std::env::temp_dir().join("rooz-identity-backup-test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let key_file = dir.join("age.key");
+        unsafe { std::env::set_var(AGE_KEY_FILE_ENV, &key_file) };
+
+        let first = back_up("AGE-SECRET-KEY-ONE").unwrap();
+        assert_eq!(first, key_file.with_extension("engine.bak"));
+        // the same key lands in the same place rather than piling up
+        assert_eq!(back_up("AGE-SECRET-KEY-ONE").unwrap(), first);
+        let second = back_up("AGE-SECRET-KEY-TWO").unwrap();
+        assert_ne!(second, first);
+        assert_eq!(
+            std::fs::read_to_string(&first).unwrap().trim(),
+            "AGE-SECRET-KEY-ONE"
+        );
+
+        std::fs::remove_dir_all(&dir).unwrap();
+        unsafe { std::env::remove_var(AGE_KEY_FILE_ENV) };
     }
 }
