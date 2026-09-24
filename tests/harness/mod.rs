@@ -1,3 +1,7 @@
+// The harness is compiled into every integration test binary, and each of them uses a
+// subset of it - so "never used" here means "not used by this binary", not unused.
+#![allow(dead_code)]
+
 use assert_cmd::Command;
 use bollard::{
     API_DEFAULT_VERSION, Docker,
@@ -15,18 +19,17 @@ use std::{collections::HashMap, env};
 
 pub struct TestEnv {
     pub docker_host: String,
-    pub engine: String,
     pub docker: Docker,
 }
 
 impl TestEnv {
     pub fn from_env() -> Option<Self> {
         let docker_host = env::var("ROOZ_TEST_DOCKER_HOST").ok()?;
-        let engine = env::var("ROOZ_TEST_ENGINE").ok()?;
+        // both variables have to be set for the suite to run against a daemon
+        env::var("ROOZ_TEST_ENGINE").ok()?;
         let docker = connect(&docker_host).ok()?;
         Some(Self {
             docker_host,
-            engine,
             docker,
         })
     }
