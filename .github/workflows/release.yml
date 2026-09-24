@@ -45,6 +45,17 @@ jobs:
           }
           echo "version: $tag"
 
+      # the notes are written by hand, so a tag without a CHANGELOG section is a
+      # release nobody described - refuse it here rather than publishing a draft
+      # with an auto-generated commit list standing in for notes
+      - name: the changelog describes this version
+        run: |
+          scripts/changelog-section.sh "${{ github.ref_name }}" > /dev/null || {
+            version="${GITHUB_REF_NAME#v}"
+            echo "RELEASE REFUSED: CHANGELOG.md has no '## [$version]' section - rename the 'Unreleased' one before tagging" >&2
+            exit 1
+          }
+
       - name: formatting
         run: cargo fmt --check
 
@@ -148,6 +159,8 @@ jobs:
     permissions:
       contents: write
     steps:
+      # the release notes come from the repository, so it has to be here too
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           path: dist
@@ -160,6 +173,11 @@ jobs:
           sha256sum rooz-* > SHA256SUMS
           cat SHA256SUMS
 
+      # the hand-written section for this version, with the generated commit list
+      # appended by --generate-notes
+      - name: release notes from CHANGELOG.md
+        run: scripts/changelog-section.sh "${{ github.ref_name }}" > notes.md
+
       # created with no assets: an upload that dies half way through used to
       # leave a release that looks complete. Uploads are their own retried step.
       - name: draft release
@@ -170,6 +188,7 @@ jobs:
             --repo "${{ github.repository }}" \
             --draft \
             --title "rooz ${{ github.ref_name }}" \
+            --notes-file notes.md \
             --generate-notes
 
       - name: upload assets (retried, --clobber)
