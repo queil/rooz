@@ -219,7 +219,7 @@ impl<'a> ConfigApi<'a> {
                 return Err(format!("base '{}' not found or empty", base_path).into());
             }
 
-            let base_fmt = FileFormat::from_path(base_path);
+            let base_fmt = FileFormat::from_path(base_path)?;
             let base = RoozCfg::deserialize_config(&base_body, base_fmt)?
                 .ok_or_else(|| format!("Failed to parse base '{}': invalid config", base_path))?;
 

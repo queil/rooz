@@ -358,7 +358,7 @@ impl<'a> WorkspaceApi<'a> {
             .await?;
 
         let volume_specs =
-            VolumeApi::create_volume_specs(workspace_key, &cfg.data, &cfg.all_mounts(), true);
+            VolumeApi::create_volume_specs(workspace_key, &cfg.data, &cfg.all_mounts(), true)?;
 
         let mounts_all = &cfg
             .mounts
@@ -372,7 +372,7 @@ impl<'a> WorkspaceApi<'a> {
         let mounts_config = self
             .api
             .volume
-            .mounts_with_sources(&volume_specs, mounts_all, true);
+            .mounts_with_sources(&volume_specs, mounts_all, true)?;
 
         let real_mounts = VolumeApi::real_mounts(mounts_config.clone(), Some(&home_dir));
 
@@ -534,7 +534,7 @@ impl<'a> WorkspaceApi<'a> {
                         let body = fs::read_to_string(&path)?;
                         let absolute_path =
                             std::path::absolute(path)?.to_string_lossy().into_owned();
-                        let fmt = FileFormat::from_path(&path);
+                        let fmt = FileFormat::from_path(&path)?;
                         let cfg = RoozCfg::deserialize_config(&body, fmt)?;
 
                         let (cfg, base_body) = match cfg {
@@ -574,7 +574,7 @@ impl<'a> WorkspaceApi<'a> {
                                 bases,
                                 merged,
                             }) => {
-                                let fmt = FileFormat::from_path(&file_path);
+                                let fmt = FileFormat::from_path(&file_path)?;
                                 let cfg = merged.map(Ok).unwrap_or_else(|| {
                                     RoozCfg::deserialize_config(&body, fmt).map(|o| o.unwrap())
                                 })?;

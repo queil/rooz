@@ -40,13 +40,22 @@ impl<'a> Api<'a> {
 
         let mut views = Vec::<WorkspaceView>::new();
 
-        for v in volumes.volumes.unwrap() {
-            let workspace_key = &v.labels[WORKSPACE_KEY];
-            let is_running = containers
-                .iter()
-                .any(|c| (&c.labels).clone().unwrap_or_default()[WORKSPACE_KEY] == *workspace_key);
+        for v in volumes.volumes.unwrap_or_default() {
+            // labels come from the engine and anyone with engine access can write them:
+            // a volume carrying the role but no workspace is somebody else's, not a
+            // reason to abort the listing
+            let Some(workspace_key) = v.labels.get(WORKSPACE_KEY) else {
+                log::debug!("Skipping volume without a workspace label: {}", v.name);
+                continue;
+            };
+            let is_running = containers.iter().any(|c| {
+                c.labels
+                    .as_ref()
+                    .and_then(|l| l.get(WORKSPACE_KEY))
+                    .is_some_and(|key| key == workspace_key)
+            });
             views.push(WorkspaceView {
-                name: (&v.labels[WORKSPACE_KEY]).to_string(),
+                name: workspace_key.to_string(),
                 running: is_running,
                 origin: (&v.labels.get(CONFIG_ORIGIN).unwrap_or(&"cli".to_string())).to_string(),
             });

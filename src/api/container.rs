@@ -97,7 +97,14 @@ impl<'a> ContainerApi<'a> {
         match self.get_all(&labels).await?.as_slice() {
             [] => Ok(None),
             [container] => Ok(Some(container.clone())),
-            _ => panic!("Too many containers found"),
+            // as with volumes: engine-writable labels must not be able to abort rooz
+            containers => Err(format!(
+                "Expected one container matching {:?}, found {}. Remove the ones that are not \
+                 rooz's and try again.",
+                HashMap::<String, String>::from(labels.clone()),
+                containers.len()
+            )
+            .into()),
         }
     }
 

@@ -32,7 +32,7 @@ impl<'a> WorkspaceApi<'a> {
             let mut labels = labels.clone();
             labels.extend(&[Labels::container(&name), Labels::role(labels::SIDECAR_ROLE)]);
             let mut ports = HashMap::<String, Option<String>>::new();
-            RoozCfg::parse_ports(&mut ports, s.ports.clone());
+            RoozCfg::parse_ports(&mut ports, s.ports.clone())?;
 
             //TODO: read the uid from the sidecar image if not overridden by the user
             let uid = s.uid.clone();
@@ -44,7 +44,7 @@ impl<'a> WorkspaceApi<'a> {
                 &config.data,
                 &config.all_mounts(),
                 false,
-            );
+            )?;
 
             self.api.volume.ensure_volumes(&volume_specs).await?;
 
@@ -58,7 +58,7 @@ impl<'a> WorkspaceApi<'a> {
             let mounts_config =
                 self.api
                     .volume
-                    .mounts_with_sources(&volume_specs, &mounts_all, false);
+                    .mounts_with_sources(&volume_specs, &mounts_all, false)?;
 
             //TODO: not setting home dir as it depends on the user. When using uid the user might not
             // exist so it hard to make it work predictably. Consider marking as not supported by design

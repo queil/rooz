@@ -332,7 +332,7 @@ impl<'a> GitApi<'a> {
             &url,
             &self.api.get_system_config().await?.gitconfig,
         )?;
-        let file_format = FileFormat::from_path(path);
+        let file_format = FileFormat::from_path(path)?;
         let result = self
             .config
             .read_config_body(&container_id, &clone_dir, file_format, Some(path))
