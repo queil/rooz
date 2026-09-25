@@ -1,4 +1,4 @@
-use crate::{api::ExecApi, constants, model::types::AnyError};
+use crate::{api::ExecApi, constants, model::types::AnyError, util::sh};
 use bollard::{
     container::LogOutput,
     errors::Error,
@@ -7,7 +7,7 @@ use bollard::{
 use bollard_stubs::models::ExecInspectResponse;
 use futures::{Stream, StreamExt};
 
-use crate::api::container::inject;
+use crate::api::container::{inject, redact_injected};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use std::{io::Read, time::Duration};
 use tokio::{
@@ -167,7 +167,7 @@ impl<'a> ExecApi<'a> {
             log::debug!(
                 "[{}] exec: {:?} in working dir: {:?}",
                 reason,
-                cmd,
+                cmd.as_deref().map(redact_injected),
                 working_dir
             );
 
@@ -311,11 +311,7 @@ echo '[install] {}: {}'
                 Some(vec![
                     "sh",
                     "-c",
-                    &format!(
-                        "chown -R {} {}",
-                        &uid_format,
-                        &dir.replace("~", "${ROOZ_META_HOME}")
-                    ),
+                    &format!("chown -R {} {}", &uid_format, &chown_target(dir)),
                 ]),
             )
             .await?;
@@ -352,5 +348,81 @@ echo '[install] {}: {}'
             .await?;
         log::debug!("{}", &ensure_user_output);
         Ok(())
+    }
+}
+
+// chown targets are mount target paths from workspace config, so they reach the shell
+// as untrusted strings. `~` is not a literal here - it stands for the container user's
+// home - so every literal segment around it is quoted separately and the expansion
+// itself stays quoted: a hostile home value cannot be split or re-parsed either.
+fn chown_target(dir: &str) -> String {
+    dir.split('~')
+        .map(sh::quote)
+        .collect::<Vec<_>>()
+        .join("\"${ROOZ_META_HOME}\"")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::chown_target;
+
+    #[test]
+    fn plain_paths_are_single_quoted() {
+        assert_eq!(chown_target("/work"), "'/work'");
+    }
+
+    #[test]
+    fn tilde_becomes_a_quoted_home_expansion() {
+        assert_eq!(chown_target("~/.nuget"), "''\"${ROOZ_META_HOME}\"'/.nuget'");
+        assert_eq!(chown_target("~"), "''\"${ROOZ_META_HOME}\"''");
+        assert_eq!(chown_target("/a~b"), "'/a'\"${ROOZ_META_HOME}\"'b'");
+    }
+
+    #[test]
+    fn hostile_mount_targets_stay_one_argument() {
+        // a mount target straight from a repository's .rooz.yaml
+        let hostile = "/work/x; cat /home/rooz_user/.ssh/id_ed25519 > /work/LEAKED_KEY";
+        assert_eq!(chown_target(hostile), format!("'{}'", hostile));
+    }
+
+    #[test]
+    fn shell_metacharacters_are_never_reachable() {
+        for hostile in [
+            "x'; touch /tmp/pwned; #",
+            "a && cat /etc/passwd",
+            "$(id -u)",
+            "`id -u`",
+            "a|b;c&d>e<f",
+            "line\nbreak",
+            "back\\slash",
+        ] {
+            let out = std::process::Command::new("sh")
+                .arg("-c")
+                .arg(format!("printf %s {}", chown_target(hostile)))
+                .output()
+                .unwrap();
+            assert!(out.status.success());
+            assert_eq!(
+                String::from_utf8(out.stdout).unwrap(),
+                hostile,
+                "not neutralized: {}",
+                hostile
+            );
+        }
+
+        // the home expansion must not be re-evaluated
+        let out = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(format!(
+                "ROOZ_META_HOME='$(echo pwned) $HOME'; printf %s {}",
+                chown_target("~/.nuget")
+            ))
+            .output()
+            .unwrap();
+        assert!(out.status.success());
+        assert_eq!(
+            String::from_utf8(out.stdout).unwrap(),
+            "$(echo pwned) $HOME/.nuget"
+        );
     }
 }

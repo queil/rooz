@@ -31,18 +31,42 @@ use futures::{StreamExt, TryStreamExt, future};
 use std::{collections::HashMap, time::Duration};
 use tokio::time::{sleep, timeout};
 
+const INJECT_PREFIX: &str = "echo '";
+const INJECT_SUFFIX: &str = "' | base64 -d";
+
 pub fn inject(script: &str, name: &str) -> Vec<String> {
     vec![
         "sh".to_string(),
         "-c".to_string(),
         format!(
-            "echo '{}' | base64 -d > /tmp/{} && chmod +x /tmp/{} && /tmp/{}",
+            "{}{}{} > /tmp/{} && chmod +x /tmp/{} && /tmp/{}",
+            INJECT_PREFIX,
             general_purpose::STANDARD.encode(script.trim()),
+            INJECT_SUFFIX,
             name,
             name,
             name,
         ),
     ]
+}
+
+// Injected scripts are rendered from configuration that may reference the operator's
+// secrets, so their payload must not reach a log - base64 is an encoding, not a guard.
+// The surrounding command still says which script runs and where it lands, which is all
+// the diagnostics need.
+pub fn redact_injected(cmd: &[&str]) -> Vec<String> {
+    cmd.iter()
+        .map(
+            |arg| match (arg.find(INJECT_PREFIX), arg.rfind(INJECT_SUFFIX)) {
+                (Some(start), Some(end)) if start + INJECT_PREFIX.len() <= end => format!(
+                    "{}<redacted>{}",
+                    &arg[..start + INJECT_PREFIX.len()],
+                    &arg[end..]
+                ),
+                _ => arg.to_string(),
+            },
+        )
+        .collect()
 }
 
 impl<'a> ContainerApi<'a> {
@@ -721,5 +745,44 @@ echo start > /tmp/exec_start
             }
             Err(e) => Err(e.into()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{inject, redact_injected};
+
+    #[test]
+    fn injected_payloads_never_reach_a_log() {
+        let script = "#!/bin/sh\necho \"TOKEN=SUP3R-SECRET\"";
+        let cmd = inject(script, "install-0.sh");
+        let payload = general_purpose_encode(script);
+        assert!(cmd[2].contains(&payload), "test does not exercise inject");
+
+        let redacted = redact_injected(&cmd.iter().map(String::as_str).collect::<Vec<_>>());
+        let joined = redacted.join(" ");
+        assert!(
+            !joined.contains(&payload),
+            "payload survived redaction: {}",
+            joined
+        );
+        assert_eq!(
+            redacted[2],
+            "echo '<redacted>' | base64 -d > /tmp/install-0.sh \
+             && chmod +x /tmp/install-0.sh && /tmp/install-0.sh"
+        );
+    }
+
+    #[test]
+    fn plain_commands_are_logged_verbatim() {
+        assert_eq!(
+            redact_injected(&["chown", "-R", "1000:1000", "'/work'"]),
+            vec!["chown", "-R", "1000:1000", "'/work'"]
+        );
+    }
+
+    fn general_purpose_encode(value: &str) -> String {
+        use base64::{Engine, engine::general_purpose};
+        general_purpose::STANDARD.encode(value)
     }
 }

@@ -5,8 +5,8 @@ use crate::model::types::{
     ContentGenerator, DataEntryKey, DataEntryVolumeSpec, FileName, FileSpec, OneShotResult,
     TargetDir, TargetPath, UserFile, VolumeFilesSpec, VolumeName, VolumeSpec,
 };
-use crate::util::id;
 use crate::util::labels::{self, DATA_ROLE, WORK_ROLE};
+use crate::util::{id, sh};
 use crate::{
     api::VolumeApi,
     constants,
@@ -529,7 +529,7 @@ impl<'a> VolumeApi<'a> {
         // still needs chowning so the workspace user can write to it
         let chown = match uid {
             Some(uid) if uid != constants::ROOT_UID_INT => {
-                Some(format!("chown -R {}:{} {}", uid, uid, root_dir))
+                Some(format!("chown -R {}:{} {}", uid, uid, sh::quote(root_dir)))
             }
             _ => None,
         };

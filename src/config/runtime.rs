@@ -62,6 +62,32 @@ pub fn validate_env_key(key: &str, origin: &str) -> Result<(), AnyError> {
     Ok(())
 }
 
+// The workspace user is interpolated into '/home/{user}', which decides where the global
+// ssh key volume lands and how '~/' mount targets expand. The config declaring it can be
+// authored by the repository being opened, so only a plain account name is acceptable:
+// anything carrying path separators or '..' relocates those mounts elsewhere in the container.
+pub fn validate_user(user: &str) -> Result<(), AnyError> {
+    let shaped = !user.is_empty()
+        && user
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_alphanumeric() || c == '_')
+        && user
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
+        && !user.contains("..");
+
+    if !shaped {
+        return Err(format!(
+            "user '{}' is refused: it must be a plain account name - letters, digits, \
+             '_', '-' and '.' only, not starting with '-' or '.'",
+            user
+        )
+        .into());
+    }
+    Ok(())
+}
+
 impl<'a> TryFrom<(&'a str, &'a RoozSidecar)> for RoozSidecarRuntime {
     type Error = AnyError;
 
@@ -375,6 +401,30 @@ mod tests {
     }
 
     #[test]
+    fn hostile_users_are_refused() {
+        // the user lands in '/home/{user}', which is where the ssh key volume mounts
+        for hostile in ["..", ".", "../../tmp", "a/b", "", "-x", ".hidden", "a b"] {
+            let cfg = RoozCfg {
+                image: Some("alpine".to_string()),
+                user: Some(hostile.to_string()),
+                ..RoozCfg::none()
+            };
+            assert!(
+                RuntimeConfig::try_from(&cfg).is_err(),
+                "accepted user: {:?}",
+                hostile
+            );
+        }
+    }
+
+    #[test]
+    fn plain_account_names_pass() {
+        for user in ["rooz_user", "root", "a-b.c", "_svc", "user1"] {
+            assert!(validate_user(user).is_ok(), "rejected user: {}", user);
+        }
+    }
+
+    #[test]
     fn hostile_env_keys_are_refused() {
         // keys are concatenated into "KEY=value" for the engine, so '=' and newlines would
         // smuggle in assignments of their own
@@ -643,6 +693,9 @@ impl<'a> TryFrom<&'a RoozCfg> for RuntimeConfig {
         let mut ports = HashMap::<String, Option<String>>::new();
         RoozCfg::parse_ports(&mut ports, value.clone().ports.unwrap_or_default())?;
 
+        let user = value.user.as_deref().unwrap_or(&default.user);
+        validate_user(user)?;
+
         Ok(RuntimeConfig {
             git_ssh_url: value.git_ssh_url.clone(),
             extra_repos: value
@@ -652,7 +705,7 @@ impl<'a> TryFrom<&'a RoozCfg> for RuntimeConfig {
                 .to_vec(),
             shell: value.shell.as_deref().unwrap_or(&default.shell).into(),
             image: value.image.as_deref().unwrap_or(&default.image).into(),
-            user: value.user.as_deref().unwrap_or(&default.user).into(),
+            user: user.to_string(),
             caches: {
                 let mut val = value.caches.as_deref().unwrap_or(&default.caches).to_vec();
                 val.dedup();

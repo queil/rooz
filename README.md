@@ -185,6 +185,17 @@ Fields that reach past the workspace - your host, your other workspaces, your se
 | `caches` | a cache volume is shared with your other workspaces | list the same paths in `--caches` / `ROOZ_CACHES` |
 | `privileged` | full access to the host running the engine | `ROOZ_ALLOW_PRIVILEGED=<names>` (refused on *any* config file's say-so, including your own) |
 
+### Clone transports
+
+Clone URLs (the root repo, `extra_repos`, `--config git:...`) may use `ssh://`, `git+ssh://`,
+the scp-like `user@host:path`, `https://`, `http://`, `git://` or `file://`. Anything else -
+`ftp://`, invented schemes, and `name::address` remote helpers such as `ext::` (which hands git
+a command to run) - is refused.
+
+`http://` and `git://` authenticate nothing: whoever sits on the network path decides what the
+clone contains, including the `.rooz.yaml` rooz then applies to your workspace. Those clones
+print a warning. Set `ROOZ_REQUIRE_SECURE_TRANSPORT=true` to refuse them outright.
+
 ### Images
 
 :information_source: the default image is `docker.io/chainguard/git:latest-dev`
@@ -203,6 +214,10 @@ There are a few ways of specifying images:
 
 `rooz` runs as uid `1000` (always - it's hard-coded) so make sure it exists in your image
 (with `rooz_user` as the name - it can be overridden via `ROOZ_USER` or `--user`)
+
+The name must be a plain account name (letters, digits, `_`, `-`, `.`, not starting with `-` or
+`.`): it becomes the workspace home `/home/<user>`, which is where the ssh key volume mounts and
+what `~/` mount targets expand to.
 
 ### Shell
 

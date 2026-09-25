@@ -10,10 +10,12 @@ impl<'a> ConfigApi<'a> {
                 log::debug!("Decrypting secrets");
                 let mut ret = IndexMap::<String, String>::new();
                 for (k, v) in secrets.iter() {
-                    let decrypted = self.crypt.decrypt(identity, v).expect(&format!(
-                        "Cannot decrypt '{}'. It must have been encrypted with a different key",
-                        k
-                    ));
+                    let decrypted = self.crypt.decrypt(identity, v).map_err(|e| {
+                        format!(
+                            "Cannot decrypt '{}': {}. It must have been encrypted with a different key",
+                            k, e
+                        )
+                    })?;
                     ret.insert(k.to_string(), decrypted);
                 }
                 Some(ret)

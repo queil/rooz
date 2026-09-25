@@ -1,5 +1,6 @@
 use bollard::models::MountType;
 use bollard::service::Mount;
+use colored::Colorize;
 use gix_config::File;
 use lazy_static::lazy_static;
 use regex::Regex;
@@ -22,6 +23,76 @@ lazy_static! {
         r"^(?:[a-zA-Z][a-zA-Z0-9+.\-]*://\S+|[A-Za-z0-9._\-]+(?:@[A-Za-z0-9._\-]+)?:\S+)$"
     )
     .unwrap();
+
+    // 'name::address' hands the clone to a remote helper - 'ext::' runs an arbitrary
+    // command - and the scp-like form above would otherwise accept it.
+    static ref REMOTE_HELPER: Regex = Regex::new(r"^[A-Za-z][A-Za-z0-9+.\-]*::").unwrap();
+}
+
+pub const REQUIRE_SECURE_TRANSPORT_ENV: &str = "ROOZ_REQUIRE_SECURE_TRANSPORT";
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+enum Transport {
+    // the server is authenticated and the stream is integrity-protected
+    Secure,
+    // neither: whoever sits on the network path decides what the clone contains
+    Cleartext,
+    // a local path - no network to attack, but nothing authenticates it either
+    Local,
+}
+
+// Only the transports git users actually clone over are accepted; everything else
+// (remote helpers, ftp, invented schemes) is refused rather than handed to git.
+fn transport(url: &str) -> Result<Transport, AnyError> {
+    if REMOTE_HELPER.is_match(url) {
+        return Err(format!(
+            "refusing '{}': 'name::address' remote helpers are not a supported clone transport",
+            url
+        )
+        .into());
+    }
+    let scheme = match url.split_once("://") {
+        Some((scheme, _)) => scheme.to_ascii_lowercase(),
+        // the scp-like 'user@host:path' form is git over ssh
+        None => return Ok(Transport::Secure),
+    };
+    match scheme.as_str() {
+        "https" | "ssh" | "git+ssh" | "ssh+git" => Ok(Transport::Secure),
+        "http" | "git" => Ok(Transport::Cleartext),
+        "file" => Ok(Transport::Local),
+        other => Err(format!(
+            "refusing '{}': '{}' is not a supported clone transport (use https, ssh, http, git or file)",
+            url, other
+        )
+        .into()),
+    }
+}
+
+// A cleartext clone authenticates nothing: an on-path attacker substitutes the repository
+// content, and with it the .rooz.yaml rooz applies as workspace configuration. Warned about
+// by default so local http:// remotes keep working; refused outright when the operator asks.
+fn check_transport(url: &str, require_secure: bool) -> Result<Option<String>, AnyError> {
+    match transport(url)? {
+        Transport::Cleartext if require_secure => Err(format!(
+            "refusing to clone '{}' over a cleartext transport ({}=true). Use https:// or ssh://.",
+            url, REQUIRE_SECURE_TRANSPORT_ENV
+        )
+        .into()),
+        Transport::Cleartext => Ok(Some(format!(
+            "WARNING: cloning '{}' over a cleartext transport. Nothing authenticates the server \
+             or protects the content, so anyone on the network path can substitute the repository \
+             - including the .rooz.yaml rooz applies to your workspace. Prefer https:// or ssh://, \
+             or set {}=true to refuse cleartext clones.",
+            url, REQUIRE_SECURE_TRANSPORT_ENV
+        ))),
+        Transport::Secure | Transport::Local => Ok(None),
+    }
+}
+
+fn require_secure_transport() -> bool {
+    std::env::var(REQUIRE_SECURE_TRANSPORT_ENV)
+        .map(|v| v.trim().eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
 }
 
 // Clone URLs reach a shell (quoted) and git's argv, so both layers need guarding:
@@ -47,6 +118,9 @@ pub fn validate_clone_url(url: &str) -> Result<(), AnyError> {
             url
         )
         .into());
+    }
+    if let Some(warning) = check_transport(url, require_secure_transport())? {
+        eprintln!("{}", warning.yellow());
     }
     Ok(())
 }
@@ -356,6 +430,44 @@ mod tests {
             "file:///srv/repos/rooz.git",
         ] {
             assert!(validate_clone_url(url).is_ok(), "rejected: {}", url);
+        }
+    }
+
+    #[test]
+    fn cleartext_transports_warn_and_can_be_refused() {
+        for url in ["http://gitea.local:3000/a/b.git", "git://h/repo"] {
+            let warning = check_transport(url, false).unwrap();
+            assert!(
+                warning.is_some_and(|w| w.contains(url)),
+                "no cleartext warning for: {}",
+                url
+            );
+            assert!(check_transport(url, true).is_err(), "not refused: {}", url);
+        }
+    }
+
+    #[test]
+    fn authenticated_transports_are_silent() {
+        for url in [
+            "https://github.com/queil/rooz.git",
+            "ssh://git@github.com:22/queil/rooz.git",
+            "git@github.com:queil/rooz.git",
+            "file:///srv/repos/rooz.git",
+        ] {
+            assert_eq!(check_transport(url, true).unwrap(), None, "warned: {}", url);
+        }
+    }
+
+    #[test]
+    fn unsupported_transports_are_rejected() {
+        // 'ext::' hands git a command to run, and the scp-like form would otherwise take it
+        for url in [
+            "ext::sh",
+            "ext::https://h/repo",
+            "ftp://evil/x.git",
+            "made-up://h/repo",
+        ] {
+            assert!(validate_clone_url(url).is_err(), "accepted: {}", url);
         }
     }
 
