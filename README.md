@@ -183,8 +183,8 @@ Fields that reach past the workspace - your host, your other workspaces, your se
 
 | field | why | how to allow it anyway |
 | --- | --- | --- |
-| `secrets` | plaintext would land in a container the repository controls | not possible - move the settings into your own `--config` file |
-| `caches` | a cache volume is shared with your other workspaces | list the same paths in `--caches` / `ROOZ_CACHES` |
+| `secrets` | plaintext would land in a container the repository controls | list the source in `ROOZ_TRUSTED_CONFIGS` if it is yours (see [Trusted config sources](#trusted-config-sources)), or move the settings into your own local `--config` file |
+| `caches` | a cache volume is shared with your other workspaces | list the same paths in `--caches` / `ROOZ_CACHES`, or list the source in `ROOZ_TRUSTED_CONFIGS` |
 | `privileged` | full access to the host running the engine | `ROOZ_ALLOW_PRIVILEGED=<names>` (refused on *any* config file's say-so, including your own) |
 | sidecar `vpn` | `NET_ADMIN` and `/dev/net/tun` - real root's reach into the kernel's netfilter code on a rootful engine | `ROOZ_ALLOW_VPN=<names>` (refused on *any* config file's say-so, including your own) |
 
@@ -246,7 +246,7 @@ The global paths get combined with the config file's paths.
 :warning: A cache is shared with *every* workspace of yours mounting the same path, so whatever writes
 into it (a cargo registry source, a linker config, a crate with a build script) later executes in those
 workspaces. That makes a cache path an operator decision: if the configuration comes from the repository
-being opened (a `--config git:...` source), rooz refuses its cache paths
+being opened (a `--config git:...` source not listed in `ROOZ_TRUSTED_CONFIGS`), rooz refuses its cache paths
 unless you list the same paths yourself with `--caches` (on `rooz new`) or `ROOZ_CACHES` - the latter also
 covers `rooz update`, which re-reads a repository-authored config on every run. Config files you wrote
 locally and pass with `--config` are unaffected.
@@ -446,13 +446,14 @@ picks the image, entrypoint, install steps and environment your plaintext lands 
 secrets keeps a standing consent from covering a file you did not write.
 
 **A configuration that is yours.** Secrets are expanded only when the **whole** configuration is one
-you wrote - a local file passed with `--config`, with nothing else merged into it. Rooz refuses to
-expand secrets and fails with an explanation if the workspace also merges:
+you wrote - a local file passed with `--config`, with nothing else merged into it, or a source you
+listed as yours in `ROOZ_TRUSTED_CONFIGS`. Rooz refuses to expand secrets and fails with an explanation
+if the workspace also merges:
 
-* the repository's own configuration - a `--config git:...` source;
-* a `bases` layer. A base layer is a separate file your config points at; it may be a team overlay or
-  something copied out of a repository, and after the merge nothing can tell its fields apart from
-  yours. Inline the base layer into your own file if you need secrets in that workspace.
+* a `--config git:...` source you have not listed - it may be the repository's own configuration;
+* a `bases` layer outside a trusted directory. A base layer is a separate file your config points at;
+  it may be a team overlay or something copied out of a repository, and after the merge nothing can
+  tell its fields apart from yours.
 
 The reason: every templated field - `env`, `install`, `command`, `shell`, `data` content, sidecar
 `env` - can be written by whoever authored that content. A layer shipping `env: {LEAK: "{{ MY_SECRET }}"}`
@@ -463,6 +464,27 @@ controls. `vars` keep working everywhere, since they are not sensitive.
 copied out of a repository you are opening, so releasing a secret to a configuration means you have
 read it. Never point `--config` at a file that came from the repository, and read a base layer before
 you include it.
+
+#### Trusted config sources
+
+Encrypting a secret to your age identity does not tie it to your configuration: anyone who has seen the
+ciphertext can paste it into a config of their own, and rooz would decrypt it for them. So rooz decides
+what is yours by where the configuration comes from, and you tell it:
+
+```sh
+export ROOZ_TRUSTED_CONFIGS='git@github.com:me/rooz-configs,~/rooz-configs'
+```
+
+* a repository URL - a `--config <url>//<path>` from it counts as yours, including its `bases` (they are
+  read from the same clone). Matched exactly as you pass it to `--config`: `.../configs` and
+  `.../configs.git` are different entries. Never trusted over `http://` or `git://`, where anyone on the
+  network path can substitute the content.
+* a local directory - a `--config` file counts as yours, `bases` included, when the file and every base it
+  pulls in resolve (symlinks followed) inside it.
+
+A trusted source gets what your own local file gets: secrets (still subject to `ROOZ_ALLOW_SECRETS`)
+and shared caches. Trusting a repository means trusting everyone who can push to it - list only
+repositories that are yours alone.
 
 ### Secrets at rest
 

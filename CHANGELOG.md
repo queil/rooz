@@ -10,6 +10,14 @@ file - see the git history.
 
 ## Unreleased
 
+### Added
+
+- `ROOZ_TRUSTED_CONFIGS` lists configuration sources that are the operator's own: repository URLs
+  (matched exactly as passed to `--config`, never over `http://`/`git://`) and local directories
+  (every file, bases included, must resolve inside one). A trusted source may expand secrets
+  (still subject to `ROOZ_ALLOW_SECRETS`) and declare caches - including through `bases` - which
+  previously only a local `--config` file without bases could.
+
 ### Removed
 
 - **Breaking**: rooz no longer reads a `.rooz.yaml` from the root of a repository it clones

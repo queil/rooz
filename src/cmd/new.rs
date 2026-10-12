@@ -1,5 +1,6 @@
 use crate::api::VolumeApi;
 use crate::api::config::{ConfigBody, LocalReader};
+use crate::config::trust::TrustedConfigs;
 use crate::model::types::VolumeResult;
 use crate::{
     api::WorkspaceApi,
@@ -220,6 +221,7 @@ fn check_repo_authored(cfg: &RoozCfg, consented_caches: &[String]) -> Result<(),
 struct CliConfig {
     cfg: Option<RoozCfg>,
     bases_merged: bool,
+    trusted: bool,
     stored: Option<StoredConfig>,
 }
 
@@ -491,8 +493,10 @@ impl<'a> WorkspaceApi<'a> {
         cli_config_path: &Option<ConfigSource>,
         clone_env: &CloneEnv,
         secrets_consent: &Consent,
+        trusted_configs: &TrustedConfigs,
     ) -> Result<CliConfig, AnyError> {
         let val = if let Some(source) = &cli_config_path {
+            let mut trusted: bool;
             let (origin, body, extends_body, rooz_cfg): (
                 String,
                 Option<String>,
@@ -505,9 +509,13 @@ impl<'a> WorkspaceApi<'a> {
                     format,
                 } => {
                     let body = value.to_string(format.clone())?;
+                    let reader = LocalReader::default();
+                    trusted = match ConfigPath::from_str(origin)? {
+                        ConfigPath::File { path } => trusted_configs.trusts_files([path.as_str()]),
+                        ConfigPath::Git { url, .. } => trusted_configs.trusts_repo(&url),
+                    };
                     let (cfg, base_body) = if value.bases.is_some() {
                         if let Ok(ConfigPath::File { path }) = ConfigPath::from_str(origin) {
-                            let reader = LocalReader {};
                             let (merged, individual_bases) = self
                                 .config
                                 .resolve_extends_chain(&reader, &path, value.clone(), 0)
@@ -534,6 +542,9 @@ impl<'a> WorkspaceApi<'a> {
                     } else {
                         (Some(value.clone()), None)
                     };
+                    trusted = trusted
+                        && trusted_configs
+                            .trusts_files(reader.read.lock().unwrap().iter().map(String::as_str));
                     (origin.to_string(), Some(body), base_body, cfg)
                 }
                 ConfigSource::Path { value: path } => match path {
@@ -543,10 +554,10 @@ impl<'a> WorkspaceApi<'a> {
                             std::path::absolute(path)?.to_string_lossy().into_owned();
                         let fmt = FileFormat::from_path(&path)?;
                         let cfg = RoozCfg::deserialize_config(&body, fmt)?;
+                        let reader = LocalReader::default();
 
                         let (cfg, base_body) = match cfg {
                             Some(c) if c.bases.is_some() => {
-                                let reader = LocalReader {};
                                 let (merged, individual_bases) = self
                                     .config
                                     .resolve_extends_chain(&reader, path.as_str(), c, 0)
@@ -567,9 +578,14 @@ impl<'a> WorkspaceApi<'a> {
                             }
                             other => (other, None),
                         };
+                        trusted = trusted_configs.trusts_files(
+                            std::iter::once(path.as_str())
+                                .chain(reader.read.lock().unwrap().iter().map(String::as_str)),
+                        );
                         (absolute_path, Some(body.clone()), base_body, cfg)
                     }
                     ConfigPath::Git { url, file_path } => {
+                        trusted = trusted_configs.trusts_repo(url);
                         let (result, _) = self
                             .git
                             .clone_config_repo(clone_env.clone(), &url, &file_path)
@@ -604,6 +620,7 @@ impl<'a> WorkspaceApi<'a> {
 
             CliConfig {
                 bases_merged: extends_body.is_some(),
+                trusted,
                 cfg: rooz_cfg,
                 stored: Some(StoredConfig {
                     origin,
@@ -615,6 +632,7 @@ impl<'a> WorkspaceApi<'a> {
             CliConfig {
                 cfg: None,
                 bases_merged: false,
+                trusted: false,
                 stored: None,
             }
         };
@@ -656,6 +674,7 @@ impl<'a> WorkspaceApi<'a> {
         let CliConfig {
             cfg: cli_cfg,
             bases_merged,
+            trusted,
             stored: stored_config,
         } = self
             .get_cli_config(
@@ -665,10 +684,11 @@ impl<'a> WorkspaceApi<'a> {
                     cli_params.allow_secrets,
                     std::env::var(ALLOW_SECRETS_ENV).ok(),
                 ),
+                &TrustedConfigs::from_env(),
             )
             .await?;
 
-        let operator_local = config_is_operator_local(&cli_config_path);
+        let operator_local = config_is_operator_local(&cli_config_path) || trusted;
         let consented_caches = operator_caches(
             cli_params,
             if operator_local {
@@ -717,7 +737,7 @@ impl<'a> WorkspaceApi<'a> {
                 stored_config,
                 // base layers are merged content the operator did not write, so they carry
                 // the same weight as the repository's own config here
-                operator_local && !bases_merged,
+                operator_local && (trusted || !bases_merged),
             )
             .await?;
 
