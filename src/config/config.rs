@@ -61,13 +61,6 @@ impl<'a> ConfigPath {
         }
     }
 
-    pub fn is_in_repo(&self) -> bool {
-        if let ConfigPath::Git { file_path, .. } = self {
-            file_path == ".rooz.yaml"
-        } else {
-            false
-        }
-    }
     pub fn to_string(&self) -> String {
         match self {
             ConfigPath::File { path } => path.to_string(),

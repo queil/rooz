@@ -18,6 +18,12 @@ file - see the git history.
   `--config git:...` source, authored by the repository. Existing workspaces created from an
   in-repo config keep updating: `rooz update` re-fetches it as a `--config git:...` source.
 
+### Fixed
+
+- `rooz update` keeps the workspace's repository (`-g`) when the config came from anywhere other
+  than the repository's own `.rooz.yaml`. Previously it forgot it: the work container started in
+  `/work` instead of the clone, and `--purge` removed the clone without re-cloning.
+
 ## [0.160.0] - 2026-10-12
 
 ### Added
