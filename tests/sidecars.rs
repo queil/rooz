@@ -269,3 +269,130 @@ async fn a_squatted_runtime_image_is_never_run() {
     env.remove_image(&squatted).await;
     let _ = fs::remove_file(&cfg_path);
 }
+
+// ── vpn ───────────────────────────────────────────────────────────────────────
+
+fn vpn_sidecar_cfg(key: &str) -> String {
+    let path = format!("/tmp/rooz-test-sidecar-vpn-{}.yaml", key);
+    let yaml = "\
+image: alpine:latest
+sidecars:
+  wg:
+    image: alpine:latest
+    vpn: true
+    command:
+      - sleep
+    args:
+      - infinity
+  plain:
+    image: alpine:latest
+    command:
+      - sleep
+    args:
+      - infinity
+";
+    let mut f = fs::File::create(&path).expect("write sidecar config");
+    f.write_all(yaml.as_bytes()).unwrap();
+    path
+}
+
+#[tokio::test]
+async fn vpn_sidecar_is_refused_without_consent() {
+    let Some(env) = TestEnv::from_env() else {
+        return;
+    };
+    let key = unique_key("sc-vpn-refused");
+    let cfg_path = vpn_sidecar_cfg(&key);
+
+    env.rooz()
+        .args(["system", "init", "--force"])
+        .assert()
+        .success();
+    let out = env
+        .rooz()
+        .args(["new", &key, "--config", &cfg_path])
+        .env_remove("ROOZ_ALLOW_VPN")
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "vpn sidecar created without consent");
+    assert!(
+        stderr.contains("ROOZ_ALLOW_VPN=wg"),
+        "refusal does not name the remedy: {}",
+        stderr
+    );
+    assert!(
+        env.containers_by_workspace(&key).await.is_empty(),
+        "refused workspace left containers behind"
+    );
+    assert!(
+        env.volumes_by_workspace(&key).await.is_empty(),
+        "refused workspace left volumes behind"
+    );
+
+    // the same command goes through once the operator consents
+    env.rooz()
+        .args(["new", &key, "--config", &cfg_path])
+        .env("ROOZ_ALLOW_VPN", "wg")
+        .assert()
+        .success();
+
+    env.rooz().args(["rm", &key, "--force"]).assert().success();
+    let _ = fs::remove_file(&cfg_path);
+}
+
+#[tokio::test]
+async fn vpn_sidecar_gets_net_admin_and_tun() {
+    let Some(env) = TestEnv::from_env() else {
+        return;
+    };
+    let key = unique_key("sc-vpn");
+    let cfg_path = vpn_sidecar_cfg(&key);
+
+    env.rooz()
+        .args(["system", "init", "--force"])
+        .assert()
+        .success();
+    env.rooz()
+        .args(["new", &key, "--config", &cfg_path])
+        .env("ROOZ_ALLOW_VPN", "wg")
+        .assert()
+        .success();
+
+    let wg = format!("{}-wg", key);
+    let plain = format!("{}-plain", key);
+    let net_admin = vec!["ip", "link", "add", "t0", "type", "dummy"];
+    let tun = vec!["test", "-c", "/dev/net/tun"];
+    let src_valid_mark = vec![
+        "grep",
+        "-qx",
+        "1",
+        "/proc/sys/net/ipv4/conf/all/src_valid_mark",
+    ];
+
+    assert_eq!(
+        env.exec_code(&wg, net_admin.clone()).await,
+        0,
+        "no NET_ADMIN"
+    );
+    assert_eq!(env.exec_code(&wg, tun.clone()).await, 0, "no /dev/net/tun");
+    assert_eq!(
+        env.exec_code(&wg, src_valid_mark.clone()).await,
+        0,
+        "src_valid_mark not set"
+    );
+
+    assert_ne!(
+        env.exec_code(&plain, net_admin).await,
+        0,
+        "plain sidecar has NET_ADMIN"
+    );
+    assert_ne!(
+        env.exec_code(&plain, tun).await,
+        0,
+        "plain sidecar has /dev/net/tun"
+    );
+
+    env.rooz().args(["rm", &key, "--force"]).assert().success();
+    let _ = fs::remove_file(&cfg_path);
+}

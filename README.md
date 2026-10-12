@@ -184,6 +184,7 @@ Fields that reach past the workspace - your host, your other workspaces, your se
 | `secrets` | plaintext would land in a container the repository controls | not possible - move the settings into your own `--config` file |
 | `caches` | a cache volume is shared with your other workspaces | list the same paths in `--caches` / `ROOZ_CACHES` |
 | `privileged` | full access to the host running the engine | `ROOZ_ALLOW_PRIVILEGED=<names>` (refused on *any* config file's say-so, including your own) |
+| sidecar `vpn` | `NET_ADMIN` and `/dev/net/tun` - real root's reach into the kernel's netfilter code on a rootful engine | `ROOZ_ALLOW_VPN=<names>` (refused on *any* config file's say-so, including your own) |
 
 ### Clone transports
 
@@ -294,6 +295,43 @@ slipped into the merged configuration, which is exactly what this check exists t
 
 :warning: Only do this for configurations you trust. When opening repositories you do not control,
 prefer rootless Podman, which confines the grant to your own user namespace.
+
+### VPN sidecars
+
+`vpn: true` on a sidecar gives it what WireGuard (`wg-quick`, kernel or `wireguard-go`), OpenVPN and
+the like need to run inside it, and nothing more: the `NET_ADMIN` capability, the `/dev/net/tun`
+device and `net.ipv4.conf.all.src_valid_mark=1`. All three are scoped to the sidecar's own network
+namespace - unlike `privileged`, it does not reach the host's devices or network.
+
+It still opens the kernel's netfilter and netlink interfaces to the sidecar, which on a rootful
+engine is real root's reach into code with a history of container escapes. So, like `privileged`,
+rooz does not grant it on a config file's say-so: name the sidecars with `ROOZ_ALLOW_VPN=<names>`
+(or `ROOZ_ALLOW_VPN=true` for any). The consent is separate from `ROOZ_ALLOW_PRIVILEGED` - allowing
+one does not allow the other.
+
+```yaml
+sidecars:
+  vpn:
+    image: docker.io/linuxserver/wireguard:latest
+    vpn: true
+    egress: true     # to reach the WireGuard endpoint
+    init: false      # the image's s6-overlay must run as pid 1
+    mounts:
+      /config/wg_confs/wg0.conf:
+        content: |
+          [Interface]
+          ...
+```
+
+* the sidecar must run as uid 0 (the default) - `NET_ADMIN` is not effective for a non-root user,
+  so `vpn` with any other `uid` is refused
+* kernel WireGuard needs the `wireguard` module loaded on the engine's host - a container cannot
+  load it; without it `wg-quick` falls back to `wireguard-go` over `/dev/net/tun`
+* full tunnels (`AllowedIPs = 0.0.0.0/0`) work: `wg-quick` finds `src_valid_mark` already set and
+  the work container keeps reaching the sidecar over its pair network
+* leave out `DNS =` - it calls `resolvconf`, which conflicts with the engine-managed `/etc/resolv.conf`
+* the tunnel is the sidecar's: give the work container (or `peers:`) access through a proxy the
+  sidecar runs, e.g. `HTTP_PROXY=http://vpn:3128`
 
 ### Port mappings
 
@@ -507,6 +545,7 @@ Supported keywords:
 ```
 
 * `ports` - port bindings in the `"8080:8080"` format
+* `vpn` (`bool`) - grants `NET_ADMIN`, `/dev/net/tun` and `src_valid_mark` for in-sidecar VPNs, with operator consent (see [VPN sidecars](#vpn-sidecars))
 * `peers` - names of other sidecars this sidecar may reach (see [Networking](#networking); merged as a union across config layers)
 * `work_dir` - set working directory
 * `mount_work` (`bool`) - if true then the work volume is mounted at `/work`

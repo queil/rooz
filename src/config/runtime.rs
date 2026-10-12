@@ -20,6 +20,8 @@ pub struct RoozSidecarRuntime {
     pub real_mounts: HashMap<TargetDir, VolumeFilesSpec>,
     pub ports: Vec<String>,
     pub privileged: bool,
+    #[serde(default)]
+    pub vpn: bool,
     pub init: bool,
     pub work_dir: String,
     pub user: Option<String>,
@@ -92,6 +94,15 @@ impl<'a> TryFrom<(&'a str, &'a RoozSidecar)> for RoozSidecarRuntime {
     type Error = AnyError;
 
     fn try_from((name, value): (&'a str, &'a RoozSidecar)) -> Result<Self, Self::Error> {
+        let vpn = value.vpn.unwrap_or_default();
+        if vpn && value.uid.is_some_and(|uid| uid != constants::ROOT_UID_INT) {
+            return Err(format!(
+                "sidecar '{}': 'vpn' requires the sidecar to run as uid 0 - NET_ADMIN is not \
+                 effective for a non-root user",
+                name
+            )
+            .into());
+        }
         Ok(RoozSidecarRuntime {
             image: value.image.clone().ok_or_else(|| -> AnyError {
                 format!(
@@ -123,6 +134,7 @@ impl<'a> TryFrom<(&'a str, &'a RoozSidecar)> for RoozSidecarRuntime {
             real_mounts: HashMap::new(),
             ports: value.ports.clone().unwrap_or_default(),
             privileged: value.privileged.clone().unwrap_or_default(),
+            vpn,
             init: value.init.clone().unwrap_or(true),
             work_dir: value.work_dir.clone().unwrap_or_default(),
             user: value.user.clone(),
@@ -324,6 +336,17 @@ impl RuntimeConfig {
         names
     }
 
+    pub fn vpn_containers(&self) -> Vec<String> {
+        let mut names = self
+            .sidecars
+            .iter()
+            .filter(|(_, s)| s.vpn)
+            .map(|(name, _)| name.clone())
+            .collect::<Vec<_>>();
+        names.sort();
+        names
+    }
+
     /// A copy with every occurrence of the given secret values replaced by a marker,
     /// for persisting to the workspace-config volume. The container's environment is set
     /// at creation time from the unmasked values, so behaviour is unchanged.
@@ -394,6 +417,38 @@ impl RuntimeConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn vpn_sidecar_must_run_as_root() {
+        let ok: RoozCfg =
+            serde_yaml::from_str("sidecars:\n  wg:\n    image: a\n    vpn: true\n").unwrap();
+        assert!(RuntimeConfig::try_from(&ok).unwrap().sidecars["wg"].vpn);
+        let root: RoozCfg =
+            serde_yaml::from_str("sidecars:\n  wg:\n    image: a\n    vpn: true\n    uid: 0\n")
+                .unwrap();
+        assert!(RuntimeConfig::try_from(&root).is_ok());
+        let non_root: RoozCfg =
+            serde_yaml::from_str("sidecars:\n  wg:\n    image: a\n    vpn: true\n    uid: 1000\n")
+                .unwrap();
+        let err = RuntimeConfig::try_from(&non_root).unwrap_err().to_string();
+        assert!(err.contains("wg") && err.contains("uid 0"), "{}", err);
+    }
+
+    #[test]
+    fn old_persisted_sidecar_without_vpn_parses() {
+        let yaml = "sidecars:\n  svc:\n    image: alpine\n";
+        let cfg: RoozCfg = serde_yaml::from_str(yaml).unwrap();
+        let runtime = RuntimeConfig::try_from(&cfg).unwrap();
+        let persisted = runtime
+            .to_string()
+            .unwrap()
+            .lines()
+            .filter(|l| !l.contains("vpn"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let parsed = RuntimeConfig::from_string(persisted).unwrap();
+        assert!(!parsed.sidecars["svc"].vpn);
+    }
 
     fn runtime(yaml: &str) -> RuntimeConfig {
         let cfg: RoozCfg = serde_yaml::from_str(yaml).unwrap();
