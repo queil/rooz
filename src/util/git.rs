@@ -69,7 +69,7 @@ fn transport(url: &str) -> Result<Transport, AnyError> {
 }
 
 // A cleartext clone authenticates nothing: an on-path attacker substitutes the repository
-// content, and with it the .rooz.yaml rooz applies as workspace configuration. Warned about
+// content, and with it any '--config' file rooz reads from it as workspace configuration. Warned about
 // by default so local http:// remotes keep working; refused outright when the operator asks.
 fn check_transport(url: &str, require_secure: bool) -> Result<Option<String>, AnyError> {
     match transport(url)? {
@@ -81,7 +81,7 @@ fn check_transport(url: &str, require_secure: bool) -> Result<Option<String>, An
         Transport::Cleartext => Ok(Some(format!(
             "WARNING: cloning '{}' over a cleartext transport. Nothing authenticates the server \
              or protects the content, so anyone on the network path can substitute the repository \
-             - including the .rooz.yaml rooz applies to your workspace. Prefer https:// or ssh://, \
+             - including any '--config' file rooz reads from it. Prefer https:// or ssh://, \
              or set {}=true to refuse cleartext clones.",
             url, REQUIRE_SECURE_TRANSPORT_ENV
         ))),
@@ -158,7 +158,6 @@ impl Default for CloneEnv {
 
 #[derive(Clone, Debug)]
 pub struct RootRepoCloneResult {
-    pub config: Option<(String, Option<String>, FileFormat)>,
     pub dir: String,
 }
 
@@ -354,16 +353,9 @@ impl<'a> GitApi<'a> {
             &url,
             &self.api.get_system_config().await?.gitconfig,
         )?;
-        let config = self
-            .config
-            .try_read_config(&container_id, &clone_dir)
-            .await?;
         self.api.container.kill(&container_id, false).await?;
 
-        Ok(RootRepoCloneResult {
-            config,
-            dir: clone_dir,
-        })
+        Ok(RootRepoCloneResult { dir: clone_dir })
     }
 
     pub async fn clone_extra_repos(
@@ -409,7 +401,7 @@ impl<'a> GitApi<'a> {
         let file_format = FileFormat::from_path(path)?;
         let result = self
             .config
-            .read_config_body(&container_id, &clone_dir, file_format, Some(path))
+            .read_config_body(&container_id, &clone_dir, file_format, path)
             .await?;
         self.api.container.kill(&container_id, false).await?;
         Ok((result, clone_dir))

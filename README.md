@@ -163,18 +163,20 @@ rooz tmp --image alpine --shell sh
 Most of the settings can be configured via:
 
 * environment variables
-* a config file in the cloned repository (if any)  (`.rooz.yaml`)
 * a config file specified via `--config` (on `rooz new`)
   :information_source: it can be a local file path or a remote git file like: `git@github.com/my/configs//path/in/repo/config.rooz.yaml`
+
+  :information_source: rooz does not look for configuration in the repositories it clones. To use a
+  repository's own config file, pass it explicitly: `rooz new ws -g <url> --config <url>//.rooz.yaml`
 * cmd-line parameters
 
 The configuration file provides the most options: [example](examples/dotnet-nats.rooz.yaml)
 
 ### What a repository's configuration may set
 
-Configuration authored by the repository being opened (its in-repo `.rooz.yaml`, or a `--config git:...`
-source) may set anything that only shapes the workspace container - `image`, `shell`, `command`, `args`,
-`env`, `install`, `ports`, `data`, `mounts`, `sidecars`, `extra_repos`, `vars`, `user`, `init`. That
+Configuration authored by the repository being opened (a `--config git:...` source, such as its
+`.rooz.yaml`) may set anything that only shapes the workspace container - `image`, `shell`, `command`,
+`args`, `env`, `install`, `ports`, `data`, `mounts`, `sidecars`, `extra_repos`, `vars`, `user`, `init`. That
 grants the repository nothing it does not already have: the workspace runs its code either way.
 
 Fields that reach past the workspace - your host, your other workspaces, your secrets - are yours to set:
@@ -194,7 +196,7 @@ the scp-like `user@host:path`, `https://`, `http://`, `git://` or `file://`. Any
 a command to run) - is refused.
 
 `http://` and `git://` authenticate nothing: whoever sits on the network path decides what the
-clone contains, including the `.rooz.yaml` rooz then applies to your workspace. Those clones
+clone contains, including any `--config` file rooz reads from it. Those clones
 print a warning. Set `ROOZ_REQUIRE_SECURE_TRANSPORT=true` to refuse them outright.
 
 ### Images
@@ -204,7 +206,7 @@ print a warning. Set `ROOZ_REQUIRE_SECURE_TRANSPORT=true` to refuse them outrigh
 There are a few ways of specifying images:
 * via the `ROOZ_IMAGE` env variable
 * via  the `--image` cmd-line parameter
-* if creating a workspace with a git repository via `.rooz.yaml` in the root of that repository:
+* via `image` in a config file (`--config`):
 
   ```yaml
   image: ghcr.io/queil/image:dotnet
@@ -226,7 +228,7 @@ The default shell is `bash` but you can override it via:
 
 * `ROOZ_SHELL` env var
 * `--shell` cmd-line parameter (on `rooz enter`)
-* in `.rooz.yaml` via `shell`
+* in a config file via `shell`
 
 ### Caching
 
@@ -244,7 +246,7 @@ The global paths get combined with the config file's paths.
 :warning: A cache is shared with *every* workspace of yours mounting the same path, so whatever writes
 into it (a cargo registry source, a linker config, a crate with a build script) later executes in those
 workspaces. That makes a cache path an operator decision: if the configuration comes from the repository
-being opened (an in-repo `.rooz.yaml`, or a `--config git:...` source), rooz refuses its cache paths
+being opened (a `--config git:...` source), rooz refuses its cache paths
 unless you list the same paths yourself with `--caches` (on `rooz new`) or `ROOZ_CACHES` - the latter also
 covers `rooz update`, which re-reads a repository-authored config on every run. Config files you wrote
 locally and pass with `--config` are unaffected.
@@ -275,8 +277,8 @@ Removing a workspace removes the images rooz built for it.
 ### Privileged containers
 
 A privileged container has full access to the host running the container engine, so rooz does not
-grant it on a config file's say-so. If `privileged: true` appears in a config file (in-repo `.rooz.yaml`,
-a `--config` file, or a sidecar), workspace creation aborts and names the containers involved. To go
+grant it on a config file's say-so. If `privileged: true` appears in a config file (a local or git
+`--config` file, including its sidecars), workspace creation aborts and names the containers involved. To go
 ahead, confirm explicitly with either:
 
 * `ROOZ_ALLOW_PRIVILEGED=<names>` - a comma-separated list of the container names you are allowing,
@@ -290,7 +292,7 @@ ahead, confirm explicitly with either:
 Name the containers rather than reaching for `true`. The common case is a container-engine sidecar
 (docker-in-docker and friends): the daemon's container needs the privilege, the workspace talking to
 it over `DOCKER_HOST` does not. Naming it keeps the setting safe to leave in your shell profile - a
-standing `=true` would wave through a privileged container that a repository's own `.rooz.yaml`
+standing `=true` would wave through a privileged container that a repository's own config file
 slipped into the merged configuration, which is exactly what this check exists to stop.
 
 :warning: Only do this for configurations you trust. When opening repositories you do not control,
@@ -335,7 +337,7 @@ sidecars:
 
 ### Port mappings
 
-Port mappings for the work container can be specified via `.rooz.yaml` only:
+Port mappings for the work container can be specified via a config file only:
 
 ```yaml
 ports:
@@ -447,7 +449,7 @@ secrets keeps a standing consent from covering a file you did not write.
 you wrote - a local file passed with `--config`, with nothing else merged into it. Rooz refuses to
 expand secrets and fails with an explanation if the workspace also merges:
 
-* the repository's own configuration - its in-repo `.rooz.yaml`, or a `--config git:...` source;
+* the repository's own configuration - a `--config git:...` source;
 * a `bases` layer. A base layer is a separate file your config points at; it may be a team overlay or
   something copied out of a repository, and after the merge nothing can tell its fields apart from
   yours. Inline the base layer into your own file if you need secrets in that workspace.

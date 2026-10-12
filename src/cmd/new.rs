@@ -18,7 +18,6 @@ use crate::{
 };
 use bollard::errors::Error;
 use bollard_stubs::models::NetworkCreateRequest;
-use colored::Colorize;
 use std::collections::HashMap;
 use std::fs;
 
@@ -102,7 +101,7 @@ fn check_secrets(
 }
 
 // A privileged container has full access to the host, so the request has to come
-// from the operator - config files (in-repo or --config) are authored by whoever
+// from the operator - config files (local or git --config) are authored by whoever
 // owns the repository, which is not the same trust level as the operator's machine.
 fn check_privileged(containers: &[String], consent: &Consent) -> Result<(), AnyError> {
     let refused = consent.refused(containers);
@@ -657,7 +656,7 @@ impl<'a> WorkspaceApi<'a> {
         let CliConfig {
             cfg: cli_cfg,
             bases_merged,
-            stored: mut stored_config,
+            stored: stored_config,
         } = self
             .get_cli_config(
                 &cli_config_path,
@@ -697,48 +696,8 @@ impl<'a> WorkspaceApi<'a> {
             ..Default::default()
         };
         let mut cfg_builder = RoozCfg::default().from_cli_env(cli_params.clone());
-        let mut repo_config_applied = false;
         let root_repo_result = match &RoozCfg::git_ssh_url(cli_params, &cli_cfg) {
-            Some(url) => {
-                let result = self.git.clone_root_repo(&url, &clone_env).await?;
-                match (&result.config, &cli_config_path) {
-                    (Some(_), Some(ConfigSource::Update { .. })) => {
-                        log::debug!("Ignoring the in-repo config file in update mode");
-                    }
-                    (Some((body, _extends_body, format)), _) => {
-                        match RoozCfg::deserialize_config(body, *format)? {
-                            Some(c) => {
-                                if c.bases.is_some() {
-                                    return Err("'bases' is not supported in in-repo config (.rooz.yaml); use it in a --config file instead".into());
-                                }
-                                check_repo_authored(&c, &consented_caches)?;
-                                cfg_builder.from_config(&c);
-                                repo_config_applied = true;
-                                eprintln!(
-                                    "{}",
-                                    "NOTE: applying the configuration provided by this repository (.rooz.yaml). \
-                                     It controls the image, mounts and commands of your workspace."
-                                        .yellow()
-                                );
-                                log::debug!("Config file applied.");
-                                stored_config = Some(StoredConfig {
-                                    origin: format!("{}//.rooz.{}", url, format.to_string()),
-                                    body: body.clone(),
-                                    bases: stored_config.and_then(|c| c.bases),
-                                });
-                            }
-                            None => {
-                                log::debug!("No valid config file found in the repository.");
-                            }
-                        }
-                    }
-                    (None, _) => {
-                        log::debug!("No valid config file found in the repository.");
-                    }
-                }
-
-                Some(result)
-            }
+            Some(url) => Some(self.git.clone_root_repo(&url, &clone_env).await?),
             None => None,
         };
 
@@ -758,7 +717,7 @@ impl<'a> WorkspaceApi<'a> {
                 stored_config,
                 // base layers are merged content the operator did not write, so they carry
                 // the same weight as the repository's own config here
-                operator_local && !repo_config_applied && !bases_merged,
+                operator_local && !bases_merged,
             )
             .await?;
 
