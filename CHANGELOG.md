@@ -8,10 +8,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases before 0.159.0 predate this
 file - see the git history.
 
-## Unreleased
+## [0.160.0] - 2026-10-12
 
 ### Added
 
+- `vpn: true` on a sidecar grants `NET_ADMIN`, `/dev/net/tun` and
+  `net.ipv4.conf.all.src_valid_mark=1` - enough for `wg-quick` (kernel or `wireguard-go`) and
+  other in-container VPNs, without `privileged`. Requires operator consent naming the sidecars,
+  `ROOZ_ALLOW_VPN=<names>` (or `=true`), separate from `ROOZ_ALLOW_PRIVILEGED`; a `vpn` sidecar
+  must run as uid 0.
 - `ROOZ_TRUSTED_CONFIGS` lists configuration sources that are the operator's own: repository URLs
   (matched exactly as passed to `--config`, never over `http://`/`git://`) and local directories
   (every file, bases included, must resolve inside one). A trusted source may expand secrets
@@ -28,26 +33,13 @@ file - see the git history.
 
 ### Fixed
 
-- `rooz update` keeps the workspace's repository (`-g`) when the config came from anywhere other
-  than the repository's own `.rooz.yaml`. Previously it forgot it: the work container started in
-  `/work` instead of the clone, and `--purge` removed the clone without re-cloning.
-
-## [0.160.0] - 2026-10-12
-
-### Added
-
-- `vpn: true` on a sidecar grants `NET_ADMIN`, `/dev/net/tun` and
-  `net.ipv4.conf.all.src_valid_mark=1` - enough for `wg-quick` (kernel or `wireguard-go`) and
-  other in-container VPNs, without `privileged`. Requires operator consent naming the sidecars,
-  `ROOZ_ALLOW_VPN=<names>` (or `=true`), separate from `ROOZ_ALLOW_PRIVILEGED`; a `vpn` sidecar
-  must run as uid 0.
-
-### Fixed
-
 - A `rooz new` refused for a missing `ROOZ_ALLOW_PRIVILEGED` (or `ROOZ_ALLOW_VPN`) consent no longer
   leaves the workspace's config volume behind, so re-running the same command with consent works
   instead of failing with "Workspace already exists". A refused `rooz update` keeps the previously
   stored config.
+- `rooz update` keeps the workspace's repository (`-g`) when the config came from anywhere other
+  than the repository's own `.rooz.yaml`. Previously it forgot it: the work container started in
+  `/work` instead of the clone, and `--purge` removed the clone without re-cloning.
 
 ## [0.159.0] - 2026-09-24
 
