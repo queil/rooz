@@ -14,8 +14,8 @@ use std::path::Path;
 pub const SECRETS_NOT_ALLOWED: &str = "Refusing to expand 'secrets': this workspace merges configuration the operator did not \
      author, which could reference any of your secrets and read the plaintext from inside a \
      container it also controls. Secrets are only expanded when the whole configuration comes \
-     from your own local '--config' file - not from the repository being opened (its in-repo \
-     config, or a '--config git:...' source), and not from a 'bases' layer, which is a separate \
+     from your own local '--config' file - not from a '--config git:...' source, which the \
+     repository's owner authored, and not from a 'bases' layer, which is a separate \
      file that may have come from anywhere. Move the settings you need into your own '--config' \
      file (inlining any base layers), or remove 'secrets' from this workspace's configuration.";
 
@@ -61,13 +61,6 @@ impl<'a> ConfigPath {
         }
     }
 
-    pub fn is_in_repo(&self) -> bool {
-        if let ConfigPath::Git { file_path, .. } = self {
-            file_path == ".rooz.yaml"
-        } else {
-            false
-        }
-    }
     pub fn to_string(&self) -> String {
         match self {
             ConfigPath::File { path } => path.to_string(),

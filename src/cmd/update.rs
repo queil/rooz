@@ -3,7 +3,10 @@ use std::{fs, process::exit};
 use crate::{
     api::WorkspaceApi,
     cli::{WorkEnvParams, WorkParams},
-    config::config::{ConfigPath, ConfigSource, ConfigType, FileFormat, RoozCfg},
+    config::{
+        config::{ConfigPath, ConfigSource, ConfigType, FileFormat, RoozCfg},
+        runtime::{RuntimeConfig, SECRET_MASK},
+    },
     model::types::AnyError,
     util::{
         git::CloneEnv,
@@ -37,7 +40,7 @@ impl<'a> WorkspaceApi<'a> {
             .await?
             .ok_or(format!("Workspace not found: {}", &workspace_key))?;
 
-        let (config_path, config_source) = {
+        let config_source = {
             if let Some(config_source) = &volume.labels.get(labels::CONFIG_ORIGIN) {
                 let format = FileFormat::from_path(config_source)?;
                 let config_path = ConfigPath::from_str(&config_source)?;
@@ -85,14 +88,11 @@ impl<'a> WorkspaceApi<'a> {
                 } else {
                     original_config
                 };
-                (
-                    Some(config_path),
-                    Some(ConfigSource::Update {
-                        value: config_to_apply,
-                        origin: config_source.to_string(),
-                        format,
-                    }),
-                )
+                Some(ConfigSource::Update {
+                    value: config_to_apply,
+                    origin: config_source.to_string(),
+                    format,
+                })
             } else {
                 if interactive {
                     eprintln!(
@@ -100,8 +100,13 @@ impl<'a> WorkspaceApi<'a> {
                     );
                     exit(1)
                 }
-                (None, None)
+                None
             }
+        };
+
+        let git_ssh_url = match &config_source {
+            Some(ConfigSource::Update { value, .. }) if value.git_ssh_url.is_some() => None,
+            _ => self.stored_git_ssh_url(workspace_key).await?,
         };
 
         match mode {
@@ -112,12 +117,7 @@ impl<'a> WorkspaceApi<'a> {
         self.new(
             workspace_key,
             &WorkParams {
-                git_ssh_url: config_path
-                    .map(|c| match &c {
-                        ConfigPath::Git { url, .. } if c.is_in_repo() => Some(url.to_string()),
-                        _ => None,
-                    })
-                    .flatten(),
+                git_ssh_url,
                 env: spec.clone(),
                 pull_image: if no_pull || interactive { false } else { true },
                 ..Default::default()
@@ -128,5 +128,25 @@ impl<'a> WorkspaceApi<'a> {
         .await?;
 
         Ok(())
+    }
+
+    async fn stored_git_ssh_url(&self, workspace_key: &str) -> Result<Option<String>, AnyError> {
+        let body = self
+            .config
+            .read(workspace_key, &ConfigType::Runtime)
+            .await?;
+        if body.trim().is_empty() {
+            return Ok(None);
+        }
+        match RuntimeConfig::from_string(body)?.git_ssh_url {
+            Some(url) if url.contains(SECRET_MASK) => {
+                eprintln!(
+                    "WARN: the workspace's repository URL contains a secret and was not persisted; \
+                     the repository is not re-cloned"
+                );
+                Ok(None)
+            }
+            url => Ok(url),
+        }
     }
 }

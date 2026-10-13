@@ -352,7 +352,8 @@ impl RuntimeConfig {
     /// at creation time from the unmasked values, so behaviour is unchanged.
     ///
     /// `shell` is deliberately left alone on both the workspace and its sidecars: `rooz
-    /// enter` executes it. Nothing else in the persisted file is read back for its value.
+    /// enter` executes it. `git_ssh_url` is read back by `rooz update`, which skips a masked one.
+    /// Nothing else in the persisted file is read back for its value.
     pub fn mask_secrets(&self, secret_values: &[String]) -> Self {
         let secrets = secret_values
             .iter()

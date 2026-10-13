@@ -238,15 +238,10 @@ impl<'a> ConfigApi<'a> {
         container_id: &str,
         clone_dir: &str,
         file_format: FileFormat,
-        exact_path: Option<&str>,
+        path: &str,
     ) -> Result<Option<ConfigBody>, AnyError> {
-        let file_path = match exact_path {
-            Some(p) => {
-                validate_relative_config_path(p, "config path")?;
-                format!("{}/{}", clone_dir, p)
-            }
-            None => format!("{}/.rooz.{}", clone_dir, file_format.to_string()),
-        };
+        validate_relative_config_path(path, "config path")?;
+        let file_path = format!("{}/{}", clone_dir, path);
 
         let quoted_path = sh::quote(&file_path);
         let ls_cmd = format!(
@@ -265,14 +260,10 @@ impl<'a> ConfigApi<'a> {
             .await?;
 
         if body.is_empty() {
-            return match exact_path {
-                Some(p) => Err(format!("Config file '{}' not found or empty", p).into()),
-                None => Ok(None),
-            };
+            return Err(format!("Config file '{}' not found or empty", path).into());
         }
 
-        if let (Some(_), Some(cfg)) = (exact_path, RoozCfg::deserialize_config(&body, file_format)?)
-        {
+        if let Some(cfg) = RoozCfg::deserialize_config(&body, file_format)? {
             if cfg.bases.is_some() {
                 let reader = ContainerReader {
                     api: self.api,
@@ -307,24 +298,6 @@ impl<'a> ConfigApi<'a> {
             bases: None,
             merged: None,
         }))
-    }
-
-    pub async fn try_read_config(
-        &self,
-        container_id: &str,
-        clone_dir: &str,
-    ) -> Result<Option<(String, Option<String>, FileFormat)>, AnyError> {
-        let rooz_cfg = if let Some(cb) = self
-            .read_config_body(&container_id, &clone_dir, FileFormat::Yaml, None)
-            .await?
-        {
-            log::debug!("Config file found (YAML)");
-            Some((cb.body, None, FileFormat::Yaml))
-        } else {
-            log::debug!("No valid config file found");
-            None
-        };
-        Ok(rooz_cfg)
     }
 }
 
