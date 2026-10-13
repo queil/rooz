@@ -8,6 +8,23 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases before 0.159.0 predate this
 file - see the git history.
 
+## [0.160.0] - 2026-10-12
+
+### Added
+
+- `vpn: true` on a sidecar grants `NET_ADMIN`, `/dev/net/tun` and
+  `net.ipv4.conf.all.src_valid_mark=1` - enough for `wg-quick` (kernel or `wireguard-go`) and
+  other in-container VPNs, without `privileged`. Requires operator consent naming the sidecars,
+  `ROOZ_ALLOW_VPN=<names>` (or `=true`), separate from `ROOZ_ALLOW_PRIVILEGED`; a `vpn` sidecar
+  must run as uid 0.
+
+### Fixed
+
+- A `rooz new` refused for a missing `ROOZ_ALLOW_PRIVILEGED` (or `ROOZ_ALLOW_VPN`) consent no longer
+  leaves the workspace's config volume behind, so re-running the same command with consent works
+  instead of failing with "Workspace already exists". A refused `rooz update` keeps the previously
+  stored config.
+
 ## [0.159.0] - 2026-09-24
 
 ### Security

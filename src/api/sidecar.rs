@@ -122,6 +122,7 @@ impl<'a> WorkspaceApi<'a> {
                 work_dir: Some(s.work_dir.as_str()),
                 run_mode: RunMode::Sidecar,
                 privileged: s.privileged,
+                vpn: s.vpn,
                 init: s.init,
                 force_pull: pull_image,
                 ..Default::default()
@@ -162,6 +163,7 @@ impl<'a> WorkspaceApi<'a> {
                         .container
                         .create(RunSpec {
                             run_mode: RunMode::SidecarInstall,
+                            vpn: false,
                             default_network: Some(egress_network),
                             additional_networks: None,
                             // IMPORTANT: do not inject the sidecar env so it doesn't get baked into

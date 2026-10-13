@@ -25,7 +25,7 @@ use bollard::{
     },
 };
 
-use bollard_stubs::models::{MountType, NetworkingConfig};
+use bollard_stubs::models::{DeviceMapping, MountType, NetworkingConfig};
 use bollard_stubs::query_parameters::{WaitContainerOptions, WaitContainerOptionsBuilder};
 use futures::{StreamExt, TryStreamExt, future};
 use std::{collections::HashMap, time::Duration};
@@ -387,12 +387,32 @@ impl<'a> ContainerApi<'a> {
             }
         };
 
+        let (cap_add, devices, sysctls) = if spec.vpn {
+            (
+                Some(vec!["NET_ADMIN".to_string()]),
+                Some(vec![DeviceMapping {
+                    path_on_host: Some("/dev/net/tun".to_string()),
+                    path_in_container: Some("/dev/net/tun".to_string()),
+                    cgroup_permissions: Some("rwm".to_string()),
+                }]),
+                Some(HashMap::from([(
+                    "net.ipv4.conf.all.src_valid_mark".to_string(),
+                    "1".to_string(),
+                )])),
+            )
+        } else {
+            (None, None, None)
+        };
+
         let host_config = HostConfig {
             auto_remove,
             mounts: spec.mounts,
             restart_policy: None,
             oom_score_adj,
             privileged: Some(spec.privileged),
+            cap_add,
+            devices,
+            sysctls,
             init: Some(spec.init),
             readonly_rootfs,
             port_bindings,

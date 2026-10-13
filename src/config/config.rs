@@ -179,6 +179,7 @@ pub struct RoozSidecar {
     pub mounts: Option<IndexMap<String, MountSource>>,
     pub ports: Option<Vec<String>>,
     pub privileged: Option<bool>,
+    pub vpn: Option<bool>,
     pub init: Option<bool>,
     pub install: Option<InstallSpec>,
     pub work_dir: Option<String>,
@@ -216,6 +217,7 @@ impl RoozSidecar {
                 })
                 .transpose()?,
             privileged: self.privileged,
+            vpn: self.vpn,
             init: self.init,
             uid: self.uid,
             egress: self.egress,
@@ -678,6 +680,7 @@ impl RoozSidecar {
         self.mounts = extend_if_any(self.mounts.clone(), other.mounts.clone());
         self.ports = extend_if_any(self.ports.clone(), other.ports.clone());
         self.privileged = other.privileged.or(self.privileged);
+        self.vpn = other.vpn.or(self.vpn);
         self.init = other.init.or(self.init);
         self.install = InstallSpec::merged(&self.install, &other.install);
         self.work_dir = other.work_dir.clone().or(self.work_dir.clone());
@@ -1316,6 +1319,16 @@ mod tests {
         assert!(!yaml.contains("image"), "unexpected image key in: {}", yaml);
         let reparsed = RoozCfg::from_string(&yaml, FileFormat::Yaml).unwrap();
         assert_eq!(reparsed.sidecars.unwrap()["svc"].image, None);
+    }
+
+    #[test]
+    fn sidecar_vpn_overlay_wins_and_absent_keeps_base() {
+        let mut base: RoozCfg =
+            serde_yaml::from_str("sidecars:\n  wg:\n    image: a\n    vpn: true\n").unwrap();
+        base.from_config(&serde_yaml::from_str("sidecars:\n  wg:\n    uid: 0\n").unwrap());
+        assert_eq!(base.sidecars.as_ref().unwrap()["wg"].vpn, Some(true));
+        base.from_config(&serde_yaml::from_str("sidecars:\n  wg:\n    vpn: false\n").unwrap());
+        assert_eq!(base.sidecars.unwrap()["wg"].vpn, Some(false));
     }
 
     #[test]

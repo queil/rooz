@@ -24,21 +24,22 @@ use std::fs;
 
 pub const ALLOW_PRIVILEGED_ENV: &str = "ROOZ_ALLOW_PRIVILEGED";
 pub const ALLOW_SECRETS_ENV: &str = "ROOZ_ALLOW_SECRETS";
+pub const ALLOW_VPN_ENV: &str = "ROOZ_ALLOW_VPN";
 
-// What the operator has agreed to. Naming the containers keeps the gate useful for
-// operators who legitimately need one privileged sidecar: a standing blanket consent
+// What the operator has agreed to. Naming the containers (or secrets) keeps the gate useful
+// for operators who legitimately need one privileged sidecar: a standing blanket consent
 // would wave through a hostile repo config privileging anything else.
 #[derive(Debug, PartialEq)]
-pub enum PrivilegedConsent {
+pub enum Consent {
     None,
     All,
     Named(Vec<String>),
 }
 
-impl PrivilegedConsent {
-    pub fn resolve(cli_privileged: Option<bool>, env: Option<String>) -> Self {
-        // --privileged true is the operator asking for it outright
-        if cli_privileged == Some(true) {
+impl Consent {
+    pub fn resolve(cli: Option<bool>, env: Option<String>) -> Self {
+        // the CLI flag set to true is the operator asking for it outright
+        if cli == Some(true) {
             return Self::All;
         }
         match env.as_deref().map(str::trim) {
@@ -53,12 +54,16 @@ impl PrivilegedConsent {
         }
     }
 
-    fn allows(&self, container: &str) -> bool {
+    fn allows(&self, name: &str) -> bool {
         match self {
             Self::None => false,
             Self::All => true,
-            Self::Named(names) => names.iter().any(|n| n == container),
+            Self::Named(names) => names.iter().any(|n| n == name),
         }
+    }
+
+    fn refused(&self, names: &[String]) -> Vec<String> {
+        names.iter().filter(|n| !self.allows(n)).cloned().collect()
     }
 }
 
@@ -67,52 +72,15 @@ impl PrivilegedConsent {
 // operator to pass it ('rooz new ws --config ./setup.yaml'), and that file then picks the
 // image, entrypoint and environment the plaintext lands in. So the operator names the secrets,
 // the same way they name the containers they allow to run privileged.
-#[derive(Debug, PartialEq)]
-pub enum SecretsConsent {
-    None,
-    All,
-    Named(Vec<String>),
-}
-
-impl SecretsConsent {
-    pub fn resolve(cli_allow_secrets: Option<bool>, env: Option<String>) -> Self {
-        // --allow-secrets true is the operator asking for it outright
-        if cli_allow_secrets == Some(true) {
-            return Self::All;
-        }
-        match env.as_deref().map(str::trim) {
-            None | Some("") | Some("false") => Self::None,
-            Some("true") => Self::All,
-            Some(list) => Self::Named(
-                list.split(',')
-                    .map(|n| n.trim().to_string())
-                    .filter(|n| !n.is_empty())
-                    .collect(),
-            ),
-        }
-    }
-
-    fn allows(&self, secret: &str) -> bool {
-        match self {
-            Self::None => false,
-            Self::All => true,
-            Self::Named(names) => names.iter().any(|n| n == secret),
-        }
-    }
-}
-
 fn check_secrets(
     secrets: Option<&indexmap::IndexMap<String, String>>,
-    consent: &SecretsConsent,
+    consent: &Consent,
 ) -> Result<(), AnyError> {
-    let refused = secrets
-        .map(|s| {
-            s.keys()
-                .filter(|k| !consent.allows(k))
-                .cloned()
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
+    let refused = consent.refused(
+        &secrets
+            .map(|s| s.keys().cloned().collect::<Vec<_>>())
+            .unwrap_or_default(),
+    );
 
     if refused.is_empty() {
         return Ok(());
@@ -136,12 +104,8 @@ fn check_secrets(
 // A privileged container has full access to the host, so the request has to come
 // from the operator - config files (in-repo or --config) are authored by whoever
 // owns the repository, which is not the same trust level as the operator's machine.
-fn check_privileged(containers: &[String], consent: &PrivilegedConsent) -> Result<(), AnyError> {
-    let refused = containers
-        .iter()
-        .filter(|c| !consent.allows(c))
-        .cloned()
-        .collect::<Vec<_>>();
+fn check_privileged(containers: &[String], consent: &Consent) -> Result<(), AnyError> {
+    let refused = consent.refused(containers);
 
     if refused.is_empty() {
         return Ok(());
@@ -157,6 +121,27 @@ fn check_privileged(containers: &[String], consent: &PrivilegedConsent) -> Resul
         ALLOW_PRIVILEGED_ENV,
         refused.join(","),
         ALLOW_PRIVILEGED_ENV
+    )
+    .into())
+}
+
+fn check_vpn(containers: &[String], consent: &Consent) -> Result<(), AnyError> {
+    let refused = consent.refused(containers);
+
+    if refused.is_empty() {
+        return Ok(());
+    }
+
+    Err(format!(
+        "This configuration requests vpn sidecars: {}. A vpn sidecar gets NET_ADMIN, \
+         /dev/net/tun and the kernel's netfilter and netlink interfaces - on a rootful engine \
+         that is real root's reach into code with a history of container escapes. Rooz does \
+         not grant that on a config file's say-so. If you trust these specific sidecars, name \
+         them: {}={}. ('{}=true' allows any sidecar the configuration asks it for.)",
+        refused.join(", "),
+        ALLOW_VPN_ENV,
+        refused.join(","),
+        ALLOW_VPN_ENV
     )
     .into())
 }
@@ -236,6 +221,13 @@ fn check_repo_authored(cfg: &RoozCfg, consented_caches: &[String]) -> Result<(),
 struct CliConfig {
     cfg: Option<RoozCfg>,
     bases_merged: bool,
+    stored: Option<StoredConfig>,
+}
+
+struct StoredConfig {
+    origin: String,
+    body: String,
+    bases: Option<String>,
 }
 
 // Configuration the operator wrote on their own machine is trusted with secrets;
@@ -300,6 +292,7 @@ impl<'a> WorkspaceApi<'a> {
         root_git_repo: Option<RootRepoCloneResult>,
         workspace_key: &str,
         force: bool,
+        stored_config: Option<StoredConfig>,
         operator_authored: bool,
     ) -> Result<EnterSpec, AnyError> {
         if let Some(c) = &cli_config {
@@ -317,7 +310,7 @@ impl<'a> WorkspaceApi<'a> {
         // meant that configuration to have their secrets. Both are needed before decrypting.
         check_secrets(
             cfg_builder.secrets.as_ref(),
-            &SecretsConsent::resolve(
+            &Consent::resolve(
                 cli_params.allow_secrets,
                 std::env::var(ALLOW_SECRETS_ENV).ok(),
             ),
@@ -346,11 +339,27 @@ impl<'a> WorkspaceApi<'a> {
         // gate before any image, volume, network or container work happens
         check_privileged(
             &cfg.privileged_containers(),
-            &PrivilegedConsent::resolve(
+            &Consent::resolve(
                 cli_params.privileged,
                 std::env::var(ALLOW_PRIVILEGED_ENV).ok(),
             ),
         )?;
+        check_vpn(
+            &cfg.vpn_containers(),
+            &Consent::resolve(None, std::env::var(ALLOW_VPN_ENV).ok()),
+        )?;
+
+        if let Some(StoredConfig {
+            origin,
+            body,
+            bases,
+        }) = stored_config
+        {
+            self.config.store(workspace_key, &origin, &body).await?;
+            if let Some(bases) = bases {
+                self.config.store_bases(workspace_key, &bases).await?;
+            }
+        }
 
         self.api
             .image
@@ -480,10 +489,9 @@ impl<'a> WorkspaceApi<'a> {
 
     async fn get_cli_config(
         &self,
-        workspace_key: &str,
         cli_config_path: &Option<ConfigSource>,
         clone_env: &CloneEnv,
-        secrets_consent: &SecretsConsent,
+        secrets_consent: &Consent,
     ) -> Result<CliConfig, AnyError> {
         let val = if let Some(source) = &cli_config_path {
             let (origin, body, extends_body, rooz_cfg): (
@@ -595,21 +603,20 @@ impl<'a> WorkspaceApi<'a> {
                 secrets_consent,
             )?;
 
-            self.config
-                .store(workspace_key, &origin, &body.unwrap())
-                .await?;
-            self.config
-                .store_bases(workspace_key, extends_body.as_deref().unwrap_or(""))
-                .await?;
-
             CliConfig {
                 bases_merged: extends_body.is_some(),
                 cfg: rooz_cfg,
+                stored: Some(StoredConfig {
+                    origin,
+                    body: body.unwrap(),
+                    bases: Some(extends_body.unwrap_or_default()),
+                }),
             }
         } else {
             CliConfig {
                 cfg: None,
                 bases_merged: false,
+                stored: None,
             }
         };
 
@@ -650,12 +657,12 @@ impl<'a> WorkspaceApi<'a> {
         let CliConfig {
             cfg: cli_cfg,
             bases_merged,
+            stored: mut stored_config,
         } = self
             .get_cli_config(
-                workspace_key,
                 &cli_config_path,
                 &clone_env,
-                &SecretsConsent::resolve(
+                &Consent::resolve(
                     cli_params.allow_secrets,
                     std::env::var(ALLOW_SECRETS_ENV).ok(),
                 ),
@@ -714,8 +721,11 @@ impl<'a> WorkspaceApi<'a> {
                                         .yellow()
                                 );
                                 log::debug!("Config file applied.");
-                                let origin = format!("{}//.rooz.{}", url, format.to_string());
-                                self.config.store(workspace_key, &origin, &body).await?;
+                                stored_config = Some(StoredConfig {
+                                    origin: format!("{}//.rooz.{}", url, format.to_string()),
+                                    body: body.clone(),
+                                    bases: stored_config.and_then(|c| c.bases),
+                                });
                             }
                             None => {
                                 log::debug!("No valid config file found in the repository.");
@@ -745,6 +755,7 @@ impl<'a> WorkspaceApi<'a> {
                 root_repo_result,
                 &workspace_key,
                 false,
+                stored_config,
                 // base layers are merged content the operator did not write, so they carry
                 // the same weight as the repository's own config here
                 operator_local && !repo_config_applied && !bases_merged,
@@ -831,8 +842,8 @@ mod tests {
         }
     }
 
-    fn consent(env: Option<&str>) -> PrivilegedConsent {
-        PrivilegedConsent::resolve(None, env.map(String::from))
+    fn consent(env: Option<&str>) -> Consent {
+        Consent::resolve(None, env.map(String::from))
     }
 
     fn caches(paths: &[&str]) -> Vec<String> {
@@ -940,7 +951,7 @@ mod tests {
             err
         );
         // an explicit `--privileged false` is not consent either
-        let explicit_false = PrivilegedConsent::resolve(Some(false), None);
+        let explicit_false = Consent::resolve(Some(false), None);
         assert!(check_privileged(&c.privileged_containers(), &explicit_false).is_err());
         assert!(check_privileged(&c.privileged_containers(), &consent(Some("false"))).is_err());
     }
@@ -989,19 +1000,16 @@ mod tests {
 
     #[test]
     fn consent_parsing() {
-        assert_eq!(consent(None), PrivilegedConsent::None);
-        assert_eq!(consent(Some("")), PrivilegedConsent::None);
-        assert_eq!(consent(Some("false")), PrivilegedConsent::None);
-        assert_eq!(consent(Some("true")), PrivilegedConsent::All);
+        assert_eq!(consent(None), Consent::None);
+        assert_eq!(consent(Some("")), Consent::None);
+        assert_eq!(consent(Some("false")), Consent::None);
+        assert_eq!(consent(Some("true")), Consent::All);
         assert_eq!(
             consent(Some(" dkr , images ,")),
-            PrivilegedConsent::Named(vec!["dkr".into(), "images".into()])
+            Consent::Named(vec!["dkr".into(), "images".into()])
         );
         // the CLI flag is an outright request, so it consents to everything
-        assert_eq!(
-            PrivilegedConsent::resolve(Some(true), None),
-            PrivilegedConsent::All
-        );
+        assert_eq!(Consent::resolve(Some(true), None), Consent::All);
     }
 
     #[test]
@@ -1010,14 +1018,84 @@ mod tests {
         assert!(check_privileged(&c.privileged_containers(), &consent(Some("true"))).is_ok());
     }
 
+    fn vpn_cfg(sidecars: &[(&str, bool)]) -> RuntimeConfig {
+        RuntimeConfig {
+            sidecars: sidecars
+                .iter()
+                .map(|(n, v)| {
+                    let mut s = sidecar(false);
+                    s.vpn = *v;
+                    (n.to_string(), s)
+                })
+                .collect::<HashMap<_, _>>(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn vpn_sidecars_are_listed() {
+        let c = vpn_cfg(&[("wg", true), ("db", false), ("ovpn", true)]);
+        assert_eq!(c.vpn_containers(), vec!["ovpn", "wg"]);
+        assert!(vpn_cfg(&[("db", false)]).vpn_containers().is_empty());
+        assert!(check_vpn(&[], &consent(None)).is_ok());
+    }
+
+    #[test]
+    fn config_requested_vpn_is_refused_without_consent() {
+        let c = vpn_cfg(&[("wg", true)]);
+        let err = check_vpn(&c.vpn_containers(), &consent(None))
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("wg"), "offender not named: {}", err);
+        assert!(
+            err.contains(&format!("{}=wg", ALLOW_VPN_ENV)),
+            "no remedy given: {}",
+            err
+        );
+        assert!(check_vpn(&c.vpn_containers(), &consent(Some("false"))).is_err());
+    }
+
+    #[test]
+    fn naming_a_vpn_sidecar_consents_to_only_that_sidecar() {
+        let allow_wg = consent(Some("wg"));
+        assert!(check_vpn(&vpn_cfg(&[("wg", true)]).vpn_containers(), &allow_wg).is_ok());
+        let err = check_vpn(
+            &vpn_cfg(&[("wg", true), ("pwn", true)]).vpn_containers(),
+            &allow_wg,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(
+            err.contains(&format!("{}=pwn", ALLOW_VPN_ENV)),
+            "remedy should name only what was refused: {}",
+            err
+        );
+        assert!(
+            check_vpn(
+                &vpn_cfg(&[("wg", true)]).vpn_containers(),
+                &consent(Some("true"))
+            )
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn privileged_and_vpn_consent_are_separate() {
+        // a sidecar can be both; each grant needs its own consent
+        let mut c = vpn_cfg(&[("wg", true)]);
+        c.sidecars.get_mut("wg").unwrap().privileged = true;
+        assert_eq!(c.privileged_containers(), vec!["wg"]);
+        assert_eq!(c.vpn_containers(), vec!["wg"]);
+    }
+
     fn secrets(keys: &[&str]) -> indexmap::IndexMap<String, String> {
         keys.iter()
             .map(|k| (k.to_string(), "age-encrypted".to_string()))
             .collect()
     }
 
-    fn secrets_consent(env: Option<&str>) -> SecretsConsent {
-        SecretsConsent::resolve(None, env.map(String::from))
+    fn secrets_consent(env: Option<&str>) -> Consent {
+        Consent::resolve(None, env.map(String::from))
     }
 
     #[test]
@@ -1045,7 +1123,7 @@ mod tests {
         assert!(
             check_secrets(
                 Some(&secrets(&["opSecret"])),
-                &SecretsConsent::resolve(Some(false), None)
+                &Consent::resolve(Some(false), None)
             )
             .is_err()
         );
@@ -1073,18 +1151,15 @@ mod tests {
 
     #[test]
     fn secrets_consent_parsing() {
-        assert_eq!(secrets_consent(None), SecretsConsent::None);
-        assert_eq!(secrets_consent(Some("")), SecretsConsent::None);
-        assert_eq!(secrets_consent(Some("false")), SecretsConsent::None);
-        assert_eq!(secrets_consent(Some("true")), SecretsConsent::All);
+        assert_eq!(secrets_consent(None), Consent::None);
+        assert_eq!(secrets_consent(Some("")), Consent::None);
+        assert_eq!(secrets_consent(Some("false")), Consent::None);
+        assert_eq!(secrets_consent(Some("true")), Consent::All);
         assert_eq!(
             secrets_consent(Some(" dbPassword , token ,")),
-            SecretsConsent::Named(vec!["dbPassword".into(), "token".into()])
+            Consent::Named(vec!["dbPassword".into(), "token".into()])
         );
-        assert_eq!(
-            SecretsConsent::resolve(Some(true), None),
-            SecretsConsent::All
-        );
+        assert_eq!(Consent::resolve(Some(true), None), Consent::All);
         // blanket consent for CI
         assert!(check_secrets(Some(&secrets(&["a", "b"])), &secrets_consent(Some("true"))).is_ok());
     }
