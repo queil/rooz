@@ -660,3 +660,98 @@ async fn secrets_are_masked_in_the_persisted_runtime_config() {
 
     cleanup(&env, &key, &cfg_path);
 }
+
+#[tokio::test]
+async fn secrets_expand_through_bases_only_from_a_trusted_dir() {
+    use age::secrecy::ExposeSecret;
+    use rooz::api::CryptApi;
+
+    let Some(env) = TestEnv::from_env() else {
+        return;
+    };
+    let key = unique_key("vol-trusted");
+    let marker = "e2e-trusted-MARKER-31c9";
+
+    let identity = age::x25519::Identity::generate();
+    let encrypted = CryptApi {}
+        .encrypt(marker.to_string(), &identity.to_public())
+        .expect("encrypt");
+
+    let dir = std::env::temp_dir().join(format!("rooz-test-{}", key));
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(
+        dir.join("base.yaml"),
+        "image: alpine:latest\ncommand: [\"sleep\", \"infinity\"]\n",
+    )
+    .unwrap();
+    let cfg_path = dir.join("ws.yaml");
+    fs::write(
+        &cfg_path,
+        format!(
+            "bases: [base.yaml]\n\
+             secrets:\n  MY_SECRET: \"{}\"\n\
+             env:\n  LEAK: \"{{{{ MY_SECRET }}}}\"\n",
+            encrypted
+        ),
+    )
+    .unwrap();
+    let cfg_path = cfg_path.to_string_lossy().into_owned();
+
+    env.rooz()
+        .args([
+            "system",
+            "init",
+            "--force",
+            "--age-identity",
+            identity.to_string().expose_secret(),
+        ])
+        .assert()
+        .success();
+
+    let assert = env
+        .rooz()
+        .args(["new", &key, "--config", &cfg_path])
+        .env("ROOZ_ALLOW_SECRETS", "MY_SECRET")
+        .env_remove("ROOZ_TRUSTED_CONFIGS")
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&assert.get_output().stderr).to_string();
+    assert!(
+        stderr.contains("ROOZ_TRUSTED_CONFIGS"),
+        "expected the trust remedy to be named:\n{}",
+        stderr
+    );
+    assert!(env.volumes_by_workspace(&key).await.is_empty());
+
+    env.rooz()
+        .args(["new", &key, "--config", &cfg_path])
+        .env("ROOZ_ALLOW_SECRETS", "MY_SECRET")
+        .env("ROOZ_TRUSTED_CONFIGS", dir.to_str().unwrap())
+        .assert()
+        .success();
+
+    let containers = env.containers_by_workspace(&key).await;
+    let work = containers
+        .iter()
+        .find(|c| {
+            c.labels
+                .as_ref()
+                .and_then(|l| l.get("dev.rooz.workspace.container"))
+                .map(String::as_str)
+                == Some("work")
+        })
+        .expect("work container not found");
+    let id = work.id.as_deref().expect("container has no id");
+    assert_eq!(
+        env.exec_code(
+            id,
+            vec!["sh", "-c", &format!("test \"$LEAK\" = '{}'", marker)]
+        )
+        .await,
+        0,
+        "the trusted configuration must receive the secret"
+    );
+
+    cleanup(&env, &key, &cfg_path);
+    let _ = fs::remove_dir_all(&dir);
+}

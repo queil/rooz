@@ -41,6 +41,10 @@ enum Transport {
     Local,
 }
 
+pub fn is_cleartext(url: &str) -> bool {
+    matches!(transport(url), Ok(Transport::Cleartext))
+}
+
 // Only the transports git users actually clone over are accepted; everything else
 // (remote helpers, ftp, invented schemes) is refused rather than handed to git.
 fn transport(url: &str) -> Result<Transport, AnyError> {

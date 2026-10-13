@@ -301,11 +301,15 @@ impl<'a> ConfigApi<'a> {
     }
 }
 
-pub struct LocalReader;
+#[derive(Default)]
+pub struct LocalReader {
+    pub read: std::sync::Mutex<Vec<String>>,
+}
 
 #[async_trait::async_trait]
 impl ConfigReader for LocalReader {
     async fn read_file(&self, path: &str) -> Result<String, AnyError> {
+        self.read.lock().unwrap().push(path.to_string());
         std::fs::read_to_string(path)
             .map_err(|e| format!("Failed to read extends '{}': {}", path, e).into())
     }

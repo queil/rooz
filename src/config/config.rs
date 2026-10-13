@@ -13,11 +13,13 @@ use std::path::Path;
 
 pub const SECRETS_NOT_ALLOWED: &str = "Refusing to expand 'secrets': this workspace merges configuration the operator did not \
      author, which could reference any of your secrets and read the plaintext from inside a \
-     container it also controls. Secrets are only expanded when the whole configuration comes \
-     from your own local '--config' file - not from a '--config git:...' source, which the \
-     repository's owner authored, and not from a 'bases' layer, which is a separate \
-     file that may have come from anywhere. Move the settings you need into your own '--config' \
-     file (inlining any base layers), or remove 'secrets' from this workspace's configuration.";
+     container it also controls. Secrets are only expanded when the whole configuration is yours: \
+     a local '--config' file without 'bases', or a source listed in ROOZ_TRUSTED_CONFIGS - not an \
+     unlisted '--config git:...' source, which may be the repository's own, and not an unlisted \
+     'bases' layer, which is a separate file that may have come from anywhere. List the source in \
+     ROOZ_TRUSTED_CONFIGS (the repository URL exactly as passed to '--config', or a local \
+     directory holding the config and all its bases), move the settings you need into your own \
+     local '--config' file, or remove 'secrets' from this workspace's configuration.";
 
 #[derive(Debug, Clone)]
 pub enum ConfigSource {
