@@ -1,0 +1,6 @@
+data:
+  hello.sh:
+    file: files/hello.sh
+    executable: true
+mounts:
+  ~/bin/hello.sh: hello.sh

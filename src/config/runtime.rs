@@ -246,6 +246,11 @@ fn mask_data_value(value: &mut DataValue, secrets: &[&String]) {
     match value {
         DataValue::Dir {} => {}
         DataValue::InlineContent { content, .. } => mask_in(content, secrets),
+        DataValue::FileContent { content, .. } => {
+            if let Some(content) = content {
+                mask_in(content, secrets)
+            }
+        }
         DataValue::GeneratedContent {
             generate, image, ..
         } => {

@@ -431,6 +431,26 @@ impl RoozCfg {
         Ok(())
     }
 
+    pub fn data_values_mut(&mut self) -> Vec<&mut DataValue> {
+        fn inline(mounts: &mut Option<IndexMap<String, MountSource>>) -> Vec<&mut DataValue> {
+            mounts
+                .iter_mut()
+                .flat_map(|m| m.values_mut())
+                .filter_map(|m| match m {
+                    MountSource::InlineDataValue(v) => Some(v),
+                    MountSource::DataEntryReference(_) => None,
+                })
+                .collect()
+        }
+        let mut values: Vec<&mut DataValue> =
+            self.data.iter_mut().flat_map(|d| d.values_mut()).collect();
+        values.extend(inline(&mut self.mounts));
+        for sidecar in self.sidecars.iter_mut().flat_map(|s| s.values_mut()) {
+            values.extend(inline(&mut sidecar.mounts));
+        }
+        values
+    }
+
     pub fn from_cli_env(self, cli: WorkParams) -> Self {
         RoozCfg {
             shell: cli.env.shell.map(|v| vec![v]).or(self.shell.clone()),
@@ -586,6 +606,29 @@ impl RoozCfg {
 // configs, in a host-side read. They are restricted to plain relative paths below the
 // referring config's directory: no traversal, no absolute paths, no shell metacharacters.
 pub fn validate_relative_config_path(path: &str, what: &str) -> Result<(), AnyError> {
+    validate_relative_path(path, what)?;
+    // the format is decided by the extension, so refuse an unsupported one here - before
+    // the path is handed to a clone container and read
+    FileFormat::from_path(path).map_err(|_| {
+        format!(
+            "{} must point to a YAML config file ('*.yaml'): '{}'",
+            what, path
+        )
+    })?;
+    Ok(())
+}
+
+pub const MAX_DATA_FILE_BYTES: usize = 64 * 1024;
+
+pub fn validate_relative_file_path(path: &str) -> Result<(), AnyError> {
+    validate_relative_path(path, "data file path")?;
+    if path.split('/').any(|segment| segment == ".") {
+        return Err(format!("data file path must not contain '.' segments: '{}'", path).into());
+    }
+    Ok(())
+}
+
+fn validate_relative_path(path: &str, what: &str) -> Result<(), AnyError> {
     if path.is_empty() {
         return Err(format!("{} must not be empty", what).into());
     }
@@ -619,14 +662,6 @@ pub fn validate_relative_config_path(path: &str, what: &str) -> Result<(), AnyEr
         )
         .into());
     }
-    // the format is decided by the extension, so refuse an unsupported one here - before
-    // the path is handed to a clone container and read
-    FileFormat::from_path(path).map_err(|_| {
-        format!(
-            "{} must point to a YAML config file ('*.yaml'): '{}'",
-            what, path
-        )
-    })?;
     Ok(())
 }
 
@@ -813,6 +848,13 @@ pub enum DataValue {
         #[serde(skip_serializing_if = "Option::is_none")]
         executable: Option<bool>,
     },
+    FileContent {
+        file: String,
+        #[serde(skip)]
+        content: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        executable: Option<bool>,
+    },
 }
 
 impl DataValue {
@@ -836,6 +878,15 @@ impl DataValue {
                     script: generate,
                     image,
                 },
+                executable: executable.unwrap_or_default(),
+            },
+            DataValue::FileContent {
+                content,
+                executable,
+                ..
+            } => DataEntry::File {
+                name,
+                generator: Inline(content.unwrap_or_default()),
                 executable: executable.unwrap_or_default(),
             },
             DataValue::Dir {} => DataEntry::Dir { name },
@@ -863,6 +914,19 @@ impl DataValue {
             } => DataValue::GeneratedContent {
                 generate: render_str(reg, generate, vars)?,
                 image: render_opt(reg, image, vars)?,
+                executable: *executable,
+            },
+            DataValue::FileContent {
+                file,
+                content,
+                executable,
+            } => DataValue::InlineContent {
+                content: content.clone().ok_or_else(|| {
+                    format!(
+                        "data file '{}' was not read. 'file:' is resolved when the config is loaded from its origin, which is not possible here (e.g. 'update --tweak' on a config whose origin is gone)",
+                        file
+                    )
+                })?,
                 executable: *executable,
             },
         })
@@ -1324,6 +1388,77 @@ mod tests {
         assert_eq!(base.sidecars.as_ref().unwrap()["wg"].vpn, Some(true));
         base.from_config(&serde_yaml::from_str("sidecars:\n  wg:\n    vpn: false\n").unwrap());
         assert_eq!(base.sidecars.unwrap()["wg"].vpn, Some(false));
+    }
+
+    #[test]
+    fn file_reference_parses_and_survives_serialization_as_a_reference() {
+        let yaml = "data:\n  run.sh:\n    file: files/run.sh\n    executable: true\n";
+        let mut cfg: RoozCfg = serde_yaml::from_str(yaml).unwrap();
+        if let DataValue::FileContent { content, .. } = &mut cfg.data.as_mut().unwrap()["run.sh"] {
+            *content = Some("echo {{ not_a_var }}\n".into());
+        } else {
+            panic!("expected a file reference");
+        }
+        let stored = serde_yaml::to_string(&cfg).unwrap();
+        assert!(stored.contains("file: files/run.sh"), "{}", stored);
+        assert!(!stored.contains("echo"), "{}", stored);
+    }
+
+    #[test]
+    fn unresolved_file_reference_is_refused_on_expand() {
+        let mut cfg: RoozCfg = serde_yaml::from_str("data:\n  a:\n    file: a.txt\n").unwrap();
+        let err = cfg.expand_vars(true).unwrap_err().to_string();
+        assert!(err.contains("a.txt"), "{}", err);
+    }
+
+    #[test]
+    fn file_content_is_used_verbatim_not_templated() {
+        let yaml = "vars:\n  x: expanded\nmounts:\n  /etc/a:\n    file: a.conf\n";
+        let mut cfg: RoozCfg = serde_yaml::from_str(yaml).unwrap();
+        for v in cfg.data_values_mut() {
+            if let DataValue::FileContent { content, .. } = v {
+                *content = Some("{{ x }} and {{ missing".into());
+            }
+        }
+        cfg.expand_vars(true).unwrap();
+        match &cfg.mounts.unwrap()["/etc/a"] {
+            MountSource::InlineDataValue(DataValue::InlineContent { content, .. }) => {
+                assert_eq!(content, "{{ x }} and {{ missing")
+            }
+            other => panic!("unexpected {:?}", other),
+        }
+    }
+
+    #[test]
+    fn data_values_cover_data_mounts_and_sidecar_mounts() {
+        let yaml = "data:\n  a:\n    file: a\nmounts:\n  /m:\n    file: m\n  /ref: a\nsidecars:\n  s:\n    mounts:\n      /s:\n        file: s\n";
+        let mut cfg: RoozCfg = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(cfg.data_values_mut().len(), 3);
+    }
+
+    #[test]
+    fn file_paths_are_plain_relative_paths() {
+        for ok in ["run.sh", "files/run.sh", ".bashrc", "a/b/.config"] {
+            assert!(validate_relative_file_path(ok).is_ok(), "rejected {}", ok);
+        }
+        for bad in [
+            "",
+            "/etc/passwd",
+            "../x",
+            "a/../x",
+            "./x",
+            "a//b",
+            "a b",
+            "x;y",
+            "http://x",
+            "a/",
+        ] {
+            assert!(
+                validate_relative_file_path(bad).is_err(),
+                "accepted {:?}",
+                bad
+            );
+        }
     }
 
     #[test]

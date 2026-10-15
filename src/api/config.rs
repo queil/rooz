@@ -2,7 +2,8 @@ use std::io;
 
 use crate::{
     config::config::{
-        ConfigType, FileFormat, RoozCfg, SystemConfig, validate_relative_config_path,
+        ConfigType, DataValue, FileFormat, MAX_DATA_FILE_BYTES, RoozCfg, SystemConfig,
+        validate_relative_config_path, validate_relative_file_path,
     },
     model::{
         types::AnyError,
@@ -25,6 +26,45 @@ pub struct ConfigBody {
 #[async_trait::async_trait]
 pub trait ConfigReader {
     async fn read_file(&self, path: &str) -> Result<String, AnyError>;
+
+    async fn read_data_file(&self, dir: &str, rel: &str) -> Result<String, AnyError>;
+}
+
+fn refused(rel: &str, why: &str) -> AnyError {
+    format!("'{}' {}", rel, why).into()
+}
+
+fn size_refusal(rel: &str) -> AnyError {
+    refused(
+        rel,
+        &format!(
+            "is larger than {} KiB - 'file:' is for small files like scripts and dotfiles",
+            MAX_DATA_FILE_BYTES / 1024
+        ),
+    )
+}
+
+pub async fn resolve_data_files<R: ConfigReader + Sync>(
+    reader: &R,
+    cfg_path: &str,
+    cfg: &mut RoozCfg,
+) -> Result<(), AnyError> {
+    let dir = std::path::Path::new(cfg_path)
+        .parent()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    for value in cfg.data_values_mut() {
+        if let DataValue::FileContent { file, content, .. } = value {
+            validate_relative_file_path(file)?;
+            *content = Some(
+                reader
+                    .read_data_file(&dir, file)
+                    .await
+                    .map_err(|e| format!("Data file {} (declared in {})", e, cfg_path))?,
+            );
+        }
+    }
+    Ok(())
 }
 
 impl<'a> ConfigApi<'a> {
@@ -220,8 +260,9 @@ impl<'a> ConfigApi<'a> {
             }
 
             let base_fmt = FileFormat::from_path(base_path)?;
-            let base = RoozCfg::deserialize_config(&base_body, base_fmt)?
+            let mut base = RoozCfg::deserialize_config(&base_body, base_fmt)?
                 .ok_or_else(|| format!("Failed to parse base '{}': invalid config", base_path))?;
+            resolve_data_files(reader, &abs_path, &mut base).await?;
 
             let (resolved, _) =
                 Box::pin(self.resolve_extends_chain(reader, &abs_path, base, depth + 1)).await?;
@@ -263,12 +304,15 @@ impl<'a> ConfigApi<'a> {
             return Err(format!("Config file '{}' not found or empty", path).into());
         }
 
-        if let Some(cfg) = RoozCfg::deserialize_config(&body, file_format)? {
-            if cfg.bases.is_some() {
-                let reader = ContainerReader {
-                    api: self.api,
-                    container_id,
-                };
+        if let Some(mut cfg) = RoozCfg::deserialize_config(&body, file_format)? {
+            let reader = ContainerReader {
+                api: self.api,
+                container_id,
+            };
+            resolve_data_files(&reader, &file_path, &mut cfg).await?;
+            let (merged, bases) = if cfg.bases.is_none() {
+                (cfg, None)
+            } else {
                 let (merged, individual_bases) = self
                     .resolve_extends_chain(&reader, &file_path, cfg, 0)
                     .await?;
@@ -280,17 +324,20 @@ impl<'a> ConfigApi<'a> {
                     })
                     .collect::<Result<Vec<_>, _>>()?
                     .join("\n---\n");
-                let bases_storage = if bases_yaml.is_empty() {
-                    None
-                } else {
-                    Some(bases_yaml)
-                };
-                return Ok(Some(ConfigBody {
-                    body,
-                    bases: bases_storage,
-                    merged: Some(merged),
-                }));
-            }
+                (
+                    merged,
+                    if bases_yaml.is_empty() {
+                        None
+                    } else {
+                        Some(bases_yaml)
+                    },
+                )
+            };
+            return Ok(Some(ConfigBody {
+                body,
+                bases,
+                merged: Some(merged),
+            }));
         }
 
         Ok(Some(ConfigBody {
@@ -313,6 +360,34 @@ impl ConfigReader for LocalReader {
         std::fs::read_to_string(path)
             .map_err(|e| format!("Failed to read extends '{}': {}", path, e).into())
     }
+
+    async fn read_data_file(&self, dir: &str, rel: &str) -> Result<String, AnyError> {
+        let mut path = std::path::PathBuf::from(dir);
+        for segment in rel.split('/') {
+            path.push(segment);
+            let meta = std::fs::symlink_metadata(&path)
+                .map_err(|e| refused(rel, &format!("cannot be read: {}", e)))?;
+            if meta.file_type().is_symlink() {
+                return Err(refused(
+                    rel,
+                    "is or sits behind a symlink, which is refused",
+                ));
+            }
+        }
+        let meta = std::fs::symlink_metadata(&path)?;
+        if !meta.is_file() {
+            return Err(refused(rel, "is not a regular file"));
+        }
+        if meta.len() > MAX_DATA_FILE_BYTES as u64 {
+            return Err(size_refusal(rel));
+        }
+        self.read
+            .lock()
+            .unwrap()
+            .push(path.to_string_lossy().into_owned());
+        let bytes = std::fs::read(&path)?;
+        String::from_utf8(bytes).map_err(|_| refused(rel, "is not valid UTF-8 text"))
+    }
 }
 
 pub struct ContainerReader<'a> {
@@ -333,5 +408,152 @@ impl<'a> ConfigReader for ContainerReader<'a> {
                 Some(vec!["sh", "-c", &cat_cmd]),
             )
             .await
+    }
+
+    async fn read_data_file(&self, dir: &str, rel: &str) -> Result<String, AnyError> {
+        let path = format!("{}/{}", dir, rel);
+        let (q_path, q_dir, q_rel) = (sh::quote(&path), sh::quote(dir), sh::quote(rel));
+        let check = format!(
+            r#"if [ -L {p} ]; then echo "is or sits behind a symlink, which is refused"
+elif [ ! -f {p} ]; then echo "is not a regular file"
+elif [ "$(realpath {p} 2>/dev/null)" != "$(realpath {d} 2>/dev/null)/"{r} ]; then echo "is or sits behind a symlink, which is refused"
+elif [ "$(wc -c < {p})" -gt {max} ]; then echo "too large"
+else echo ok; fi"#,
+            p = q_path,
+            d = q_dir,
+            r = q_rel,
+            max = MAX_DATA_FILE_BYTES
+        );
+        let verdict = self
+            .api
+            .exec
+            .output(
+                "rooz-cfg-file",
+                self.container_id,
+                None,
+                Some(vec!["sh", "-c", &check]),
+            )
+            .await?;
+        match verdict.trim() {
+            "ok" => (),
+            "too large" => return Err(size_refusal(rel)),
+            why => return Err(refused(rel, why)),
+        }
+        let cat_cmd = format!("cat -- {}", q_path);
+        let content = self
+            .api
+            .exec
+            .output(
+                "rooz-cfg-file",
+                self.container_id,
+                None,
+                Some(vec!["sh", "-c", &cat_cmd]),
+            )
+            .await?;
+        if content.len() > MAX_DATA_FILE_BYTES {
+            return Err(size_refusal(rel));
+        }
+        Ok(content)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{fs, os::unix::fs::symlink, path::PathBuf};
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("rooz-datafile-{}-{}", name, std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("files")).unwrap();
+        dir
+    }
+
+    async fn read(dir: &PathBuf, rel: &str) -> Result<String, String> {
+        LocalReader::default()
+            .read_data_file(&dir.to_string_lossy(), rel)
+            .await
+            .map_err(|e| e.to_string())
+    }
+
+    #[tokio::test]
+    async fn reads_a_regular_file_and_records_it_for_trust_checks() {
+        let dir = scratch("ok");
+        fs::write(dir.join("files/run.sh"), "echo hi\n").unwrap();
+        let reader = LocalReader::default();
+        let got = reader
+            .read_data_file(&dir.to_string_lossy(), "files/run.sh")
+            .await
+            .unwrap();
+        assert_eq!(got, "echo hi\n");
+        assert_eq!(reader.read.lock().unwrap().len(), 1);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn refuses_symlinks_to_files_and_through_directories() {
+        let dir = scratch("link");
+        let outside = scratch("outside");
+        fs::write(outside.join("secret"), "key").unwrap();
+        symlink(outside.join("secret"), dir.join("files/leak")).unwrap();
+        symlink(&outside, dir.join("linkdir")).unwrap();
+        for rel in ["files/leak", "linkdir/secret"] {
+            let err = read(&dir, rel).await.unwrap_err();
+            assert!(err.contains("symlink"), "{}: {}", rel, err);
+        }
+        fs::remove_dir_all(&dir).unwrap();
+        fs::remove_dir_all(&outside).unwrap();
+    }
+
+    #[tokio::test]
+    async fn refuses_oversized_binary_directories_and_missing() {
+        let dir = scratch("bad");
+        fs::write(dir.join("big"), vec![b'a'; MAX_DATA_FILE_BYTES + 1]).unwrap();
+        fs::write(dir.join("exact"), vec![b'a'; MAX_DATA_FILE_BYTES]).unwrap();
+        fs::write(dir.join("bin"), [0xff, 0xfe, 0x00]).unwrap();
+        assert!(read(&dir, "big").await.unwrap_err().contains("larger than"));
+        assert!(read(&dir, "exact").await.is_ok());
+        assert!(read(&dir, "bin").await.unwrap_err().contains("UTF-8"));
+        assert!(
+            read(&dir, "files")
+                .await
+                .unwrap_err()
+                .contains("regular file")
+        );
+        assert!(read(&dir, "nope").await.is_err());
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn resolves_relative_to_the_declaring_config() {
+        let dir = scratch("resolve");
+        fs::write(dir.join("files/a.conf"), "A").unwrap();
+        fs::write(dir.join("files/s.conf"), "S").unwrap();
+        let mut cfg: RoozCfg = serde_yaml::from_str(
+            "data:\n  a:\n    file: files/a.conf\nsidecars:\n  s:\n    mounts:\n      /s:\n        file: files/s.conf\n",
+        )
+        .unwrap();
+        let cfg_path = dir.join("rooz.yaml").to_string_lossy().into_owned();
+        resolve_data_files(&LocalReader::default(), &cfg_path, &mut cfg)
+            .await
+            .unwrap();
+        let contents: Vec<_> = cfg
+            .data_values_mut()
+            .into_iter()
+            .filter_map(|v| match v {
+                DataValue::FileContent { content, .. } => content.clone(),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(contents, vec!["A".to_string(), "S".to_string()]);
+
+        let mut escaping: RoozCfg = serde_yaml::from_str("data:\n  a:\n    file: ../x\n").unwrap();
+        assert!(
+            resolve_data_files(&LocalReader::default(), &cfg_path, &mut escaping)
+                .await
+                .is_err()
+        );
+        fs::remove_dir_all(&dir).unwrap();
     }
 }

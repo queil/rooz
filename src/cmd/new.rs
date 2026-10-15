@@ -1,5 +1,5 @@
 use crate::api::VolumeApi;
-use crate::api::config::{ConfigBody, LocalReader};
+use crate::api::config::{ConfigBody, LocalReader, resolve_data_files};
 use crate::config::trust::TrustedConfigs;
 use crate::model::types::VolumeResult;
 use crate::{
@@ -510,6 +510,11 @@ impl<'a> WorkspaceApi<'a> {
                 } => {
                     let body = value.to_string(format.clone())?;
                     let reader = LocalReader::default();
+                    let mut value = value.clone();
+                    if let Ok(ConfigPath::File { path }) = ConfigPath::from_str(origin) {
+                        resolve_data_files(&reader, &path, &mut value).await?;
+                    }
+                    let value = &value;
                     trusted = match ConfigPath::from_str(origin)? {
                         ConfigPath::File { path } => trusted_configs.trusts_files([path.as_str()]),
                         ConfigPath::Git { url, .. } => trusted_configs.trusts_repo(&url),
@@ -553,8 +558,11 @@ impl<'a> WorkspaceApi<'a> {
                         let absolute_path =
                             std::path::absolute(path)?.to_string_lossy().into_owned();
                         let fmt = FileFormat::from_path(&path)?;
-                        let cfg = RoozCfg::deserialize_config(&body, fmt)?;
+                        let mut cfg = RoozCfg::deserialize_config(&body, fmt)?;
                         let reader = LocalReader::default();
+                        if let Some(c) = cfg.as_mut() {
+                            resolve_data_files(&reader, path, c).await?;
+                        }
 
                         let (cfg, base_body) = match cfg {
                             Some(c) if c.bases.is_some() => {
