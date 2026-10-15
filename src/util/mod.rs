@@ -3,5 +3,6 @@ pub mod git;
 pub mod id;
 pub mod identity;
 pub mod labels;
+pub mod report;
 pub mod sh;
 pub mod ssh;

@@ -20,6 +20,7 @@ use rooz::{
 use bollard::{API_DEFAULT_VERSION, Docker};
 use clap::{CommandFactory, Parser};
 use clap_complete::generate;
+use colored::Colorize;
 use rooz::api::{ConfigApi, CryptApi};
 use rooz::cli::{
     CodeParams, EditConfigParams, EnterParams, RestartParams, StartParams, TemplateConfigParams,
@@ -28,8 +29,8 @@ use rooz::cli::{
 use rooz::cmd::update::UpdateMode;
 use rooz::config::config::{ConfigPath, ConfigSource, FileFormat};
 use rooz::constants;
-use rooz::util::id;
 use rooz::util::labels::{self, Labels};
+use rooz::util::{id, report};
 
 // Each host's workspaces are listed by a child process pointed at that host's socket
 fn list_all_hosts() -> Result<(), AnyError> {
@@ -65,7 +66,18 @@ fn announce_target(host: Option<&str>) {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), AnyError> {
+async fn main() {
+    if let Err(e) = run().await {
+        let (headline, body) = report::split_error(&e.to_string(), report::terminal_width());
+        eprintln!("{} {}", "Error:".red().bold(), headline);
+        if !body.is_empty() {
+            eprintln!("\n{}", body);
+        }
+        std::process::exit(1);
+    }
+}
+
+async fn run() -> Result<(), AnyError> {
     env_logger::init();
 
     log::debug!("Started");
