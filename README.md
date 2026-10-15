@@ -335,6 +335,31 @@ sidecars:
 * the tunnel is the sidecar's: give the work container (or `peers:`) access through a proxy the
   sidecar runs, e.g. `HTTP_PROXY=http://vpn:3128`
 
+### Files next to the config
+
+`file:` takes a data value's content from a file instead of inlining it, the way a Kustomize config
+map generator does. It works wherever `content:` does: `data`, inline `mounts` and sidecar `mounts`.
+
+```yaml
+data:
+  hello.sh:
+    file: files/hello.sh
+    executable: true
+mounts:
+  ~/bin/hello.sh: hello.sh
+  ~/.config/starship.toml:
+    file: files/starship.toml
+```
+
+* the path is relative to the config that declares it (a base's files are relative to that base),
+  below its directory: no absolute paths, no `..`
+* a local config reads the file from disk; a config from git reads it from the same checkout,
+  next to the declaring file
+* symlinks are refused - the file, or any directory on the way to it
+* at most 64 KiB, valid UTF-8 text. For anything bigger or binary use a volume or `generate:`
+* the content is used as is - not templated. Anything that needs `{{ vars }}` belongs in `content:`
+* the stored config keeps the reference, not the content
+
 ### Port mappings
 
 Port mappings for the work container can be specified via a config file only:

@@ -8,6 +8,16 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases before 0.159.0 predate this
 file - see the git history.
 
+## [Unreleased]
+
+### Added
+
+- `file: <path>` on a data value (`data`, inline `mounts`, sidecar `mounts`) takes its content from
+  a file next to the config that declares it, for scripts and dotfiles that are clumsy inline. Works
+  for local configs, bases and configs from git (read from the checkout). The path stays below the
+  declaring config's directory; symlinks, files over 64 KiB and non-UTF-8 files are refused. The
+  content is not templated, and the stored config keeps the reference.
+
 ## [0.161.0] - 2026-10-15
 
 ### Added
