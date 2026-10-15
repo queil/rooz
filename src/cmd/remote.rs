@@ -1,31 +1,39 @@
-use bollard::{Docker, query_parameters::ListContainersOptions};
+use bollard::{API_DEFAULT_VERSION, Docker, query_parameters::ListContainersOptions};
 
 use bollard_stubs::models::PortSummary;
 use openssh::{ForwardType, KnownHosts, Session, SessionBuilder};
-use regex::Regex;
 use std::{
     collections::{HashMap, HashSet},
-    fs,
+    fs::{self, File, OpenOptions},
     net::{Ipv4Addr, TcpListener},
+    os::unix::{fs::PermissionsExt, io::AsRawFd},
     path::Path,
     process::Command,
-    sync::{
-        Mutex,
-        mpsc::{self, Sender},
-    },
+    sync::{Arc, Mutex},
     time::Duration,
 };
+use tabled::{Table, Tabled, settings::Style};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
+    sync::watch,
+    task::JoinSet,
 };
 
 use crate::{
+    cli::{RemoteAddParams, RemoteCommands, RemoteParams, RemoteRmParams},
+    config::remotes::{self, Host, Remotes},
     model::types::AnyError,
     util::labels::{self, Labels},
 };
 
 const LOCALHOST_IP: &str = "127.0.0.1";
+const POLL_INTERVAL: Duration = Duration::from_secs(10);
+const MIN_BACKOFF: Duration = Duration::from_secs(3);
+const MAX_BACKOFF: Duration = Duration::from_secs(60);
+
+// local port -> name of the host whose tunnel currently owns it
+type Claims = Arc<Mutex<HashMap<u16, String>>>;
 
 #[derive(Debug, Clone)]
 pub struct Tunnel {
@@ -34,37 +42,63 @@ pub struct Tunnel {
     pub is_active: bool,
 }
 
+struct SocketLock(#[allow(dead_code)] File);
+
+// Held for as long as a host is served. It makes removing a leftover socket file safe:
+// whoever holds the lock is the only process allowed to own that socket.
+fn lock_socket(name: &str, socket_path: &Path) -> Result<SocketLock, AnyError> {
+    let file = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(false)
+        .open(socket_path.with_extension("lock"))?;
+    if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+        return Err(format!(
+            "another 'rooz remote' is already serving host '{}' ({})",
+            name,
+            socket_path.display()
+        )
+        .into());
+    }
+    Ok(SocketLock(file))
+}
+
 async fn connect(
     builder: &SessionBuilder,
-    ssh_url: &str,
+    name: &str,
+    host: &Host,
     local_socket_path: &Path,
 ) -> Result<Session, AnyError> {
     if local_socket_path.exists() {
         fs::remove_file(local_socket_path)?;
     }
 
-    let session = builder.connect_mux(&ssh_url).await?;
+    let session = builder.connect_mux(&host.ssh).await?;
 
-    println!("SSH: connected to {}", &ssh_url);
+    println!("[{}] SSH: connected to {}", name, &host.ssh);
 
-    let socket_url = String::from_utf8(
-        session
-            .command("echo")
-            .arg("-n")
-            .raw_arg("$DOCKER_HOST")
-            .output()
-            .await?
-            .stdout,
-    )?;
+    let socket_url = match &host.socket {
+        Some(socket) => socket.clone(),
+        None => String::from_utf8(
+            session
+                .command("echo")
+                .arg("-n")
+                .raw_arg("$DOCKER_HOST")
+                .output()
+                .await?
+                .stdout,
+        )?,
+    };
 
     if socket_url.is_empty() {
-        panic!("Env var DOCKER_HOST is not set on the remote host. Can't get docker.socket path.")
+        return Err(format!(
+            "env var DOCKER_HOST is not set on {}. Set it there or give the host a 'socket'",
+            &host.ssh
+        )
+        .into());
     }
 
-    log::debug!(
-        "Read remote socket from env var DOCKER_HOST: {}",
-        socket_url
-    );
+    log::debug!("[{}] Remote socket: {}", name, socket_url);
 
     let remote_socket_path = Path::new(&socket_url);
     let remote_socket = remote_socket_path
@@ -76,13 +110,17 @@ async fn connect(
         .await?;
 
     println!(
-        "Forwarding: {} -> {}:{}",
+        "[{}] Forwarding: {} -> {}:{}",
+        name,
         local_socket_path.display(),
-        &ssh_url,
+        &host.ssh,
         &remote_socket.display()
     );
     println!(
-        "Run 'export DOCKER_HOST=unix://{}' to make the socket useful for local tools",
+        "[{}] Use it with 'rooz -H {}' (or ROOZ_HOST={}); for other tools: DOCKER_HOST=unix://{}",
+        name,
+        name,
+        name,
         local_socket_path.display()
     );
     Ok(session)
@@ -148,8 +186,17 @@ async fn close_port_forward(
         .unwrap_or_else(|e| log::debug!("Failed closing tunnel: {}", e)))
 }
 
+fn release(claims: &Claims, host: &str, local_port: u16) {
+    let mut claims = claims.lock().unwrap();
+    if claims.get(&local_port).is_some_and(|owner| owner == host) {
+        claims.remove(&local_port);
+    }
+}
+
 async fn close_tunnel(
+    host: &str,
     session: &Session,
+    claims: &Claims,
     remote_port: &u16,
     open_tunnels_map: &mut HashMap<u16, Tunnel>,
 ) -> Result<(), AnyError> {
@@ -160,8 +207,14 @@ async fn close_tunnel(
     } = &open_tunnels_map[remote_port];
     let local_socket = format!("{}:{}", LOCALHOST_IP, local_port);
     let remote_socket = format!("{}:{}", container_name, remote_port);
-    log::debug!("Closing tunnel: {} -> {}", local_socket, remote_socket);
+    log::debug!(
+        "[{}] Closing tunnel: {} -> {}",
+        host,
+        local_socket,
+        remote_socket
+    );
     close_port_forward(&session, *local_port, *remote_port).await?;
+    release(claims, host, *local_port);
     open_tunnels_map.remove(remote_port);
     Ok(())
 }
@@ -244,9 +297,12 @@ async fn get_docker_ports(docker: &Docker) -> Result<HashMap<u16, Tunnel>, AnyEr
         .collect::<HashMap<u16, Tunnel>>())
 }
 
-pub async fn manage_tunnels(
+async fn manage_tunnels(
+    host: &str,
     docker: &Docker,
     session: &Session,
+    claims: &Claims,
+    skipped: &mut HashSet<u16>,
     open_tunnels_map: &mut HashMap<u16, Tunnel>,
 ) -> Result<(), AnyError> {
     session.check().await?;
@@ -255,6 +311,8 @@ pub async fn manage_tunnels(
 
     let docker_ports: HashSet<_> = docker_ports_map.keys().cloned().collect();
     let open_tunnels: HashSet<_> = open_tunnels_map.keys().cloned().collect();
+
+    skipped.retain(|p| docker_ports.contains(p));
 
     let new_ports = docker_ports.difference(&open_tunnels);
     let stale_ports = open_tunnels.difference(&docker_ports);
@@ -275,8 +333,8 @@ pub async fn manage_tunnels(
         match (was_active, now_active) {
             (true, false) => {
                 eprintln!(
-                    "Tunnel endpoint is now down: {} -> {}",
-                    local_socket, remote_socket
+                    "[{}] Tunnel endpoint is now down: {} -> {}",
+                    host, local_socket, remote_socket
                 );
                 open_tunnels_map.insert(
                     *remote_port,
@@ -288,8 +346,8 @@ pub async fn manage_tunnels(
             }
             (false, true) => {
                 eprintln!(
-                    "Tunnel endpoint is now up: {} -> {}",
-                    local_socket, remote_socket
+                    "[{}] Tunnel endpoint is now up: {} -> {}",
+                    host, local_socket, remote_socket
                 );
                 open_tunnels_map.insert(
                     *remote_port,
@@ -311,8 +369,11 @@ pub async fn manage_tunnels(
         } = &open_tunnels_map[remote_port];
         let local_socket = format!("{}:{}", LOCALHOST_IP, local_port);
         let remote_socket = format!("{}:{}", container_name, remote_port);
-        eprintln!("Dead tunnel - closing: {} {}", local_socket, remote_socket);
-        close_tunnel(&session, remote_port, open_tunnels_map).await?;
+        eprintln!(
+            "[{}] Dead tunnel - closing: {} {}",
+            host, local_socket, remote_socket
+        );
+        close_tunnel(host, &session, claims, remote_port, open_tunnels_map).await?;
     }
 
     for remote_port in new_ports {
@@ -321,11 +382,29 @@ pub async fn manage_tunnels(
             container_name,
             ..
         } = &docker_ports_map[remote_port];
+
+        let owner = claims.lock().unwrap().get(local_port).cloned();
+        if let Some(owner) = owner {
+            if skipped.insert(*local_port) {
+                eprintln!(
+                    "[{}] Local port {} is already forwarded for host '{}' - skipping",
+                    host, local_port, owner
+                );
+            }
+            continue;
+        }
+
         if is_available(&local_port) {
             let local_socket = format!("{}:{}", LOCALHOST_IP, local_port);
             let remote_socket = format!("{}:{}", container_name, remote_port);
-            log::debug!("Opening tunnel: {} -> {}", local_socket, remote_socket);
+            log::debug!(
+                "[{}] Opening tunnel: {} -> {}",
+                host,
+                local_socket,
+                remote_socket
+            );
             open_tunnel(&session, *local_port, *remote_port).await?;
+            claims.lock().unwrap().insert(*local_port, host.to_string());
             let is_active = test_tunnel(LOCALHOST_IP, *local_port).await?;
             open_tunnels_map.insert(
                 *remote_port,
@@ -336,40 +415,44 @@ pub async fn manage_tunnels(
                 },
             );
             eprintln!(
-                "Opened tunnel (endpoint: {}): {} -> {}",
+                "[{}] Opened tunnel (endpoint: {}): {} -> {}",
+                host,
                 if is_active { "UP" } else { "DOWN" },
                 local_socket,
                 remote_socket
             );
-        } else {
+        } else if skipped.insert(*local_port) {
             let binding_pid = get_pid_using_port(&local_port.to_string()).await?;
             eprintln!(
-                "Local port {} is already bound by another process: {:?}",
-                local_port, binding_pid
+                "[{}] Local port {} is already bound by another process: {:?} - skipping",
+                host, local_port, binding_pid
             );
         }
     }
     Ok(())
 }
 
-pub async fn remote(ssh_url: &str, local_docker_host: &str) -> Result<(), AnyError> {
-    let (sender, receiver) = mpsc::channel::<()>();
-
-    let tx_mutex = Mutex::<Option<Sender<()>>>::new(Some(sender));
-
-    ctrlc::set_handler(move || {
-        if let Some(tx) = tx_mutex.lock().unwrap().take() {
-            tx.send(()).unwrap();
-        }
-    })?;
-
-    let re = Regex::new(r"^unix://").unwrap();
-    let expanded_socket = shellexpand::tilde(&re.replace(&local_docker_host, "")).into_owned();
-    let local_socket_path = Path::new(&expanded_socket);
-
-    if let Some(path) = local_socket_path.parent() {
-        fs::create_dir_all(path)?;
+async fn pause(stop: &mut watch::Receiver<bool>, duration: Duration) {
+    tokio::select! {
+        _ = tokio::time::sleep(duration) => {}
+        _ = stop.changed() => {}
     }
+}
+
+fn drop_tunnels(host: &str, claims: &Claims, tunnels: &mut HashMap<u16, Tunnel>) {
+    for (_, Tunnel { local_port, .. }) in tunnels.drain() {
+        release(claims, host, local_port);
+    }
+}
+
+async fn serve(
+    name: String,
+    host: Host,
+    claims: Claims,
+    mut stop: watch::Receiver<bool>,
+) -> Result<(), AnyError> {
+    let local_socket_path = remotes::socket_path(&name)?;
+    let _lock = lock_socket(&name, &local_socket_path)?;
 
     let mut builder = SessionBuilder::default();
     builder
@@ -377,61 +460,214 @@ pub async fn remote(ssh_url: &str, local_docker_host: &str) -> Result<(), AnyErr
         .connect_timeout(Duration::from_secs(5))
         .server_alive_interval(Duration::from_secs(5));
 
-    let mut session = connect(&builder, ssh_url, local_socket_path).await?;
+    let mut session: Option<Session> = None;
+    let mut tunnels = HashMap::<u16, Tunnel>::new();
+    let mut skipped = HashSet::<u16>::new();
+    let mut backoff = MIN_BACKOFF;
 
-    let mut open_tunnels_map = HashMap::<u16, Tunnel>::new();
-
-    loop {
-        match session.check().await {
-            Ok(_) => (),
-            Err(_) => {
-                eprintln!("SSH connection lost. Reconnecting...");
-                match connect(&builder, ssh_url, local_socket_path).await {
-                    Ok(s) => session = s,
-                    Err(error) => {
-                        eprintln!("ERROR: {}", error);
-                        if let Some(()) = receiver.recv_timeout(Duration::from_secs(3)).ok() {
-                            break;
-                        }
-                        continue;
-                    }
+    while !*stop.borrow() {
+        if let Some(s) = &session {
+            if s.check().await.is_err() {
+                eprintln!("[{}] SSH connection lost. Reconnecting...", name);
+                // forwards die with the session
+                drop_tunnels(&name, &claims, &mut tunnels);
+                skipped.clear();
+                if let Some(s) = session.take() {
+                    let _ = s.close().await;
                 }
             }
         }
-        let docker = match Docker::connect_with_local_defaults() {
-            Ok(docker) => docker.with_timeout(Duration::from_secs(10)),
-            Err(e) => {
-                log::debug!("Failed connect to Docker API. Will retry: {}", e);
-                continue;
+
+        let Some(s) = &session else {
+            match connect(&builder, &name, &host, &local_socket_path).await {
+                Ok(s) => {
+                    session = Some(s);
+                    backoff = MIN_BACKOFF;
+                }
+                Err(error) => {
+                    eprintln!("[{}] ERROR: {}", name, error);
+                    pause(&mut stop, backoff).await;
+                    backoff = (backoff * 2).min(MAX_BACKOFF);
+                }
             }
+            continue;
         };
 
-        match manage_tunnels(&docker, &session, &mut open_tunnels_map).await {
-            Ok(()) => (),
-            Err(e) => {
-                log::debug!("Connection failed. Will retry: {}", e);
-                continue;
+        match Docker::connect_with_unix(
+            &local_socket_path.to_string_lossy(),
+            10,
+            API_DEFAULT_VERSION,
+        ) {
+            Ok(docker) => {
+                let docker = docker.with_timeout(Duration::from_secs(10));
+                if let Err(e) =
+                    manage_tunnels(&name, &docker, s, &claims, &mut skipped, &mut tunnels).await
+                {
+                    log::debug!("[{}] Connection failed. Will retry: {}", name, e);
+                }
             }
-        };
-        if let Some(()) = receiver.recv_timeout(Duration::from_secs(10)).ok() {
-            break;
+            Err(e) => log::debug!("[{}] Failed connect to Docker API. Will retry: {}", name, e),
+        }
+        pause(&mut stop, POLL_INTERVAL).await;
+    }
+
+    if let Some(s) = session {
+        for (
+            remote_port,
+            Tunnel {
+                local_port,
+                container_name,
+                ..
+            },
+        ) in tunnels.drain()
+        {
+            close_port_forward(&s, local_port, remote_port).await?;
+            release(&claims, &name, local_port);
+            println!(
+                "[{}] Closing: {}:{} -> {}:{}",
+                name, LOCALHOST_IP, local_port, container_name, remote_port
+            );
+        }
+        s.close().await?;
+    }
+    let _ = fs::remove_file(&local_socket_path);
+    Ok(())
+}
+
+pub async fn remote(hosts: Vec<(String, Host)>) -> Result<(), AnyError> {
+    let socket_dir = remotes::socket_dir()?;
+    fs::create_dir_all(&socket_dir)?;
+    // a forwarded engine socket is as good as a root shell on the host: keep it ours
+    fs::set_permissions(&socket_dir, fs::Permissions::from_mode(0o700))?;
+
+    let (stop_tx, stop_rx) = watch::channel(false);
+    tokio::spawn(async move {
+        let _ = tokio::signal::ctrl_c().await;
+        let _ = stop_tx.send(true);
+    });
+
+    let claims = Claims::default();
+    let mut tasks = JoinSet::new();
+    for (name, host) in hosts {
+        let (claims, stop) = (claims.clone(), stop_rx.clone());
+        tasks.spawn(async move {
+            let result = serve(name.clone(), host, claims, stop).await;
+            (name, result)
+        });
+    }
+
+    let mut failed = Vec::new();
+    while let Some(joined) = tasks.join_next().await {
+        match joined {
+            Ok((_, Ok(()))) => (),
+            Ok((name, Err(e))) => {
+                eprintln!("[{}] ERROR: {}", name, e);
+                failed.push(name);
+            }
+            Err(e) => return Err(e.into()),
         }
     }
-    for (
-        remote_port,
-        Tunnel {
-            local_port,
-            container_name,
-            ..
-        },
-    ) in open_tunnels_map
-    {
-        let local_socket = format!("{}:{}", LOCALHOST_IP, local_port);
-        let remote_socket = format!("{}:{}", container_name, remote_port);
-        close_port_forward(&session, local_port, remote_port).await?;
-        println!("Closing: {} -> {}", local_socket, remote_socket);
+    match failed.is_empty() {
+        true => Ok(()),
+        false => Err(format!("failed hosts: {}", failed.join(", ")).into()),
     }
-    // TODO: close forwarded socket
-    session.close().await?;
-    Ok(())
+}
+
+#[derive(Tabled)]
+struct HostView {
+    #[tabled(rename = "HOST")]
+    name: String,
+    #[tabled(rename = "SSH")]
+    ssh: String,
+    #[tabled(rename = "SOCKET")]
+    socket: String,
+    #[tabled(rename = "CONNECTED", format("{}", if self.connected {"true"} else {""}))]
+    connected: bool,
+}
+
+pub async fn run(params: &RemoteParams) -> Result<(), AnyError> {
+    match &params.command {
+        None => {
+            let hosts = Remotes::load()?.select(&params.names)?;
+            remote(hosts).await
+        }
+        Some(RemoteCommands::Add(RemoteAddParams {
+            name,
+            ssh_url,
+            socket,
+        })) => {
+            remotes::validate_name(name)?;
+            let mut remotes = Remotes::load()?;
+            let replaced = remotes
+                .hosts
+                .insert(
+                    name.clone(),
+                    Host {
+                        ssh: ssh_url.clone(),
+                        socket: socket.clone(),
+                    },
+                )
+                .is_some();
+            let path = remotes.save()?;
+            println!(
+                "{} host '{}' in {}",
+                if replaced { "Updated" } else { "Added" },
+                name,
+                path.display()
+            );
+            Ok(())
+        }
+        Some(RemoteCommands::Rm(RemoteRmParams { name })) => {
+            let mut remotes = Remotes::load()?;
+            remotes.get(name)?;
+            remotes.hosts.remove(name);
+            let path = remotes.save()?;
+            println!("Removed host '{}' from {}", name, path.display());
+            Ok(())
+        }
+        Some(RemoteCommands::Ls) => {
+            let views = Remotes::load()?
+                .hosts
+                .into_iter()
+                .map(|(name, host)| {
+                    Ok(HostView {
+                        connected: remotes::is_connected(&remotes::socket_path(&name)?),
+                        name,
+                        ssh: host.ssh,
+                        socket: host.socket.unwrap_or_default(),
+                    })
+                })
+                .collect::<Result<Vec<_>, AnyError>>()?;
+            println!("{}", Table::new(views).with(Style::blank()));
+            Ok(())
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn second_lock_on_same_socket_is_refused() {
+        let dir = std::env::temp_dir().join(format!("rooz-lock-test-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let socket = dir.join("a.sock");
+        let first = lock_socket("a", &socket).unwrap();
+        assert!(lock_socket("a", &socket).is_err());
+        assert!(lock_socket("b", &dir.join("b.sock")).is_ok());
+        drop(first);
+        assert!(lock_socket("a", &socket).is_ok());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn release_only_drops_own_claims() {
+        let claims = Claims::default();
+        claims.lock().unwrap().insert(8080, "a".into());
+        release(&claims, "b", 8080);
+        assert!(claims.lock().unwrap().contains_key(&8080));
+        release(&claims, "a", 8080);
+        assert!(claims.lock().unwrap().is_empty());
+    }
 }

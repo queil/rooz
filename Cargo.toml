@@ -18,7 +18,6 @@ crossterm = {version = "0.29.0", default-features = false, features = [
     # "style", 
     # "terminal",
 ] }
-ctrlc = "3.4.5"
 edit = "0.1.5"
 env_logger = "0.11.5"
 futures = "0.3.30"
@@ -34,7 +33,7 @@ serde = "1.0.209"
 serde_yaml = "0.9.34"
 shellexpand = "3.1.0"
 tabled = "0.22.0"
-tokio = { version = "1.46", features = ["rt-multi-thread", "macros", "io-std"] }
+tokio = { version = "1.46", features = ["rt-multi-thread", "macros", "io-std", "net", "signal", "sync", "time"] }
 tar = "0.4.44"
 indexmap = { version ="2.13.0", features = ["serde"] }
 serde_with = "3.18.0"

@@ -19,7 +19,11 @@ use crate::{
 };
 
 impl<'a> WorkspaceApi<'a> {
-    pub async fn attach_vscode(&self, workspace_key: &str) -> Result<(), AnyError> {
+    pub async fn attach_vscode(
+        &self,
+        workspace_key: &str,
+        docker_host: Option<&str>,
+    ) -> Result<(), AnyError> {
         self.start(workspace_key).await?;
         let hex = format!(r#"{{"containerName":"{}"}}"#, workspace_key)
             .as_bytes()
@@ -28,6 +32,9 @@ impl<'a> WorkspaceApi<'a> {
             .collect::<Vec<String>>()
             .join("");
         let mut command = Command::new("code");
+        if let Some(docker_host) = docker_host {
+            command.env("DOCKER_HOST", docker_host);
+        }
         command.arg("--folder-uri");
         command.arg(format!("vscode-remote://attached-container+{}/work", hex));
         command.stdout(Stdio::null());

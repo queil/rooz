@@ -8,6 +8,30 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases before 0.159.0 predate this
 file - see the git history.
 
+## [Unreleased]
+
+### Added
+
+- `rooz remote` serves many hosts at once. Hosts are defined in `~/.config/rooz/remotes.yaml`
+  (`rooz remote add|rm|ls`); `rooz remote [names...]` forwards each host's engine socket to
+  `$XDG_RUNTIME_DIR/rooz/<host>.sock` (`~/.rooz/<host>.sock` without it) and its published ports to
+  localhost. A host that is down retries with backoff without affecting the others.
+- Global `-H/--host <name>` (env `ROOZ_HOST`) runs any command against a configured host.
+  `rooz list --all-hosts` lists every connected host. `rooz code` attaches VsCode through the
+  selected host.
+- `rooz system prune` and `rooz remove --all` print the engine they target.
+
+### Changed
+
+- **Breaking**: `rooz remote` no longer reads `ROOZ_REMOTE_SSH_URL` / `DOCKER_HOST`, nor forwards to
+  `$DOCKER_HOST`; define the host with `rooz remote add` instead.
+- A host may set `socket` to skip the `$DOCKER_HOST` lookup over ssh; an unset one is now an error
+  instead of a panic.
+- A local port wanted by two hosts is forwarded for the first one and skipped (with a single
+  warning) for the other.
+- Tunnels are dropped and reopened after an SSH reconnect, and the forwarded socket is removed on
+  exit.
+
 ## [0.160.0] - 2026-10-12
 
 ### Added
