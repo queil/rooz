@@ -32,39 +32,6 @@ use rooz::constants;
 use rooz::util::labels::{self, Labels};
 use rooz::util::{id, report};
 
-// Each host's workspaces are listed by a child process pointed at that host's socket
-fn list_all_hosts() -> Result<(), AnyError> {
-    let exe = std::env::current_exe()?;
-    for name in remotes::Remotes::load()?.hosts.keys() {
-        println!("== {} ==", name);
-        if !remotes::is_connected(&remotes::socket_path(name)?) {
-            println!("not connected (run 'rooz remote {}')\n", name);
-            continue;
-        }
-        let status = std::process::Command::new(&exe)
-            .args(["-H", name, "list"])
-            .status()?;
-        if !status.success() {
-            eprintln!("'{}': list failed ({})", name, status);
-        }
-        println!();
-    }
-    Ok(())
-}
-
-// Names the engine a destructive command is about to hit
-fn announce_target(host: Option<&str>) {
-    let target = match (
-        host,
-        std::env::var("DOCKER_HOST").ok().filter(|s| !s.is_empty()),
-    ) {
-        (Some(name), _) => format!("host '{}'", name),
-        (None, Some(docker_host)) => format!("DOCKER_HOST {}", docker_host),
-        (None, None) => "the local engine".to_string(),
-    };
-    eprintln!("Target: {}", target);
-}
-
 #[tokio::main]
 async fn main() {
     if let Err(e) = run().await {
@@ -90,7 +57,7 @@ async fn run() -> Result<(), AnyError> {
     }
 
     if let List(ListParams { all_hosts: true }) = &args.command {
-        list_all_hosts()?;
+        remote::list_all_hosts()?;
         std::process::exit(0);
     }
 
@@ -257,7 +224,7 @@ async fn run() -> Result<(), AnyError> {
             command: Remove(RemoveParams { name: _, force, .. }),
             host,
         } => {
-            announce_target(host.as_deref());
+            remote::announce_target(host.as_deref());
             workspace.remove_all(force).await?
         }
 
@@ -380,7 +347,7 @@ async fn run() -> Result<(), AnyError> {
                 }),
             host,
         } => {
-            announce_target(host.as_deref());
+            remote::announce_target(host.as_deref());
             rooz.prune_system().await?;
         }
 

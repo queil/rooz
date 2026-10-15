@@ -644,6 +644,39 @@ pub async fn run(params: &RemoteParams) -> Result<(), AnyError> {
     }
 }
 
+// Each host's workspaces are listed by a child process pointed at that host's socket
+pub fn list_all_hosts() -> Result<(), AnyError> {
+    let exe = std::env::current_exe()?;
+    for name in Remotes::load()?.hosts.keys() {
+        println!("== {} ==", name);
+        if !remotes::is_connected(&remotes::socket_path(name)?) {
+            println!("not connected (run 'rooz remote {}')\n", name);
+            continue;
+        }
+        let status = std::process::Command::new(&exe)
+            .args(["-H", name, "list"])
+            .status()?;
+        if !status.success() {
+            eprintln!("'{}': list failed ({})", name, status);
+        }
+        println!();
+    }
+    Ok(())
+}
+
+// Names the engine a destructive command is about to hit
+pub fn announce_target(host: Option<&str>) {
+    let target = match (
+        host,
+        std::env::var("DOCKER_HOST").ok().filter(|s| !s.is_empty()),
+    ) {
+        (Some(name), _) => format!("host '{}'", name),
+        (None, Some(docker_host)) => format!("DOCKER_HOST {}", docker_host),
+        (None, None) => "the local engine".to_string(),
+    };
+    eprintln!("Target: {}", target);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
