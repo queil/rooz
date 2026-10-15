@@ -8,6 +8,42 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases before 0.159.0 predate this
 file - see the git history.
 
+## [0.161.0] - 2026-10-15
+
+### Added
+
+- `rooz remote` serves many hosts at once. Hosts are defined in `~/.config/rooz/remotes.yaml`
+  (`rooz remote add|rm|ls`); `rooz remote [names...]` forwards each host's engine socket to
+  `$XDG_RUNTIME_DIR/rooz/<host>.sock` (`~/.rooz/<host>.sock` without it) and its published ports to
+  localhost. A host that is down retries with backoff without affecting the others.
+- Global `-H/--host <name>` (env `ROOZ_HOST`) runs any command against a configured host.
+  `rooz list --all-hosts` lists every connected host. `rooz code` attaches VsCode through the
+  selected host.
+- `rooz system prune` and `rooz remove --all` print the engine they target.
+
+### Changed
+
+- **Breaking**: `rooz remote` no longer reads `ROOZ_REMOTE_SSH_URL` / `DOCKER_HOST`, nor forwards to
+  `$DOCKER_HOST`; define the host with `rooz remote add` instead.
+- A host may set `socket` to skip the `$DOCKER_HOST` lookup over ssh; an unset one is now an error
+  instead of a panic.
+- A local port wanted by two hosts is forwarded for the first one and skipped (with a single
+  warning) for the other.
+- Errors are printed readably: the first sentence as a headline, the rest wrapped (to `$COLUMNS`,
+  at most 100) below it - instead of one long quoted `Error: "..."` line. This covers the
+  `ROOZ_ALLOW_PRIVILEGED`, `ROOZ_ALLOW_SECRETS`, `ROOZ_ALLOW_VPN` and `ROOZ_TRUSTED_CONFIGS`
+  refusals, among others. The exit code is still 1.
+- Tunnels are dropped and reopened after an SSH reconnect, and the forwarded socket is removed on
+  exit.
+
+### Fixed
+
+- `git pull`/`git fetch` over ssh inside a workspace no longer print `hostfile_replace_entries:
+  mkstemp: Read-only file system`. The ssh key volume is mounted read-only in workspaces, and ssh
+  kept trying to rewrite `known_hosts` there. The volume now carries an ssh client config with
+  `UpdateHostKeys no`, written by `rooz system init` (also on an already initialized engine, so
+  re-running it fixes existing setups) and on clone.
+
 ## [0.160.0] - 2026-10-12
 
 ### Added

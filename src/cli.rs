@@ -62,17 +62,43 @@ pub struct Config {
 }
 
 #[derive(Parser, Debug)]
-#[command(about = "Establishes a connection to a remote host")]
-pub struct RemoteParams {
+#[command(about = "Adds or updates a remote host")]
+pub struct RemoteAddParams {
+    #[arg(help = "Host name, used with -H/--host")]
+    pub name: String,
+    #[arg(help = "Host's SSH url, e.g. ssh://user@host")]
+    pub ssh_url: String,
     #[arg(
         long,
-        short,
-        env = "ROOZ_REMOTE_SSH_URL",
-        help = "Remote host's SSH url"
+        help = "Path to the container engine socket on the host. Default: $DOCKER_HOST as seen by a non-interactive ssh command"
     )]
-    pub ssh_url: String,
-    #[arg(env = "DOCKER_HOST", hide = true)]
-    pub local_docker_host: String,
+    pub socket: Option<String>,
+}
+
+#[derive(Parser, Debug)]
+#[command(about = "Removes a remote host")]
+pub struct RemoteRmParams {
+    pub name: String,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum RemoteCommands {
+    Add(RemoteAddParams),
+    Rm(RemoteRmParams),
+    #[command(about = "Lists configured remote hosts")]
+    Ls,
+}
+
+#[derive(Parser, Debug)]
+#[command(
+    about = "Connects to remote hosts: forwards their engine sockets and published ports. Stays in the foreground",
+    args_conflicts_with_subcommands = true
+)]
+pub struct RemoteParams {
+    #[command(subcommand)]
+    pub command: Option<RemoteCommands>,
+    #[arg(help = "Hosts to connect to. Default: all configured")]
+    pub names: Vec<String>,
 }
 
 #[derive(Clone, Parser, Debug)]
@@ -232,7 +258,13 @@ pub struct RestartParams {
 
 #[derive(Parser, Debug)]
 #[command(about = "Lists workspaces", alias = "ls")]
-pub struct ListParams {}
+pub struct ListParams {
+    #[arg(
+        long,
+        help = "Lists workspaces on all configured hosts that 'rooz remote' is connected to"
+    )]
+    pub all_hosts: bool,
+}
 
 #[derive(Parser, Debug)]
 #[command(about = "Removes a workspace", alias = "rm")]
@@ -337,6 +369,14 @@ pub enum Commands {
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 pub struct Cli {
+    #[arg(
+        short = 'H',
+        long,
+        global = true,
+        env = "ROOZ_HOST",
+        help = "Runs against a host from 'rooz remote ls' instead of DOCKER_HOST"
+    )]
+    pub host: Option<String>,
     #[command(subcommand)]
     pub command: Commands,
 }

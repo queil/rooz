@@ -12,6 +12,7 @@ use rooz::{
         StopParams, TmpParams,
     },
     cmd::remote,
+    config::remotes,
     model::types::AnyError,
     util::backend::{ContainerBackend, check_version_floor},
 };
@@ -19,6 +20,7 @@ use rooz::{
 use bollard::{API_DEFAULT_VERSION, Docker};
 use clap::{CommandFactory, Parser};
 use clap_complete::generate;
+use colored::Colorize;
 use rooz::api::{ConfigApi, CryptApi};
 use rooz::cli::{
     CodeParams, EditConfigParams, EnterParams, RestartParams, StartParams, TemplateConfigParams,
@@ -27,35 +29,56 @@ use rooz::cli::{
 use rooz::cmd::update::UpdateMode;
 use rooz::config::config::{ConfigPath, ConfigSource, FileFormat};
 use rooz::constants;
-use rooz::util::id;
 use rooz::util::labels::{self, Labels};
+use rooz::util::{id, report};
 
 #[tokio::main]
-async fn main() -> Result<(), AnyError> {
+async fn main() {
+    if let Err(e) = run().await {
+        let (headline, body) = report::split_error(&e.to_string(), report::terminal_width());
+        eprintln!("{} {}", "Error:".red().bold(), headline);
+        if !body.is_empty() {
+            eprintln!("\n{}", body);
+        }
+        std::process::exit(1);
+    }
+}
+
+async fn run() -> Result<(), AnyError> {
     env_logger::init();
 
     log::debug!("Started");
 
     let args = Cli::parse();
 
-    if let Cli {
-        command:
-            Remote(rooz::cli::RemoteParams {
-                ssh_url,
-                local_docker_host,
-            }),
-    } = &args
-    {
-        remote::remote(ssh_url, local_docker_host).await?;
+    if let Remote(params) = &args.command {
+        remote::run(params).await?;
         std::process::exit(0);
     }
 
-    let connection = match std::env::var("DOCKER_HOST").ok().filter(|s| !s.is_empty()) {
-        Some(h) if h.starts_with("unix://") => {
+    if let List(ListParams { all_hosts: true }) = &args.command {
+        remote::list_all_hosts()?;
+        std::process::exit(0);
+    }
+
+    let host_socket = args
+        .host
+        .as_deref()
+        .map(remotes::connected_socket)
+        .transpose()?;
+
+    let connection = match (
+        &host_socket,
+        std::env::var("DOCKER_HOST").ok().filter(|s| !s.is_empty()),
+    ) {
+        (Some(socket), _) => {
+            Docker::connect_with_unix(&socket.to_string_lossy(), 120, API_DEFAULT_VERSION)
+        }
+        (None, Some(h)) if h.starts_with("unix://") => {
             Docker::connect_with_unix(h.trim_start_matches("unix://"), 120, API_DEFAULT_VERSION)
         }
-        Some(_) => Docker::connect_with_http_defaults(),
-        None => Docker::connect_with_local_defaults(),
+        (None, Some(_)) => Docker::connect_with_http_defaults(),
+        (None, None) => Docker::connect_with_local_defaults(),
     };
 
     let docker = connection.expect("Docker API connection established");
@@ -183,7 +206,7 @@ async fn main() -> Result<(), AnyError> {
         }
 
         Cli {
-            command: List(ListParams {}),
+            command: List(ListParams { .. }),
             ..
         } => rooz.list().await?,
 
@@ -199,8 +222,11 @@ async fn main() -> Result<(), AnyError> {
 
         Cli {
             command: Remove(RemoveParams { name: _, force, .. }),
-            ..
-        } => workspace.remove_all(force).await?,
+            host,
+        } => {
+            remote::announce_target(host.as_deref());
+            workspace.remove_all(force).await?
+        }
 
         Cli {
             command: Stop(StopParams {
@@ -265,7 +291,12 @@ async fn main() -> Result<(), AnyError> {
             command: Code(CodeParams { name }),
             ..
         } => {
-            workspace.attach_vscode(&name).await?;
+            let docker_host = host_socket
+                .as_ref()
+                .map(|s| format!("unix://{}", s.display()));
+            workspace
+                .attach_vscode(&name, docker_host.as_deref())
+                .await?;
         }
 
         Cli {
@@ -304,16 +335,9 @@ async fn main() -> Result<(), AnyError> {
         }
 
         Cli {
-            command:
-                Remote(rooz::cli::RemoteParams {
-                    ssh_url: _,
-                    local_docker_host: _,
-                }),
+            command: Remote(_), ..
         } => {
-            unreachable!()
-            //TODO: this needs to be handled more elegantly. I.e. Rooz should
-            // only connect to Docker API when actually running commands requiring that
-            // this command only forwards a local socket to a remote one.
+            unreachable!("handled before connecting to the engine")
         }
 
         Cli {
@@ -321,8 +345,9 @@ async fn main() -> Result<(), AnyError> {
                 System(rooz::cli::System {
                     command: rooz::cli::SystemCommands::Prune(_),
                 }),
-            ..
+            host,
         } => {
+            remote::announce_target(host.as_deref());
             rooz.prune_system().await?;
         }
 
@@ -355,6 +380,7 @@ async fn main() -> Result<(), AnyError> {
                 System(rooz::cli::System {
                     command: rooz::cli::SystemCommands::Completion(CompletionParams { shell }),
                 }),
+            ..
         } => {
             let mut cli = Cli::command()
                 .disable_help_flag(true)
@@ -368,6 +394,7 @@ async fn main() -> Result<(), AnyError> {
                 System(rooz::cli::System {
                     command: rooz::cli::SystemCommands::Configure(ConfigureParams {}),
                 }),
+            ..
         } => {
             // reading first moves a legacy engine-side identity onto this machine
             rooz.get_system_config().await?;
