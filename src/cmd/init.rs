@@ -25,7 +25,7 @@ impl<'a> InitApi<'a> {
                        KEYFILE=/tmp/.ssh/id_ed25519
                        {rotate}
                        ls "$KEYFILE.pub" > /dev/null 2>&1 || ssh-keygen -t ed25519 -N '' -f $KEYFILE -C rooz@{hostname}
-                       cat "$KEYFILE.pub"
+                       {ssh_config}cat "$KEYFILE.pub"
                        chmod 400 $KEYFILE && chown -R {uid} /tmp/.ssh
                     "#,
             rotate = if rotate {
@@ -33,6 +33,7 @@ impl<'a> InitApi<'a> {
             } else {
                 ""
             },
+            ssh_config = ssh::ensure_config_script("/tmp/.ssh"),
             hostname = &hostname,
             uid = &uid,
         );
@@ -41,6 +42,24 @@ impl<'a> InitApi<'a> {
             .one_shot(
                 "init",
                 init_ssh,
+                Some(vec![ssh::mount("/tmp/.ssh", false)]),
+                None,
+                Some(&image_id),
+            )
+            .await
+    }
+
+    // Volumes created before the ssh client config existed get it here, without touching the key
+    async fn ensure_ssh_config(&self, image_id: &str, uid: &str) -> Result<(), AnyError> {
+        let script = format!(
+            "{}chown {} /tmp/.ssh/config\n",
+            ssh::ensure_config_script("/tmp/.ssh"),
+            uid
+        );
+        self.container
+            .one_shot(
+                "init",
+                script,
                 Some(vec![ssh::mount("/tmp/.ssh", false)]),
                 None,
                 Some(&image_id),
@@ -153,6 +172,7 @@ impl<'a> InitApi<'a> {
                 self.init_ssh(&image_id, uid, false).await?
             }
             VolumeResult::AlreadyExists => {
+                self.ensure_ssh_config(&image_id, uid).await?;
                 println!(
                     "The rooz ssh key is already initialized. Use --rotate-ssh-key to replace it."
                 )

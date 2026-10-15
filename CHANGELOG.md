@@ -36,6 +36,14 @@ file - see the git history.
 - Tunnels are dropped and reopened after an SSH reconnect, and the forwarded socket is removed on
   exit.
 
+### Fixed
+
+- `git pull`/`git fetch` over ssh inside a workspace no longer print `hostfile_replace_entries:
+  mkstemp: Read-only file system`. The ssh key volume is mounted read-only in workspaces, and ssh
+  kept trying to rewrite `known_hosts` there. The volume now carries an ssh client config with
+  `UpdateHostKeys no`, written by `rooz system init` (also on an already initialized engine, so
+  re-running it fixes existing setups) and on clone.
+
 ## [0.160.0] - 2026-10-12
 
 ### Added
