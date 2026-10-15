@@ -6,7 +6,7 @@ use crate::{
         runtime::RuntimeConfig,
     },
     model::types::AnyError,
-    util::labels::{self, Labels, WORKSPACE_CONFIG_ROLE},
+    util::labels::{self, Labels},
 };
 
 const EXTENDS_SEPARATOR: &str = "---";
@@ -18,10 +18,7 @@ impl<'a> ConfigApi<'a> {
         part: ConfigPart,
         output: Option<ConfigFormat>,
     ) -> Result<(), AnyError> {
-        let labels = Labels::from(&[
-            Labels::workspace(workspace_key),
-            Labels::role(WORKSPACE_CONFIG_ROLE),
-        ]);
+        let labels = Labels::workspace_config(workspace_key);
 
         let volume = self
             .api

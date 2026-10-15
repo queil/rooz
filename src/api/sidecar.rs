@@ -26,6 +26,19 @@ impl<'a> WorkspaceApi<'a> {
         let labels = Labels::from(&[Labels::workspace(workspace_key)]);
         let (_, peer_relations) = RuntimeConfig::workspace_networks(&config.sidecars);
 
+        if cfg.sidecars.is_empty() {
+            return Ok(cfg);
+        }
+
+        let volume_specs = VolumeApi::create_volume_specs(
+            workspace_key,
+            &config.data,
+            &config.all_mounts(),
+            false,
+        )?;
+        self.api.volume.ensure_volumes(&volume_specs).await?;
+        let egress_network = &constants::egress_network(workspace_key);
+
         for (name, s) in &mut cfg.sidecars {
             log::debug!("Process sidecar: {}", name);
             let container_name = format!("{}-{}", workspace_key, name);
@@ -38,15 +51,6 @@ impl<'a> WorkspaceApi<'a> {
             let uid = s.uid.clone();
 
             let mounts: HashMap<String, MountSource> = s.mounts.clone();
-
-            let volume_specs = VolumeApi::create_volume_specs(
-                workspace_key,
-                &config.data,
-                &config.all_mounts(),
-                false,
-            )?;
-
-            self.api.volume.ensure_volumes(&volume_specs).await?;
 
             let mut container_mounts = Vec::new();
 
@@ -82,7 +86,6 @@ impl<'a> WorkspaceApi<'a> {
                 .unwrap_or(constants::ROOT_UID.to_string());
 
             let pair_network = &constants::pair_network(workspace_key, name);
-            let egress_network = &constants::egress_network(workspace_key);
             let mut extra_networks = peer_relations
                 .iter()
                 .filter(|(a, b)| a == name || b == name)

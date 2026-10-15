@@ -18,7 +18,7 @@ impl<'a> Api<'a> {
         // mounting a missing volume would have the engine create it unlabelled, which the
         // next ownership check would then refuse - so create it through the volume API
         self.volume
-            .ensure_volume(&RoozVolume::system_config("/tmp/sys").to_spec())
+            .ensure_volume(&RoozVolume::system_config(constants::SYSTEM_CONFIG_MOUNT).to_spec())
             .await?;
 
         let result = self
@@ -26,10 +26,13 @@ impl<'a> Api<'a> {
             .one_shot_output(
                 "read-sys-config",
                 format!(
-                    "ls /tmp/sys/{f} > /dev/null 2>&1 && cat /tmp/sys/{f} || true",
+                    "ls {d}/{f} > /dev/null 2>&1 && cat {d}/{f} || true",
+                    d = constants::SYSTEM_CONFIG_MOUNT,
                     f = constants::SYSTEM_CONFIG_FILE
                 ),
-                Some(vec![RoozVolume::system_config("/tmp/sys").to_mount(None)]),
+                Some(vec![
+                    RoozVolume::system_config(constants::SYSTEM_CONFIG_MOUNT).to_mount(None),
+                ]),
                 None,
                 None,
             )
@@ -41,7 +44,7 @@ impl<'a> Api<'a> {
     pub async fn write_system_config(&self, config: &SystemConfig) -> Result<(), AnyError> {
         self.volume
             .write_files(
-                &RoozVolume::system_config("/tmp/sys"),
+                &RoozVolume::system_config(constants::SYSTEM_CONFIG_MOUNT),
                 &[VolumeFile::new_private(
                     constants::SYSTEM_CONFIG_FILE,
                     // the identity never goes back to the engine, whatever the caller holds
@@ -71,7 +74,7 @@ impl<'a> Api<'a> {
         config.age_key = None;
         self.write_system_config(&config).await?;
 
-        let volume = RoozVolume::system_config("/tmp/sys").safe_volume_name();
+        let volume = RoozVolume::system_config(constants::SYSTEM_CONFIG_MOUNT).safe_volume_name();
         let message = if already_mine {
             format!(
                 "NOTE: removed the age identity from the engine volume '{}' - it already lives \

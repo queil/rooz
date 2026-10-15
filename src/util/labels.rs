@@ -113,6 +113,10 @@ impl Labels {
         (ROLE, role)
     }
 
+    pub fn workspace_config(key: &str) -> Labels {
+        Labels::from(&[Labels::workspace(key), Labels::role(WORKSPACE_CONFIG_ROLE)])
+    }
+
     pub fn runtime_image(image_id: &str) -> (&str, &str) {
         (RUNTIME_IMAGE, image_id)
     }

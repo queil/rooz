@@ -227,6 +227,16 @@ impl<'a> VolumeApi<'a> {
         }
         Ok(result)
     }
+    fn data_volume_spec(workspace_key: &str, data_entry_name: &str) -> VolumeSpec {
+        VolumeSpec {
+            name: Self::volume_name(workspace_key, data_entry_name),
+            labels: Some(Labels::from(&[
+                Labels::workspace(workspace_key),
+                Labels::role(DATA_ROLE),
+            ])),
+        }
+    }
+
     fn volume_name(workspace_key: &str, data_entry_name: &str) -> String {
         format!(
             "rooz-{}-{}",
@@ -284,13 +294,7 @@ impl<'a> VolumeApi<'a> {
             .map(|(data_key, _)| {
                 (
                     *data_key,
-                    VolumeSpec {
-                        name: Self::volume_name(workspace_key, data_key.as_str()),
-                        labels: Some(Labels::from(&[
-                            Labels::workspace(workspace_key),
-                            Labels::role(DATA_ROLE),
-                        ])),
-                    },
+                    Self::data_volume_spec(workspace_key, data_key.as_str()),
                 )
             })
             .collect::<HashMap<_, _>>();
@@ -302,26 +306,14 @@ impl<'a> VolumeApi<'a> {
                     DataEntryKey(name.to_string()),
                     DataEntryVolumeSpec {
                         data: d.clone(),
-                        volume: VolumeSpec {
-                            name: Self::volume_name(workspace_key, name),
-                            labels: Some(Labels::from(&[
-                                Labels::workspace(workspace_key),
-                                Labels::role(DATA_ROLE),
-                            ])),
-                        },
+                        volume: Self::data_volume_spec(workspace_key, name),
                     },
                 )),
                 DataEntry::File { name, .. } => {
                     let volume_spec = ref_mounts
                         .get(&DataEntryKey(name.to_string()))
                         .map(|z| z.clone())
-                        .unwrap_or(VolumeSpec {
-                            name: Self::volume_name(workspace_key, "inline"),
-                            labels: Some(Labels::from(&[
-                                Labels::workspace(workspace_key),
-                                Labels::role(DATA_ROLE),
-                            ])),
-                        });
+                        .unwrap_or(Self::data_volume_spec(workspace_key, "inline"));
 
                     Some((
                         DataEntryKey(name.to_string()),

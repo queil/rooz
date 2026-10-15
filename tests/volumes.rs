@@ -1,6 +1,6 @@
 mod harness;
 
-use harness::{TestEnv, unique_key};
+use harness::{TestEnv, cleanup, unique_key, write_cfg};
 use std::{fs, io::Write};
 
 // Cache volume name is deterministic from the operator scope and the path.
@@ -219,13 +219,6 @@ async fn inline_data_content_written_to_volume() {
     let _ = fs::remove_file(&cfg_path);
 }
 
-fn write_cfg(key: &str, yaml: &str) -> String {
-    let path = format!("/tmp/rooz-test-{}.yaml", key);
-    let mut f = fs::File::create(&path).expect("write config");
-    f.write_all(yaml.as_bytes()).unwrap();
-    path
-}
-
 fn new_workspace(env: &TestEnv, key: &str, cfg_path: &str) {
     env.rooz()
         .args(["system", "init", "--force"])
@@ -235,11 +228,6 @@ fn new_workspace(env: &TestEnv, key: &str, cfg_path: &str) {
         .args(["new", key, "--image", "alpine:latest", "--config", cfg_path])
         .assert()
         .success();
-}
-
-fn cleanup(env: &TestEnv, key: &str, cfg_path: &str) {
-    env.rooz().args(["rm", key, "--force"]).assert().success();
-    let _ = fs::remove_file(cfg_path);
 }
 
 // ── v2: data-entry population (populate_volume / ensure_file_v2) ────────────

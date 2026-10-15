@@ -1,5 +1,5 @@
 use crate::api::VolumeApi;
-use crate::api::config::{ConfigBody, LocalReader, resolve_data_files};
+use crate::api::config::{ConfigBody, LocalReader, render_bases, resolve_data_files};
 use crate::config::trust::TrustedConfigs;
 use crate::model::types::VolumeResult;
 use crate::{
@@ -525,22 +525,7 @@ impl<'a> WorkspaceApi<'a> {
                                 .config
                                 .resolve_extends_chain(&reader, &path, value.clone(), 0)
                                 .await?;
-                            let bases_yaml = individual_bases
-                                .iter()
-                                .map(|(p, b)| {
-                                    b.to_string(*format)
-                                        .map(|yaml| format!("# {}\n{}", p, yaml))
-                                })
-                                .collect::<Result<Vec<_>, _>>()?
-                                .join("\n---\n");
-                            (
-                                Some(merged),
-                                if bases_yaml.is_empty() {
-                                    None
-                                } else {
-                                    Some(bases_yaml)
-                                },
-                            )
+                            (Some(merged), render_bases(&individual_bases, *format)?)
                         } else {
                             (Some(value.clone()), None)
                         }
@@ -570,19 +555,7 @@ impl<'a> WorkspaceApi<'a> {
                                     .config
                                     .resolve_extends_chain(&reader, path.as_str(), c, 0)
                                     .await?;
-                                let bases_yaml = individual_bases
-                                    .iter()
-                                    .map(|(path, b)| {
-                                        b.to_string(fmt).map(|yaml| format!("# {}\n{}", path, yaml))
-                                    })
-                                    .collect::<Result<Vec<_>, _>>()?
-                                    .join("\n---\n");
-                                let base_body = if bases_yaml.is_empty() {
-                                    None
-                                } else {
-                                    Some(bases_yaml)
-                                };
-                                (Some(merged), base_body)
+                                (Some(merged), render_bases(&individual_bases, fmt)?)
                             }
                             other => (other, None),
                         };

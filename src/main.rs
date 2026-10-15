@@ -29,7 +29,7 @@ use rooz::cli::{
 use rooz::cmd::update::UpdateMode;
 use rooz::config::config::{ConfigPath, ConfigSource, FileFormat};
 use rooz::constants;
-use rooz::util::labels::{self, Labels};
+use rooz::util::labels::Labels;
 use rooz::util::{id, report};
 
 #[tokio::main]
@@ -161,10 +161,7 @@ async fn run() -> Result<(), AnyError> {
 
             id::validate_workspace_name(&name)?;
 
-            let labels = Labels::from(&[
-                Labels::workspace(&name),
-                Labels::role(labels::WORKSPACE_CONFIG_ROLE),
-            ]);
+            let labels = Labels::workspace_config(&name);
 
             match workspace.api.volume.get_single(&labels).await? {
                 Some(_) => Err(format!(

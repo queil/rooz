@@ -1,24 +1,11 @@
 mod harness;
 
 use assert_cmd::cargo::cargo_bin;
-use harness::{TestEnv, unique_key};
+use harness::{TestEnv, cleanup, unique_key, write_cfg};
 use std::{
-    fs,
     io::Write,
     process::{Command, Stdio},
 };
-
-fn write_cfg(key: &str, yaml: &str) -> String {
-    let path = format!("/tmp/rooz-test-{}.yaml", key);
-    let mut f = fs::File::create(&path).expect("write config");
-    f.write_all(yaml.as_bytes()).unwrap();
-    path
-}
-
-fn cleanup(env: &TestEnv, key: &str, cfg_path: &str) {
-    env.rooz().args(["rm", key, "--force"]).assert().success();
-    let _ = fs::remove_file(cfg_path);
-}
 
 fn has_script() -> bool {
     Command::new("script")

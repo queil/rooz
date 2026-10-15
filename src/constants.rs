@@ -9,6 +9,7 @@ pub const ROOT_USER: &'static str = "root";
 pub const WORK_DIR: &'static str = "/work";
 pub const CONFIG_CLONE_DIR: &'static str = "/tmp/rooz-config";
 pub const SYSTEM_CONFIG_FILE: &'static str = "rooz.config";
+pub const SYSTEM_CONFIG_MOUNT: &'static str = "/tmp/sys";
 pub fn default_command<'a>() -> Option<Vec<&'a str>> {
     Some(vec!["cat"])
 }

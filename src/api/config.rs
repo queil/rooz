@@ -67,6 +67,22 @@ pub async fn resolve_data_files<R: ConfigReader + Sync>(
     Ok(())
 }
 
+pub fn render_bases(
+    bases: &[(String, RoozCfg)],
+    fmt: FileFormat,
+) -> Result<Option<String>, AnyError> {
+    let rendered = bases
+        .iter()
+        .map(|(path, b)| b.to_string(fmt).map(|yaml| format!("# {}\n{}", path, yaml)))
+        .collect::<Result<Vec<_>, _>>()?
+        .join("\n---\n");
+    Ok(if rendered.is_empty() {
+        None
+    } else {
+        Some(rendered)
+    })
+}
+
 impl<'a> ConfigApi<'a> {
     async fn store_config_file(
         &self,
@@ -316,22 +332,7 @@ impl<'a> ConfigApi<'a> {
                 let (merged, individual_bases) = self
                     .resolve_extends_chain(&reader, &file_path, cfg, 0)
                     .await?;
-                let bases_yaml = individual_bases
-                    .iter()
-                    .map(|(path, b)| {
-                        b.to_string(file_format)
-                            .map(|yaml| format!("# {}\n{}", path, yaml))
-                    })
-                    .collect::<Result<Vec<_>, _>>()?
-                    .join("\n---\n");
-                (
-                    merged,
-                    if bases_yaml.is_empty() {
-                        None
-                    } else {
-                        Some(bases_yaml)
-                    },
-                )
+                (merged, render_bases(&individual_bases, file_format)?)
             };
             return Ok(Some(ConfigBody {
                 body,

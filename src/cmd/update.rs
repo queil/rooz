@@ -10,7 +10,7 @@ use crate::{
     model::types::AnyError,
     util::{
         git::CloneEnv,
-        labels::{self, Labels, WORKSPACE_CONFIG_ROLE},
+        labels::{self, Labels},
     },
 };
 
@@ -28,10 +28,7 @@ impl<'a> WorkspaceApi<'a> {
         mode: UpdateMode,
         no_pull: bool,
     ) -> Result<(), AnyError> {
-        let labels = Labels::from(&[
-            Labels::workspace(workspace_key),
-            Labels::role(WORKSPACE_CONFIG_ROLE),
-        ]);
+        let labels = Labels::workspace_config(workspace_key);
 
         let volume = self
             .api

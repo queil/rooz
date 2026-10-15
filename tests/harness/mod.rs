@@ -15,7 +15,19 @@ use bollard::{
 };
 use bollard_stubs::models::{ContainerSummary, ContainerSummaryStateEnum, MountType, Volume};
 use futures::StreamExt;
-use std::{collections::HashMap, env};
+use std::{collections::HashMap, env, fs, io::Write};
+
+pub fn write_cfg(key: &str, yaml: &str) -> String {
+    let path = format!("/tmp/rooz-test-{}.yaml", key);
+    let mut f = fs::File::create(&path).expect("write config");
+    f.write_all(yaml.as_bytes()).unwrap();
+    path
+}
+
+pub fn cleanup(env: &TestEnv, key: &str, cfg_path: &str) {
+    env.rooz().args(["rm", key, "--force"]).assert().success();
+    let _ = fs::remove_file(cfg_path);
+}
 
 pub struct TestEnv {
     pub docker_host: String,

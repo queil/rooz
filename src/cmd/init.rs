@@ -4,10 +4,9 @@ use crate::{
     api::InitApi,
     cli::InitParams,
     config::config::SystemConfig,
-    constants,
     model::{
         types::{AnyError, VolumeResult, VolumeSpec},
-        volume::{RoozVolume, RoozVolumeRole, VolumeFile},
+        volume::RoozVolumeRole,
     },
     util::{identity, labels::Labels, ssh},
 };
@@ -121,7 +120,6 @@ impl<'a> InitApi<'a> {
         // containers - no secret material. Reading it first refuses a foreign volume squatting
         // the name, and an engine without a config gets one now: before, only --force wrote it,
         // so a plain first init left the engine with no git configuration at all.
-        let sys_config = RoozVolume::system_config("/tmp/sys");
         let current = SystemConfig::from_string(&self.api.get_system_config_string().await?)?;
 
         if current.gitconfig.is_none() || spec.force {
@@ -136,16 +134,7 @@ impl<'a> InitApi<'a> {
                     .to_string(),
                 ),
             };
-            self.volume
-                .write_files(
-                    &sys_config,
-                    &[VolumeFile::new_private(
-                        constants::SYSTEM_CONFIG_FILE,
-                        &SystemConfig::to_string(&config.engine_view())?,
-                    )],
-                    None,
-                )
-                .await?;
+            self.api.write_system_config(&config).await?;
         }
         // the ssh-key volume is never recreated (even on --force) as it may be
         // used by existing workspaces
