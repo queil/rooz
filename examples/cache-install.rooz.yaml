@@ -1,0 +1,33 @@
+# Stock image + cached downloads instead of a prebuilt image. Caches are volumes shared by all
+# your workspaces, so weir and the dotnet installer are downloaded once per engine and the install
+# steps are no-ops afterwards. The dotnet install is a weir script (files/install-dotnet.weir),
+# idempotent on what the cache already holds.
+#
+# If this config comes from a git repo not listed in ROOZ_TRUSTED_CONFIGS, rooz refuses the cache
+# paths unless you also list them in ROOZ_CACHES (or pass --caches).
+image: mcr.microsoft.com/dotnet/runtime-deps:8.0
+shell:
+  - bash
+
+caches:
+  - ~/.local/bin          # weir
+  - ~/.cache/installers
+  - ~/.dotnet
+  - ~/.nuget
+
+data:
+  install-dotnet.weir:
+    file: files/install-dotnet.weir
+
+mounts:
+  ~/install-dotnet.weir: install-dotnet.weir
+
+env:
+  DOTNET_ROOT: /home/rooz_user/.dotnet
+  PATH: /home/rooz_user/.dotnet:/home/rooz_user/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+install:
+  00-weir: |-
+    command -v weir >/dev/null || curl -fsSL https://weir.sh/install.sh | sh
+  10-dotnet: |-
+    weir ~/install-dotnet.weir
