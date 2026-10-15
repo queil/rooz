@@ -8,7 +8,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases before 0.159.0 predate this
 file - see the git history.
 
-## [Unreleased]
+## [0.161.0] - 2026-10-15
 
 ### Added
 
@@ -29,6 +29,10 @@ file - see the git history.
   instead of a panic.
 - A local port wanted by two hosts is forwarded for the first one and skipped (with a single
   warning) for the other.
+- Errors are printed readably: the first sentence as a headline, the rest wrapped (to `$COLUMNS`,
+  at most 100) below it - instead of one long quoted `Error: "..."` line. This covers the
+  `ROOZ_ALLOW_PRIVILEGED`, `ROOZ_ALLOW_SECRETS`, `ROOZ_ALLOW_VPN` and `ROOZ_TRUSTED_CONFIGS`
+  refusals, among others. The exit code is still 1.
 - Tunnels are dropped and reopened after an SSH reconnect, and the forwarded socket is removed on
   exit.
 
