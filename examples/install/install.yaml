@@ -1,5 +1,14 @@
 image: docker.io/alpine:latest
 
+# Steps run as the workspace user (sidecars: as their uid). A step opts in to root explicitly,
+# and can skip itself when a check exits 0:
+#
+#   install:
+#     00-tools:
+#       skip_if: command -v jq
+#       run: apk add jq
+#       root: true
+#
 # install can be a map of named steps. Steps run in lexicographic key order
 # (use key prefixes like 00-, 10- to control ordering). In layered configs
 # (bases:) a higher layer can add or override steps by key, and remove an
@@ -11,10 +20,13 @@ image: docker.io/alpine:latest
 #     apk add tinyproxy
 
 install:
-  00-tools: |-
-    apk add curl jq
-  10-cleanup: |-
-    rm -rf /var/cache/apk/*
+  00-tools:
+    run: apk add curl jq
+    skip_if: command -v jq
+    root: true
+  10-cleanup:
+    run: rm -rf /var/cache/apk/*
+    root: true
 
 sidecars:
   test:
@@ -23,8 +35,10 @@ sidecars:
     args: ["-d"]
     uid: 1000
     egress: true
-    install: |-
-      apk add tinyproxy
+    install:
+      00-tinyproxy:
+        run: apk add tinyproxy
+        root: true
 
   other:
     image: docker.io/alpine:latest

@@ -41,6 +41,12 @@ impl<'a> WorkspaceApi<'a> {
 
         mounts.extend(spec.mounts.clone());
 
+        let writable_targets = mounts
+            .iter()
+            .filter(|m| m.read_only != Some(true))
+            .filter_map(|m| m.target.clone())
+            .collect::<Vec<_>>();
+
         let run_spec = RunSpec {
             reason: "work",
             image: &spec.image,
@@ -78,6 +84,15 @@ impl<'a> WorkspaceApi<'a> {
                     .unwrap_or_default();
                 if !install_steps.is_empty() {
                     self.api.container.start(&container_id).await?;
+                    if install_steps.iter().any(|step| !step.root) {
+                        // steps run as the workspace user, which has to exist and own the
+                        // volumes it writes to - enter does the same before the first shell
+                        self.api.exec.ensure_user(&container_id).await?;
+                        let uid = spec.uid.parse::<i32>()?;
+                        for target in &writable_targets {
+                            self.api.exec.chown(&container_id, &uid, target).await?;
+                        }
+                    }
                     self.api
                         .exec
                         .install(spec.container_name, &container_id, install_steps)

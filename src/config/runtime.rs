@@ -278,9 +278,9 @@ fn mask_install(install: &mut Option<InstallSpec>, secrets: &[&String]) {
     match install {
         Some(InstallSpec::Script(script)) => mask_in(script, secrets),
         Some(InstallSpec::Steps(steps)) => {
-            for (_, step) in steps.iter_mut() {
-                if let Some(script) = step {
-                    mask_in(script, secrets);
+            for step in steps.values_mut().flatten() {
+                for text in step.texts_mut() {
+                    mask_in(text, secrets);
                 }
             }
         }
@@ -716,7 +716,7 @@ mod tests {
     #[test]
     fn step_map_install_roundtrips() {
         let mut steps = indexmap::IndexMap::new();
-        steps.insert("10-a".to_string(), Some("echo a".to_string()));
+        steps.insert("10-a".to_string(), Some("echo a".into()));
         steps.insert("20-b".to_string(), None);
         let cfg = RuntimeConfig {
             install: Some(InstallSpec::Steps(steps.clone())),

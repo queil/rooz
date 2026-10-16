@@ -261,6 +261,35 @@ If several machines share one remote engine and their local uids collide (both `
 distinct `ROOZ_CACHE_SCOPE` per operator. Note that the scope is a collision boundary, not an
 authorization boundary: anyone able to create workspaces on an engine can name any scope.
 
+### Install steps
+
+`install` runs shell steps in the work container when a workspace is created. A step is a string, or an
+object:
+
+```yaml
+vars:
+  dotnet: 8.0.404
+
+install:
+  00-tools:
+    run: apk add jq
+    root: true
+  10-dotnet:
+    skip_if: dotnet --list-sdks | grep -q '^{{ dotnet }}'
+    run: ./install-dotnet.sh {{ dotnet }}
+```
+
+* steps run in key order, as the **workspace user**. `root: true` runs a step as root (package managers,
+  system files). A sidecar's steps run as its `uid` (root unless set).
+* `skip_if` is a shell check that runs first, as the same user: exit 0 skips the step. Pair it with a
+  [cache](#caching) so a tool downloaded once is not downloaded again. `run` and `skip_if` are templated.
+* the check runs with the container's environment: a tool installed under a cache path must be on `PATH`
+  (set it in `env`) or be checked by absolute path.
+* layers (`bases`) add steps by key, replace a step as a whole, and remove one with `null`.
+* `root: true` is refused in a configuration the operator did not author (an unlisted `--config git:...`
+  source or `bases` layer); list the source in `ROOZ_TRUSTED_CONFIGS` or move the step into your own local
+  config.
+
 ### Sidecars
 
 A sidecar with `install` steps is built once: rooz runs the steps in a container and commits the
