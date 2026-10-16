@@ -394,3 +394,22 @@ async fn list_status_and_logs_describe_a_workspace() {
 
     env.rooz().args(["rm", &key, "--force"]).assert().success();
 }
+
+#[tokio::test]
+async fn doctor_passes_after_init_and_fails_without_an_engine() {
+    let Some(env) = TestEnv::from_env() else {
+        return;
+    };
+
+    env.rooz()
+        .args(["system", "init", "--force"])
+        .assert()
+        .success();
+    env.rooz().arg("doctor").assert().success();
+
+    env.rooz()
+        .env("DOCKER_HOST", "unix:///nonexistent-rooz.sock")
+        .arg("doctor")
+        .assert()
+        .failure();
+}

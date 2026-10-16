@@ -872,7 +872,11 @@ async fn cache_commands_list_refuse_mounted_and_remove_unused() {
         .assert()
         .success();
 
-    let ls = env.rooz().args(["cache", "ls", "--json"]).assert().success();
+    let ls = env
+        .rooz()
+        .args(["cache", "ls", "--json"])
+        .assert()
+        .success();
     let rows: serde_json::Value = serde_json::from_slice(&ls.get_output().stdout).unwrap();
     let row = rows
         .as_array()

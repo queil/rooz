@@ -167,6 +167,16 @@ rooz status myworkspace2 [--json]        # containers, volumes, config origin
 rooz logs myworkspace2 [-c sidecar] [-f] [--tail 100]
 ```
 
+### Check the setup
+
+```sh
+rooz doctor
+```
+
+Checks that the engine is reachable and recent enough, that `rooz system init` was done (system
+config and ssh key volumes, age identity on this machine) and, on docker, how much of the default
+network address pool is used. Exits non-zero when something is missing.
+
 ### Manage caches
 
 ```sh

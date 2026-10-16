@@ -288,6 +288,10 @@ pub struct ListParams {
 }
 
 #[derive(Parser, Debug)]
+#[command(about = "Checks the engine connection, rooz's setup and the engine's headroom")]
+pub struct DoctorParams {}
+
+#[derive(Parser, Debug)]
 #[command(about = "Manages the shared cache volumes")]
 pub struct CacheParams {
     #[command(subcommand)]
@@ -454,6 +458,7 @@ pub enum Commands {
     Update(UpdateParams),
     List(ListParams),
     Cache(CacheParams),
+    Doctor(DoctorParams),
     Status(StatusParams),
     Logs(LogsParams),
     Config(Config),

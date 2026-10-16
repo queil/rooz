@@ -5,8 +5,8 @@ use rooz::{
     cli::{
         Cli,
         Commands::{
-            Cache, Code, Config, Enter, Exec, List, Logs, New, Remote, Remove, Restart, Start,
-            Status, Stop, System, Tmp, Update,
+            Cache, Code, Config, Doctor, Enter, Exec, List, Logs, New, Remote, Remove, Restart,
+            Start, Status, Stop, System, Tmp, Update,
         },
         CompletionParams, ConfigureParams, ListParams, NewParams, RemoveParams, ShowConfigParams,
         StopParams, TmpParams,
@@ -88,6 +88,11 @@ async fn run() -> Result<(), AnyError> {
         (None, Some(_)) => Docker::connect_with_http_defaults(),
         (None, None) => Docker::connect_with_local_defaults(),
     };
+
+    if let Doctor(_) = &args.command {
+        let ok = rooz::cmd::doctor::run(connection).await?;
+        std::process::exit(if ok { 0 } else { 1 });
+    }
 
     let docker = connection.expect("Docker API connection established");
 
@@ -405,7 +410,8 @@ async fn run() -> Result<(), AnyError> {
         }
 
         Cli {
-            command: Remote(_), ..
+            command: Remote(_) | Doctor(_),
+            ..
         } => {
             unreachable!("handled before connecting to the engine")
         }
