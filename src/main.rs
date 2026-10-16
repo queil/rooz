@@ -28,7 +28,7 @@ use rooz::cli::{
 };
 use rooz::cmd::plan::PlanMode;
 use rooz::cmd::update::UpdateMode;
-use rooz::config::config::{ConfigPath, ConfigSource, FileFormat};
+use rooz::config::config::{ConfigPath, ConfigSource, FileFormat, RoozCfg};
 use rooz::constants;
 use rooz::util::labels::Labels;
 use rooz::util::{id, report};
@@ -58,6 +58,14 @@ async fn run() -> Result<(), AnyError> {
 
     if let Remote(params) = &args.command {
         remote::run(params).await?;
+        std::process::exit(0);
+    }
+
+    if let Config(rooz::cli::Config {
+        command: rooz::cli::ConfigCommands::Schema(_),
+    }) = &args.command
+    {
+        println!("{}", RoozCfg::json_schema()?);
         std::process::exit(0);
     }
 
@@ -402,11 +410,26 @@ async fn run() -> Result<(), AnyError> {
         Cli {
             command:
                 Config(rooz::cli::Config {
-                    command: rooz::cli::ConfigCommands::Show(ShowConfigParams { name, part }),
+                    command:
+                        rooz::cli::ConfigCommands::Show(ShowConfigParams {
+                            name,
+                            part,
+                            resolved,
+                        }),
                 }),
             ..
         } => {
-            workspace.config.show(&name, part, None).await?;
+            workspace.config.show(&name, part, None, resolved).await?;
+        }
+
+        Cli {
+            command:
+                Config(rooz::cli::Config {
+                    command: rooz::cli::ConfigCommands::Schema(_),
+                }),
+            ..
+        } => {
+            unreachable!("handled before connecting to the engine")
         }
 
         Cli {

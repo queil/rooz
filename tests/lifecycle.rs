@@ -413,3 +413,51 @@ async fn doctor_passes_after_init_and_fails_without_an_engine() {
         .assert()
         .failure();
 }
+
+#[tokio::test]
+async fn config_show_resolved_names_the_layer_of_each_setting() {
+    let Some(env) = TestEnv::from_env() else {
+        return;
+    };
+    let key = unique_key("resolved");
+
+    let dir = std::env::temp_dir().join(format!("rooz-test-{}", key));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("base.yaml"),
+        "image: alpine:latest\nenv: {A: '1', B: '1'}\n",
+    )
+    .unwrap();
+    let cfg_path = dir.join("ws.yaml");
+    std::fs::write(&cfg_path, "bases: [base.yaml]\nenv: {B: '2'}\n").unwrap();
+    let cfg_path = cfg_path.to_string_lossy().into_owned();
+
+    env.rooz()
+        .args(["system", "init", "--force"])
+        .assert()
+        .success();
+    env.rooz()
+        .args(["new", &key, "--config", &cfg_path])
+        .assert()
+        .success();
+
+    let out = env
+        .rooz()
+        .args(["config", "show", &key, "--resolved"])
+        .assert()
+        .success();
+    let out = String::from_utf8_lossy(&out.get_output().stdout).to_string();
+    let row = |setting: &str| {
+        out.lines()
+            .find(|l| l.split_whitespace().next() == Some(setting))
+            .unwrap_or_else(|| panic!("no row for {}:\n{}", setting, out))
+            .to_string()
+    };
+    assert!(row("image").contains("base.yaml"), "{}", out);
+    assert!(row("env.A").contains("base.yaml"), "{}", out);
+    assert!(row("env.B").contains("ws.yaml"), "{}", out);
+    assert!(row("user").contains("default"), "{}", out);
+
+    env.rooz().args(["rm", &key, "--force"]).assert().success();
+    let _ = std::fs::remove_dir_all(&dir);
+}

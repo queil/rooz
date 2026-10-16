@@ -45,6 +45,7 @@ pub enum ConfigCommands {
     Template(TemplateConfigParams),
     Edit(EditConfigParams),
     Show(ShowConfigParams),
+    Schema(SchemaConfigParams),
 }
 
 #[derive(Parser, Debug)]
@@ -390,7 +391,19 @@ pub struct ShowConfigParams {
     pub name: String,
     #[arg(long, short, value_enum, default_value = "body")]
     pub part: ConfigPart,
+    #[arg(
+        long,
+        conflicts_with = "part",
+        help = "Shows the merged settings (defaults, bases, config) and the layer each came from"
+    )]
+    pub resolved: bool,
 }
+
+#[derive(Parser, Debug)]
+#[command(
+    about = "Outputs the JSON Schema of the config file format, for editor completion and validation"
+)]
+pub struct SchemaConfigParams {}
 
 #[derive(Parser, Debug)]
 #[command(about = "Outputs a workspace configuration template")]

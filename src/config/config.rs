@@ -5,6 +5,7 @@ use crate::{cli::WorkParams, constants};
 use colored::Colorize;
 use handlebars::{Handlebars, no_escape};
 use indexmap::IndexMap;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use std::collections::HashMap;
@@ -124,14 +125,14 @@ impl FileFormat {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
 #[serde(untagged)]
 pub enum InstallSpec {
     Script(String),
     Steps(IndexMap<String, Option<InstallStep>>),
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
 #[serde(untagged)]
 pub enum InstallStep {
     Script(String),
@@ -139,7 +140,7 @@ pub enum InstallStep {
 }
 
 #[serde_with::skip_serializing_none]
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct InstallStepSpec {
     pub run: String,
@@ -235,7 +236,7 @@ impl InstallSpec {
 
 #[serde_with::skip_serializing_none]
 #[serde_as]
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct RoozSidecar {
     pub image: Option<String>,
@@ -293,7 +294,7 @@ impl RoozSidecar {
 
 #[serde_with::skip_serializing_none]
 #[serde_as]
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct RoozCfg {
     pub bases: Option<Vec<String>>,
@@ -491,6 +492,43 @@ impl RoozCfg {
             mounts: extend_if_any(self.mounts.clone(), config.mounts.clone()),
             install: InstallSpec::merged(&self.install, &config.install),
         }
+    }
+
+    // serde_yaml reads an unquoted `1` or `true` into a string field, and configs rely on it
+    // (`vars: {x: 1}`), so the schema accepts those scalars wherever it says string.
+    pub fn json_schema() -> Result<String, AnyError> {
+        fn widen(v: &mut serde_json::Value) {
+            match v {
+                serde_json::Value::Object(map) => {
+                    if !map.contains_key("enum") && !map.contains_key("const") {
+                        if let Some(t) = map.get_mut("type") {
+                            let mut types = match t.take() {
+                                serde_json::Value::Array(a) => a,
+                                other => vec![other],
+                            };
+                            if types.iter().any(|x| x == "string") {
+                                for extra in ["number", "boolean"] {
+                                    if !types.iter().any(|x| x == extra) {
+                                        types.push(extra.into());
+                                    }
+                                }
+                            }
+                            *t = if types.len() == 1 {
+                                types.remove(0)
+                            } else {
+                                types.into()
+                            };
+                        }
+                    }
+                    map.values_mut().for_each(widen);
+                }
+                serde_json::Value::Array(items) => items.iter_mut().for_each(widen),
+                _ => (),
+            }
+        }
+        let mut schema = serde_json::to_value(schemars::schema_for!(RoozCfg))?;
+        widen(&mut schema);
+        Ok(serde_json::to_string_pretty(&schema)?)
     }
 
     pub fn validate_base_path(path: &str) -> Result<(), AnyError> {
@@ -917,7 +955,7 @@ impl SystemConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(untagged)]
 #[serde(deny_unknown_fields)]
 pub enum DataValue {
@@ -1019,7 +1057,7 @@ impl DataValue {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(untagged)]
 #[serde(deny_unknown_fields)]
 pub enum MountSource {

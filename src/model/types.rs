@@ -234,7 +234,7 @@ impl From<String> for UserFile {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct DataEntryKey(pub String);
 
 impl DataEntryKey {

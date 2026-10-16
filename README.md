@@ -167,6 +167,19 @@ rooz status myworkspace2 [--json]        # containers, volumes, config origin
 rooz logs myworkspace2 [-c sidecar] [-f] [--tail 100]
 ```
 
+### Editor support and inspecting merged config
+
+```sh
+rooz config schema > rooz.schema.json              # JSON Schema of the config file
+rooz config show myworkspace --resolved            # merged settings, one row each, with the layer it came from
+```
+
+Point a YAML language server at the schema for completion and typo detection, either per file with
+a `# yaml-language-server: $schema=./rooz.schema.json` first line or through your editor's
+`yaml.schemas` setting. `--resolved` merges the stored defaults, `bases` and config the way a run
+does; templates stay unexpanded and secret values are shown as `***`. Settings given as flags to
+`rooz new` are not recorded and so not shown.
+
 ### Check the setup
 
 ```sh
