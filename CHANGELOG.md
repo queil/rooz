@@ -8,6 +8,40 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases before 0.159.0 predate this
 file - see the git history.
 
+## [Unreleased]
+
+### Added
+
+- `rooz exec <ws> -- cmd...` runs one command in a workspace container, passes stdout and stderr
+  through and exits with the command's exit code. `--root`, `--work-dir`, `--container`.
+- `rooz list --json`; `rooz status <ws> [--json]` (containers, volumes, config origin);
+  `rooz logs <ws> [--container] [-f] [--tail N]`.
+- `rooz cache ls|rm|prune`: size, age and mounting workspaces of the shared cache volumes. `rm` and
+  `prune` only touch your own scope and refuse caches a container still mounts.
+- `rooz doctor` checks the engine, `rooz system init` results (system config, ssh key, age identity)
+  and, on docker, how much of the default network address pool is used.
+- `rooz move <ws> <new-name> [--dry-run]` renames a workspace on one engine: volumes are copied under
+  the new name, the workspace is rebuilt from its stored config and the old one is removed. A failure
+  removes the partial new workspace and leaves the old one untouched.
+- `rooz config schema` prints a JSON Schema of the config file for YAML language servers.
+- `rooz config show <ws> --resolved` shows the merged settings (defaults, bases, config) with the
+  layer each came from.
+- `rooz config template [--detect [DIR]]` prints a starter config; `--detect` recognizes Rust, .NET,
+  Node, Go and Python projects and fills in the image and cache paths.
+- Global `-v/--verbose` turns on debug logging (`RUST_LOG` still works). `new` and `update` print one
+  colored `[phase]` line per step: image, volumes, clone, container, install.
+- `rooz update --allow-secrets`, as on `new`; before, only `ROOZ_ALLOW_SECRETS` could consent.
+
+### Changed
+
+- **Breaking:** `rooz list` shows STATUS, IMAGE and AGE instead of RUNNING, and includes workspaces
+  whose containers are stopped.
+- A failed image pull, volume operation or exec returns an error saying what failed and what to
+  check, where it used to panic. A failed pull no longer leaves a stored config behind.
+- `rooz update` pulls the image before removing the old containers, so a failed pull leaves the
+  workspace as it was (an image that only comes from `bases` is still pulled afterwards).
+- `rooz remote` log lines color each host name consistently.
+
 ## [0.164.0] - 2026-10-16
 
 ### Added

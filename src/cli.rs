@@ -426,7 +426,16 @@ pub struct SchemaConfigParams {}
 
 #[derive(Parser, Debug)]
 #[command(about = "Outputs a workspace configuration template")]
-pub struct TemplateConfigParams {}
+pub struct TemplateConfigParams {
+    #[arg(
+        long,
+        num_args = 0..=1,
+        default_missing_value = ".",
+        value_name = "DIR",
+        help = "Looks for Cargo.toml, *.csproj/*.sln, package.json, go.mod and pyproject.toml/requirements.txt in DIR (default: the current directory) and fills in the image and caches"
+    )]
+    pub detect: Option<String>,
+}
 
 #[derive(Parser, Debug)]
 #[command(about = "Edits a local configuration file")]

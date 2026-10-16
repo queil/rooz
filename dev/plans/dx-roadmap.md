@@ -1,6 +1,6 @@
 # DX roadmap
 
-Agreed items, in suggested order. Status as of 0.164.0 work.
+Agreed items, in suggested order. Status as of the unreleased work after 0.164.0.
 
 ## Done
 
@@ -11,26 +11,15 @@ Agreed items, in suggested order. Status as of 0.164.0 work.
   capture; `ROOZ_TEST_REQUIRE_ENGINE=1` makes it fatal (set it in CI when wanted).
 - **`--dry-run`** (merges "config check" and "plan") - branch `dry-run`, 0.164.0. `new --dry-run`,
   `update [--purge] --dry-run`. Same gates as a run; env/scripts/secrets never printed.
+- **Terse errors, phase progress and `-v`, `exec`, `list`/`status`/`logs`, `cache`, `doctor`,
+  `config schema`/`show --resolved`, `move` stage 1, `config template --detect`** - unreleased, see
+  CHANGELOG. Not done from these: a log tail for failing install steps (their output already streams
+  live), "last use" for caches (the engine does not track it), hover descriptions in the config schema.
 
 ## Next
 
-1. **Terse errors.** What / why / fix, compressed. Start with the panics:
-   - failed image pull panics (`api/image.rs` pull), and leaves a half-created workspace behind;
-   - `ensure_volume`, `create_volume`, `remove_volume` panic on unexpected engine errors;
-   - `exec.rs` `panic!("Could not start exec")`.
-2. **Phase progress, `-v`.** pull / volumes / each install step / clone; failing step prints exit code and
-   log tail. `-v` replaces `RUST_LOG`.
-3. **`rooz exec <ws> -- cmd`.** One command, exit code returned. Machinery exists in `ExecApi`.
-4. **`rooz list` / `logs` / `status`.** Status, image, age, origin, `--json`; `logs <ws> [--container]`.
-5. **`rooz cache ls|rm|prune`.** Size, last use, mounting workspaces. Cache volumes are
-   `rooz_cache_<scope>_<path>`.
-6. **`rooz doctor`, shell completions.** doctor: engine reachable (rootless/podman), `system init` done,
-   ssh key, age identity, network address-pool limit.
-7. **Config discoverability.** `rooz config schema` (JSON Schema for editors); `config show --resolved`
-   with the layer each field came from.
-8. **`rooz move`.** See `move.md`. Stage 1 (rename on one engine) shipped; stage 2 (cross-host) open.
-9. **`rooz config template --detect`.** `config template` exists; detect `*.csproj`, `Cargo.toml`,
-   fill image and caches.
+1. **`rooz move` stage 2** (cross-host). See `move.md`. Needs two engine clients and two daemons to
+   test end to end; today CI boots one.
 
 ## Ideas, not scheduled
 

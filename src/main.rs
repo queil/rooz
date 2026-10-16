@@ -28,7 +28,7 @@ use rooz::cli::{
 };
 use rooz::cmd::plan::PlanMode;
 use rooz::cmd::update::UpdateMode;
-use rooz::config::config::{ConfigPath, ConfigSource, FileFormat, RoozCfg};
+use rooz::config::config::{ConfigPath, ConfigSource, RoozCfg};
 use rooz::constants;
 use rooz::util::labels::Labels;
 use rooz::util::{id, report};
@@ -66,6 +66,18 @@ async fn run() -> Result<(), AnyError> {
     }) = &args.command
     {
         println!("{}", RoozCfg::json_schema()?);
+        std::process::exit(0);
+    }
+
+    if let Config(rooz::cli::Config {
+        command: rooz::cli::ConfigCommands::Template(TemplateConfigParams { detect }),
+    }) = &args.command
+    {
+        let detected = match detect {
+            Some(dir) => rooz::config::detect::detect(std::path::Path::new(dir))?,
+            None => vec![],
+        };
+        print!("{}", rooz::config::detect::template(&detected));
         std::process::exit(0);
     }
 
@@ -409,11 +421,11 @@ async fn run() -> Result<(), AnyError> {
         Cli {
             command:
                 Config(rooz::cli::Config {
-                    command: rooz::cli::ConfigCommands::Template(TemplateConfigParams {}),
+                    command: rooz::cli::ConfigCommands::Template(_),
                 }),
             ..
         } => {
-            workspace.config.template(FileFormat::Yaml).await?;
+            unreachable!("handled before connecting to the engine")
         }
 
         Cli {

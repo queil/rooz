@@ -180,6 +180,20 @@ a `# yaml-language-server: $schema=./rooz.schema.json` first line or through you
 does; templates stay unexpanded and secret values are shown as `***`. Settings given as flags to
 `rooz new` are not recorded and so not shown.
 
+### Start a config from your project
+
+```sh
+rooz config template --detect > ws.rooz.yaml   # or --detect path/to/project
+```
+
+Prints a commented starter config. With `--detect` it looks for `Cargo.toml`, `*.sln`/`*.csproj`,
+`package.json`, `go.mod` and `pyproject.toml`/`requirements.txt` in that directory and fills in an
+image and the cache paths of the toolchain. Images are the official ones on floating tags
+(`rust:1`, `node:lts`, `golang:1`, `python:3`), which `rooz update` re-pulls, so they stay current
+without editing. The exception is .NET: the SDK image only has its own runtime, so the tag follows
+the highest `TargetFramework` in your projects (`dotnet/sdk:9.0` if none states one). When several
+stacks are found the first one picks the image and the caches of all are listed.
+
 ### Rename a workspace
 
 ```sh
