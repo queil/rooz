@@ -140,7 +140,7 @@ impl<'a> WorkspaceApi<'a> {
                 "present"
             },
             "image",
-            &cfg.image,
+            &cfg_masked.image,
             "".into(),
         );
 
@@ -161,14 +161,18 @@ impl<'a> WorkspaceApi<'a> {
             );
         }
 
-        for path in &cfg.caches {
-            let spec = RoozVolume::cache(path).to_spec();
-            let exists = self.api.volume.exists_for(&spec).await?;
+        for (path, shown) in cfg.caches.iter().zip(&cfg_masked.caches) {
+            let exists = self
+                .api
+                .volume
+                .exists_for(&RoozVolume::cache(path).to_spec())
+                .await?;
+            // the volume name is derived from the path, so it is derived from the masked one
             plan.push(
                 if exists { "reuse" } else { "create" },
                 "cache",
-                &spec.name,
-                path.clone(),
+                &RoozVolume::cache(shown).safe_volume_name(),
+                shown.clone(),
             );
         }
 
@@ -218,8 +222,8 @@ impl<'a> WorkspaceApi<'a> {
         }
 
         let mut detail = vec![
-            format!("image={}", cfg.image),
-            format!("user={} uid={}", cfg.user, cfg.uid),
+            format!("image={}", cfg_masked.image),
+            format!("user={} uid={}", cfg_masked.user, cfg.uid),
         ];
         if cfg.privileged {
             detail.push("privileged".into());

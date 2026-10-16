@@ -798,3 +798,58 @@ async fn root_install_steps_through_bases_need_a_trusted_dir() {
     cleanup(&env, &key, &cfg_path);
     let _ = fs::remove_dir_all(&dir);
 }
+
+#[tokio::test]
+async fn dry_run_masks_secrets_wherever_they_land() {
+    use age::secrecy::ExposeSecret;
+    use rooz::api::CryptApi;
+
+    let Some(env) = TestEnv::from_env() else {
+        return;
+    };
+    let key = unique_key("vol-dry-mask");
+    let marker = "e2emarker31c9";
+
+    let identity = age::x25519::Identity::generate();
+    let encrypted = CryptApi {}
+        .encrypt(marker.to_string(), &identity.to_public())
+        .expect("encrypt");
+    let cfg_path = write_cfg(
+        &key,
+        &format!(
+            "secrets:\n  MY_SECRET: \"{}\"\nimage: \"alpine:{{{{ MY_SECRET }}}}\"\nuser: \"{{{{ MY_SECRET }}}}\"\ncaches:\n  - \"~/.{{{{ MY_SECRET }}}}\"\n",
+            encrypted
+        ),
+    );
+
+    env.rooz()
+        .args([
+            "system",
+            "init",
+            "--force",
+            "--age-identity",
+            identity.to_string().expose_secret(),
+        ])
+        .assert()
+        .success();
+
+    let out = env
+        .rooz()
+        .args(["new", &key, "--config", &cfg_path, "--dry-run"])
+        .env("ROOZ_ALLOW_SECRETS", "MY_SECRET")
+        .assert()
+        .success();
+    let stdout = String::from_utf8_lossy(&out.get_output().stdout).to_string();
+    assert!(
+        !stdout.contains(marker),
+        "the plan printed a secret:\n{}",
+        stdout
+    );
+    assert!(
+        stdout.contains("***"),
+        "expected masked values:\n{}",
+        stdout
+    );
+
+    let _ = fs::remove_file(&cfg_path);
+}
