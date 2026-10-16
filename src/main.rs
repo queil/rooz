@@ -46,11 +46,15 @@ async fn main() {
 }
 
 async fn run() -> Result<(), AnyError> {
-    env_logger::init();
+    let args = Cli::parse();
+
+    let mut logger = env_logger::Builder::from_default_env();
+    if args.verbose {
+        logger.filter_module("rooz", log::LevelFilter::Debug);
+    }
+    logger.init();
 
     log::debug!("Started");
-
-    let args = Cli::parse();
 
     if let Remote(params) = &args.command {
         remote::run(params).await?;
@@ -230,6 +234,7 @@ async fn run() -> Result<(), AnyError> {
         Cli {
             command: Remove(RemoveParams { name: _, force, .. }),
             host,
+            ..
         } => {
             remote::announce_target(host.as_deref());
             workspace.remove_all(force).await?
@@ -357,6 +362,7 @@ async fn run() -> Result<(), AnyError> {
                     command: rooz::cli::SystemCommands::Prune(_),
                 }),
             host,
+            ..
         } => {
             remote::announce_target(host.as_deref());
             rooz.prune_system().await?;

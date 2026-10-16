@@ -390,6 +390,13 @@ pub struct Cli {
         help = "Runs against a host from 'rooz remote ls' instead of DOCKER_HOST"
     )]
     pub host: Option<String>,
+    #[arg(
+        short,
+        long,
+        global = true,
+        help = "Prints debug logging (RUST_LOG still applies when this is not set)"
+    )]
+    pub verbose: bool,
     #[command(subcommand)]
     pub command: Commands,
 }

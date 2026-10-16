@@ -1,5 +1,9 @@
 use crate::{
-    api::ExecApi, config::config::ResolvedStep, constants, model::types::AnyError, util::sh,
+    api::ExecApi,
+    config::config::ResolvedStep,
+    constants,
+    model::types::AnyError,
+    util::{progress, sh},
 };
 use bollard::{
     container::LogOutput,
@@ -287,7 +291,12 @@ impl<'a> ExecApi<'a> {
             .map(|step| step.name.as_str())
             .collect::<Vec<_>>()
             .join(", ");
-        println!("[install] {} steps: {}", container_name, step_names);
+        println!(
+            "{} {} steps: {}",
+            progress::tag("install"),
+            container_name,
+            step_names
+        );
         for (idx, step) in steps.iter().enumerate() {
             let user = step.root.then_some(constants::ROOT_UID);
             if let Some(check) = &step.skip_if {
@@ -301,7 +310,12 @@ impl<'a> ExecApi<'a> {
                     .await?
                     == 0
                 {
-                    println!("[install] {}: {} skipped", container_name, step.name);
+                    println!(
+                        "{} {}: {} skipped",
+                        progress::tag("install"),
+                        container_name,
+                        step.name
+                    );
                     continue;
                 }
             }
