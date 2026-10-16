@@ -5,12 +5,12 @@
 #
 # If this config comes from a git repo not listed in ROOZ_TRUSTED_CONFIGS, rooz refuses the cache
 # paths unless you also list them in ROOZ_CACHES (or pass --caches).
-image: mcr.microsoft.com/dotnet/runtime-deps:8.0
+image: mcr.microsoft.com/dotnet/runtime-deps:11.0
 shell:
   - bash
 
 vars:
-  dotnet: 8.0.404
+  dotnet: 11.0.100-rc.2.26504.105
 
 caches:
   - ~/.local/bin          # weir
