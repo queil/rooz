@@ -146,10 +146,16 @@ impl<'a> ExecApi<'a> {
                 } => {
                     self.handle_output(output).await;
                     if exit_code != 0 {
-                        panic!("Exec terminated with exit code: {}.", exit_code);
+                        return Err(format!("Command exited with code {}.", exit_code).into());
                     }
                 }
-                _ => panic!("Unexpected exec state: {:?}", exec_state.clone()),
+                _ => {
+                    return Err(format!(
+                        "Unexpected exec state: {:?}. Check that the container is running.",
+                        exec_state
+                    )
+                    .into());
+                }
             };
         }
         Ok(())
@@ -223,7 +229,7 @@ impl<'a> ExecApi<'a> {
         {
             collect(output).await
         } else {
-            panic!("Could not start exec");
+            Err("Could not start exec: the engine returned no attached stream. Check that the container is running.".into())
         }
     }
 
@@ -242,7 +248,7 @@ impl<'a> ExecApi<'a> {
         {
             log(output).await?;
         } else {
-            panic!("Could not start exec");
+            return Err("Could not start exec: the engine returned no attached stream. Check that the container is running.".into());
         }
 
         Ok(self

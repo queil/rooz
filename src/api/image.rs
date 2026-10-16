@@ -179,22 +179,20 @@ impl<'a> ImageApi<'a> {
                         progress.update(&id, &status, cur, tot);
                     }
                 }
-                Err(Error::DockerStreamError { error }) => eprintln!("{}", error),
-                e => panic!("{:?}", e),
+                Err(Error::DockerStreamError { error }) => {
+                    return Err(pull_failed(image, &error).into());
+                }
+                Err(DockerResponseServerError { message, .. }) => {
+                    return Err(pull_failed(image, &message.replace('"', "")).into());
+                }
+                Err(e) => return Err(pull_failed(image, &e.to_string()).into()),
             };
         }
         println!();
 
         let response = self.client.inspect_image(&image).await?;
 
-        Ok(ImageInfo {
-            id: response.id.unwrap(),
-            platform: Some(format!(
-                "{}/{}",
-                response.os.unwrap(),
-                response.architecture.unwrap()
-            )),
-        })
+        image_info_of(image, response)
     }
 
     pub async fn exists(&self, image: &str) -> Result<bool, AnyError> {
@@ -254,16 +252,27 @@ impl<'a> ImageApi<'a> {
                 if always_pull && !image.starts_with("localhost/") {
                     self.pull(image).await?
                 } else {
-                    ImageInfo {
-                        id: id.unwrap(),
-                        platform: Some(format!("{}/{}", os.unwrap(), architecture.unwrap())),
-                    }
+                    image_info_of(
+                        image,
+                        ImageInspect {
+                            id,
+                            architecture,
+                            os,
+                            ..Default::default()
+                        },
+                    )?
                 }
             }
             Err(DockerResponseServerError {
                 status_code: 404, ..
             }) => self.pull(image).await?,
-            Err(e) => panic!("{:?}", e),
+            Err(e) => {
+                return Err(format!(
+                    "Could not inspect image '{}': {}. Check that the engine is running.",
+                    image, e
+                )
+                .into());
+            }
         };
 
         log::debug!("Image ID: {:?}", info);
@@ -313,8 +322,31 @@ impl<'a> ImageApi<'a> {
                 status_code
             )
             .into()),
-            Err(e) => panic!("{}", e),
+            Err(e) => Err(format!("Could not remove image '{}': {}", image_name, e).into()),
         }
+    }
+}
+
+fn pull_failed(image: &str, cause: &str) -> String {
+    format!(
+        "Pulling image '{}' failed: {}. Check the image name and tag, registry access and network; \
+         use --no-pull if a local copy is enough.",
+        image,
+        cause.trim()
+    )
+}
+
+fn image_info_of(image: &str, inspect: ImageInspect) -> Result<ImageInfo, AnyError> {
+    match (inspect.id, inspect.os, inspect.architecture) {
+        (Some(id), Some(os), Some(arch)) => Ok(ImageInfo {
+            id,
+            platform: Some(format!("{}/{}", os, arch)),
+        }),
+        _ => Err(format!(
+            "Image '{}' reports no id, os or architecture. Remove it and pull again.",
+            image
+        )
+        .into()),
     }
 }
 
@@ -331,6 +363,29 @@ fn digest_eq(a: &str, b: &str) -> bool {
 mod tests {
     use super::*;
     use crate::util::labels;
+
+    #[test]
+    fn pull_failure_names_image_cause_and_fix() {
+        let m = pull_failed("nope:1", "manifest unknown\n");
+        assert!(m.contains("nope:1") && m.contains("manifest unknown") && m.contains("--no-pull"));
+    }
+
+    #[test]
+    fn incomplete_inspect_is_an_error_not_a_panic() {
+        let err = image_info_of("x", ImageInspect::default()).unwrap_err();
+        assert!(err.to_string().contains("'x'"));
+        let ok = image_info_of(
+            "x",
+            ImageInspect {
+                id: Some("sha256:a".into()),
+                os: Some("linux".into()),
+                architecture: Some("amd64".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(ok.platform.as_deref(), Some("linux/amd64"));
+    }
 
     fn expected() -> Labels {
         Labels::from(&[

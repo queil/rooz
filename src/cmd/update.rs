@@ -130,6 +130,21 @@ impl<'a> WorkspaceApi<'a> {
             return Ok(());
         }
 
+        // pull before anything is removed: a failed pull must leave the workspace as it was. Only
+        // an image named by the config or the environment is known here; one that comes from
+        // 'bases' is still pulled by 'new'.
+        let mut pull_image = !(no_pull || interactive);
+        if pull_image {
+            let image = spec.image.clone().or_else(|| match &config_source {
+                Some(ConfigSource::Update { value, .. }) => value.image.clone(),
+                _ => None,
+            });
+            if let Some(image) = image {
+                self.api.image.ensure(&image, true).await?;
+                pull_image = false;
+            }
+        }
+
         match mode {
             UpdateMode::Apply => self.remove_containers_only(&workspace_key, true).await?,
             UpdateMode::Purge => self.remove(&workspace_key, true, true).await?,
@@ -140,7 +155,7 @@ impl<'a> WorkspaceApi<'a> {
             &WorkParams {
                 git_ssh_url,
                 env: spec.clone(),
-                pull_image: if no_pull || interactive { false } else { true },
+                pull_image,
                 allow_secrets,
                 ..Default::default()
             },

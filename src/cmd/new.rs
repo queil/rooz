@@ -385,6 +385,12 @@ impl<'a> WorkspaceApi<'a> {
             .resolve_runtime(cfg_builder, &cli_config, cli_params, operator_authored)
             .await?;
 
+        // pull first: a failed pull must not leave a stored config behind
+        self.api
+            .image
+            .ensure(&cfg.image, cli_params.pull_image)
+            .await?;
+
         if let Some(StoredConfig {
             origin,
             body,
@@ -396,11 +402,6 @@ impl<'a> WorkspaceApi<'a> {
                 self.config.store_bases(workspace_key, &bases).await?;
             }
         }
-
-        self.api
-            .image
-            .ensure(&cfg.image, cli_params.pull_image)
-            .await?;
 
         let volume_specs =
             VolumeApi::create_volume_specs(workspace_key, &cfg.data, &cfg.all_mounts(), true)?;
