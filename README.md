@@ -268,7 +268,7 @@ object:
 
 ```yaml
 vars:
-  dotnet: 8.0.404
+  dotnet: 11.0.100-rc.2.26504.105
 
 install:
   00-tools:
