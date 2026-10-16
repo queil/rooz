@@ -283,6 +283,28 @@ pub struct ListParams {
         help = "Lists workspaces on all configured hosts that 'rooz remote' is connected to"
     )]
     pub all_hosts: bool,
+    #[arg(long, help = "Prints JSON instead of a table")]
+    pub json: bool,
+}
+
+#[derive(Parser, Debug)]
+#[command(about = "Shows a workspace's containers, volumes and config origin")]
+pub struct StatusParams {
+    pub name: String,
+    #[arg(long, help = "Prints JSON instead of text")]
+    pub json: bool,
+}
+
+#[derive(Parser, Debug)]
+#[command(about = "Shows the logs of a workspace container")]
+pub struct LogsParams {
+    pub name: String,
+    #[arg(short, long, help = "A sidecar name; the work container by default")]
+    pub container: Option<String>,
+    #[arg(short, long, help = "Keeps streaming new output")]
+    pub follow: bool,
+    #[arg(long, help = "Number of lines from the end, e.g. 100")]
+    pub tail: Option<String>,
 }
 
 #[derive(Parser, Debug)]
@@ -391,6 +413,8 @@ pub enum Commands {
     Remove(RemoveParams),
     Update(UpdateParams),
     List(ListParams),
+    Status(StatusParams),
+    Logs(LogsParams),
     Config(Config),
     Tmp(TmpParams),
     Remote(RemoteParams),

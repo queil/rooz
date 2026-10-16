@@ -159,6 +159,14 @@ rooz exec myworkspace2 -- cargo test
 Output is passed through (stdout and stderr stay separate), there is no tty or stdin, and `rooz`
 exits with the command's exit code. `--root`, `--work-dir` and `--container` (a sidecar) work as in `enter`.
 
+### Inspect workspaces
+
+```sh
+rooz list [--json]                       # status, image, age, config origin
+rooz status myworkspace2 [--json]        # containers, volumes, config origin
+rooz logs myworkspace2 [-c sidecar] [-f] [--tail 100]
+```
+
 ### Interactive shell in an anonymous ephemeral workspace
 
 ```sh

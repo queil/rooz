@@ -327,12 +327,67 @@ async fn exec_runs_one_command_and_returns_its_exit_code() {
 
     let out = env
         .rooz()
-        .args(["exec", &key, "--", "sh", "-c", "echo out; echo err >&2; exit 7"])
+        .args([
+            "exec",
+            &key,
+            "--",
+            "sh",
+            "-c",
+            "echo out; echo err >&2; exit 7",
+        ])
         .assert()
         .code(7);
     let out = out.get_output();
     assert_eq!(String::from_utf8_lossy(&out.stdout), "out\n");
     assert!(String::from_utf8_lossy(&out.stderr).contains("err"));
+
+    env.rooz().args(["rm", &key, "--force"]).assert().success();
+}
+
+#[tokio::test]
+async fn list_status_and_logs_describe_a_workspace() {
+    let Some(env) = TestEnv::from_env() else {
+        return;
+    };
+    let key = unique_key("inspect");
+
+    env.rooz()
+        .args(["system", "init", "--force"])
+        .assert()
+        .success();
+    env.rooz()
+        .args(["new", &key, "--image", "alpine:latest"])
+        .assert()
+        .success();
+
+    let list = env.rooz().args(["list", "--json"]).assert().success();
+    let rows: serde_json::Value =
+        serde_json::from_slice(&list.get_output().stdout).expect("list --json is JSON");
+    let row = rows
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["name"] == key.as_str())
+        .expect("workspace listed");
+    assert_eq!(row["status"], "running");
+    assert!(row["image"].as_str().unwrap().contains("alpine"));
+
+    let status = env
+        .rooz()
+        .args(["status", &key, "--json"])
+        .assert()
+        .success();
+    let st: serde_json::Value = serde_json::from_slice(&status.get_output().stdout).unwrap();
+    assert_eq!(st["name"], key.as_str());
+    assert!(!st["containers"].as_array().unwrap().is_empty());
+    assert!(!st["volumes"].as_array().unwrap().is_empty());
+
+    env.rooz().args(["status", &key]).assert().success();
+    env.rooz().args(["logs", &key, "--tail", "5"]).assert().success();
+    env.rooz()
+        .args(["status", "no-such-workspace-xyz"])
+        .assert()
+        .failure();
 
     env.rooz().args(["rm", &key, "--force"]).assert().success();
 }

@@ -5,8 +5,8 @@ use rooz::{
     cli::{
         Cli,
         Commands::{
-            Code, Config, Enter, Exec, List, New, Remote, Remove, Restart, Start, Stop, System,
-            Tmp, Update,
+            Code, Config, Enter, Exec, List, Logs, New, Remote, Remove, Restart, Start, Status,
+            Stop, System, Tmp, Update,
         },
         CompletionParams, ConfigureParams, ListParams, NewParams, RemoveParams, ShowConfigParams,
         StopParams, TmpParams,
@@ -23,8 +23,8 @@ use clap_complete::generate;
 use colored::Colorize;
 use rooz::api::{ConfigApi, CryptApi};
 use rooz::cli::{
-    CodeParams, EditConfigParams, EnterParams, ExecParams, RestartParams, StartParams,
-    TemplateConfigParams, UpdateParams,
+    CodeParams, EditConfigParams, EnterParams, ExecParams, LogsParams, RestartParams, StartParams,
+    StatusParams, TemplateConfigParams, UpdateParams,
 };
 use rooz::cmd::plan::PlanMode;
 use rooz::cmd::update::UpdateMode;
@@ -61,7 +61,10 @@ async fn run() -> Result<(), AnyError> {
         std::process::exit(0);
     }
 
-    if let List(ListParams { all_hosts: true }) = &args.command {
+    if let List(ListParams {
+        all_hosts: true, ..
+    }) = &args.command
+    {
         remote::list_all_hosts()?;
         std::process::exit(0);
     }
@@ -240,9 +243,28 @@ async fn run() -> Result<(), AnyError> {
         }
 
         Cli {
-            command: List(ListParams { .. }),
+            command: List(ListParams { json, .. }),
             ..
-        } => rooz.list().await?,
+        } => rooz.list(json).await?,
+
+        Cli {
+            command: Status(StatusParams { name, json }),
+            ..
+        } => rooz.status(&name, json).await?,
+
+        Cli {
+            command:
+                Logs(LogsParams {
+                    name,
+                    container,
+                    follow,
+                    tail,
+                }),
+            ..
+        } => {
+            rooz.logs(&name, container.as_deref(), follow, tail.as_deref())
+                .await?
+        }
 
         Cli {
             command:
