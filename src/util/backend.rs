@@ -100,6 +100,53 @@ impl ContainerBackend {
     }
 }
 
+/// Where rooz connects, spelled out: the forwarded socket of a `-H` host, `DOCKER_HOST`, or the
+/// default socket the client falls back to.
+pub fn engine_target(
+    host: Option<&str>,
+    host_socket: Option<&std::path::Path>,
+    docker_host: Option<&str>,
+) -> String {
+    match (host, host_socket, docker_host.filter(|d| !d.is_empty())) {
+        (Some(name), Some(socket), _) => {
+            format!("host '{}' via {}", name, socket.display())
+        }
+        (_, _, Some(docker_host)) => format!("{} (DOCKER_HOST)", docker_host),
+        _ => "unix:///var/run/docker.sock (default, DOCKER_HOST is not set)".to_string(),
+    }
+}
+
+pub fn root_cause(e: &dyn std::error::Error) -> String {
+    let mut cur = e;
+    while let Some(next) = cur.source() {
+        cur = next;
+    }
+    cur.to_string()
+}
+
+/// What to tell the operator when the engine does not answer: where rooz looked, why it failed
+/// (the innermost cause, not the client library's wrapper text) and what to do.
+pub fn engine_error_message(target: &str, e: &bollard::errors::Error) -> String {
+    match e {
+        bollard::errors::Error::DockerResponseServerError {
+            status_code,
+            message,
+        } => format!(
+            "The engine at {} answered with an error: {} (code {}). Check the engine's logs, and \
+             that this user may use its socket.",
+            target,
+            message.replace('"', ""),
+            status_code
+        ),
+        e => format!(
+            "Cannot reach the container engine at {}: {}. Start the engine or point rooz at the \
+             right one with DOCKER_HOST or -H. 'rooz doctor' checks the whole setup.",
+            target,
+            root_cause(e)
+        ),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -145,6 +192,47 @@ mod tests {
             version: Some(v.to_string()),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn the_target_names_where_rooz_connects() {
+        use std::path::Path;
+        assert_eq!(
+            engine_target(
+                Some("box"),
+                Some(Path::new("/run/rooz/box.sock")),
+                Some("tcp://x:1")
+            ),
+            "host 'box' via /run/rooz/box.sock"
+        );
+        assert_eq!(
+            engine_target(None, None, Some("tcp://dkr:2375")),
+            "tcp://dkr:2375 (DOCKER_HOST)"
+        );
+        for unset in [None, Some("")] {
+            assert!(engine_target(None, None, unset).starts_with("unix:///var/run/docker.sock"));
+        }
+    }
+
+    #[test]
+    fn the_innermost_cause_is_what_gets_reported() {
+        #[derive(Debug)]
+        struct Wrapper(std::io::Error);
+        impl std::fmt::Display for Wrapper {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "client error (Connect)")
+            }
+        }
+        impl std::error::Error for Wrapper {
+            fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+                Some(&self.0)
+            }
+        }
+        let e = Wrapper(std::io::Error::new(
+            std::io::ErrorKind::ConnectionRefused,
+            "Connection refused",
+        ));
+        assert_eq!(root_cause(&e), "Connection refused");
     }
 
     #[test]

@@ -5,7 +5,7 @@ use crate::{
     constants,
     model::{types::AnyError, volume::RoozVolume},
     util::{
-        backend::{ContainerBackend, ContainerEngine, check_version_floor},
+        backend::{ContainerBackend, ContainerEngine, check_version_floor, root_cause},
         identity, ssh,
     },
 };
@@ -16,6 +16,7 @@ const DOCKER_POOL_SUBNETS: usize = 31;
 const POOL_WARN_AT: usize = 25;
 
 enum Level {
+    Info,
     Ok,
     Warn,
     Fail,
@@ -28,6 +29,7 @@ struct Report {
 impl Report {
     fn line(&mut self, level: Level, what: &str, detail: impl std::fmt::Display) {
         let mark = match level {
+            Level::Info => "info".dimmed(),
             Level::Ok => "ok".green(),
             Level::Warn => "warn".yellow(),
             Level::Fail => {
@@ -41,8 +43,12 @@ impl Report {
 
 /// Checks the machine and the engine rooz runs against; returns whether everything it needs
 /// is in place. Needs no working engine connection - a missing one is what it reports.
-pub async fn run(connection: Result<Docker, bollard::errors::Error>) -> Result<bool, AnyError> {
+pub async fn run(
+    connection: Result<Docker, bollard::errors::Error>,
+    target: &str,
+) -> Result<bool, AnyError> {
     let mut r = Report { failed: false };
+    r.line(Level::Info, "endpoint", target);
 
     let docker = match connection {
         Ok(d) => d,
@@ -52,7 +58,7 @@ pub async fn run(connection: Result<Docker, bollard::errors::Error>) -> Result<b
                 "engine",
                 format!(
                     "cannot connect: {}. Set DOCKER_HOST or start the engine.",
-                    e
+                    root_cause(&e)
                 ),
             );
             local_checks(&mut r);
@@ -67,7 +73,7 @@ pub async fn run(connection: Result<Docker, bollard::errors::Error>) -> Result<b
             let cause = v
                 .err()
                 .or(i.err())
-                .map(|e| e.to_string())
+                .map(|e| root_cause(&e))
                 .unwrap_or_default();
             r.line(
                 Level::Fail,

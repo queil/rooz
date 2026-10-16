@@ -110,16 +110,29 @@ async fn run() -> Result<(), AnyError> {
         (None, None) => Docker::connect_with_local_defaults(),
     };
 
+    let target = rooz::util::backend::engine_target(
+        args.host.as_deref(),
+        host_socket.as_deref(),
+        std::env::var("DOCKER_HOST").ok().as_deref(),
+    );
+    log::debug!("Engine endpoint: {}", target);
+
     if let Doctor(_) = &args.command {
-        let ok = rooz::cmd::doctor::run(connection).await?;
+        let ok = rooz::cmd::doctor::run(connection, &target).await?;
         std::process::exit(if ok { 0 } else { 1 });
     }
 
-    let docker = connection.expect("Docker API connection established");
+    let docker = connection.map_err(|e| rooz::util::backend::engine_error_message(&target, &e))?;
 
     log::debug!("Client ver: {}", &docker.client_version());
     let (version, info) = tokio::join!(docker.version(), docker.info());
-    let (version, info) = (version?, info?);
+    let (version, info) = match (version, info) {
+        (Ok(v), Ok(i)) => (v, i),
+        (v, i) => {
+            let e = v.err().or(i.err()).expect("one of them failed");
+            return Err(rooz::util::backend::engine_error_message(&target, &e).into());
+        }
+    };
 
     if let Some(ver) = &version.api_version {
         log::debug!("Server API ver: {}", ver);
