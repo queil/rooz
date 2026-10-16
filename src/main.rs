@@ -278,6 +278,7 @@ async fn run() -> Result<(), AnyError> {
                     purge,
                     no_pull,
                     dry_run,
+                    allow_secrets,
                 }),
             ..
         } => {
@@ -292,6 +293,7 @@ async fn run() -> Result<(), AnyError> {
                     },
                     no_pull,
                     dry_run,
+                    allow_secrets,
                 )
                 .await?;
         }

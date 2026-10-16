@@ -29,6 +29,7 @@ impl<'a> WorkspaceApi<'a> {
         mode: UpdateMode,
         no_pull: bool,
         dry_run: bool,
+        allow_secrets: Option<bool>,
     ) -> Result<(), AnyError> {
         let labels = Labels::workspace_config(workspace_key);
 
@@ -116,6 +117,7 @@ impl<'a> WorkspaceApi<'a> {
                         git_ssh_url,
                         env: spec.clone(),
                         pull_image: !no_pull,
+                        allow_secrets,
                         ..Default::default()
                     },
                     config_source,
@@ -139,6 +141,7 @@ impl<'a> WorkspaceApi<'a> {
                 git_ssh_url,
                 env: spec.clone(),
                 pull_image: if no_pull || interactive { false } else { true },
+                allow_secrets,
                 ..Default::default()
             },
             config_source,

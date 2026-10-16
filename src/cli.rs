@@ -346,6 +346,11 @@ pub struct UpdateParams {
         help = "Prints what the update would remove and create, without changing anything"
     )]
     pub dry_run: bool,
+    #[arg(
+        long,
+        help = "Consents to expanding the 'secrets' of the workspace config into the updated workspace"
+    )]
+    pub allow_secrets: Option<bool>,
 }
 
 #[derive(Parser, Debug)]

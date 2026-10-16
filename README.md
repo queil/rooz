@@ -519,7 +519,7 @@ that, `rooz new` aborts and names the secrets involved. Consent with either:
   leave in your shell profile, and it also covers `rooz update` (which re-renders the configuration
   on every run).
 * `ROOZ_ALLOW_SECRETS=true` - releases whatever the configuration declares. Convenient for CI.
-* `--allow-secrets true` - the same, for a single `rooz new`.
+* `--allow-secrets true` - the same, for a single `rooz new` or `rooz update`.
 
 The reason is that a local `--config` path is not proof of authorship: a repository can ship a config
 file and its README can tell you to pass it (`rooz new ws --config ./setup.yaml`), and that file then
