@@ -245,6 +245,23 @@ pub struct EnterParams {
 }
 
 #[derive(Parser, Debug)]
+#[command(
+    about = "Runs one command in a workspace container and exits with its exit code",
+    override_usage = "rooz exec [OPTIONS] <NAME> -- <CMD>..."
+)]
+pub struct ExecParams {
+    pub name: String,
+    #[arg(short, long)]
+    pub root: bool,
+    #[arg(short, long)]
+    pub work_dir: Option<String>,
+    #[arg(short, long)]
+    pub container: Option<String>,
+    #[arg(last = true, required = true, num_args = 1..)]
+    pub cmd: Vec<String>,
+}
+
+#[derive(Parser, Debug)]
 #[command(about = "Starts a workspace")]
 pub struct StartParams {
     pub name: String,
@@ -366,6 +383,7 @@ pub struct CodeParams {
 pub enum Commands {
     New(NewParams),
     Enter(EnterParams),
+    Exec(ExecParams),
     Code(CodeParams),
     Start(StartParams),
     Stop(StopParams),

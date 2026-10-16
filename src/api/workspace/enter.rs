@@ -11,7 +11,7 @@ use crossterm::{
 };
 
 use crate::{
-    api::WorkspaceApi,
+    api::{WorkspaceApi, exec::ExecExit},
     config::{config::ConfigType, runtime::RuntimeConfig},
     constants::{self},
     model::types::AnyError,
@@ -43,6 +43,46 @@ impl<'a> WorkspaceApi<'a> {
             Ok(_) => Ok(()),
             Err(e) => Err(Box::new(e)),
         }
+    }
+
+    // Runs one command in a workspace container and returns its exit code.
+    pub async fn exec(
+        &self,
+        workspace_key: &str,
+        working_dir: Option<&str>,
+        container_name: Option<&str>,
+        root: bool,
+        cmd: Vec<&str>,
+    ) -> Result<i64, AnyError> {
+        let container_name = container_name.unwrap_or(constants::DEFAULT_CONTAINER_NAME);
+        let container = self
+            .api
+            .container
+            .get_single(&Labels::from(&[
+                Labels::workspace(workspace_key),
+                Labels::container(container_name),
+            ]))
+            .await?
+            .ok_or(format!(
+                "Container '{}' of workspace '{}' not found. Check 'rooz list'.",
+                container_name, workspace_key
+            ))?;
+        let container_id = container.id.as_deref().unwrap();
+
+        self.api.container.start(container_id).await?;
+        if !root && container_name == constants::DEFAULT_CONTAINER_NAME {
+            self.api.exec.ensure_user(container_id).await?;
+        }
+
+        self.api
+            .exec
+            .passthrough(
+                container_id,
+                working_dir,
+                root.then_some(constants::ROOT_USER),
+                cmd,
+            )
+            .await
     }
 
     pub async fn enter(
@@ -151,6 +191,7 @@ impl<'a> WorkspaceApi<'a> {
                 .await
             {
                 Ok(_) => break,
+                Err(e) if e.downcast_ref::<ExecExit>().is_some() => return Err(e),
                 Err(e) => {
                     log::debug!("{}", e);
                 }

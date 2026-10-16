@@ -308,3 +308,31 @@ async fn dry_run_refuses_what_a_run_refuses() {
 
     let _ = std::fs::remove_file(&cfg_path);
 }
+
+#[tokio::test]
+async fn exec_runs_one_command_and_returns_its_exit_code() {
+    let Some(env) = TestEnv::from_env() else {
+        return;
+    };
+    let key = unique_key("exec");
+
+    env.rooz()
+        .args(["system", "init", "--force"])
+        .assert()
+        .success();
+    env.rooz()
+        .args(["new", &key, "--image", "alpine:latest"])
+        .assert()
+        .success();
+
+    let out = env
+        .rooz()
+        .args(["exec", &key, "--", "sh", "-c", "echo out; echo err >&2; exit 7"])
+        .assert()
+        .code(7);
+    let out = out.get_output();
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "out\n");
+    assert!(String::from_utf8_lossy(&out.stderr).contains("err"));
+
+    env.rooz().args(["rm", &key, "--force"]).assert().success();
+}

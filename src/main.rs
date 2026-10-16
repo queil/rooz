@@ -5,8 +5,8 @@ use rooz::{
     cli::{
         Cli,
         Commands::{
-            Code, Config, Enter, List, New, Remote, Remove, Restart, Start, Stop, System, Tmp,
-            Update,
+            Code, Config, Enter, Exec, List, New, Remote, Remove, Restart, Start, Stop, System,
+            Tmp, Update,
         },
         CompletionParams, ConfigureParams, ListParams, NewParams, RemoveParams, ShowConfigParams,
         StopParams, TmpParams,
@@ -23,8 +23,8 @@ use clap_complete::generate;
 use colored::Colorize;
 use rooz::api::{ConfigApi, CryptApi};
 use rooz::cli::{
-    CodeParams, EditConfigParams, EnterParams, RestartParams, StartParams, TemplateConfigParams,
-    UpdateParams,
+    CodeParams, EditConfigParams, EnterParams, ExecParams, RestartParams, StartParams,
+    TemplateConfigParams, UpdateParams,
 };
 use rooz::cmd::plan::PlanMode;
 use rooz::cmd::update::UpdateMode;
@@ -214,6 +214,29 @@ async fn run() -> Result<(), AnyError> {
                     chown,
                 )
                 .await?;
+        }
+
+        Cli {
+            command:
+                Exec(ExecParams {
+                    name,
+                    root,
+                    work_dir,
+                    container,
+                    cmd,
+                }),
+            ..
+        } => {
+            let code = workspace
+                .exec(
+                    &name,
+                    work_dir.as_deref(),
+                    container.as_deref(),
+                    root,
+                    cmd.iter().map(String::as_str).collect(),
+                )
+                .await?;
+            std::process::exit(code.clamp(0, 255) as i32);
         }
 
         Cli {

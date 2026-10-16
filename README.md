@@ -150,6 +150,15 @@ rooz new -g git@github.com:your/repo myworkspace2
 rooz enter myworkspace2
 ```
 
+### Run one command in a workspace
+
+```sh
+rooz exec myworkspace2 -- cargo test
+```
+
+Output is passed through (stdout and stderr stay separate), there is no tty or stdin, and `rooz`
+exits with the command's exit code. `--root`, `--work-dir` and `--container` (a sidecar) work as in `enter`.
+
 ### Interactive shell in an anonymous ephemeral workspace
 
 ```sh
