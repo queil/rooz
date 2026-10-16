@@ -11,7 +11,7 @@ const GO_IMAGE: &str = "docker.io/library/golang:1";
 const PYTHON_IMAGE: &str = "docker.io/library/python:3";
 const DOTNET_IMAGE: &str = "mcr.microsoft.com/dotnet/sdk";
 // used only when no project file states a target framework
-const DOTNET_FALLBACK: &str = "9.0";
+const DOTNET_FALLBACK: &str = "10.0";
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Detected {

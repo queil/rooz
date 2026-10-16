@@ -1,6 +1,6 @@
 # DX roadmap
 
-Agreed items, in suggested order. Status as of the unreleased work after 0.164.0.
+Agreed items, in suggested order. Status as of 0.164.0.
 
 ## Done
 
@@ -12,11 +12,11 @@ Agreed items, in suggested order. Status as of the unreleased work after 0.164.0
 - **`--dry-run`** (merges "config check" and "plan") - branch `dry-run`, 0.164.0. `new --dry-run`,
   `update [--purge] --dry-run`. Same gates as a run; env/scripts/secrets never printed.
 - **Terse errors, phase progress and `-v`, `exec`, `list`/`status`/`logs`, `cache`, `doctor`,
-  `config schema`/`show --resolved`, `move` stage 1, `config template --detect`** - unreleased, see
+  `config schema`/`show --resolved`, `move` stage 1, `config template --detect`** - shipped 0.164.0, see
   CHANGELOG. Not done from these: a log tail for failing install steps (their output already streams
   live), "last use" for caches (the engine does not track it), hover descriptions in the config schema.
 
-- **`rooz move --to <host>`** (stage 2) - unreleased. Built as two ordinary rooz processes (`-H`
+- **`rooz move --to <host>`** (stage 2) - shipped 0.164.0. Built as two ordinary rooz processes (`-H`
   source, `-H` target) with the tar streamed between them, so no second engine client exists in one
   process. Tested on one daemon behind a second unix socket; a real second host is not tested.
   Not done: `--with-caches`, `--from` (use `-H`), a direct host-to-host pipe.

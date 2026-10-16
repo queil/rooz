@@ -191,7 +191,7 @@ Prints a commented starter config. With `--detect` it looks for `Cargo.toml`, `*
 image and the cache paths of the toolchain. Images are the official ones on floating tags
 (`rust:1`, `node:lts`, `golang:1`, `python:3`), which `rooz update` re-pulls, so they stay current
 without editing. The exception is .NET: the SDK image only has its own runtime, so the tag follows
-the highest `TargetFramework` in your projects (`dotnet/sdk:9.0` if none states one). When several
+the highest `TargetFramework` in your projects (`dotnet/sdk:10.0` if none states one). When several
 stacks are found the first one picks the image and the caches of all are listed.
 
 ### Rename a workspace
