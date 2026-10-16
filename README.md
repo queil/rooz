@@ -261,6 +261,33 @@ If several machines share one remote engine and their local uids collide (both `
 distinct `ROOZ_CACHE_SCOPE` per operator. Note that the scope is a collision boundary, not an
 authorization boundary: anyone able to create workspaces on an engine can name any scope.
 
+### Dry run
+
+`rooz new <name> --dry-run` and `rooz update <name> --dry-run` report what the command would do and change
+nothing:
+
+```
+$ rooz new demo --config demo.rooz.yaml --dry-run
+pull     image     docker.io/alpine:latest
+create   volume    rooz-demo-work
+reuse    cache     rooz_cache_uid-1000_---nuget  ~/.nuget
+create   network   demo-egress
+create   sidecar   db  image=docker.io/postgres:17 install: 00-x[root]
+create   work      demo  image=docker.io/alpine:latest user=rooz_user uid=1000 env=PGHOST
+run      install   00-tools  root,skip_if
+
+Dry run: nothing was changed.
+```
+
+* the configuration is resolved and gated exactly as for a real run (bases, templating, secrets, consent,
+  trust), so a plan fails with the same error a run would.
+* `update` also lists the containers (and with `--purge`, the volumes) it would remove.
+* env values, install scripts and secrets are never printed - env by name, steps by name and flags.
+* it queries the engine but creates nothing: no workspace volumes, networks or containers, no clone. A
+  `--config git:...` source is fetched with a short-lived helper container, which is removed again.
+* what it cannot know is shown as is: `skip_if` checks run in the container, so a step is listed with its
+  flags and may still be skipped.
+
 ### Install steps
 
 `install` runs shell steps in the work container when a workspace is created. A step is a string, or an

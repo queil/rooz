@@ -8,6 +8,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases before 0.159.0 predate this
 file - see the git history.
 
+## [Unreleased]
+
+### Added
+
+- `rooz new --dry-run` and `rooz update --dry-run` (also with `--purge`) print what would be removed
+  and created - image pull, volumes, caches, networks, sidecars, the work container and install steps
+  - and change nothing. The configuration is resolved and gated like a real run, so a plan fails with
+  the error a run would. Env values, scripts and secrets are not printed.
+
 ## [0.163.0] - 2026-10-16
 
 ### Added

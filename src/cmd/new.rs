@@ -1,5 +1,6 @@
 use crate::api::VolumeApi;
 use crate::api::config::{ConfigBody, LocalReader, render_bases, resolve_data_files};
+use crate::cmd::plan::{Plan, PlanMode};
 use crate::config::trust::TrustedConfigs;
 use crate::model::types::VolumeResult;
 use crate::{
@@ -218,6 +219,11 @@ fn check_repo_authored(cfg: &RoozCfg, consented_caches: &[String]) -> Result<(),
 // A resolved '--config' source. A 'bases' layer is a separate file the operator pointed at -
 // a team overlay, something copied out of a repository - not content they wrote, and the merge
 // drops the 'bases' field, so the fact has to travel with the result.
+enum NewOutcome {
+    Created(EnterSpec),
+    Planned(Plan),
+}
+
 struct CliConfig {
     cfg: Option<RoozCfg>,
     bases_merged: bool,
@@ -283,20 +289,17 @@ impl<'a> WorkspaceApi<'a> {
         }
     }
 
-    async fn new_core(
+    // Everything between the parsed configuration and the first engine call: merge, consent,
+    // decrypt, expand, gate. Shared by the real run and --dry-run, so a plan refuses exactly
+    // what a run would.
+    async fn resolve_runtime(
         &self,
         cfg_builder: &mut RoozCfg,
-        cli_config: Option<RoozCfg>,
+        cli_config: &Option<RoozCfg>,
         cli_params: &WorkParams,
-        work_spec: &WorkSpec<'a>,
-        clone_spec: &CloneEnv,
-        root_git_repo: Option<RootRepoCloneResult>,
-        workspace_key: &str,
-        force: bool,
-        stored_config: Option<StoredConfig>,
         operator_authored: bool,
-    ) -> Result<EnterSpec, AnyError> {
-        if let Some(c) = &cli_config {
+    ) -> Result<(RuntimeConfig, Vec<String>), AnyError> {
+        if let Some(c) = cli_config {
             cfg_builder.from_config(c);
         }
         cfg_builder.from_cli(cli_params, None);
@@ -361,6 +364,26 @@ impl<'a> WorkspaceApi<'a> {
             &cfg.vpn_containers(),
             &Consent::resolve(None, std::env::var(ALLOW_VPN_ENV).ok()),
         )?;
+
+        Ok((cfg, decrypted_secrets))
+    }
+
+    async fn new_core(
+        &self,
+        cfg_builder: &mut RoozCfg,
+        cli_config: Option<RoozCfg>,
+        cli_params: &WorkParams,
+        work_spec: &WorkSpec<'a>,
+        clone_spec: &CloneEnv,
+        root_git_repo: Option<RootRepoCloneResult>,
+        workspace_key: &str,
+        force: bool,
+        stored_config: Option<StoredConfig>,
+        operator_authored: bool,
+    ) -> Result<EnterSpec, AnyError> {
+        let (cfg, decrypted_secrets) = self
+            .resolve_runtime(cfg_builder, &cli_config, cli_params, operator_authored)
+            .await?;
 
         if let Some(StoredConfig {
             origin,
@@ -640,6 +663,49 @@ impl<'a> WorkspaceApi<'a> {
         cli_config_path: Option<ConfigSource>,
         ephemeral: bool,
     ) -> Result<EnterSpec, AnyError> {
+        match self
+            .new_inner(workspace_key, cli_params, cli_config_path, ephemeral, None)
+            .await?
+        {
+            NewOutcome::Created(spec) => Ok(spec),
+            NewOutcome::Planned(_) => unreachable!("a plan is only produced when one is asked for"),
+        }
+    }
+
+    // Resolves and gates the configuration exactly as 'new' does, then reports what a run would
+    // do instead of doing it. It reads the engine (and, for 'git:' sources, fetches the config
+    // with a short-lived helper container); it creates no workspace resources and clones no
+    // repository.
+    pub async fn plan_new(
+        &self,
+        workspace_key: &str,
+        cli_params: &WorkParams,
+        cli_config_path: Option<ConfigSource>,
+        mode: PlanMode,
+    ) -> Result<Plan, AnyError> {
+        match self
+            .new_inner(
+                workspace_key,
+                cli_params,
+                cli_config_path,
+                false,
+                Some(mode),
+            )
+            .await?
+        {
+            NewOutcome::Planned(plan) => Ok(plan),
+            NewOutcome::Created(_) => unreachable!("a run is never made when a plan is asked for"),
+        }
+    }
+
+    async fn new_inner(
+        &self,
+        workspace_key: &str,
+        cli_params: &WorkParams,
+        cli_config_path: Option<ConfigSource>,
+        ephemeral: bool,
+        plan: Option<PlanMode>,
+    ) -> Result<NewOutcome, AnyError> {
         let orig_uid = cli_params
             .uid
             .map(|x| x.to_string())
@@ -652,7 +718,10 @@ impl<'a> WorkspaceApi<'a> {
 
         self.api
             .image
-            .ensure(constants::DEFAULT_IMAGE, cli_params.pull_image)
+            .ensure(
+                constants::DEFAULT_IMAGE,
+                cli_params.pull_image && plan.is_none(),
+            )
             .await?;
 
         let work_dir = constants::WORK_DIR;
@@ -709,6 +778,20 @@ impl<'a> WorkspaceApi<'a> {
             ..Default::default()
         };
         let mut cfg_builder = RoozCfg::default().from_cli_env(cli_params.clone());
+        // base layers are merged content the operator did not write, so they carry
+        // the same weight as the repository's own config here
+        let operator_authored = operator_local && (trusted || !bases_merged);
+
+        if let Some(mode) = &plan {
+            let (cfg, secrets) = self
+                .resolve_runtime(&mut cfg_builder, &cli_cfg, cli_params, operator_authored)
+                .await?;
+            return Ok(NewOutcome::Planned(
+                self.plan(workspace_key, &cfg, &secrets, mode, cli_params.pull_image)
+                    .await?,
+            ));
+        }
+
         let root_repo_result = match &RoozCfg::git_ssh_url(cli_params, &cli_cfg) {
             Some(url) => Some(self.git.clone_root_repo(&url, &clone_env).await?),
             None => None,
@@ -728,16 +811,14 @@ impl<'a> WorkspaceApi<'a> {
                 &workspace_key,
                 false,
                 stored_config,
-                // base layers are merged content the operator did not write, so they carry
-                // the same weight as the repository's own config here
-                operator_local && (trusted || !bases_merged),
+                operator_authored,
             )
             .await?;
 
         if let Some(true) = cli_params.start {
             self.start(&workspace_key).await?;
         }
-        Ok(enter_spec)
+        Ok(NewOutcome::Created(enter_spec))
     }
 
     pub async fn tmp(&self, spec: &WorkParams, root: bool, shell: &str) -> Result<(), AnyError> {

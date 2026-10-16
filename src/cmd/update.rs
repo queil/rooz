@@ -3,6 +3,7 @@ use std::{fs, process::exit};
 use crate::{
     api::WorkspaceApi,
     cli::{WorkEnvParams, WorkParams},
+    cmd::plan::PlanMode,
     config::{
         config::{ConfigPath, ConfigSource, ConfigType, FileFormat, RoozCfg},
         runtime::{RuntimeConfig, SECRET_MASK},
@@ -27,6 +28,7 @@ impl<'a> WorkspaceApi<'a> {
         interactive: bool,
         mode: UpdateMode,
         no_pull: bool,
+        dry_run: bool,
     ) -> Result<(), AnyError> {
         let labels = Labels::workspace_config(workspace_key);
 
@@ -105,6 +107,26 @@ impl<'a> WorkspaceApi<'a> {
             Some(ConfigSource::Update { value, .. }) if value.git_ssh_url.is_some() => None,
             _ => self.stored_git_ssh_url(workspace_key).await?,
         };
+
+        if dry_run {
+            let plan = self
+                .plan_new(
+                    workspace_key,
+                    &WorkParams {
+                        git_ssh_url,
+                        env: spec.clone(),
+                        pull_image: !no_pull,
+                        ..Default::default()
+                    },
+                    config_source,
+                    PlanMode::Update {
+                        purge: matches!(mode, UpdateMode::Purge),
+                    },
+                )
+                .await?;
+            println!("{}", plan);
+            return Ok(());
+        }
 
         match mode {
             UpdateMode::Apply => self.remove_containers_only(&workspace_key, true).await?,

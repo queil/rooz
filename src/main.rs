@@ -26,6 +26,7 @@ use rooz::cli::{
     CodeParams, EditConfigParams, EnterParams, RestartParams, StartParams, TemplateConfigParams,
     UpdateParams,
 };
+use rooz::cmd::plan::PlanMode;
 use rooz::cmd::update::UpdateMode;
 use rooz::config::config::{ConfigPath, ConfigSource, FileFormat};
 use rooz::constants;
@@ -149,6 +150,7 @@ async fn run() -> Result<(), AnyError> {
                     work,
                     name,
                     config_path,
+                    dry_run,
                 }),
             ..
         } => {
@@ -170,6 +172,14 @@ async fn run() -> Result<(), AnyError> {
                 )),
                 None => Ok(()),
             }?;
+
+            if dry_run {
+                let plan = workspace
+                    .plan_new(&name, &work, config_source, PlanMode::New)
+                    .await?;
+                println!("{}", plan);
+                return Ok(());
+            }
 
             workspace.new(&name, &work, config_source, false).await?;
             println!(
@@ -267,6 +277,7 @@ async fn run() -> Result<(), AnyError> {
                     tweak,
                     purge,
                     no_pull,
+                    dry_run,
                 }),
             ..
         } => {
@@ -280,6 +291,7 @@ async fn run() -> Result<(), AnyError> {
                         _ => UpdateMode::Apply,
                     },
                     no_pull,
+                    dry_run,
                 )
                 .await?;
         }
