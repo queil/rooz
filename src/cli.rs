@@ -207,6 +207,8 @@ pub struct NewParams {
         alias = "config"
     )]
     pub config_path: Option<String>,
+    #[arg(long, help = "Prints what would be created, without creating anything")]
+    pub dry_run: bool,
 }
 
 #[derive(Parser, Debug)]
@@ -338,6 +340,12 @@ pub struct UpdateParams {
     pub purge: bool,
     #[arg(long, help = "If set it skips pulling new images")]
     pub no_pull: bool,
+    #[arg(
+        long,
+        conflicts_with = "tweak",
+        help = "Prints what the update would remove and create, without changing anything"
+    )]
+    pub dry_run: bool,
 }
 
 #[derive(Parser, Debug)]

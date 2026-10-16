@@ -166,6 +166,21 @@ impl<'a> VolumeApi<'a> {
         }
     }
 
+    // Whether the volume exists, refusing the same foreign volumes ensure_volume would - without
+    // creating anything.
+    pub async fn exists_for(&self, spec: &VolumeSpec) -> Result<bool, AnyError> {
+        match self.client.inspect_volume(&spec.name).await {
+            Ok(volume) => {
+                validate_reuse(spec, &volume.labels)?;
+                Ok(true)
+            }
+            Err(DockerResponseServerError {
+                status_code: 404, ..
+            }) => Ok(false),
+            Err(e) => Err(e.into()),
+        }
+    }
+
     pub async fn ensure_volume(&self, spec: &VolumeSpec) -> Result<VolumeResult, AnyError> {
         match self.client.inspect_volume(&spec.name).await {
             Ok(volume) => {

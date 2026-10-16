@@ -212,3 +212,99 @@ async fn rm_ignores_decoy_volume() {
 
     env.remove_decoy_volume(&decoy).await;
 }
+
+// ── dry run ──────────────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn dry_run_reports_and_changes_nothing() {
+    let Some(env) = TestEnv::from_env() else {
+        return;
+    };
+    let key = unique_key("lc-dry");
+    let cfg_path = harness::write_cfg(
+        &key,
+        "image: alpine:latest\nenv:\n  TOKEN: hush-MARKER\ninstall:\n  00-a:\n    run: echo plaintext-MARKER\n    root: true\nsidecars:\n  side:\n    image: alpine:latest\n",
+    );
+
+    env.rooz()
+        .args(["system", "init", "--force"])
+        .assert()
+        .success();
+
+    let out = env
+        .rooz()
+        .args(["new", &key, "--config", &cfg_path, "--dry-run"])
+        .assert()
+        .success();
+    let stdout = String::from_utf8_lossy(&out.get_output().stdout).to_string();
+    for expected in [
+        "create   work",
+        "create   sidecar   side",
+        "create   network",
+        "run      install   00-a  root",
+        "Dry run: nothing was changed.",
+    ] {
+        assert!(
+            stdout.contains(expected),
+            "missing {:?} in:\n{}",
+            expected,
+            stdout
+        );
+    }
+    assert!(
+        !stdout.contains("MARKER"),
+        "a plan must not print env values or scripts:\n{}",
+        stdout
+    );
+
+    assert!(env.containers_by_workspace(&key).await.is_empty());
+    assert!(env.volumes_by_workspace(&key).await.is_empty());
+    assert!(env.network_names_by_workspace(&key).await.is_empty());
+
+    // nothing was left behind to collide with the real run
+    env.rooz()
+        .args(["new", &key, "--config", &cfg_path])
+        .assert()
+        .success();
+
+    let out = env
+        .rooz()
+        .args(["update", &key, "--dry-run"])
+        .assert()
+        .success();
+    let stdout = String::from_utf8_lossy(&out.get_output().stdout).to_string();
+    assert!(stdout.contains("remove   container"), "{}", stdout);
+    assert!(stdout.contains("reuse    volume"), "{}", stdout);
+    assert!(!env.containers_by_workspace(&key).await.is_empty());
+
+    harness::cleanup(&env, &key, &cfg_path);
+}
+
+#[tokio::test]
+async fn dry_run_refuses_what_a_run_refuses() {
+    let Some(env) = TestEnv::from_env() else {
+        return;
+    };
+    let key = unique_key("lc-dry-refuse");
+    let cfg_path = harness::write_cfg(
+        &key,
+        "image: alpine:latest\nsidecars:\n  side:\n    image: alpine:latest\n    privileged: true\n",
+    );
+
+    env.rooz()
+        .args(["system", "init", "--force"])
+        .assert()
+        .success();
+
+    let out = env
+        .rooz()
+        .args(["new", &key, "--config", &cfg_path, "--dry-run"])
+        .env_remove("ROOZ_ALLOW_PRIVILEGED")
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&out.get_output().stderr).to_string();
+    assert!(stderr.contains("privileged"), "{}", stderr);
+    assert!(env.volumes_by_workspace(&key).await.is_empty());
+
+    let _ = std::fs::remove_file(&cfg_path);
+}
