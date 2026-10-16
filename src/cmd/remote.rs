@@ -24,7 +24,10 @@ use crate::{
     cli::{RemoteAddParams, RemoteCommands, RemoteParams, RemoteRmParams},
     config::remotes::{self, Host, Remotes},
     model::types::AnyError,
-    util::labels::{self, Labels},
+    util::{
+        labels::{self, Labels},
+        progress,
+    },
 };
 
 const LOCALHOST_IP: &str = "127.0.0.1";
@@ -75,7 +78,11 @@ async fn connect(
 
     let session = builder.connect_mux(&host.ssh).await?;
 
-    println!("[{}] SSH: connected to {}", name, &host.ssh);
+    println!(
+        "{} SSH: connected to {}",
+        progress::host_tag(&name),
+        &host.ssh
+    );
 
     let socket_url = match &host.socket {
         Some(socket) => socket.clone(),
@@ -110,15 +117,15 @@ async fn connect(
         .await?;
 
     println!(
-        "[{}] Forwarding: {} -> {}:{}",
-        name,
+        "{} Forwarding: {} -> {}:{}",
+        progress::host_tag(&name),
         local_socket_path.display(),
         &host.ssh,
         &remote_socket.display()
     );
     println!(
-        "[{}] Use it with 'rooz -H {}' (or ROOZ_HOST={}); for other tools: DOCKER_HOST=unix://{}",
-        name,
+        "{} Use it with 'rooz -H {}' (or ROOZ_HOST={}); for other tools: DOCKER_HOST=unix://{}",
+        progress::host_tag(&name),
         name,
         name,
         local_socket_path.display()
@@ -333,8 +340,10 @@ async fn manage_tunnels(
         match (was_active, now_active) {
             (true, false) => {
                 eprintln!(
-                    "[{}] Tunnel endpoint is now down: {} -> {}",
-                    host, local_socket, remote_socket
+                    "{} Tunnel endpoint is now down: {} -> {}",
+                    progress::host_tag(&host),
+                    local_socket,
+                    remote_socket
                 );
                 open_tunnels_map.insert(
                     *remote_port,
@@ -346,8 +355,10 @@ async fn manage_tunnels(
             }
             (false, true) => {
                 eprintln!(
-                    "[{}] Tunnel endpoint is now up: {} -> {}",
-                    host, local_socket, remote_socket
+                    "{} Tunnel endpoint is now up: {} -> {}",
+                    progress::host_tag(&host),
+                    local_socket,
+                    remote_socket
                 );
                 open_tunnels_map.insert(
                     *remote_port,
@@ -370,8 +381,10 @@ async fn manage_tunnels(
         let local_socket = format!("{}:{}", LOCALHOST_IP, local_port);
         let remote_socket = format!("{}:{}", container_name, remote_port);
         eprintln!(
-            "[{}] Dead tunnel - closing: {} {}",
-            host, local_socket, remote_socket
+            "{} Dead tunnel - closing: {} {}",
+            progress::host_tag(&host),
+            local_socket,
+            remote_socket
         );
         close_tunnel(host, &session, claims, remote_port, open_tunnels_map).await?;
     }
@@ -387,8 +400,10 @@ async fn manage_tunnels(
         if let Some(owner) = owner {
             if skipped.insert(*local_port) {
                 eprintln!(
-                    "[{}] Local port {} is already forwarded for host '{}' - skipping",
-                    host, local_port, owner
+                    "{} Local port {} is already forwarded for host '{}' - skipping",
+                    progress::host_tag(&host),
+                    local_port,
+                    owner
                 );
             }
             continue;
@@ -415,8 +430,8 @@ async fn manage_tunnels(
                 },
             );
             eprintln!(
-                "[{}] Opened tunnel (endpoint: {}): {} -> {}",
-                host,
+                "{} Opened tunnel (endpoint: {}): {} -> {}",
+                progress::host_tag(&host),
                 if is_active { "UP" } else { "DOWN" },
                 local_socket,
                 remote_socket
@@ -424,8 +439,10 @@ async fn manage_tunnels(
         } else if skipped.insert(*local_port) {
             let binding_pid = get_pid_using_port(&local_port.to_string()).await?;
             eprintln!(
-                "[{}] Local port {} is already bound by another process: {:?} - skipping",
-                host, local_port, binding_pid
+                "{} Local port {} is already bound by another process: {:?} - skipping",
+                progress::host_tag(&host),
+                local_port,
+                binding_pid
             );
         }
     }
@@ -468,7 +485,10 @@ async fn serve(
     while !*stop.borrow() {
         if let Some(s) = &session {
             if s.check().await.is_err() {
-                eprintln!("[{}] SSH connection lost. Reconnecting...", name);
+                eprintln!(
+                    "{} SSH connection lost. Reconnecting...",
+                    progress::host_tag(&name)
+                );
                 // forwards die with the session
                 drop_tunnels(&name, &claims, &mut tunnels);
                 skipped.clear();
@@ -485,7 +505,7 @@ async fn serve(
                     backoff = MIN_BACKOFF;
                 }
                 Err(error) => {
-                    eprintln!("[{}] ERROR: {}", name, error);
+                    eprintln!("{} ERROR: {}", progress::host_tag(&name), error);
                     pause(&mut stop, backoff).await;
                     backoff = (backoff * 2).min(MAX_BACKOFF);
                 }
@@ -524,8 +544,12 @@ async fn serve(
             close_port_forward(&s, local_port, remote_port).await?;
             release(&claims, &name, local_port);
             println!(
-                "[{}] Closing: {}:{} -> {}:{}",
-                name, LOCALHOST_IP, local_port, container_name, remote_port
+                "{} Closing: {}:{} -> {}:{}",
+                progress::host_tag(&name),
+                LOCALHOST_IP,
+                local_port,
+                container_name,
+                remote_port
             );
         }
         s.close().await?;
@@ -561,7 +585,7 @@ pub async fn remote(hosts: Vec<(String, Host)>) -> Result<(), AnyError> {
         match joined {
             Ok((_, Ok(()))) => (),
             Ok((name, Err(e))) => {
-                eprintln!("[{}] ERROR: {}", name, e);
+                eprintln!("{} ERROR: {}", progress::host_tag(&name), e);
                 failed.push(name);
             }
             Err(e) => return Err(e.into()),
@@ -648,7 +672,7 @@ pub async fn run(params: &RemoteParams) -> Result<(), AnyError> {
 pub fn list_all_hosts() -> Result<(), AnyError> {
     let exe = std::env::current_exe()?;
     for name in Remotes::load()?.hosts.keys() {
-        println!("== {} ==", name);
+        println!("== {} ==", progress::host(name));
         if !remotes::is_connected(&remotes::socket_path(name)?) {
             println!("not connected (run 'rooz remote {}')\n", name);
             continue;

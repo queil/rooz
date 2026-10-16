@@ -45,6 +45,7 @@ pub enum ConfigCommands {
     Template(TemplateConfigParams),
     Edit(EditConfigParams),
     Show(ShowConfigParams),
+    Schema(SchemaConfigParams),
 }
 
 #[derive(Parser, Debug)]
@@ -245,6 +246,76 @@ pub struct EnterParams {
 }
 
 #[derive(Parser, Debug)]
+#[command(
+    about = "Runs one command in a workspace container and exits with its exit code",
+    override_usage = "rooz exec [OPTIONS] <NAME> -- <CMD>..."
+)]
+pub struct ExecParams {
+    pub name: String,
+    #[arg(short, long)]
+    pub root: bool,
+    #[arg(short, long)]
+    pub work_dir: Option<String>,
+    #[arg(short, long)]
+    pub container: Option<String>,
+    #[arg(last = true, required = true, num_args = 1..)]
+    pub cmd: Vec<String>,
+}
+
+#[derive(Parser, Debug)]
+#[command(
+    about = "Renames a workspace, or with --to moves it to another host: copies its volumes, rebuilds it there and removes the old one (the source is kept with --to)"
+)]
+pub struct MoveParams {
+    pub name: String,
+    #[arg(
+        required_unless_present = "to",
+        help = "The new name; with --to it defaults to the current one"
+    )]
+    pub new_name: Option<String>,
+    #[arg(
+        long,
+        help = "Moves the workspace to this host (see 'rooz remote'; both hosts must be connected). The workspace is left stopped on the source"
+    )]
+    pub to: Option<String>,
+    #[arg(
+        long,
+        requires = "to",
+        help = "Removes the source workspace after a successful move"
+    )]
+    pub remove_source: bool,
+    #[arg(
+        long,
+        help = "Prints what would be copied and rebuilt, without changing anything"
+    )]
+    pub dry_run: bool,
+    #[arg(
+        long,
+        help = "Consents to expanding the 'secrets' of the workspace config into the moved workspace"
+    )]
+    pub allow_secrets: Option<bool>,
+}
+
+#[derive(Parser, Debug)]
+#[command(hide = true, about = "Plumbing used by 'rooz move --to'")]
+pub struct InternalParams {
+    #[command(subcommand)]
+    pub command: InternalCommands,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum InternalCommands {
+    #[command(about = "Checks this engine can receive a workspace; prints its platform")]
+    Preflight { name: String },
+    #[command(about = "Creates a volume and fills it from a tar stream on stdin")]
+    ReceiveVolume {
+        name: String,
+        #[arg(long = "label")]
+        labels: Vec<String>,
+    },
+}
+
+#[derive(Parser, Debug)]
 #[command(about = "Starts a workspace")]
 pub struct StartParams {
     pub name: String,
@@ -266,6 +337,72 @@ pub struct ListParams {
         help = "Lists workspaces on all configured hosts that 'rooz remote' is connected to"
     )]
     pub all_hosts: bool,
+    #[arg(long, help = "Prints JSON instead of a table")]
+    pub json: bool,
+}
+
+#[derive(Parser, Debug)]
+#[command(about = "Checks the engine connection, rooz's setup and the engine's headroom")]
+pub struct DoctorParams {}
+
+#[derive(Parser, Debug)]
+#[command(about = "Manages the shared cache volumes")]
+pub struct CacheParams {
+    #[command(subcommand)]
+    pub command: CacheCommands,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum CacheCommands {
+    #[command(
+        about = "Lists caches with size and the workspaces mounting them",
+        alias = "list"
+    )]
+    Ls(CacheLsParams),
+    #[command(about = "Removes caches by name or path (e.g. '~/.cargo'); refuses mounted ones")]
+    Rm(CacheRmParams),
+    #[command(about = "Removes all caches that no workspace mounts")]
+    Prune(CachePruneParams),
+}
+
+#[derive(Parser, Debug)]
+pub struct CacheLsParams {
+    #[arg(long, help = "Includes other operators' caches (see ROOZ_CACHE_SCOPE)")]
+    pub all_scopes: bool,
+    #[arg(long, help = "Prints JSON instead of a table")]
+    pub json: bool,
+}
+
+#[derive(Parser, Debug)]
+pub struct CacheRmParams {
+    #[arg(required = true)]
+    pub names: Vec<String>,
+}
+
+#[derive(Parser, Debug)]
+pub struct CachePruneParams {
+    #[arg(long, help = "Prints what would be removed, without removing")]
+    pub dry_run: bool,
+}
+
+#[derive(Parser, Debug)]
+#[command(about = "Shows a workspace's containers, volumes and config origin")]
+pub struct StatusParams {
+    pub name: String,
+    #[arg(long, help = "Prints JSON instead of text")]
+    pub json: bool,
+}
+
+#[derive(Parser, Debug)]
+#[command(about = "Shows the logs of a workspace container")]
+pub struct LogsParams {
+    pub name: String,
+    #[arg(short, long, help = "A sidecar name; the work container by default")]
+    pub container: Option<String>,
+    #[arg(short, long, help = "Keeps streaming new output")]
+    pub follow: bool,
+    #[arg(long, help = "Number of lines from the end, e.g. 100")]
+    pub tail: Option<String>,
 }
 
 #[derive(Parser, Debug)]
@@ -307,11 +444,32 @@ pub struct ShowConfigParams {
     pub name: String,
     #[arg(long, short, value_enum, default_value = "body")]
     pub part: ConfigPart,
+    #[arg(
+        long,
+        conflicts_with = "part",
+        help = "Shows the merged settings (defaults, bases, config) and the layer each came from"
+    )]
+    pub resolved: bool,
 }
 
 #[derive(Parser, Debug)]
+#[command(
+    about = "Outputs the JSON Schema of the config file format, for editor completion and validation"
+)]
+pub struct SchemaConfigParams {}
+
+#[derive(Parser, Debug)]
 #[command(about = "Outputs a workspace configuration template")]
-pub struct TemplateConfigParams {}
+pub struct TemplateConfigParams {
+    #[arg(
+        long,
+        num_args = 0..=1,
+        default_missing_value = ".",
+        value_name = "DIR",
+        help = "Looks for Cargo.toml, *.csproj/*.sln, package.json, go.mod and pyproject.toml/requirements.txt in DIR (default: the current directory) and fills in the image and caches"
+    )]
+    pub detect: Option<String>,
+}
 
 #[derive(Parser, Debug)]
 #[command(about = "Edits a local configuration file")]
@@ -346,6 +504,11 @@ pub struct UpdateParams {
         help = "Prints what the update would remove and create, without changing anything"
     )]
     pub dry_run: bool,
+    #[arg(
+        long,
+        help = "Consents to expanding the 'secrets' of the workspace config into the updated workspace"
+    )]
+    pub allow_secrets: Option<bool>,
 }
 
 #[derive(Parser, Debug)]
@@ -361,13 +524,20 @@ pub struct CodeParams {
 pub enum Commands {
     New(NewParams),
     Enter(EnterParams),
+    Exec(ExecParams),
     Code(CodeParams),
     Start(StartParams),
     Stop(StopParams),
     Restart(RestartParams),
     Remove(RemoveParams),
     Update(UpdateParams),
+    Move(MoveParams),
+    Internal(InternalParams),
     List(ListParams),
+    Cache(CacheParams),
+    Doctor(DoctorParams),
+    Status(StatusParams),
+    Logs(LogsParams),
     Config(Config),
     Tmp(TmpParams),
     Remote(RemoteParams),
@@ -385,6 +555,13 @@ pub struct Cli {
         help = "Runs against a host from 'rooz remote ls' instead of DOCKER_HOST"
     )]
     pub host: Option<String>,
+    #[arg(
+        short,
+        long,
+        global = true,
+        help = "Prints debug logging (RUST_LOG still applies when this is not set)"
+    )]
+    pub verbose: bool,
     #[command(subcommand)]
     pub command: Commands,
 }

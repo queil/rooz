@@ -1,8 +1,14 @@
+pub mod cache;
 pub mod config;
+pub mod doctor;
 pub mod init;
 pub mod list;
+pub mod logs;
+pub mod move_remote;
+pub mod move_ws;
 pub mod new;
 pub mod plan;
 pub mod prune;
 pub mod remote;
+pub mod status;
 pub mod update;

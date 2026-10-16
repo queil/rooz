@@ -5,8 +5,8 @@ use rooz::{
     cli::{
         Cli,
         Commands::{
-            Code, Config, Enter, List, New, Remote, Remove, Restart, Start, Stop, System, Tmp,
-            Update,
+            Cache, Code, Config, Doctor, Enter, Exec, Internal, List, Logs, Move, New, Remote,
+            Remove, Restart, Start, Status, Stop, System, Tmp, Update,
         },
         CompletionParams, ConfigureParams, ListParams, NewParams, RemoveParams, ShowConfigParams,
         StopParams, TmpParams,
@@ -23,12 +23,13 @@ use clap_complete::generate;
 use colored::Colorize;
 use rooz::api::{ConfigApi, CryptApi};
 use rooz::cli::{
-    CodeParams, EditConfigParams, EnterParams, RestartParams, StartParams, TemplateConfigParams,
-    UpdateParams,
+    CacheCommands, CacheParams, CodeParams, EditConfigParams, EnterParams, ExecParams,
+    InternalCommands, InternalParams, LogsParams, MoveParams, RestartParams, StartParams,
+    StatusParams, TemplateConfigParams, UpdateParams,
 };
 use rooz::cmd::plan::PlanMode;
 use rooz::cmd::update::UpdateMode;
-use rooz::config::config::{ConfigPath, ConfigSource, FileFormat};
+use rooz::config::config::{ConfigPath, ConfigSource, RoozCfg};
 use rooz::constants;
 use rooz::util::labels::Labels;
 use rooz::util::{id, report};
@@ -46,18 +47,45 @@ async fn main() {
 }
 
 async fn run() -> Result<(), AnyError> {
-    env_logger::init();
+    let args = Cli::parse();
+
+    let mut logger = env_logger::Builder::from_default_env();
+    if args.verbose {
+        logger.filter_module("rooz", log::LevelFilter::Debug);
+    }
+    logger.init();
 
     log::debug!("Started");
-
-    let args = Cli::parse();
 
     if let Remote(params) = &args.command {
         remote::run(params).await?;
         std::process::exit(0);
     }
 
-    if let List(ListParams { all_hosts: true }) = &args.command {
+    if let Config(rooz::cli::Config {
+        command: rooz::cli::ConfigCommands::Schema(_),
+    }) = &args.command
+    {
+        println!("{}", RoozCfg::json_schema()?);
+        std::process::exit(0);
+    }
+
+    if let Config(rooz::cli::Config {
+        command: rooz::cli::ConfigCommands::Template(TemplateConfigParams { detect }),
+    }) = &args.command
+    {
+        let detected = match detect {
+            Some(dir) => rooz::config::detect::detect(std::path::Path::new(dir))?,
+            None => vec![],
+        };
+        print!("{}", rooz::config::detect::template(&detected));
+        std::process::exit(0);
+    }
+
+    if let List(ListParams {
+        all_hosts: true, ..
+    }) = &args.command
+    {
         remote::list_all_hosts()?;
         std::process::exit(0);
     }
@@ -81,6 +109,11 @@ async fn run() -> Result<(), AnyError> {
         (None, Some(_)) => Docker::connect_with_http_defaults(),
         (None, None) => Docker::connect_with_local_defaults(),
     };
+
+    if let Doctor(_) = &args.command {
+        let ok = rooz::cmd::doctor::run(connection).await?;
+        std::process::exit(if ok { 0 } else { 1 });
+    }
 
     let docker = connection.expect("Docker API connection established");
 
@@ -213,9 +246,123 @@ async fn run() -> Result<(), AnyError> {
         }
 
         Cli {
-            command: List(ListParams { .. }),
+            command:
+                Exec(ExecParams {
+                    name,
+                    root,
+                    work_dir,
+                    container,
+                    cmd,
+                }),
             ..
-        } => rooz.list().await?,
+        } => {
+            let code = workspace
+                .exec(
+                    &name,
+                    work_dir.as_deref(),
+                    container.as_deref(),
+                    root,
+                    cmd.iter().map(String::as_str).collect(),
+                )
+                .await?;
+            std::process::exit(code.clamp(0, 255) as i32);
+        }
+
+        Cli {
+            command: List(ListParams { json, .. }),
+            ..
+        } => rooz.list(json).await?,
+
+        Cli {
+            command:
+                Move(MoveParams {
+                    name,
+                    new_name,
+                    to,
+                    remove_source,
+                    dry_run,
+                    allow_secrets,
+                }),
+            host,
+            ..
+        } => {
+            remote::announce_target(host.as_deref());
+            match (to, new_name) {
+                (Some(target), new_name) => {
+                    workspace
+                        .move_to_host(
+                            &name,
+                            new_name.as_deref().unwrap_or(&name),
+                            &target,
+                            host.as_deref(),
+                            remove_source,
+                            dry_run,
+                            allow_secrets,
+                        )
+                        .await?
+                }
+                (None, Some(new_name)) => {
+                    workspace
+                        .move_workspace(&name, &new_name, dry_run, allow_secrets)
+                        .await?
+                }
+                (None, None) => unreachable!("clap requires a new name without --to"),
+            }
+        }
+
+        Cli {
+            command:
+                Internal(InternalParams {
+                    command: InternalCommands::Preflight { name },
+                }),
+            ..
+        } => println!("{}", workspace.preflight_destination(&name).await?),
+
+        Cli {
+            command:
+                Internal(InternalParams {
+                    command: InternalCommands::ReceiveVolume { name, labels },
+                }),
+            ..
+        } => {
+            let labels = labels
+                .iter()
+                .map(|l| {
+                    l.split_once('=')
+                        .map(|(k, v)| (k.to_string(), v.to_string()))
+                        .ok_or(format!("bad label '{}': expected key=value", l))
+                })
+                .collect::<Result<std::collections::HashMap<_, _>, _>>()?;
+            workspace.receive_volume(&name, labels).await?
+        }
+
+        Cli {
+            command: Cache(CacheParams { command }),
+            ..
+        } => match command {
+            CacheCommands::Ls(p) => rooz.cache_ls(p.all_scopes, p.json).await?,
+            CacheCommands::Rm(p) => rooz.cache_rm(&p.names).await?,
+            CacheCommands::Prune(p) => rooz.cache_prune(p.dry_run).await?,
+        },
+
+        Cli {
+            command: Status(StatusParams { name, json }),
+            ..
+        } => rooz.status(&name, json).await?,
+
+        Cli {
+            command:
+                Logs(LogsParams {
+                    name,
+                    container,
+                    follow,
+                    tail,
+                }),
+            ..
+        } => {
+            rooz.logs(&name, container.as_deref(), follow, tail.as_deref())
+                .await?
+        }
 
         Cli {
             command:
@@ -230,6 +377,7 @@ async fn run() -> Result<(), AnyError> {
         Cli {
             command: Remove(RemoveParams { name: _, force, .. }),
             host,
+            ..
         } => {
             remote::announce_target(host.as_deref());
             workspace.remove_all(force).await?
@@ -278,6 +426,7 @@ async fn run() -> Result<(), AnyError> {
                     purge,
                     no_pull,
                     dry_run,
+                    allow_secrets,
                 }),
             ..
         } => {
@@ -292,6 +441,7 @@ async fn run() -> Result<(), AnyError> {
                     },
                     no_pull,
                     dry_run,
+                    allow_secrets,
                 )
                 .await?;
         }
@@ -318,11 +468,11 @@ async fn run() -> Result<(), AnyError> {
         Cli {
             command:
                 Config(rooz::cli::Config {
-                    command: rooz::cli::ConfigCommands::Template(TemplateConfigParams {}),
+                    command: rooz::cli::ConfigCommands::Template(_),
                 }),
             ..
         } => {
-            workspace.config.template(FileFormat::Yaml).await?;
+            unreachable!("handled before connecting to the engine")
         }
 
         Cli {
@@ -336,15 +486,31 @@ async fn run() -> Result<(), AnyError> {
         Cli {
             command:
                 Config(rooz::cli::Config {
-                    command: rooz::cli::ConfigCommands::Show(ShowConfigParams { name, part }),
+                    command:
+                        rooz::cli::ConfigCommands::Show(ShowConfigParams {
+                            name,
+                            part,
+                            resolved,
+                        }),
                 }),
             ..
         } => {
-            workspace.config.show(&name, part, None).await?;
+            workspace.config.show(&name, part, None, resolved).await?;
         }
 
         Cli {
-            command: Remote(_), ..
+            command:
+                Config(rooz::cli::Config {
+                    command: rooz::cli::ConfigCommands::Schema(_),
+                }),
+            ..
+        } => {
+            unreachable!("handled before connecting to the engine")
+        }
+
+        Cli {
+            command: Remote(_) | Doctor(_),
+            ..
         } => {
             unreachable!("handled before connecting to the engine")
         }
@@ -355,6 +521,7 @@ async fn run() -> Result<(), AnyError> {
                     command: rooz::cli::SystemCommands::Prune(_),
                 }),
             host,
+            ..
         } => {
             remote::announce_target(host.as_deref());
             rooz.prune_system().await?;

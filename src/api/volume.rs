@@ -145,13 +145,41 @@ impl<'a> VolumeApi<'a> {
     }
 
     async fn create_volume(&self, options: VolumeCreateRequest) -> Result<VolumeResult, AnyError> {
-        match &self.client.create_volume(options).await {
+        let name = options.name.clone().unwrap_or_default();
+        match self.client.create_volume(options).await {
             Ok(v) => {
                 log::debug!("Volume created: {:?}", v.name);
                 Ok(VolumeResult::Created)
             }
-            Err(e) => panic!("{}", e),
+            Err(e) => Err(format!(
+                "Could not create volume '{}': {}. Check that the engine is running and has disk space.",
+                name,
+                engine_msg(&e)
+            )
+            .into()),
         }
+    }
+
+    // Copies the whole content of one volume into another that already exists, preserving owners,
+    // modes and symlinks. Both are mounted in a short-lived root container on the same engine.
+    pub async fn copy_volume(&self, from: &str, to: &str) -> Result<(), AnyError> {
+        let mount = |name: &str, target: &str, read_only: bool| Mount {
+            typ: Some(VOLUME),
+            source: Some(name.to_string()),
+            target: Some(target.to_string()),
+            read_only: Some(read_only),
+            ..Default::default()
+        };
+        self.container
+            .one_shot(
+                "move-copy",
+                "cp -a /from/. /to/".to_string(),
+                Some(vec![mount(from, "/from", true), mount(to, "/to", false)]),
+                None,
+                None,
+            )
+            .await
+            .map_err(|e| format!("Copying volume '{}' to '{}' failed: {}", from, to, e).into())
     }
 
     pub async fn remove_volume(&self, name: &str, force: bool) -> Result<(), AnyError> {
@@ -162,7 +190,12 @@ impl<'a> VolumeApi<'a> {
                 log::debug!("Volume removed: {} {}", &name, &force_display);
                 Ok(())
             }
-            Err(e) => panic!("{}", e),
+            Err(e) => Err(format!(
+                "Could not remove volume '{}': {}. If a container still uses it, remove that first.",
+                name,
+                engine_msg(e)
+            )
+            .into()),
         }
     }
 
@@ -199,7 +232,12 @@ impl<'a> VolumeApi<'a> {
                 })
                 .await
             }
-            Err(e) => panic!("{}", e),
+            Err(e) => Err(format!(
+                "Could not inspect volume '{}': {}. Check that the engine is running.",
+                spec.name,
+                engine_msg(&e)
+            )
+            .into()),
         }
     }
 
@@ -604,6 +642,16 @@ impl<'a> VolumeApi<'a> {
 
         self.populate(spec.volume_name.as_str(), root_dir, &tar_files, mount, uid)
             .await
+    }
+}
+
+fn engine_msg(e: &bollard::errors::Error) -> String {
+    match e {
+        DockerResponseServerError {
+            status_code,
+            message,
+        } => format!("{} (engine code {})", message.replace('"', ""), status_code),
+        e => e.to_string(),
     }
 }
 

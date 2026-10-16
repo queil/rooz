@@ -29,7 +29,83 @@ impl<'a> WorkspaceApi<'a> {
         mode: UpdateMode,
         no_pull: bool,
         dry_run: bool,
+        allow_secrets: Option<bool>,
     ) -> Result<(), AnyError> {
+        let config_source = self
+            .stored_config_source(workspace_key, interactive, true)
+            .await?;
+
+        let git_ssh_url = match &config_source {
+            Some(ConfigSource::Update { value, .. }) if value.git_ssh_url.is_some() => None,
+            _ => self.stored_git_ssh_url(workspace_key).await?,
+        };
+
+        if dry_run {
+            let plan = self
+                .plan_new(
+                    workspace_key,
+                    &WorkParams {
+                        git_ssh_url,
+                        env: spec.clone(),
+                        pull_image: !no_pull,
+                        allow_secrets,
+                        ..Default::default()
+                    },
+                    config_source,
+                    PlanMode::Update {
+                        purge: matches!(mode, UpdateMode::Purge),
+                    },
+                )
+                .await?;
+            println!("{}", plan);
+            return Ok(());
+        }
+
+        // pull before anything is removed: a failed pull must leave the workspace as it was. Only
+        // an image named by the config or the environment is known here; one that comes from
+        // 'bases' is still pulled by 'new'.
+        let mut pull_image = !(no_pull || interactive);
+        if pull_image {
+            let image = spec.image.clone().or_else(|| match &config_source {
+                Some(ConfigSource::Update { value, .. }) => value.image.clone(),
+                _ => None,
+            });
+            if let Some(image) = image {
+                self.api.image.ensure(&image, true).await?;
+                pull_image = false;
+            }
+        }
+
+        match mode {
+            UpdateMode::Apply => self.remove_containers_only(&workspace_key, true).await?,
+            UpdateMode::Purge => self.remove(&workspace_key, true, true).await?,
+        };
+
+        self.new(
+            workspace_key,
+            &WorkParams {
+                git_ssh_url,
+                env: spec.clone(),
+                pull_image,
+                allow_secrets,
+                ..Default::default()
+            },
+            config_source,
+            false,
+        )
+        .await?;
+
+        Ok(())
+    }
+
+    // The configuration a workspace is rebuilt from. `from_origin` re-reads it from where it came
+    // from (what 'update' does); otherwise the body stored with the workspace is used as is.
+    pub(crate) async fn stored_config_source(
+        &self,
+        workspace_key: &str,
+        interactive: bool,
+        from_origin: bool,
+    ) -> Result<Option<ConfigSource>, AnyError> {
         let labels = Labels::workspace_config(workspace_key);
 
         let volume = self
@@ -46,7 +122,7 @@ impl<'a> WorkspaceApi<'a> {
                 let mut original_body = self.config.read(workspace_key, &ConfigType::Body).await?;
                 let mut pre_merged: Option<RoozCfg> = None;
 
-                if !interactive {
+                if !interactive && from_origin {
                     match &config_path {
                         ConfigPath::File { path } => {
                             original_body = fs::read_to_string(&path)?;
@@ -102,54 +178,13 @@ impl<'a> WorkspaceApi<'a> {
                 None
             }
         };
-
-        let git_ssh_url = match &config_source {
-            Some(ConfigSource::Update { value, .. }) if value.git_ssh_url.is_some() => None,
-            _ => self.stored_git_ssh_url(workspace_key).await?,
-        };
-
-        if dry_run {
-            let plan = self
-                .plan_new(
-                    workspace_key,
-                    &WorkParams {
-                        git_ssh_url,
-                        env: spec.clone(),
-                        pull_image: !no_pull,
-                        ..Default::default()
-                    },
-                    config_source,
-                    PlanMode::Update {
-                        purge: matches!(mode, UpdateMode::Purge),
-                    },
-                )
-                .await?;
-            println!("{}", plan);
-            return Ok(());
-        }
-
-        match mode {
-            UpdateMode::Apply => self.remove_containers_only(&workspace_key, true).await?,
-            UpdateMode::Purge => self.remove(&workspace_key, true, true).await?,
-        };
-
-        self.new(
-            workspace_key,
-            &WorkParams {
-                git_ssh_url,
-                env: spec.clone(),
-                pull_image: if no_pull || interactive { false } else { true },
-                ..Default::default()
-            },
-            config_source,
-            false,
-        )
-        .await?;
-
-        Ok(())
+        Ok(config_source)
     }
 
-    async fn stored_git_ssh_url(&self, workspace_key: &str) -> Result<Option<String>, AnyError> {
+    pub(crate) async fn stored_git_ssh_url(
+        &self,
+        workspace_key: &str,
+    ) -> Result<Option<String>, AnyError> {
         let body = self
             .config
             .read(workspace_key, &ConfigType::Runtime)

@@ -1,5 +1,9 @@
 use crate::{
-    api::ExecApi, config::config::ResolvedStep, constants, model::types::AnyError, util::sh,
+    api::ExecApi,
+    config::config::ResolvedStep,
+    constants,
+    model::types::AnyError,
+    util::{progress, sh},
 };
 use bollard::{
     container::LogOutput,
@@ -18,6 +22,18 @@ use tokio::{
     sync::broadcast,
     time::sleep,
 };
+
+/// A command that ran and exited non-zero - as opposed to one that could not run at all.
+#[derive(Debug)]
+pub struct ExecExit(pub i64);
+
+impl std::fmt::Display for ExecExit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Command exited with code {}.", self.0)
+    }
+}
+
+impl std::error::Error for ExecExit {}
 
 async fn collect(stream: impl Stream<Item = Result<LogOutput, Error>>) -> Result<String, AnyError> {
     let mut stream = std::pin::pin!(stream);
@@ -146,10 +162,16 @@ impl<'a> ExecApi<'a> {
                 } => {
                     self.handle_output(output).await;
                     if exit_code != 0 {
-                        panic!("Exec terminated with exit code: {}.", exit_code);
+                        return Err(ExecExit(exit_code).into());
                     }
                 }
-                _ => panic!("Unexpected exec state: {:?}", exec_state.clone()),
+                _ => {
+                    return Err(format!(
+                        "Unexpected exec state: {:?}. Check that the container is running.",
+                        exec_state
+                    )
+                    .into());
+                }
             };
         }
         Ok(())
@@ -208,6 +230,47 @@ impl<'a> ExecApi<'a> {
         self.start_tty(&exec_id).await
     }
 
+    // One non-interactive command with stdout and stderr passed through as they arrive; returns
+    // its exit code.
+    pub async fn passthrough(
+        &self,
+        container_id: &str,
+        working_dir: Option<&str>,
+        user: Option<&str>,
+        cmd: Vec<&str>,
+    ) -> Result<i64, AnyError> {
+        use std::io::Write;
+
+        let exec_id = self
+            .create_exec("exec", container_id, working_dir, user, Some(cmd), false)
+            .await?;
+        let StartExecResults::Attached { mut output, .. } =
+            self.client.start_exec(&exec_id, None).await?
+        else {
+            return Err("Could not start exec: the engine returned no attached stream. Check that the container is running.".into());
+        };
+        while let Some(item) = output.next().await {
+            match item? {
+                LogOutput::StdErr { message } => {
+                    let mut e = std::io::stderr();
+                    e.write_all(&message)?;
+                    e.flush()?;
+                }
+                other => {
+                    let mut o = std::io::stdout();
+                    o.write_all(&other.into_bytes())?;
+                    o.flush()?;
+                }
+            }
+        }
+        Ok(self
+            .client
+            .inspect_exec(&exec_id)
+            .await?
+            .exit_code
+            .unwrap_or(0))
+    }
+
     pub async fn output(
         &self,
         reason: &str,
@@ -223,7 +286,7 @@ impl<'a> ExecApi<'a> {
         {
             collect(output).await
         } else {
-            panic!("Could not start exec");
+            Err("Could not start exec: the engine returned no attached stream. Check that the container is running.".into())
         }
     }
 
@@ -242,7 +305,7 @@ impl<'a> ExecApi<'a> {
         {
             log(output).await?;
         } else {
-            panic!("Could not start exec");
+            return Err("Could not start exec: the engine returned no attached stream. Check that the container is running.".into());
         }
 
         Ok(self
@@ -281,7 +344,12 @@ impl<'a> ExecApi<'a> {
             .map(|step| step.name.as_str())
             .collect::<Vec<_>>()
             .join(", ");
-        println!("[install] {} steps: {}", container_name, step_names);
+        println!(
+            "{} {} steps: {}",
+            progress::tag("install"),
+            container_name,
+            step_names
+        );
         for (idx, step) in steps.iter().enumerate() {
             let user = step.root.then_some(constants::ROOT_UID);
             if let Some(check) = &step.skip_if {
@@ -295,7 +363,12 @@ impl<'a> ExecApi<'a> {
                     .await?
                     == 0
                 {
-                    println!("[install] {}: {} skipped", container_name, step.name);
+                    println!(
+                        "{} {}: {} skipped",
+                        progress::tag("install"),
+                        container_name,
+                        step.name
+                    );
                     continue;
                 }
             }

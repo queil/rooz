@@ -16,6 +16,7 @@ use crate::{
         git::{CloneEnv, RootRepoCloneResult},
         id,
         labels::{self, Labels},
+        progress,
     },
 };
 use bollard::errors::Error;
@@ -385,6 +386,13 @@ impl<'a> WorkspaceApi<'a> {
             .resolve_runtime(cfg_builder, &cli_config, cli_params, operator_authored)
             .await?;
 
+        // pull first: a failed pull must not leave a stored config behind
+        progress::phase("image", &cfg.image);
+        self.api
+            .image
+            .ensure(&cfg.image, cli_params.pull_image)
+            .await?;
+
         if let Some(StoredConfig {
             origin,
             body,
@@ -397,11 +405,6 @@ impl<'a> WorkspaceApi<'a> {
             }
         }
 
-        self.api
-            .image
-            .ensure(&cfg.image, cli_params.pull_image)
-            .await?;
-
         let volume_specs =
             VolumeApi::create_volume_specs(workspace_key, &cfg.data, &cfg.all_mounts(), true)?;
 
@@ -412,6 +415,17 @@ impl<'a> WorkspaceApi<'a> {
             .collect::<HashMap<String, String>>();
 
         let volume_results = self.api.volume.ensure_volumes(&volume_specs).await?;
+        progress::phase(
+            "volumes",
+            format!(
+                "{} ready, {} created",
+                volume_results.len(),
+                volume_results
+                    .values()
+                    .filter(|r| matches!(r, VolumeResult::Created))
+                    .count()
+            ),
+        );
 
         let home_dir = format!("/home/{}", &cfg.user);
         let mounts_config = self
@@ -510,8 +524,10 @@ impl<'a> WorkspaceApi<'a> {
             ..*work_spec
         };
 
+        progress::phase("container", work_spec.container_name);
         let ws = self.create(&work_spec).await?;
         if !cfg2.extra_repos.is_empty() {
+            progress::phase("clone", format!("{} extra repo(s)", cfg2.extra_repos.len()));
             self.git
                 .clone_extra_repos(clone_spec.clone(), cfg2.extra_repos)
                 .await?;
@@ -793,7 +809,10 @@ impl<'a> WorkspaceApi<'a> {
         }
 
         let root_repo_result = match &RoozCfg::git_ssh_url(cli_params, &cli_cfg) {
-            Some(url) => Some(self.git.clone_root_repo(&url, &clone_env).await?),
+            Some(url) => {
+                progress::phase("clone", url);
+                Some(self.git.clone_root_repo(&url, &clone_env).await?)
+            }
             None => None,
         };
 

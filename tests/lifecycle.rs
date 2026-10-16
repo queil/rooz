@@ -308,3 +308,156 @@ async fn dry_run_refuses_what_a_run_refuses() {
 
     let _ = std::fs::remove_file(&cfg_path);
 }
+
+#[tokio::test]
+async fn exec_runs_one_command_and_returns_its_exit_code() {
+    let Some(env) = TestEnv::from_env() else {
+        return;
+    };
+    let key = unique_key("exec");
+
+    env.rooz()
+        .args(["system", "init", "--force"])
+        .assert()
+        .success();
+    env.rooz()
+        .args(["new", &key, "--image", "alpine:latest"])
+        .assert()
+        .success();
+
+    let out = env
+        .rooz()
+        .args([
+            "exec",
+            &key,
+            "--",
+            "sh",
+            "-c",
+            "echo out; echo err >&2; exit 7",
+        ])
+        .assert()
+        .code(7);
+    let out = out.get_output();
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "out\n");
+    assert!(String::from_utf8_lossy(&out.stderr).contains("err"));
+
+    env.rooz().args(["rm", &key, "--force"]).assert().success();
+}
+
+#[tokio::test]
+async fn list_status_and_logs_describe_a_workspace() {
+    let Some(env) = TestEnv::from_env() else {
+        return;
+    };
+    let key = unique_key("inspect");
+
+    env.rooz()
+        .args(["system", "init", "--force"])
+        .assert()
+        .success();
+    env.rooz()
+        .args(["new", &key, "--image", "alpine:latest"])
+        .assert()
+        .success();
+
+    let list = env.rooz().args(["list", "--json"]).assert().success();
+    let rows: serde_json::Value =
+        serde_json::from_slice(&list.get_output().stdout).expect("list --json is JSON");
+    let row = rows
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["name"] == key.as_str())
+        .expect("workspace listed");
+    assert_eq!(row["status"], "running");
+    assert!(row["image"].as_str().unwrap().contains("alpine"));
+
+    let status = env
+        .rooz()
+        .args(["status", &key, "--json"])
+        .assert()
+        .success();
+    let st: serde_json::Value = serde_json::from_slice(&status.get_output().stdout).unwrap();
+    assert_eq!(st["name"], key.as_str());
+    assert!(!st["containers"].as_array().unwrap().is_empty());
+    assert!(!st["volumes"].as_array().unwrap().is_empty());
+
+    env.rooz().args(["status", &key]).assert().success();
+    env.rooz()
+        .args(["logs", &key, "--tail", "5"])
+        .assert()
+        .success();
+    env.rooz()
+        .args(["status", "no-such-workspace-xyz"])
+        .assert()
+        .failure();
+
+    env.rooz().args(["rm", &key, "--force"]).assert().success();
+}
+
+#[tokio::test]
+async fn doctor_passes_after_init_and_fails_without_an_engine() {
+    let Some(env) = TestEnv::from_env() else {
+        return;
+    };
+
+    env.rooz()
+        .args(["system", "init", "--force"])
+        .assert()
+        .success();
+    env.rooz().arg("doctor").assert().success();
+
+    env.rooz()
+        .env("DOCKER_HOST", "unix:///nonexistent-rooz.sock")
+        .arg("doctor")
+        .assert()
+        .failure();
+}
+
+#[tokio::test]
+async fn config_show_resolved_names_the_layer_of_each_setting() {
+    let Some(env) = TestEnv::from_env() else {
+        return;
+    };
+    let key = unique_key("resolved");
+
+    let dir = std::env::temp_dir().join(format!("rooz-test-{}", key));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("base.yaml"),
+        "image: alpine:latest\nenv: {A: '1', B: '1'}\n",
+    )
+    .unwrap();
+    let cfg_path = dir.join("ws.yaml");
+    std::fs::write(&cfg_path, "bases: [base.yaml]\nenv: {B: '2'}\n").unwrap();
+    let cfg_path = cfg_path.to_string_lossy().into_owned();
+
+    env.rooz()
+        .args(["system", "init", "--force"])
+        .assert()
+        .success();
+    env.rooz()
+        .args(["new", &key, "--config", &cfg_path])
+        .assert()
+        .success();
+
+    let out = env
+        .rooz()
+        .args(["config", "show", &key, "--resolved"])
+        .assert()
+        .success();
+    let out = String::from_utf8_lossy(&out.get_output().stdout).to_string();
+    let row = |setting: &str| {
+        out.lines()
+            .find(|l| l.split_whitespace().next() == Some(setting))
+            .unwrap_or_else(|| panic!("no row for {}:\n{}", setting, out))
+            .to_string()
+    };
+    assert!(row("image").contains("base.yaml"), "{}", out);
+    assert!(row("env.A").contains("base.yaml"), "{}", out);
+    assert!(row("env.B").contains("ws.yaml"), "{}", out);
+    assert!(row("user").contains("default"), "{}", out);
+
+    env.rooz().args(["rm", &key, "--force"]).assert().success();
+    let _ = std::fs::remove_dir_all(&dir);
+}
