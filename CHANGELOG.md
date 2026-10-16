@@ -8,6 +8,19 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases before 0.159.0 predate this
 file - see the git history.
 
+## [0.165.0] - 2026-10-16
+
+### Changed
+
+- `rooz doctor` starts with the endpoint it connects to (the `-H` host's socket, `DOCKER_HOST`, or
+  the default socket), and `-v` logs it for every command.
+
+### Fixed
+
+- An engine that cannot be reached is reported as `Cannot reach the container engine at <where>:
+  <why>`, with what to check, instead of the HTTP client's `client error (Connect)`. A missing
+  default socket (no `DOCKER_HOST`, no `/var/run/docker.sock`) no longer panics.
+
 ## [0.164.0] - 2026-10-16
 
 ### Added

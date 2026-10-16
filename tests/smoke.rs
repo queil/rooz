@@ -47,3 +47,30 @@ async fn smoke_new_and_rm() {
         "volumes still present after rooz rm"
     );
 }
+
+// needs no engine: an unreachable one is an error that says where rooz looked and why, not a
+// panic or the HTTP client's wrapper text
+#[test]
+fn an_unreachable_engine_is_reported_plainly() {
+    for host in ["unix:///nonexistent-rooz.sock", "tcp://127.0.0.1:1"] {
+        let out = assert_cmd::Command::cargo_bin("rooz")
+            .unwrap()
+            .env("DOCKER_HOST", host)
+            .env("http_proxy", "")
+            .env("HTTP_PROXY", "")
+            .arg("ls")
+            .assert()
+            .failure();
+        let stderr = String::from_utf8_lossy(&out.get_output().stderr).to_string();
+        assert!(
+            stderr.contains("Cannot reach the container engine") && stderr.contains(host),
+            "{}",
+            stderr
+        );
+        assert!(
+            !stderr.contains("panicked") && !stderr.contains("hyper"),
+            "{}",
+            stderr
+        );
+    }
+}
