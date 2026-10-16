@@ -80,7 +80,7 @@ async fn move_carries_config_data_volumes_and_the_stored_config() {
 
     assert!(env.volumes_by_workspace(&from).await.is_empty());
     let data = env
-        .volume_file(&format!("rooz-{}-greeting", to), "greeting")
+        .volume_file(&format!("rooz_{}_greeting", to), "greeting")
         .await;
     assert_eq!(data, "hello\nmore\n");
 
@@ -276,7 +276,7 @@ async fn move_to_a_host_can_remove_the_source() {
     assert!(env.volumes_by_workspace(&from).await.is_empty());
     assert!(env.containers_by_workspace(&from).await.is_empty());
     assert_eq!(
-        env.volume_file(&format!("rooz-{}-greeting", to), "greeting")
+        env.volume_file(&format!("rooz_{}_greeting", to), "greeting")
             .await,
         "hello\n"
     );

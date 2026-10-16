@@ -8,6 +8,17 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases before 0.159.0 predate this
 file - see the git history.
 
+## [0.166.0] - 2026-10-16
+
+### Changed
+
+- **Breaking:** volume names use one scheme: segments joined by `_`, workspace first
+  (`rooz_<ws>_work`, `rooz_<ws>_workspace-config`, `rooz_<ws>_<data>`; shared ones stay
+  `rooz_sys-config`, `rooz_cache_<scope>_<path>`). The ssh key volume is `rooz_ssh-key`, was
+  `rooz-ssh-key-vol`. Volumes under the old names are not found or migrated: remove them
+  (`rooz system prune` removes everything rooz made), then run `rooz system init` - a new ssh key is
+  generated and must be registered again.
+
 ## [0.165.0] - 2026-10-16
 
 ### Changed

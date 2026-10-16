@@ -1,7 +1,7 @@
 use bollard::models::MountType::VOLUME;
 use bollard::service::Mount;
 
-pub const VOLUME_NAME: &'static str = "rooz-ssh-key-vol";
+pub const VOLUME_NAME: &'static str = "rooz_ssh-key";
 
 // The key volume is global and persistent: one key pair for the whole engine, never
 // regenerated. Containers built from a repository's configuration get it read-only so a

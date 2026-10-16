@@ -362,7 +362,7 @@ nothing:
 ```
 $ rooz new demo --config demo.rooz.yaml --dry-run
 pull     image     docker.io/alpine:latest
-create   volume    rooz-demo-work
+create   volume    rooz_demo_work
 reuse    cache     rooz_cache_uid-1000_---nuget  ~/.nuget
 create   network   demo-egress
 create   sidecar   db  image=docker.io/postgres:17 install: 00-x[root]

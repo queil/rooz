@@ -292,7 +292,7 @@ impl<'a> VolumeApi<'a> {
 
     fn volume_name(workspace_key: &str, data_entry_name: &str) -> String {
         format!(
-            "rooz-{}-{}",
+            "rooz_{}_{}",
             id::sanitize(workspace_key),
             id::sanitize(data_entry_name)
         )
@@ -685,7 +685,7 @@ mod tests {
     #[test]
     fn reuse_allowed_for_matching_workspace_and_role() {
         let s = spec(
-            "rooz-ws-mydir",
+            "rooz_ws_mydir",
             &[Labels::workspace("ws"), Labels::role(DATA_ROLE)],
         );
         let v = existing(&[Labels::workspace("ws"), Labels::role(DATA_ROLE)]);
@@ -701,21 +701,21 @@ mod tests {
 
     #[test]
     fn data_entry_cannot_alias_the_global_ssh_key_volume() {
-        // workspace `ssh` + data key `key-vol` spells out `rooz-ssh-key-vol`
+        // workspace `ssh` + data key `key-vol` spells out `rooz_ssh-key`
         let s = spec(
-            "rooz-ssh-key-vol",
+            "rooz_ssh-key",
             &[Labels::workspace("ssh"), Labels::role(DATA_ROLE)],
         );
         let v = existing(&[Labels::role(SSH_KEY_ROLE)]);
         let err = validate_reuse(&s, &v).unwrap_err().to_string();
-        assert!(err.contains("rooz-ssh-key-vol"), "{}", err);
+        assert!(err.contains("rooz_ssh-key"), "{}", err);
         assert!(err.contains("mismatch"), "{}", err);
     }
 
     #[test]
     fn data_entry_cannot_alias_a_workspace_config_volume() {
         let s = spec(
-            "rooz-victim-workspace-config",
+            "rooz_victim_workspace-config",
             &[Labels::workspace("victim"), Labels::role(DATA_ROLE)],
         );
         let v = existing(&[
@@ -729,7 +729,7 @@ mod tests {
     #[test]
     fn another_workspaces_volume_is_refused() {
         let s = spec(
-            "rooz-victim-work",
+            "rooz_victim_work",
             &[Labels::workspace("attacker"), Labels::role(DATA_ROLE)],
         );
         let v = existing(&[Labels::workspace("victim"), Labels::role(WORK_ROLE)]);
@@ -741,13 +741,13 @@ mod tests {
     fn implicit_work_entry_may_reuse_the_work_role_volume() {
         // the git-clone path creates it as `work`, create_volume_specs expects `data`
         let s = spec(
-            "rooz-ws-work",
+            "rooz_ws_work",
             &[Labels::workspace("ws"), Labels::role(DATA_ROLE)],
         );
         let v = existing(&[Labels::workspace("ws"), Labels::role(WORK_ROLE)]);
         assert!(validate_reuse(&s, &v).is_ok());
         let s = spec(
-            "rooz-ws-work",
+            "rooz_ws_work",
             &[Labels::workspace("ws"), Labels::role(WORK_ROLE)],
         );
         let v = existing(&[Labels::workspace("ws"), Labels::role(DATA_ROLE)]);
@@ -757,7 +757,7 @@ mod tests {
     #[test]
     fn foreign_volume_is_refused() {
         let s = spec(
-            "rooz-ws-mydir",
+            "rooz_ws_mydir",
             &[Labels::workspace("ws"), Labels::role(DATA_ROLE)],
         );
         let err = validate_reuse(&s, &HashMap::new()).unwrap_err().to_string();
@@ -767,7 +767,7 @@ mod tests {
     #[test]
     fn unlabelled_spec_skips_validation() {
         let s = VolumeSpec {
-            name: "rooz-ws-work".to_string(),
+            name: "rooz_ws_work".to_string(),
             labels: None,
         };
         assert!(validate_reuse(&s, &HashMap::new()).is_ok());
@@ -806,7 +806,7 @@ mod tests {
             VolumeApi::create_volume_specs("ws", &HashMap::new(), &HashMap::new(), true).unwrap();
         assert_eq!(specs.len(), 1);
         let work = specs.get(&DataEntryKey("work".to_string())).unwrap();
-        assert_eq!(work.volume.name, "rooz-ws-work");
+        assert_eq!(work.volume.name, "rooz_ws_work");
     }
 
     #[test]
@@ -829,7 +829,7 @@ mod tests {
 
         let specs = VolumeApi::create_volume_specs("ws", &data, &mounts, false).unwrap();
         let entry = specs.get(&DataEntryKey("mydir".to_string())).unwrap();
-        assert_eq!(entry.volume.name, "rooz-ws-mydir");
+        assert_eq!(entry.volume.name, "rooz_ws_mydir");
     }
 
     #[test]
@@ -843,7 +843,7 @@ mod tests {
         let specs = VolumeApi::create_volume_specs("ws", &HashMap::new(), &mounts, false).unwrap();
         // key = sanitize("/config") = "-config"
         let entry = specs.get(&DataEntryKey("-config".to_string())).unwrap();
-        assert_eq!(entry.volume.name, "rooz-ws-inline");
+        assert_eq!(entry.volume.name, "rooz_ws_inline");
     }
 
     #[test]
@@ -862,8 +862,8 @@ mod tests {
         assert_eq!(specs.len(), 2);
         let a = specs.get(&DataEntryKey("-file-a".to_string())).unwrap();
         let b = specs.get(&DataEntryKey("-file-b".to_string())).unwrap();
-        assert_eq!(a.volume.name, "rooz-ws-inline");
-        assert_eq!(b.volume.name, "rooz-ws-inline");
+        assert_eq!(a.volume.name, "rooz_ws_inline");
+        assert_eq!(b.volume.name, "rooz_ws_inline");
     }
 
     #[test]
@@ -876,7 +876,7 @@ mod tests {
                     name: "work".to_string(),
                 },
                 volume: VolumeSpec {
-                    name: "rooz-ws-work".to_string(),
+                    name: "rooz_ws_work".to_string(),
                     labels: None,
                 },
             },
@@ -884,7 +884,7 @@ mod tests {
 
         let real = VolumeApi::real_mounts(mounts, None);
         let entry = real.get(&TargetDir("/work".to_string())).unwrap();
-        assert_eq!(entry.volume_name.as_str(), "rooz-ws-work");
+        assert_eq!(entry.volume_name.as_str(), "rooz_ws_work");
         assert!(entry.files.is_empty());
     }
 
@@ -900,7 +900,7 @@ mod tests {
                     executable: false,
                 },
                 volume: VolumeSpec {
-                    name: "rooz-ws-inline".to_string(),
+                    name: "rooz_ws_inline".to_string(),
                     labels: None,
                 },
             },
@@ -910,7 +910,7 @@ mod tests {
         let entry = real
             .get(&TargetDir("/home/user/.myconfig".to_string()))
             .unwrap();
-        assert_eq!(entry.volume_name.as_str(), "rooz-ws-inline");
+        assert_eq!(entry.volume_name.as_str(), "rooz_ws_inline");
         assert_eq!(entry.files.len(), 1);
         let f = &entry.files[0];
         assert_eq!(f.user_file.as_str(), "/home/user/.myconfig");
@@ -929,7 +929,7 @@ mod tests {
                     executable: false,
                 },
                 volume: VolumeSpec {
-                    name: "rooz-ws-inline".to_string(),
+                    name: "rooz_ws_inline".to_string(),
                     labels: None,
                 },
             },
@@ -951,7 +951,7 @@ mod tests {
                 executable: false,
             },
             volume: VolumeSpec {
-                name: "rooz-ws-inline".to_string(),
+                name: "rooz_ws_inline".to_string(),
                 labels: None,
             },
         };
@@ -962,7 +962,7 @@ mod tests {
         let real = VolumeApi::real_mounts(mounts, None);
         assert_eq!(real.len(), 2);
         for entry in real.values() {
-            assert_eq!(entry.volume_name.as_str(), "rooz-ws-inline");
+            assert_eq!(entry.volume_name.as_str(), "rooz_ws_inline");
             assert_eq!(entry.files.len(), 1);
         }
     }
@@ -1004,7 +1004,7 @@ mod tests {
     #[test]
     fn mount_with_file_sets_subpath() {
         let spec = VolumeFilesSpec {
-            volume_name: VolumeName("rooz-ws-inline".to_string()),
+            volume_name: VolumeName("rooz_ws_inline".to_string()),
             files: vec![FileSpec {
                 file_name: FileName("myconfig".to_string()),
                 user_file: UserFile("/home/user/.myconfig".to_string()),
@@ -1016,7 +1016,7 @@ mod tests {
 
         let m = VolumeApi::mount(&target, &spec);
         assert_eq!(m.target.as_deref(), Some("/home/user/.myconfig"));
-        assert_eq!(m.source.as_deref(), Some("rooz-ws-inline"));
+        assert_eq!(m.source.as_deref(), Some("rooz_ws_inline"));
         let subpath = m.volume_options.expect("volume options expected").subpath;
         assert_eq!(subpath.as_deref(), Some("myconfig"));
     }
@@ -1024,7 +1024,7 @@ mod tests {
     #[test]
     fn mount_without_files_has_no_subpath() {
         let spec = VolumeFilesSpec {
-            volume_name: VolumeName("rooz-ws-work".to_string()),
+            volume_name: VolumeName("rooz_ws_work".to_string()),
             files: vec![],
         };
         let target = TargetDir("/work".to_string());
@@ -1114,7 +1114,7 @@ mod tests {
     #[test]
     fn populate_mount_mounts_volume_root() {
         let spec = VolumeFilesSpec {
-            volume_name: VolumeName("rooz-ws-inline".to_string()),
+            volume_name: VolumeName("rooz_ws_inline".to_string()),
             files: vec![FileSpec {
                 file_name: FileName("myconfig".to_string()),
                 user_file: UserFile("/home/user/.myconfig".to_string()),

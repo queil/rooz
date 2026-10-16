@@ -147,7 +147,7 @@ impl RoozVolume {
             RoozVolume {
                 sharing: RoozVolumeSharing::Exclusive { key },
                 ..
-            } => format!("rooz-{}-{}", sanitize(&key), &role_segment),
+            } => format!("rooz_{}_{}", sanitize(&key), &role_segment),
             RoozVolume { .. } => format!("rooz_{}", &role_segment),
         }
     }
@@ -272,7 +272,7 @@ mod tests {
             "/work",
         )
         .safe_volume_name();
-        assert_eq!(name, "rooz-my-ws-work");
+        assert_eq!(name, "rooz_my-ws_work");
     }
 
     #[test]
@@ -348,7 +348,7 @@ mod tests {
             "/etc/rooz",
         )
         .safe_volume_name();
-        assert_eq!(name, "rooz-xr7-workspace-config");
+        assert_eq!(name, "rooz_xr7_workspace-config");
     }
 
     #[test]
@@ -362,7 +362,7 @@ mod tests {
         )
         .to_mount(Some("/home/user"));
         assert_eq!(mount.target.as_deref(), Some("/home/user/work"));
-        assert_eq!(mount.source.as_deref(), Some("rooz-ws-work"));
+        assert_eq!(mount.source.as_deref(), Some("rooz_ws_work"));
     }
 
     #[test]
@@ -387,7 +387,7 @@ mod tests {
             Some(RoozVolumeRole::WorkspaceConfig),
         );
         assert_eq!(v.path, "/etc/rooz");
-        assert_eq!(v.safe_volume_name(), "rooz-ws-workspace-config");
+        assert_eq!(v.safe_volume_name(), "rooz_ws_workspace-config");
     }
 
     #[test]

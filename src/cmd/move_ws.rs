@@ -14,13 +14,12 @@ use crate::{
     },
 };
 
-// Volume names embed the workspace key, with either separator depending on the kind of volume
-// ('rooz-<key>-work', 'rooz_<key>_<path>_data'). Anything else is not ours to rename.
+// Volume names embed the workspace key as the first segment ('rooz_<key>_work',
+// 'rooz_<key>_<path>_data'); segments are joined with '_', which a sanitized segment never
+// contains. Anything else is not ours to rename.
 pub fn renamed_volume(name: &str, from: &str, to: &str) -> Option<String> {
-    ['-', '_'].iter().find_map(|sep| {
-        name.strip_prefix(&format!("rooz{sep}{from}{sep}"))
-            .map(|rest| format!("rooz{sep}{to}{sep}{rest}"))
-    })
+    name.strip_prefix(&format!("rooz_{from}_"))
+        .map(|rest| format!("rooz_{to}_{rest}"))
 }
 
 pub(crate) struct VolumeMove {
@@ -219,10 +218,10 @@ mod tests {
     use super::renamed_volume;
 
     #[test]
-    fn volumes_are_renamed_under_both_separators() {
+    fn volumes_are_renamed_by_their_workspace_segment() {
         assert_eq!(
-            renamed_volume("rooz-old-work", "old", "new").as_deref(),
-            Some("rooz-new-work")
+            renamed_volume("rooz_old_work", "old", "new").as_deref(),
+            Some("rooz_new_work")
         );
         assert_eq!(
             renamed_volume("rooz_old_---dir_data", "old", "new").as_deref(),
@@ -233,10 +232,10 @@ mod tests {
     #[test]
     fn another_workspace_with_a_longer_name_is_not_matched() {
         assert_eq!(
-            renamed_volume("rooz-old-b-work", "old-b", "x").as_deref(),
-            Some("rooz-x-work")
+            renamed_volume("rooz_old-b_work", "old-b", "x").as_deref(),
+            Some("rooz_x_work")
         );
-        assert_eq!(renamed_volume("rooz-older-work", "old", "new"), None);
+        assert_eq!(renamed_volume("rooz_older_work", "old", "new"), None);
         assert_eq!(renamed_volume("something-else", "old", "new"), None);
     }
 }
