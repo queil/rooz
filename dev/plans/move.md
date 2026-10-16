@@ -18,7 +18,7 @@ rooz move <ws> [<new-name>] --to <host> [--from <host>] [--with-caches] [--remov
 ## Why a copy
 
 Docker volumes cannot be renamed, and the workspace key is baked into volume names
-(`rooz-<key>-work`, data volumes), network names, container names, `dev.rooz.workspace` labels and sidecar
+(`rooz_<key>_work`, data volumes), network names, container names, `dev.rooz.workspace` labels and sidecar
 image tags. So: copy data into volumes under the new key, rebuild the rest from the stored config.
 
 ## Stage 1 flow

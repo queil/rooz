@@ -1,6 +1,6 @@
 # DX roadmap
 
-Agreed items, in suggested order. Status as of 0.164.0.
+Agreed items, in suggested order. Status as of 0.166.0.
 
 ## Done
 

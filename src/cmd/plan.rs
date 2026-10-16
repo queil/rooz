@@ -284,11 +284,11 @@ mod tests {
             workspace: "ws".into(),
             entries: Vec::new(),
         };
-        plan.push("create", "volume", "rooz-ws-work", "".into());
+        plan.push("create", "volume", "rooz_ws_work", "".into());
         plan.push("run", "install", "00-a", "root,skip_if".into());
         assert_eq!(
             plan.to_string(),
-            "create   volume    rooz-ws-work\nrun      install   00-a  root,skip_if\n\nDry run: nothing was changed."
+            "create   volume    rooz_ws_work\nrun      install   00-a  root,skip_if\n\nDry run: nothing was changed."
         );
     }
 

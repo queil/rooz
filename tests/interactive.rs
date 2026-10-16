@@ -67,7 +67,7 @@ async fn install_steps_run_in_order() {
         .assert()
         .success();
 
-    let work_vol = format!("rooz-{}-work", key);
+    let work_vol = format!("rooz_{}_work", key);
     assert_eq!(
         env.volume_file(&work_vol, "install-marker").await,
         "first\nsecond\n",
@@ -97,7 +97,7 @@ async fn install_steps_run_as_user_unless_root_is_requested() {
         .assert()
         .success();
 
-    let work_vol = format!("rooz-{}-work", key);
+    let work_vol = format!("rooz_{}_work", key);
     let user = env.volume_file(&work_vol, "uid-user").await;
     assert_ne!(user.trim(), "0", "default install step ran as root");
     assert_eq!(env.volume_file(&work_vol, "uid-root").await.trim(), "0");
@@ -125,7 +125,7 @@ async fn install_skip_if_skips_on_zero_exit_only() {
         .assert()
         .success();
 
-    let work_vol = format!("rooz-{}-work", key);
+    let work_vol = format!("rooz_{}_work", key);
     assert_eq!(env.volume_file(&work_vol, "marker").await, "ran\n");
 
     cleanup(&env, &key, &cfg_path);

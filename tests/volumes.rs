@@ -171,9 +171,9 @@ async fn inline_data_content_written_to_volume() {
     };
     let key = unique_key("vol-inline");
 
-    // Volume name: rooz-{key}-greeting  (volume_name fn: "rooz-{sanitize(key)}-{sanitize(entry)}")
+    // Volume name: rooz-{key}-greeting  (volume_name fn: "rooz_{sanitize(key)}_{sanitize(entry)}")
     // unique_key output is already alphanumeric+dashes so sanitize is a no-op.
-    let data_vol = format!("rooz-{}-greeting", key);
+    let data_vol = format!("rooz_{}_greeting", key);
 
     let cfg = format!(
         "data:\n  greeting:\n    content: \"hello from rooz\\n\"\nmounts:\n  ~/greeting: greeting\n"
@@ -247,7 +247,7 @@ async fn inline_mounts_share_inline_volume() {
 
     // Both inline mounts land in the shared inline volume; file names are
     // sanitized target paths.
-    let inline_vol = format!("rooz-{}-inline", key);
+    let inline_vol = format!("rooz_{}_inline", key);
     assert_eq!(
         env.volume_file(&inline_vol, "---cfg-a").await,
         "content-a\n"
@@ -273,8 +273,8 @@ async fn data_file_modes_ownership_and_eols() {
 
     new_workspace(&env, &key, &cfg_path);
 
-    let script_vol = format!("rooz-{}-script", key);
-    let plain_vol = format!("rooz-{}-plain", key);
+    let script_vol = format!("rooz_{}_script", key);
+    let plain_vol = format!("rooz_{}_plain", key);
 
     // executable entries are 755, plain files 644; owner is the workspace uid
     // (default 1000)
@@ -309,7 +309,7 @@ async fn generated_data_file_content() {
 
     new_workspace(&env, &key, &cfg_path);
 
-    let gen_vol = format!("rooz-{}-gen", key);
+    let gen_vol = format!("rooz_{}_gen", key);
     assert_eq!(env.volume_file(&gen_vol, "gen").await, "gen-output");
 
     cleanup(&env, &key, &cfg_path);
@@ -328,7 +328,7 @@ async fn generated_multiline_data_file() {
 
     new_workspace(&env, &key, &cfg_path);
 
-    let vol = format!("rooz-{}-genml", key);
+    let vol = format!("rooz_{}_genml", key);
     let content = env.volume_file(&vol, "genml").await;
     // generated content must round-trip byte-exact, same as inline content
     assert_eq!(content, "l1\nl2\n");
@@ -349,7 +349,7 @@ async fn generated_data_file_excludes_stderr() {
 
     new_workspace(&env, &key, &cfg_path);
 
-    let vol = format!("rooz-{}-gen", key);
+    let vol = format!("rooz_{}_gen", key);
     assert_eq!(env.volume_file(&vol, "gen").await, "clean-output");
 
     cleanup(&env, &key, &cfg_path);
@@ -368,7 +368,7 @@ async fn sidecar_mount_populates_data_volume() {
 
     new_workspace(&env, &key, &cfg_path);
 
-    let vol = format!("rooz-{}-svc-cfg", key);
+    let vol = format!("rooz_{}_svc-cfg", key);
     assert_eq!(env.volume_file(&vol, "svc-cfg").await, "svc-config\n");
 
     cleanup(&env, &key, &cfg_path);
@@ -390,7 +390,7 @@ async fn large_generated_data_file() {
 
     new_workspace(&env, &key, &cfg_path);
 
-    let vol = format!("rooz-{}-big", key);
+    let vol = format!("rooz_{}_big", key);
     let content = env.volume_file(&vol, "big").await;
     assert_eq!(content.len(), 200000);
     assert!(content.chars().all(|c| c == 'x'));
@@ -418,7 +418,7 @@ async fn workspace_config_volume_stores_body() {
         .assert()
         .success();
 
-    let vol = format!("rooz-{}-workspace-config", key);
+    let vol = format!("rooz_{}_workspace-config", key);
     let stored = env.volume_file(&vol, "workspace.config").await;
     assert_eq!(stored, body, "config body must be stored byte-exact");
 
@@ -470,7 +470,7 @@ async fn large_workspace_config_body() {
         .assert()
         .success();
 
-    let vol = format!("rooz-{}-workspace-config", key);
+    let vol = format!("rooz_{}_workspace-config", key);
     let stored = env.volume_file(&vol, "workspace.config").await;
     assert_eq!(stored, body);
 
@@ -513,7 +513,7 @@ async fn ssh_key_volume_is_read_only_in_the_workspace() {
         .as_ref()
         .expect("container has no mounts")
         .iter()
-        .find(|m| m.name.as_deref() == Some("rooz-ssh-key-vol"))
+        .find(|m| m.name.as_deref() == Some("rooz_ssh-key"))
         .expect("ssh key volume not mounted");
     assert_eq!(
         ssh_mount.rw,
@@ -610,7 +610,7 @@ async fn secrets_are_masked_in_the_persisted_runtime_config() {
         .success();
 
     // at rest: no plaintext anywhere in the persisted runtime config
-    let vol = format!("rooz-{}-workspace-config", key);
+    let vol = format!("rooz_{}_workspace-config", key);
     let runtime = env.volume_file(&vol, "runtime.config").await;
     assert!(
         !runtime.contains(marker),
@@ -792,7 +792,7 @@ async fn root_install_steps_through_bases_need_a_trusted_dir() {
         .assert()
         .success();
 
-    let work_vol = format!("rooz-{}-work", key);
+    let work_vol = format!("rooz_{}_work", key);
     assert_eq!(env.volume_file(&work_vol, "uid").await.trim(), "0");
 
     cleanup(&env, &key, &cfg_path);
