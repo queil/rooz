@@ -288,6 +288,46 @@ pub struct ListParams {
 }
 
 #[derive(Parser, Debug)]
+#[command(about = "Manages the shared cache volumes")]
+pub struct CacheParams {
+    #[command(subcommand)]
+    pub command: CacheCommands,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum CacheCommands {
+    #[command(
+        about = "Lists caches with size and the workspaces mounting them",
+        alias = "list"
+    )]
+    Ls(CacheLsParams),
+    #[command(about = "Removes caches by name or path (e.g. '~/.cargo'); refuses mounted ones")]
+    Rm(CacheRmParams),
+    #[command(about = "Removes all caches that no workspace mounts")]
+    Prune(CachePruneParams),
+}
+
+#[derive(Parser, Debug)]
+pub struct CacheLsParams {
+    #[arg(long, help = "Includes other operators' caches (see ROOZ_CACHE_SCOPE)")]
+    pub all_scopes: bool,
+    #[arg(long, help = "Prints JSON instead of a table")]
+    pub json: bool,
+}
+
+#[derive(Parser, Debug)]
+pub struct CacheRmParams {
+    #[arg(required = true)]
+    pub names: Vec<String>,
+}
+
+#[derive(Parser, Debug)]
+pub struct CachePruneParams {
+    #[arg(long, help = "Prints what would be removed, without removing")]
+    pub dry_run: bool,
+}
+
+#[derive(Parser, Debug)]
 #[command(about = "Shows a workspace's containers, volumes and config origin")]
 pub struct StatusParams {
     pub name: String,
@@ -413,6 +453,7 @@ pub enum Commands {
     Remove(RemoveParams),
     Update(UpdateParams),
     List(ListParams),
+    Cache(CacheParams),
     Status(StatusParams),
     Logs(LogsParams),
     Config(Config),

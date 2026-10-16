@@ -167,6 +167,17 @@ rooz status myworkspace2 [--json]        # containers, volumes, config origin
 rooz logs myworkspace2 [-c sidecar] [-f] [--tail 100]
 ```
 
+### Manage caches
+
+```sh
+rooz cache ls [--all-scopes] [--json]   # size, age, mounting workspaces
+rooz cache rm '~/.cargo'                # by path, or by name as shown in 'ls'
+rooz cache prune [--dry-run]            # removes every cache no workspace mounts
+```
+
+`rm` and `prune` only touch your own scope (see `ROOZ_CACHE_SCOPE`) and refuse caches that a
+container still mounts. Size shows `-` on engines without a disk usage report.
+
 ### Interactive shell in an anonymous ephemeral workspace
 
 ```sh

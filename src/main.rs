@@ -5,8 +5,8 @@ use rooz::{
     cli::{
         Cli,
         Commands::{
-            Code, Config, Enter, Exec, List, Logs, New, Remote, Remove, Restart, Start, Status,
-            Stop, System, Tmp, Update,
+            Cache, Code, Config, Enter, Exec, List, Logs, New, Remote, Remove, Restart, Start,
+            Status, Stop, System, Tmp, Update,
         },
         CompletionParams, ConfigureParams, ListParams, NewParams, RemoveParams, ShowConfigParams,
         StopParams, TmpParams,
@@ -23,8 +23,8 @@ use clap_complete::generate;
 use colored::Colorize;
 use rooz::api::{ConfigApi, CryptApi};
 use rooz::cli::{
-    CodeParams, EditConfigParams, EnterParams, ExecParams, LogsParams, RestartParams, StartParams,
-    StatusParams, TemplateConfigParams, UpdateParams,
+    CacheCommands, CacheParams, CodeParams, EditConfigParams, EnterParams, ExecParams, LogsParams,
+    RestartParams, StartParams, StatusParams, TemplateConfigParams, UpdateParams,
 };
 use rooz::cmd::plan::PlanMode;
 use rooz::cmd::update::UpdateMode;
@@ -246,6 +246,15 @@ async fn run() -> Result<(), AnyError> {
             command: List(ListParams { json, .. }),
             ..
         } => rooz.list(json).await?,
+
+        Cli {
+            command: Cache(CacheParams { command }),
+            ..
+        } => match command {
+            CacheCommands::Ls(p) => rooz.cache_ls(p.all_scopes, p.json).await?,
+            CacheCommands::Rm(p) => rooz.cache_rm(&p.names).await?,
+            CacheCommands::Prune(p) => rooz.cache_prune(p.dry_run).await?,
+        },
 
         Cli {
             command: Status(StatusParams { name, json }),

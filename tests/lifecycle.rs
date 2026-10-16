@@ -383,7 +383,10 @@ async fn list_status_and_logs_describe_a_workspace() {
     assert!(!st["volumes"].as_array().unwrap().is_empty());
 
     env.rooz().args(["status", &key]).assert().success();
-    env.rooz().args(["logs", &key, "--tail", "5"]).assert().success();
+    env.rooz()
+        .args(["logs", &key, "--tail", "5"])
+        .assert()
+        .success();
     env.rooz()
         .args(["status", "no-such-workspace-xyz"])
         .assert()

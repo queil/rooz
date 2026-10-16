@@ -130,11 +130,14 @@ impl PullProgress {
     }
 }
 
-fn human_bytes(b: i64) -> String {
+pub fn human_bytes(b: i64) -> String {
+    const GB: f64 = 1_000_000_000.0;
     const MB: f64 = 1_000_000.0;
     const KB: f64 = 1_000.0;
     let b = b as f64;
-    if b >= MB {
+    if b >= GB {
+        format!("{:.1} GB", b / GB)
+    } else if b >= MB {
         format!("{:.1} MB", b / MB)
     } else if b >= KB {
         format!("{:.1} KB", b / KB)

@@ -853,3 +853,46 @@ async fn dry_run_masks_secrets_wherever_they_land() {
 
     let _ = fs::remove_file(&cfg_path);
 }
+
+#[tokio::test]
+async fn cache_commands_list_refuse_mounted_and_remove_unused() {
+    let Some(env) = TestEnv::from_env() else {
+        return;
+    };
+    let key = unique_key("cache-cmd");
+    let path = format!("~/.{}", key);
+    let vol = rooz::model::volume::cache_volume_name(&rooz::model::volume::cache_scope(), &path);
+
+    env.rooz()
+        .args(["system", "init", "--force"])
+        .assert()
+        .success();
+    env.rooz()
+        .args(["new", &key, "--image", "alpine:latest", "--caches", &path])
+        .assert()
+        .success();
+
+    let ls = env.rooz().args(["cache", "ls", "--json"]).assert().success();
+    let rows: serde_json::Value = serde_json::from_slice(&ls.get_output().stdout).unwrap();
+    let row = rows
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["name"] == vol.as_str())
+        .expect("cache listed");
+    assert_eq!(row["mounted"], true);
+    assert!(row["workspaces"].to_string().contains(&key));
+
+    env.rooz().args(["cache", "rm", &path]).assert().failure();
+    assert!(env.volume_exists(&vol).await, "a mounted cache was removed");
+
+    env.rooz()
+        .args(["cache", "prune", "--dry-run"])
+        .assert()
+        .success();
+    assert!(env.volume_exists(&vol).await, "dry run removed a cache");
+
+    env.rooz().args(["rm", &key, "--force"]).assert().success();
+    env.rooz().args(["cache", "rm", &path]).assert().success();
+    assert!(!env.volume_exists(&vol).await, "cache survived cache rm");
+}
