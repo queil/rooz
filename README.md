@@ -180,6 +180,19 @@ a `# yaml-language-server: $schema=./rooz.schema.json` first line or through you
 does; templates stay unexpanded and secret values are shown as `***`. Settings given as flags to
 `rooz new` are not recorded and so not shown.
 
+### Rename a workspace
+
+```sh
+rooz move myworkspace newname [--dry-run]
+```
+
+Volumes cannot be renamed, so the work and data volumes are copied under the new name, the workspace
+is rebuilt from its stored config (secrets need the same consent as `rooz update`) and the old one is
+removed. The old workspace is stopped first; if anything fails, the partial new one is removed and
+the old one is left in place. It never replaces: the new name must be free. Expect roughly twice the
+workspace's disk use while it runs, install steps to run again, and shells and processes in the
+workspace to end. The rebuilt workspace is left as `rooz new` leaves it; `rooz enter` it afterwards.
+
 ### Check the setup
 
 ```sh

@@ -160,6 +160,28 @@ impl<'a> VolumeApi<'a> {
         }
     }
 
+    // Copies the whole content of one volume into another that already exists, preserving owners,
+    // modes and symlinks. Both are mounted in a short-lived root container on the same engine.
+    pub async fn copy_volume(&self, from: &str, to: &str) -> Result<(), AnyError> {
+        let mount = |name: &str, target: &str, read_only: bool| Mount {
+            typ: Some(VOLUME),
+            source: Some(name.to_string()),
+            target: Some(target.to_string()),
+            read_only: Some(read_only),
+            ..Default::default()
+        };
+        self.container
+            .one_shot(
+                "move-copy",
+                "cp -a /from/. /to/".to_string(),
+                Some(vec![mount(from, "/from", true), mount(to, "/to", false)]),
+                None,
+                None,
+            )
+            .await
+            .map_err(|e| format!("Copying volume '{}' to '{}' failed: {}", from, to, e).into())
+    }
+
     pub async fn remove_volume(&self, name: &str, force: bool) -> Result<(), AnyError> {
         let options = RemoveVolumeOptions { force };
         match &self.client.remove_volume(name, Some(options)).await {

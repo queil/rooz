@@ -28,9 +28,9 @@ Agreed items, in suggested order. Status as of 0.164.0 work.
    ssh key, age identity, network address-pool limit.
 7. **Config discoverability.** `rooz config schema` (JSON Schema for editors); `config show --resolved`
    with the layer each field came from.
-8. **`rooz config template --detect`.** `config template` exists; detect `*.csproj`, `Cargo.toml`,
+8. **`rooz move`.** See `move.md`. Stage 1 (rename on one engine) shipped; stage 2 (cross-host) open.
+9. **`rooz config template --detect`.** `config template` exists; detect `*.csproj`, `Cargo.toml`,
    fill image and caches.
-9. **`rooz move`.** See `move.md`.
 
 ## Ideas, not scheduled
 

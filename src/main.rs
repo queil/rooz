@@ -5,8 +5,8 @@ use rooz::{
     cli::{
         Cli,
         Commands::{
-            Cache, Code, Config, Doctor, Enter, Exec, List, Logs, New, Remote, Remove, Restart,
-            Start, Status, Stop, System, Tmp, Update,
+            Cache, Code, Config, Doctor, Enter, Exec, List, Logs, Move, New, Remote, Remove,
+            Restart, Start, Status, Stop, System, Tmp, Update,
         },
         CompletionParams, ConfigureParams, ListParams, NewParams, RemoveParams, ShowConfigParams,
         StopParams, TmpParams,
@@ -24,7 +24,7 @@ use colored::Colorize;
 use rooz::api::{ConfigApi, CryptApi};
 use rooz::cli::{
     CacheCommands, CacheParams, CodeParams, EditConfigParams, EnterParams, ExecParams, LogsParams,
-    RestartParams, StartParams, StatusParams, TemplateConfigParams, UpdateParams,
+    MoveParams, RestartParams, StartParams, StatusParams, TemplateConfigParams, UpdateParams,
 };
 use rooz::cmd::plan::PlanMode;
 use rooz::cmd::update::UpdateMode;
@@ -259,6 +259,23 @@ async fn run() -> Result<(), AnyError> {
             command: List(ListParams { json, .. }),
             ..
         } => rooz.list(json).await?,
+
+        Cli {
+            command:
+                Move(MoveParams {
+                    name,
+                    new_name,
+                    dry_run,
+                    allow_secrets,
+                }),
+            host,
+            ..
+        } => {
+            remote::announce_target(host.as_deref());
+            workspace
+                .move_workspace(&name, &new_name, dry_run, allow_secrets)
+                .await?;
+        }
 
         Cli {
             command: Cache(CacheParams { command }),

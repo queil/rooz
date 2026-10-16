@@ -31,78 +31,9 @@ impl<'a> WorkspaceApi<'a> {
         dry_run: bool,
         allow_secrets: Option<bool>,
     ) -> Result<(), AnyError> {
-        let labels = Labels::workspace_config(workspace_key);
-
-        let volume = self
-            .api
-            .volume
-            .get_single(&labels)
-            .await?
-            .ok_or(format!("Workspace not found: {}", &workspace_key))?;
-
-        let config_source = {
-            if let Some(config_source) = &volume.labels.get(labels::CONFIG_ORIGIN) {
-                let format = FileFormat::from_path(config_source)?;
-                let config_path = ConfigPath::from_str(&config_source)?;
-                let mut original_body = self.config.read(workspace_key, &ConfigType::Body).await?;
-                let mut pre_merged: Option<RoozCfg> = None;
-
-                if !interactive {
-                    match &config_path {
-                        ConfigPath::File { path } => {
-                            original_body = fs::read_to_string(&path)?;
-                        }
-                        ConfigPath::Git { url, file_path } => {
-                            let clone_env = CloneEnv {
-                                workspace_key: workspace_key.to_string(),
-                                ..Default::default()
-                            };
-
-                            let (result, _) = self
-                                .git
-                                .clone_config_repo(clone_env, &url, &file_path)
-                                .await?;
-                            if let Some(cb) = result {
-                                original_body = cb.body;
-                                pre_merged = cb.merged;
-                            };
-                        }
-                    };
-                }
-
-                let mut original_config = match pre_merged {
-                    Some(merged) => merged,
-                    None => RoozCfg::deserialize_config(&original_body, format)?.unwrap(),
-                };
-
-                let config_to_apply = if interactive {
-                    let identity = self.api.get_system_config().await?.age_identity()?;
-                    self.config.decrypt(&mut original_config, &identity).await?;
-
-                    let decrypted_string = original_config.to_string(format)?;
-                    let (encrypted_config, _) = self
-                        .config
-                        .edit_string(decrypted_string.clone(), format, &identity)
-                        .await?;
-                    encrypted_config
-                } else {
-                    original_config
-                };
-                Some(ConfigSource::Update {
-                    value: config_to_apply,
-                    origin: config_source.to_string(),
-                    format,
-                })
-            } else {
-                if interactive {
-                    eprintln!(
-                        "WARN: The --tweak flag has no effect on workspaces without config. Please remove it to update the workspace"
-                    );
-                    exit(1)
-                }
-                None
-            }
-        };
+        let config_source = self
+            .stored_config_source(workspace_key, interactive, true)
+            .await?;
 
         let git_ssh_url = match &config_source {
             Some(ConfigSource::Update { value, .. }) if value.git_ssh_url.is_some() => None,
@@ -167,7 +98,93 @@ impl<'a> WorkspaceApi<'a> {
         Ok(())
     }
 
-    async fn stored_git_ssh_url(&self, workspace_key: &str) -> Result<Option<String>, AnyError> {
+    // The configuration a workspace is rebuilt from. `from_origin` re-reads it from where it came
+    // from (what 'update' does); otherwise the body stored with the workspace is used as is.
+    pub(crate) async fn stored_config_source(
+        &self,
+        workspace_key: &str,
+        interactive: bool,
+        from_origin: bool,
+    ) -> Result<Option<ConfigSource>, AnyError> {
+        let labels = Labels::workspace_config(workspace_key);
+
+        let volume = self
+            .api
+            .volume
+            .get_single(&labels)
+            .await?
+            .ok_or(format!("Workspace not found: {}", &workspace_key))?;
+
+        let config_source = {
+            if let Some(config_source) = &volume.labels.get(labels::CONFIG_ORIGIN) {
+                let format = FileFormat::from_path(config_source)?;
+                let config_path = ConfigPath::from_str(&config_source)?;
+                let mut original_body = self.config.read(workspace_key, &ConfigType::Body).await?;
+                let mut pre_merged: Option<RoozCfg> = None;
+
+                if !interactive && from_origin {
+                    match &config_path {
+                        ConfigPath::File { path } => {
+                            original_body = fs::read_to_string(&path)?;
+                        }
+                        ConfigPath::Git { url, file_path } => {
+                            let clone_env = CloneEnv {
+                                workspace_key: workspace_key.to_string(),
+                                ..Default::default()
+                            };
+
+                            let (result, _) = self
+                                .git
+                                .clone_config_repo(clone_env, &url, &file_path)
+                                .await?;
+                            if let Some(cb) = result {
+                                original_body = cb.body;
+                                pre_merged = cb.merged;
+                            };
+                        }
+                    };
+                }
+
+                let mut original_config = match pre_merged {
+                    Some(merged) => merged,
+                    None => RoozCfg::deserialize_config(&original_body, format)?.unwrap(),
+                };
+
+                let config_to_apply = if interactive {
+                    let identity = self.api.get_system_config().await?.age_identity()?;
+                    self.config.decrypt(&mut original_config, &identity).await?;
+
+                    let decrypted_string = original_config.to_string(format)?;
+                    let (encrypted_config, _) = self
+                        .config
+                        .edit_string(decrypted_string.clone(), format, &identity)
+                        .await?;
+                    encrypted_config
+                } else {
+                    original_config
+                };
+                Some(ConfigSource::Update {
+                    value: config_to_apply,
+                    origin: config_source.to_string(),
+                    format,
+                })
+            } else {
+                if interactive {
+                    eprintln!(
+                        "WARN: The --tweak flag has no effect on workspaces without config. Please remove it to update the workspace"
+                    );
+                    exit(1)
+                }
+                None
+            }
+        };
+        Ok(config_source)
+    }
+
+    pub(crate) async fn stored_git_ssh_url(
+        &self,
+        workspace_key: &str,
+    ) -> Result<Option<String>, AnyError> {
         let body = self
             .config
             .read(workspace_key, &ConfigType::Runtime)

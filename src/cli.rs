@@ -263,6 +263,25 @@ pub struct ExecParams {
 }
 
 #[derive(Parser, Debug)]
+#[command(
+    about = "Renames a workspace: copies its volumes under the new name, rebuilds it and removes the old one"
+)]
+pub struct MoveParams {
+    pub name: String,
+    pub new_name: String,
+    #[arg(
+        long,
+        help = "Prints what would be copied and rebuilt, without changing anything"
+    )]
+    pub dry_run: bool,
+    #[arg(
+        long,
+        help = "Consents to expanding the 'secrets' of the workspace config into the moved workspace"
+    )]
+    pub allow_secrets: Option<bool>,
+}
+
+#[derive(Parser, Debug)]
 #[command(about = "Starts a workspace")]
 pub struct StartParams {
     pub name: String,
@@ -469,6 +488,7 @@ pub enum Commands {
     Restart(RestartParams),
     Remove(RemoveParams),
     Update(UpdateParams),
+    Move(MoveParams),
     List(ListParams),
     Cache(CacheParams),
     Doctor(DoctorParams),
