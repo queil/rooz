@@ -207,6 +207,21 @@ the old one is left in place. It never replaces: the new name must be free. Expe
 workspace's disk use while it runs, install steps to run again, and shells and processes in the
 workspace to end. The rebuilt workspace is left as `rooz new` leaves it; `rooz enter` it afterwards.
 
+### Move a workspace to another host
+
+```sh
+rooz move myworkspace --to buildbox [newname] [--remove-source] [--dry-run]
+```
+
+The source is the engine you are on (`-H`/`DOCKER_HOST`); the target is a host from `rooz remote`.
+Both must be connected. The volumes stream from one engine to the other through this machine (tar,
+owners, modes and symlinks preserved, never held in memory whole), and the workspace is rebuilt on
+the target from its config file with `rooz new` there, so that file must still be on this machine.
+The source is left stopped; `--remove-source` removes it, otherwise `rooz rm` it when satisfied. If
+anything fails, the partial workspace on the target is removed and the source is started again.
+Not moved: caches, the ssh key (run `rooz system init` on the target and register its public key)
+and images. A target on a different CPU architecture gets a warning: compiled artifacts will not run.
+
 ### Check the setup
 
 ```sh

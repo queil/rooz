@@ -4,6 +4,7 @@ pub mod doctor;
 pub mod init;
 pub mod list;
 pub mod logs;
+pub mod move_remote;
 pub mod move_ws;
 pub mod new;
 pub mod plan;

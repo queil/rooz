@@ -23,14 +23,18 @@ pub fn renamed_volume(name: &str, from: &str, to: &str) -> Option<String> {
     })
 }
 
-struct VolumeMove {
-    from: String,
-    to: String,
-    labels: HashMap<String, String>,
+pub(crate) struct VolumeMove {
+    pub from: String,
+    pub to: String,
+    pub labels: HashMap<String, String>,
 }
 
 impl<'a> WorkspaceApi<'a> {
-    async fn volumes_to_move(&self, from: &str, to: &str) -> Result<Vec<VolumeMove>, AnyError> {
+    pub(crate) async fn volumes_to_move(
+        &self,
+        from: &str,
+        to: &str,
+    ) -> Result<Vec<VolumeMove>, AnyError> {
         let volumes = self
             .api
             .client
@@ -67,7 +71,7 @@ impl<'a> WorkspaceApi<'a> {
 
     // What the rebuild is given besides the stored config file. A workspace made from flags alone
     // has no file, so what its flags set is carried over from the stored runtime config.
-    async fn move_params(
+    pub(crate) async fn move_params(
         &self,
         from: &str,
         has_config_file: bool,
@@ -91,25 +95,8 @@ impl<'a> WorkspaceApi<'a> {
         Ok(params)
     }
 
-    pub async fn move_workspace(
-        &self,
-        from: &str,
-        to: &str,
-        dry_run: bool,
-        allow_secrets: Option<bool>,
-    ) -> Result<(), AnyError> {
-        id::validate_workspace_name(to)?;
-        if from == to {
-            return Err("The new name is the same as the current one.".into());
-        }
-
-        self.api
-            .volume
-            .get_single(&Labels::workspace_config(from))
-            .await?
-            .ok_or(format!("Workspace not found: {}", from))?;
-
-        // move never replaces
+    // move never replaces
+    pub(crate) async fn ensure_name_free(&self, to: &str) -> Result<(), AnyError> {
         let dest = Labels::from(&[Labels::workspace(to)]);
         if !self.api.container.get_all(&dest).await?.is_empty()
             || !self
@@ -131,6 +118,28 @@ impl<'a> WorkspaceApi<'a> {
             )
             .into());
         }
+        Ok(())
+    }
+
+    pub async fn move_workspace(
+        &self,
+        from: &str,
+        to: &str,
+        dry_run: bool,
+        allow_secrets: Option<bool>,
+    ) -> Result<(), AnyError> {
+        id::validate_workspace_name(to)?;
+        if from == to {
+            return Err("The new name is the same as the current one.".into());
+        }
+
+        self.api
+            .volume
+            .get_single(&Labels::workspace_config(from))
+            .await?
+            .ok_or(format!("Workspace not found: {}", from))?;
+
+        self.ensure_name_free(to).await?;
 
         let moves = self.volumes_to_move(from, to).await?;
         for m in &moves {
@@ -229,5 +238,67 @@ mod tests {
         );
         assert_eq!(renamed_volume("rooz-older-work", "old", "new"), None);
         assert_eq!(renamed_volume("something-else", "old", "new"), None);
+    }
+}
+
+impl<'a> WorkspaceApi<'a> {
+    // Run on the receiving engine: whether a moved workspace can land here. The platform comes
+    // back so the sending side can warn about an architecture change.
+    pub async fn preflight_destination(&self, name: &str) -> Result<String, AnyError> {
+        id::validate_workspace_name(name)?;
+        self.ensure_name_free(name).await?;
+        let ssh_key = VolumeSpec {
+            name: crate::util::ssh::VOLUME_NAME.to_string(),
+            labels: None,
+        };
+        if !self.api.volume.exists_for(&ssh_key).await? {
+            return Err(
+                "This engine has no rooz ssh key. Run 'rooz system init' against it first \\
+                        and register the printed public key with your git hosts."
+                    .into(),
+            );
+        }
+        Ok(self.api.container.backend.platform.to_string())
+    }
+
+    // Run on the receiving engine: creates the volume (it must not exist) and fills it from a
+    // tar stream on stdin, which is how the sending side's copy arrives.
+    pub async fn receive_volume(
+        &self,
+        name: &str,
+        labels: HashMap<String, String>,
+    ) -> Result<(), AnyError> {
+        use futures::stream;
+        use tokio::io::AsyncReadExt;
+
+        let created = self
+            .api
+            .volume
+            .ensure_volume(&VolumeSpec {
+                name: name.to_string(),
+                labels: Some(Labels::new(labels)),
+            })
+            .await?;
+        if !matches!(created, crate::model::types::VolumeResult::Created) {
+            return Err(format!("Volume '{}' already exists on this engine.", name).into());
+        }
+
+        let helper = self.api.container.volume_helper(name, "/to", false).await?;
+        let input = stream::try_unfold(tokio::io::stdin(), |mut stdin| async move {
+            let mut buf = vec![0u8; 256 * 1024];
+            let n = stdin.read(&mut buf).await?;
+            if n == 0 {
+                return Ok::<_, std::io::Error>(None);
+            }
+            buf.truncate(n);
+            Ok(Some((bytes::Bytes::from(buf), stdin)))
+        });
+        let result = self
+            .api
+            .container
+            .upload_stream(&helper, "/to", input)
+            .await;
+        self.api.container.remove(&helper, true).await.ok();
+        result
     }
 }

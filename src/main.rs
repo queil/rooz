@@ -5,8 +5,8 @@ use rooz::{
     cli::{
         Cli,
         Commands::{
-            Cache, Code, Config, Doctor, Enter, Exec, List, Logs, Move, New, Remote, Remove,
-            Restart, Start, Status, Stop, System, Tmp, Update,
+            Cache, Code, Config, Doctor, Enter, Exec, Internal, List, Logs, Move, New, Remote,
+            Remove, Restart, Start, Status, Stop, System, Tmp, Update,
         },
         CompletionParams, ConfigureParams, ListParams, NewParams, RemoveParams, ShowConfigParams,
         StopParams, TmpParams,
@@ -23,8 +23,9 @@ use clap_complete::generate;
 use colored::Colorize;
 use rooz::api::{ConfigApi, CryptApi};
 use rooz::cli::{
-    CacheCommands, CacheParams, CodeParams, EditConfigParams, EnterParams, ExecParams, LogsParams,
-    MoveParams, RestartParams, StartParams, StatusParams, TemplateConfigParams, UpdateParams,
+    CacheCommands, CacheParams, CodeParams, EditConfigParams, EnterParams, ExecParams,
+    InternalCommands, InternalParams, LogsParams, MoveParams, RestartParams, StartParams,
+    StatusParams, TemplateConfigParams, UpdateParams,
 };
 use rooz::cmd::plan::PlanMode;
 use rooz::cmd::update::UpdateMode;
@@ -277,6 +278,8 @@ async fn run() -> Result<(), AnyError> {
                 Move(MoveParams {
                     name,
                     new_name,
+                    to,
+                    remove_source,
                     dry_run,
                     allow_secrets,
                 }),
@@ -284,9 +287,53 @@ async fn run() -> Result<(), AnyError> {
             ..
         } => {
             remote::announce_target(host.as_deref());
-            workspace
-                .move_workspace(&name, &new_name, dry_run, allow_secrets)
-                .await?;
+            match (to, new_name) {
+                (Some(target), new_name) => {
+                    workspace
+                        .move_to_host(
+                            &name,
+                            new_name.as_deref().unwrap_or(&name),
+                            &target,
+                            host.as_deref(),
+                            remove_source,
+                            dry_run,
+                            allow_secrets,
+                        )
+                        .await?
+                }
+                (None, Some(new_name)) => {
+                    workspace
+                        .move_workspace(&name, &new_name, dry_run, allow_secrets)
+                        .await?
+                }
+                (None, None) => unreachable!("clap requires a new name without --to"),
+            }
+        }
+
+        Cli {
+            command:
+                Internal(InternalParams {
+                    command: InternalCommands::Preflight { name },
+                }),
+            ..
+        } => println!("{}", workspace.preflight_destination(&name).await?),
+
+        Cli {
+            command:
+                Internal(InternalParams {
+                    command: InternalCommands::ReceiveVolume { name, labels },
+                }),
+            ..
+        } => {
+            let labels = labels
+                .iter()
+                .map(|l| {
+                    l.split_once('=')
+                        .map(|(k, v)| (k.to_string(), v.to_string()))
+                        .ok_or(format!("bad label '{}': expected key=value", l))
+                })
+                .collect::<Result<std::collections::HashMap<_, _>, _>>()?;
+            workspace.receive_volume(&name, labels).await?
         }
 
         Cli {

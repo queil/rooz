@@ -16,10 +16,14 @@ Agreed items, in suggested order. Status as of the unreleased work after 0.164.0
   CHANGELOG. Not done from these: a log tail for failing install steps (their output already streams
   live), "last use" for caches (the engine does not track it), hover descriptions in the config schema.
 
+- **`rooz move --to <host>`** (stage 2) - unreleased. Built as two ordinary rooz processes (`-H`
+  source, `-H` target) with the tar streamed between them, so no second engine client exists in one
+  process. Tested on one daemon behind a second unix socket; a real second host is not tested.
+  Not done: `--with-caches`, `--from` (use `-H`), a direct host-to-host pipe.
+
 ## Next
 
-1. **`rooz move` stage 2** (cross-host). See `move.md`. Needs two engine clients and two daemons to
-   test end to end; today CI boots one.
+Nothing scheduled.
 
 ## Ideas, not scheduled
 
@@ -29,7 +33,8 @@ Agreed items, in suggested order. Status as of the unreleased work after 0.164.0
 - Image layers per install step (commit after each step, keyed by base image id + steps so far). Removes
   the need for prebuilt images; needs layer naming, GC and the sidecar "trust the recorded image id"
   rule extended to a shared namespace. Large.
-- Cross-host `move` with a direct host-to-host pipe instead of through the operator's machine.
+- Cross-host `move` with a direct host-to-host pipe instead of through the operator's machine;
+  `--with-caches`; moving the workspace from its stored config when the config file is gone.
 
 ## Refactors left from the duplication scan
 

@@ -264,11 +264,26 @@ pub struct ExecParams {
 
 #[derive(Parser, Debug)]
 #[command(
-    about = "Renames a workspace: copies its volumes under the new name, rebuilds it and removes the old one"
+    about = "Renames a workspace, or with --to moves it to another host: copies its volumes, rebuilds it there and removes the old one (the source is kept with --to)"
 )]
 pub struct MoveParams {
     pub name: String,
-    pub new_name: String,
+    #[arg(
+        required_unless_present = "to",
+        help = "The new name; with --to it defaults to the current one"
+    )]
+    pub new_name: Option<String>,
+    #[arg(
+        long,
+        help = "Moves the workspace to this host (see 'rooz remote'; both hosts must be connected). The workspace is left stopped on the source"
+    )]
+    pub to: Option<String>,
+    #[arg(
+        long,
+        requires = "to",
+        help = "Removes the source workspace after a successful move"
+    )]
+    pub remove_source: bool,
     #[arg(
         long,
         help = "Prints what would be copied and rebuilt, without changing anything"
@@ -279,6 +294,25 @@ pub struct MoveParams {
         help = "Consents to expanding the 'secrets' of the workspace config into the moved workspace"
     )]
     pub allow_secrets: Option<bool>,
+}
+
+#[derive(Parser, Debug)]
+#[command(hide = true, about = "Plumbing used by 'rooz move --to'")]
+pub struct InternalParams {
+    #[command(subcommand)]
+    pub command: InternalCommands,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum InternalCommands {
+    #[command(about = "Checks this engine can receive a workspace; prints its platform")]
+    Preflight { name: String },
+    #[command(about = "Creates a volume and fills it from a tar stream on stdin")]
+    ReceiveVolume {
+        name: String,
+        #[arg(long = "label")]
+        labels: Vec<String>,
+    },
 }
 
 #[derive(Parser, Debug)]
@@ -498,6 +532,7 @@ pub enum Commands {
     Remove(RemoveParams),
     Update(UpdateParams),
     Move(MoveParams),
+    Internal(InternalParams),
     List(ListParams),
     Cache(CacheParams),
     Doctor(DoctorParams),

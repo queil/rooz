@@ -708,6 +708,64 @@ echo start > /tmp/exec_start
         Ok(())
     }
 
+    // A created, never started container with one volume mounted - enough to read the volume
+    // through the archive API on any engine, and to write it.
+    pub async fn volume_helper(
+        &self,
+        volume: &str,
+        target: &str,
+        read_only: bool,
+    ) -> Result<String, AnyError> {
+        self.create(RunSpec {
+            reason: "move-copy",
+            image: constants::DEFAULT_IMAGE,
+            container_name: &id::random_suffix("one-shot"),
+            command: Some(vec!["true"]),
+            mounts: Some(vec![Mount {
+                typ: Some(MountType::VOLUME),
+                source: Some(volume.to_string()),
+                target: Some(target.to_string()),
+                read_only: Some(read_only),
+                ..Default::default()
+            }]),
+            uid: constants::ROOT_UID,
+            ..Default::default()
+        })
+        .await
+        .map(|r| r.id().to_string())
+    }
+
+    // The content of `path` as a tar stream
+    pub fn download(
+        &self,
+        container_id: &str,
+        path: &str,
+    ) -> impl futures::Stream<Item = Result<bytes::Bytes, Error>> {
+        self.client.download_from_container(
+            container_id,
+            Some(
+                bollard::query_parameters::DownloadFromContainerOptionsBuilder::default()
+                    .path(path)
+                    .build(),
+            ),
+        )
+    }
+
+    pub async fn upload_stream(
+        &self,
+        container_id: &str,
+        dest_path: &str,
+        tar: impl futures::Stream<Item = Result<bytes::Bytes, std::io::Error>> + Send + 'static,
+    ) -> Result<(), AnyError> {
+        let options = UploadToContainerOptionsBuilder::default()
+            .path(dest_path)
+            .build();
+        self.client
+            .upload_to_container(container_id, Some(options), bollard::body_try_stream(tar))
+            .await?;
+        Ok(())
+    }
+
     pub async fn one_shot_upload(
         &self,
         name: &str,

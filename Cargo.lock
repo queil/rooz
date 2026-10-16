@@ -2921,6 +2921,7 @@ dependencies = [
  "base64 0.23.1",
  "bollard",
  "bollard-stubs",
+ "bytes",
  "clap",
  "clap_complete",
  "colored",

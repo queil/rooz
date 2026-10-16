@@ -23,6 +23,11 @@ file - see the git history.
 - `rooz move <ws> <new-name> [--dry-run]` renames a workspace on one engine: volumes are copied under
   the new name, the workspace is rebuilt from its stored config and the old one is removed. A failure
   removes the partial new workspace and leaves the old one untouched.
+- `rooz move <ws> --to <host> [new-name] [--remove-source] [--dry-run]` moves a workspace to another
+  engine from `rooz remote`: volumes stream across with owners, modes and symlinks intact, the
+  workspace is rebuilt there from its config file, and the source is left stopped unless
+  `--remove-source`. The target is checked before anything is copied (name free, `system init` done,
+  config gates) and a failure removes the partial workspace there.
 - `rooz config schema` prints a JSON Schema of the config file for YAML language servers.
 - `rooz config show <ws> --resolved` shows the merged settings (defaults, bases, config) with the
   layer each came from.
