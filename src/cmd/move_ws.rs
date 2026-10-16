@@ -283,7 +283,11 @@ impl<'a> WorkspaceApi<'a> {
             return Err(format!("Volume '{}' already exists on this engine.", name).into());
         }
 
-        let helper = self.api.container.volume_helper(name, "/to", false).await?;
+        let archive_container = self
+            .api
+            .container
+            .volume_archive_container(name, "/to", false)
+            .await?;
         let input = stream::try_unfold(tokio::io::stdin(), |mut stdin| async move {
             let mut buf = vec![0u8; 256 * 1024];
             let n = stdin.read(&mut buf).await?;
@@ -296,9 +300,13 @@ impl<'a> WorkspaceApi<'a> {
         let result = self
             .api
             .container
-            .upload_stream(&helper, "/to", input)
+            .upload_tar_stream(&archive_container, "/to", input)
             .await;
-        self.api.container.remove(&helper, true).await.ok();
+        self.api
+            .container
+            .remove(&archive_container, true)
+            .await
+            .ok();
         result
     }
 }

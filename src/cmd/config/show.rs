@@ -1,3 +1,4 @@
+use serde::Deserialize;
 use tabled::{Table, Tabled, settings::Style};
 
 use crate::{
@@ -98,23 +99,25 @@ impl<'a> ConfigApi<'a> {
         };
         let format = FileFormat::from_path(origin)?;
 
+        let body =
+            RoozCfg::from_string(&self.read(workspace_key, &ConfigType::Body).await?, format)?;
+
         let mut layers = vec![("default".to_string(), RoozCfg::default())];
 
-        let bases = self.read(workspace_key, &ConfigType::Bases).await?;
-        if !bases.trim().is_empty() {
-            for chunk in bases.split("\n---\n") {
-                let name = chunk
-                    .lines()
-                    .next()
-                    .and_then(|l| l.strip_prefix("# "))
-                    .unwrap_or("base")
-                    .to_string();
-                layers.push((name, RoozCfg::from_string(chunk, format)?));
+        // the stored bases are one YAML document per entry of the config's `bases`, in order
+        let stored_bases = self.read(workspace_key, &ConfigType::Bases).await?;
+        if !stored_bases.trim().is_empty() {
+            let names = body.bases.clone().unwrap_or_default();
+            for (i, doc) in serde_yaml::Deserializer::from_str(&stored_bases).enumerate() {
+                let name = names
+                    .get(i)
+                    .cloned()
+                    .unwrap_or_else(|| format!("base {}", i + 1));
+                layers.push((name, RoozCfg::deserialize(doc)?));
             }
         }
 
-        let body = self.read(workspace_key, &ConfigType::Body).await?;
-        layers.push((main_name, RoozCfg::from_string(&body, format)?));
+        layers.push((main_name, body));
 
         let rows = resolved::resolve(&layers)?
             .into_iter()

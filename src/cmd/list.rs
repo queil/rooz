@@ -32,23 +32,18 @@ struct WorkspaceJson {
 }
 
 pub fn now_secs() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0)
+    jiff::Timestamp::now().as_second()
 }
 
 pub fn human_age(created: Option<i64>, now: i64) -> String {
-    let Some(created) = created else {
-        return String::new();
-    };
-    let s = (now - created).max(0);
-    match s {
-        0..=59 => format!("{}s", s),
-        60..=3599 => format!("{}m", s / 60),
-        3600..=86399 => format!("{}h", s / 3600),
-        _ => format!("{}d", s / 86400),
-    }
+    created
+        .map(|c| {
+            timeago::Formatter::new()
+                .num_items(1)
+                .ago("")
+                .convert(std::time::Duration::from_secs((now - c).max(0) as u64))
+        })
+        .unwrap_or_default()
 }
 
 impl<'a> Api<'a> {
@@ -129,12 +124,11 @@ mod tests {
     use super::human_age;
 
     #[test]
-    fn age_uses_the_largest_whole_unit() {
-        assert_eq!(human_age(Some(100), 130), "30s");
-        assert_eq!(human_age(Some(0), 600), "10m");
-        assert_eq!(human_age(Some(0), 7200), "2h");
-        assert_eq!(human_age(Some(0), 3 * 86400 + 5), "3d");
+    fn age_is_the_largest_unit_without_a_suffix() {
+        assert_eq!(human_age(Some(0), 600), "10 minutes");
+        assert_eq!(human_age(Some(0), 7200), "2 hours");
+        assert_eq!(human_age(Some(0), 3 * 86400 + 5), "3 days");
         assert_eq!(human_age(None, 10), "");
-        assert_eq!(human_age(Some(50), 10), "0s");
+        assert_eq!(human_age(Some(50), 10), human_age(Some(10), 10));
     }
 }

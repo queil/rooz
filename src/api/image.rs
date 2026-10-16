@@ -131,20 +131,12 @@ impl PullProgress {
 }
 
 pub fn human_bytes(b: i64) -> String {
-    const GB: f64 = 1_000_000_000.0;
-    const MB: f64 = 1_000_000.0;
-    const KB: f64 = 1_000.0;
-    let b = b as f64;
-    if b >= GB {
-        format!("{:.1} GB", b / GB)
-    } else if b >= MB {
-        format!("{:.1} MB", b / MB)
-    } else if b >= KB {
-        format!("{:.1} KB", b / KB)
-    } else {
-        format!("{b} B")
-    }
+    humansize::format_size(
+        b.max(0) as u64,
+        humansize::FormatSizeOptions::from(humansize::DECIMAL).decimal_places(1),
+    )
 }
+
 impl<'a> ImageApi<'a> {
     async fn pull(&self, image: &str) -> Result<ImageInfo, AnyError> {
         let mut progress = PullProgress::new(&image);
@@ -366,6 +358,13 @@ fn digest_eq(a: &str, b: &str) -> bool {
 mod tests {
     use super::*;
     use crate::util::labels;
+
+    #[test]
+    fn sizes_are_decimal_with_one_decimal_place() {
+        assert_eq!(human_bytes(999), "999 B");
+        assert_eq!(human_bytes(12_658_146), "12.7 MB");
+        assert_eq!(human_bytes(-5), "0 B");
+    }
 
     #[test]
     fn pull_failure_names_image_cause_and_fix() {

@@ -222,20 +222,7 @@ impl<'a> Api<'a> {
 
 // Volume CreatedAt is RFC 3339 ("2026-10-16T10:41:32Z"); engines may add an offset or fraction
 fn parse_rfc3339_secs(s: &str) -> Option<i64> {
-    let (date, rest) = s.split_once('T')?;
-    let mut d = date.split('-').map(|p| p.parse::<i64>().ok());
-    let (y, m, day) = (d.next()??, d.next()??, d.next()??);
-    let time = rest.get(..8)?;
-    let mut t = time.split(':').map(|p| p.parse::<i64>().ok());
-    let (h, mi, sec) = (t.next()??, t.next()??, t.next()??);
-    // days from civil (Howard Hinnant)
-    let y = if m <= 2 { y - 1 } else { y };
-    let era = y.div_euclid(400);
-    let yoe = y - era * 400;
-    let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) + 2) / 5 + day - 1;
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    let days = era * 146097 + doe - 719468;
-    Some(days * 86400 + h * 3600 + mi * 60 + sec)
+    s.parse::<jiff::Timestamp>().ok().map(|t| t.as_second())
 }
 
 #[cfg(test)]
@@ -265,6 +252,10 @@ mod tests {
     fn rfc3339_parses_to_unix_seconds() {
         assert_eq!(parse_rfc3339_secs("1970-01-02T00:00:01Z"), Some(86401));
         assert_eq!(parse_rfc3339_secs("2026-10-16T10:41:32Z"), Some(1792147292));
+        assert_eq!(
+            parse_rfc3339_secs("2026-10-16T12:41:32.5+02:00"),
+            Some(1792147292)
+        );
         assert_eq!(parse_rfc3339_secs("garbage"), None);
     }
 }

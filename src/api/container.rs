@@ -710,7 +710,7 @@ echo start > /tmp/exec_start
 
     // A created, never started container with one volume mounted - enough to read the volume
     // through the archive API on any engine, and to write it.
-    pub async fn volume_helper(
+    pub async fn volume_archive_container(
         &self,
         volume: &str,
         target: &str,
@@ -736,7 +736,7 @@ echo start > /tmp/exec_start
     }
 
     // The content of `path` as a tar stream
-    pub fn download(
+    pub fn download_tar(
         &self,
         container_id: &str,
         path: &str,
@@ -751,7 +751,7 @@ echo start > /tmp/exec_start
         )
     }
 
-    pub async fn upload_stream(
+    pub async fn upload_tar_stream(
         &self,
         container_id: &str,
         dest_path: &str,

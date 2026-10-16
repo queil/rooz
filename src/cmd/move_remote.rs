@@ -125,13 +125,17 @@ impl<'a> WorkspaceApi<'a> {
             .spawn()?;
         let mut sink = receiver.stdin.take().ok_or("receiver has no stdin")?;
 
-        let helper = self
+        let archive_container = self
             .api
             .container
-            .volume_helper(from, "/from", true)
+            .volume_archive_container(from, "/from", true)
             .await?;
         let sent: Result<(), AnyError> = async {
-            let mut tar = std::pin::pin!(self.api.container.download(&helper, "/from/."));
+            let mut tar = std::pin::pin!(
+                self.api
+                    .container
+                    .download_tar(&archive_container, "/from/.")
+            );
             while let Some(chunk) = tar.next().await {
                 sink.write_all(&chunk?).await?;
             }
@@ -139,7 +143,11 @@ impl<'a> WorkspaceApi<'a> {
         }
         .await;
         drop(sink);
-        self.api.container.remove(&helper, true).await.ok();
+        self.api
+            .container
+            .remove(&archive_container, true)
+            .await
+            .ok();
 
         let status = receiver.wait().await?;
         match (sent, status.success()) {
