@@ -78,6 +78,60 @@ async fn install_steps_run_in_order() {
 }
 
 #[tokio::test]
+async fn install_steps_run_as_user_unless_root_is_requested() {
+    let Some(env) = TestEnv::from_env() else {
+        return;
+    };
+    let key = unique_key("int-inst-user");
+    let cfg_path = write_cfg(
+        &key,
+        "image: alpine:latest\ninstall:\n  01-user: id -u > /work/uid-user\n  02-root:\n    run: id -u > /work/uid-root\n    root: true\n",
+    );
+
+    env.rooz()
+        .args(["system", "init", "--force"])
+        .assert()
+        .success();
+    env.rooz()
+        .args(["new", &key, "--config", &cfg_path])
+        .assert()
+        .success();
+
+    let work_vol = format!("rooz-{}-work", key);
+    let user = env.volume_file(&work_vol, "uid-user").await;
+    assert_ne!(user.trim(), "0", "default install step ran as root");
+    assert_eq!(env.volume_file(&work_vol, "uid-root").await.trim(), "0");
+
+    cleanup(&env, &key, &cfg_path);
+}
+
+#[tokio::test]
+async fn install_skip_if_skips_on_zero_exit_only() {
+    let Some(env) = TestEnv::from_env() else {
+        return;
+    };
+    let key = unique_key("int-inst-skip");
+    let cfg_path = write_cfg(
+        &key,
+        "image: alpine:latest\ninstall:\n  01-skipped:\n    skip_if: 'true'\n    run: echo skipped >> /work/marker\n  02-runs:\n    skip_if: 'false'\n    run: echo ran >> /work/marker\n",
+    );
+
+    env.rooz()
+        .args(["system", "init", "--force"])
+        .assert()
+        .success();
+    env.rooz()
+        .args(["new", &key, "--config", &cfg_path])
+        .assert()
+        .success();
+
+    let work_vol = format!("rooz-{}-work", key);
+    assert_eq!(env.volume_file(&work_vol, "marker").await, "ran\n");
+
+    cleanup(&env, &key, &cfg_path);
+}
+
+#[tokio::test]
 async fn failing_install_step_fails_new() {
     let Some(env) = TestEnv::from_env() else {
         return;

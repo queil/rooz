@@ -1,4 +1,6 @@
-use crate::{api::ExecApi, constants, model::types::AnyError, util::sh};
+use crate::{
+    api::ExecApi, config::config::ResolvedStep, constants, model::types::AnyError, util::sh,
+};
 use bollard::{
     container::LogOutput,
     errors::Error,
@@ -225,13 +227,13 @@ impl<'a> ExecApi<'a> {
         }
     }
 
-    pub async fn run(
+    pub async fn status(
         &self,
         reason: &str,
         container_id: &str,
         user: Option<&str>,
         cmd: Option<Vec<&str>>,
-    ) -> Result<(), AnyError> {
+    ) -> Result<i64, AnyError> {
         let exec_id = self
             .create_exec(reason, container_id, None, user, cmd, false)
             .await?;
@@ -243,48 +245,75 @@ impl<'a> ExecApi<'a> {
             panic!("Could not start exec");
         }
 
-        if let ExecInspectResponse {
-            exit_code: Some(exit_code),
-            ..
-        } = self.client.inspect_exec(&exec_id).await?
-            && exit_code != 0
-        {
-            return Err(format!("{}: exec failed with exit code {}", reason, exit_code).into());
-        }
-        Ok(())
+        Ok(self
+            .client
+            .inspect_exec(&exec_id)
+            .await?
+            .exit_code
+            .unwrap_or(0))
     }
 
+    pub async fn run(
+        &self,
+        reason: &str,
+        container_id: &str,
+        user: Option<&str>,
+        cmd: Option<Vec<&str>>,
+    ) -> Result<(), AnyError> {
+        match self.status(reason, container_id, user, cmd).await? {
+            0 => Ok(()),
+            exit_code => {
+                Err(format!("{}: exec failed with exit code {}", reason, exit_code).into())
+            }
+        }
+    }
+
+    // Steps run as the container's own user; `root: true` is the explicit opt-out. A
+    // `skip_if` check runs first as the same user and a zero exit skips the step.
     pub async fn install(
         &self,
         container_name: &str,
         container_id: &str,
-        steps: Vec<(String, String)>,
+        steps: Vec<ResolvedStep>,
     ) -> Result<(), AnyError> {
         let step_names = steps
             .iter()
-            .map(|(name, _)| name.as_str())
+            .map(|step| step.name.as_str())
             .collect::<Vec<_>>()
             .join(", ");
         println!("[install] {} steps: {}", container_name, step_names);
-        for (idx, (name, cmd)) in steps.iter().enumerate() {
-            let script = if cmd.starts_with("#!") {
-                cmd.splitn(2, '\n').nth(1).unwrap_or(cmd)
-            } else {
-                cmd
-            };
+        for (idx, step) in steps.iter().enumerate() {
+            let user = step.root.then_some(constants::ROOT_UID);
+            if let Some(check) = &step.skip_if {
+                let check_cmd = inject(
+                    &format!("#!/bin/sh\n{}", script_body(check)),
+                    &format!("skip-{}.sh", idx),
+                );
+                let v = check_cmd.iter().map(|x| x.as_str()).collect::<Vec<_>>();
+                if self
+                    .status("install-check", container_id, user, Some(v))
+                    .await?
+                    == 0
+                {
+                    println!("[install] {}: {} skipped", container_name, step.name);
+                    continue;
+                }
+            }
             let cmd = format!(
                 r#"#!/bin/sh
 set -e
 echo '[install] {}: {}'
 {}"#,
-                container_name, name, script
+                container_name,
+                step.name,
+                script_body(&step.run)
             );
             let install_cmd = inject(cmd.as_str(), &format!("install-{}.sh", idx));
             let v = install_cmd.iter().map(|x| x.as_str()).collect::<Vec<_>>();
-            self.run("install", container_id, Some(constants::ROOT_UID), Some(v))
+            self.run("install", container_id, user, Some(v))
                 .await
                 .map_err(|e| -> AnyError {
-                    format!("install step '{}' failed: {}", name, e).into()
+                    format!("install step '{}' failed: {}", step.name, e).into()
                 })?;
         }
         Ok(())
@@ -348,6 +377,14 @@ echo '[install] {}: {}'
             .await?;
         log::debug!("{}", &ensure_user_output);
         Ok(())
+    }
+}
+
+fn script_body(script: &str) -> &str {
+    if script.starts_with("#!") {
+        script.splitn(2, '\n').nth(1).unwrap_or(script)
+    } else {
+        script
     }
 }
 

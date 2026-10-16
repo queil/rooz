@@ -307,6 +307,18 @@ impl<'a> WorkspaceApi<'a> {
             return Err(crate::config::config::SECRETS_NOT_ALLOWED.into());
         }
 
+        if !operator_authored {
+            let root_steps = cfg_builder.root_install_steps();
+            if !root_steps.is_empty() {
+                return Err(format!(
+                    "{} {}",
+                    crate::config::config::ROOT_STEPS_NOT_ALLOWED,
+                    root_steps.join(", ")
+                )
+                .into());
+            }
+        }
+
         // provenance says where the configuration came from; consent says whether the operator
         // meant that configuration to have their secrets. Both are needed before decrypting.
         check_secrets(

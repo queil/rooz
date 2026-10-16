@@ -8,6 +8,21 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases before 0.159.0 predate this
 file - see the git history.
 
+## [0.163.0] - 2026-10-16
+
+### Added
+
+- `install` steps can be objects: `run`, `skip_if` and `root`. `skip_if` is a shell check that runs
+  first; exit 0 skips the step, so a tool that is already installed (typically from a cache volume)
+  is not installed again. `run` and `skip_if` are templated.
+
+### Changed
+
+- **Breaking:** install steps run as the workspace user, not root (sidecars: as their `uid`). The
+  user and its volumes are set up before the first step. Steps that need root, such as `apt-get` or
+  `apk add`, must say so with `root: true`. A configuration the operator did not author (unlisted
+  `--config git:...` or `bases` layer) is refused if it asks for `root: true`.
+
 ## [0.162.0] - 2026-10-15
 
 ### Added

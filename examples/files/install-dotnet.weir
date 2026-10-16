@@ -1,12 +1,11 @@
+let version = Self.args |> Seq.exactlyOne
 let home = Path.home ()
 let cache = $"{home}/.cache/installers"
 let installer = $"{cache}/dotnet-install.sh"
-let root = $"{home}/.dotnet"
 
 Dir.create cache
 
 if not (File.exists installer) then
     Http.get "https://dot.net/v1/dotnet-install.sh" |> Http.expect |> File.write installer
 
-if not (File.exists $"{root}/dotnet") then
-    bash $installer --channel 8.0 --install-dir $root
+bash $installer --version $version --install-dir $"{home}/.dotnet"

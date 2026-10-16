@@ -11,6 +11,11 @@ use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::path::Path;
 
+pub const ROOT_STEPS_NOT_ALLOWED: &str = "Refusing install steps with 'root: true': this workspace merges \
+     configuration the operator did not author. Install steps run as the workspace user unless \
+     they opt in to root. List the source in ROOZ_TRUSTED_CONFIGS, move those steps into your own \
+     local '--config' file, or drop 'root: true'. Steps:";
+
 pub const SECRETS_NOT_ALLOWED: &str = "Refusing to expand 'secrets': this workspace merges configuration the operator did not \
      author, which could reference any of your secrets and read the plaintext from inside a \
      container it also controls. Secrets are only expanded when the whole configuration is yours: \
@@ -123,19 +128,85 @@ impl FileFormat {
 #[serde(untagged)]
 pub enum InstallSpec {
     Script(String),
-    Steps(IndexMap<String, Option<String>>),
+    Steps(IndexMap<String, Option<InstallStep>>),
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[serde(untagged)]
+pub enum InstallStep {
+    Script(String),
+    Detailed(InstallStepSpec),
+}
+
+#[serde_with::skip_serializing_none]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct InstallStepSpec {
+    pub run: String,
+    pub skip_if: Option<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub root: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResolvedStep {
+    pub name: String,
+    pub run: String,
+    pub skip_if: Option<String>,
+    pub root: bool,
+}
+
+impl From<&str> for InstallStep {
+    fn from(script: &str) -> Self {
+        InstallStep::Script(script.to_string())
+    }
+}
+
+impl InstallStep {
+    pub fn texts_mut(&mut self) -> Vec<&mut String> {
+        match self {
+            InstallStep::Script(run) => vec![run],
+            InstallStep::Detailed(d) => std::iter::once(&mut d.run)
+                .chain(d.skip_if.as_mut())
+                .collect(),
+        }
+    }
+
+    fn resolve(&self, name: &str) -> ResolvedStep {
+        let (run, skip_if, root) = match self {
+            InstallStep::Script(run) => (run.clone(), None, false),
+            InstallStep::Detailed(d) => (d.run.clone(), d.skip_if.clone(), d.root),
+        };
+        ResolvedStep {
+            name: name.to_string(),
+            run,
+            skip_if,
+            root,
+        }
+    }
 }
 
 impl InstallSpec {
-    pub fn normalize(&self) -> IndexMap<String, Option<String>> {
+    pub fn normalize(&self) -> IndexMap<String, Option<InstallStep>> {
         match self {
             InstallSpec::Script(script) => {
                 let mut steps = IndexMap::new();
-                steps.insert("00-inline".to_string(), Some(script.clone()));
+                steps.insert(
+                    "00-inline".to_string(),
+                    Some(InstallStep::Script(script.clone())),
+                );
                 steps
             }
             InstallSpec::Steps(steps) => steps.clone(),
         }
+    }
+
+    pub fn root_steps(&self) -> Vec<String> {
+        self.resolved()
+            .into_iter()
+            .filter(|step| step.root)
+            .map(|step| step.name)
+            .collect()
     }
 
     pub fn merged(base: &Option<InstallSpec>, over: &Option<InstallSpec>) -> Option<InstallSpec> {
@@ -151,13 +222,13 @@ impl InstallSpec {
         }
     }
 
-    pub fn resolved(&self) -> Vec<(String, String)> {
+    pub fn resolved(&self) -> Vec<ResolvedStep> {
         let mut steps = self
             .normalize()
             .into_iter()
-            .filter_map(|(name, script)| script.map(|s| (name, s)))
+            .filter_map(|(name, step)| step.map(|s| s.resolve(&name)))
             .collect::<Vec<_>>();
-        steps.sort_by(|(a, _), (b, _)| a.cmp(b));
+        steps.sort_by(|a, b| a.name.cmp(&b.name));
         steps
     }
 }
@@ -339,6 +410,17 @@ impl Default for RoozCfg {
 }
 
 impl RoozCfg {
+    pub fn root_install_steps(&self) -> Vec<String> {
+        let own = self.install.iter().flat_map(|i| i.root_steps());
+        let sidecars = self.sidecars.iter().flatten().flat_map(|(sidecar, sc)| {
+            sc.install
+                .iter()
+                .flat_map(|i| i.root_steps())
+                .map(move |name| format!("{}/{}", sidecar, name))
+        });
+        own.chain(sidecars).collect()
+    }
+
     pub fn from_string(config: &str, file_format: FileFormat) -> Result<Self, AnyError> {
         Ok(match file_format {
             FileFormat::Yaml => serde_yaml::from_str(&config)?,
@@ -776,14 +858,18 @@ fn render_install(
                 InstallSpec::Steps(steps) => InstallSpec::Steps(
                     steps
                         .iter()
-                        .map(|(name, script)| {
-                            Ok((
-                                name.clone(),
-                                script
-                                    .as_ref()
-                                    .map(|s| render_str(reg, s, vars))
-                                    .transpose()?,
-                            ))
+                        .map(|(name, step)| {
+                            let step = step
+                                .as_ref()
+                                .map(|st| {
+                                    let mut st = st.clone();
+                                    for text in st.texts_mut() {
+                                        *text = render_str(reg, text, vars)?;
+                                    }
+                                    Ok::<_, AnyError>(st)
+                                })
+                                .transpose()?;
+                            Ok((name.clone(), step))
                         })
                         .collect::<Result<IndexMap<_, _>, AnyError>>()?,
                 ),
@@ -1003,13 +1089,101 @@ where
 mod tests {
     use super::*;
 
+    fn pairs(spec: &InstallSpec) -> Vec<(String, String)> {
+        spec.resolved()
+            .into_iter()
+            .map(|s| (s.name, s.run))
+            .collect()
+    }
+
     fn steps(entries: &[(&str, Option<&str>)]) -> InstallSpec {
         InstallSpec::Steps(
             entries
                 .iter()
-                .map(|(k, v)| (k.to_string(), v.map(String::from)))
+                .map(|(k, v)| (k.to_string(), v.map(InstallStep::from)))
                 .collect(),
         )
+    }
+
+    #[test]
+    fn install_step_object_form_parses() {
+        let cfg: RoozCfg = serde_yaml::from_str(
+            "install:\n  10-a: echo a\n  20-b:\n    run: echo b\n    skip_if: command -v b\n  30-c:\n    run: apk add jq\n    root: true\n  40-gone: null\n",
+        )
+        .unwrap();
+        assert_eq!(
+            cfg.install.unwrap().resolved(),
+            vec![
+                ResolvedStep {
+                    name: "10-a".into(),
+                    run: "echo a".into(),
+                    skip_if: None,
+                    root: false
+                },
+                ResolvedStep {
+                    name: "20-b".into(),
+                    run: "echo b".into(),
+                    skip_if: Some("command -v b".into()),
+                    root: false
+                },
+                ResolvedStep {
+                    name: "30-c".into(),
+                    run: "apk add jq".into(),
+                    skip_if: None,
+                    root: true
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn install_step_rejects_unknown_fields() {
+        assert!(
+            serde_yaml::from_str::<RoozCfg>("install:\n  10-a:\n    run: x\n    user: root\n")
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn install_step_overlay_replaces_whole_step() {
+        let base: RoozCfg = serde_yaml::from_str(
+            "install:\n  10-a:\n    run: echo old\n    skip_if: 'true'\n    root: true\n",
+        )
+        .unwrap();
+        let over: RoozCfg = serde_yaml::from_str("install:\n  10-a: echo new\n").unwrap();
+        let merged = InstallSpec::merged(&base.install, &over.install).unwrap();
+        assert_eq!(
+            merged.resolved(),
+            vec![ResolvedStep {
+                name: "10-a".into(),
+                run: "echo new".into(),
+                skip_if: None,
+                root: false
+            }]
+        );
+    }
+
+    #[test]
+    fn root_install_steps_lists_main_and_sidecar_steps() {
+        let cfg: RoozCfg = serde_yaml::from_str(
+            "install:\n  10-a: echo a\n  20-b:\n    run: apk add x\n    root: true\nsidecars:\n  db:\n    image: x\n    install:\n      10-pkg:\n        run: apk add y\n        root: true\n",
+        )
+        .unwrap();
+        assert_eq!(cfg.root_install_steps(), vec!["20-b", "db/10-pkg"]);
+        let plain: RoozCfg = serde_yaml::from_str("install: echo hi\n").unwrap();
+        assert!(plain.root_install_steps().is_empty());
+    }
+
+    #[test]
+    fn install_step_templates_run_and_skip_if() {
+        let mut cfg: RoozCfg = serde_yaml::from_str(
+            "vars:\n  v: \"8.0\"\ninstall:\n  10-a:\n    run: install {{ v }}\n    skip_if: check {{ v }}\n",
+        )
+        .unwrap();
+        cfg.expand_vars(true).unwrap();
+        let step = cfg.install.unwrap().resolved().remove(0);
+        assert_eq!(step.run, "install 8.0");
+        assert_eq!(step.skip_if.as_deref(), Some("check 8.0"));
     }
 
     #[test]
@@ -1224,7 +1398,7 @@ mod tests {
         assert_eq!(normalized.len(), 1);
         assert_eq!(
             normalized.get("00-inline"),
-            Some(&Some("echo hi".to_string()))
+            Some(&Some(InstallStep::from("echo hi")))
         );
     }
 
@@ -1234,7 +1408,7 @@ mod tests {
         let over = Some(steps(&[("20-extra", Some("apt-get install -y jq"))]));
         let merged = InstallSpec::merged(&base, &over).unwrap();
         assert_eq!(
-            merged.resolved(),
+            pairs(&merged),
             vec![
                 ("10-base".to_string(), "apt-get update".to_string()),
                 ("20-extra".to_string(), "apt-get install -y jq".to_string())
@@ -1248,7 +1422,7 @@ mod tests {
         let over = Some(steps(&[("10-base", Some("echo new"))]));
         let merged = InstallSpec::merged(&base, &over).unwrap();
         assert_eq!(
-            merged.resolved(),
+            pairs(&merged),
             vec![("10-base".to_string(), "echo new".to_string())]
         );
     }
@@ -1262,7 +1436,7 @@ mod tests {
         let over = Some(steps(&[("20-gone", None)]));
         let merged = InstallSpec::merged(&base, &over).unwrap();
         assert_eq!(
-            merged.resolved(),
+            pairs(&merged),
             vec![("10-base".to_string(), "echo keep".to_string())]
         );
     }
@@ -1279,7 +1453,7 @@ mod tests {
         );
         let merged = InstallSpec::merged(&merged12, &l3).unwrap();
         assert_eq!(
-            merged.resolved(),
+            pairs(&merged),
             vec![
                 ("10-a".to_string(), "echo a".to_string()),
                 ("30-c".to_string(), "echo c".to_string())
@@ -1293,7 +1467,7 @@ mod tests {
         let over = Some(steps(&[("10-extra", Some("echo extra"))]));
         let merged = InstallSpec::merged(&base, &over).unwrap();
         assert_eq!(
-            merged.resolved(),
+            pairs(&merged),
             vec![
                 ("00-inline".to_string(), "echo base".to_string()),
                 ("10-extra".to_string(), "echo extra".to_string())
@@ -1307,7 +1481,7 @@ mod tests {
         let over = Some(InstallSpec::Script("echo over".into()));
         let merged = InstallSpec::merged(&base, &over).unwrap();
         assert_eq!(
-            merged.resolved(),
+            pairs(&merged),
             vec![
                 ("00-inline".to_string(), "echo over".to_string()),
                 ("10-extra".to_string(), "echo extra".to_string())
@@ -1331,7 +1505,7 @@ mod tests {
             ("15-gone", None),
         ]);
         assert_eq!(
-            spec.resolved(),
+            pairs(&spec),
             vec![
                 ("10-a".to_string(), "echo a".to_string()),
                 ("20-b".to_string(), "echo b".to_string())
@@ -1584,9 +1758,9 @@ mod tests {
         let cfg: RoozCfg = serde_yaml::from_str(yaml).unwrap();
         let resolved = cfg.install.unwrap().resolved();
         assert_eq!(resolved.len(), 2);
-        assert_eq!(resolved[0].0, "00-tools");
+        assert_eq!(resolved[0].name, "00-tools");
         let sidecar_install = cfg.sidecars.unwrap()["test"].install.clone().unwrap();
-        assert_eq!(sidecar_install.resolved()[0].0, "00-inline");
+        assert_eq!(sidecar_install.resolved()[0].name, "00-tinyproxy");
     }
 
     #[test]

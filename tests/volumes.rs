@@ -743,3 +743,58 @@ async fn secrets_expand_through_bases_only_from_a_trusted_dir() {
     cleanup(&env, &key, &cfg_path);
     let _ = fs::remove_dir_all(&dir);
 }
+
+#[tokio::test]
+async fn root_install_steps_through_bases_need_a_trusted_dir() {
+    let Some(env) = TestEnv::from_env() else {
+        return;
+    };
+    let key = unique_key("vol-root-step");
+
+    let dir = std::env::temp_dir().join(format!("rooz-test-{}", key));
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(
+        dir.join("base.yaml"),
+        "image: alpine:latest\ninstall:\n  10-root:\n    run: id -u > /work/uid\n    root: true\n",
+    )
+    .unwrap();
+    let cfg_path = dir.join("ws.yaml");
+    fs::write(&cfg_path, "bases: [base.yaml]\n").unwrap();
+    let cfg_path = cfg_path.to_string_lossy().into_owned();
+
+    env.rooz()
+        .args(["system", "init", "--force"])
+        .assert()
+        .success();
+
+    let assert = env
+        .rooz()
+        .args(["new", &key, "--config", &cfg_path])
+        .env_remove("ROOZ_TRUSTED_CONFIGS")
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&assert.get_output().stderr).to_string();
+    assert!(
+        stderr.contains("root: true") && stderr.contains("ROOZ_TRUSTED_CONFIGS"),
+        "expected the refusal and its remedy:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("10-root"),
+        "expected the step named:\n{}",
+        stderr
+    );
+    assert!(env.volumes_by_workspace(&key).await.is_empty());
+
+    env.rooz()
+        .args(["new", &key, "--config", &cfg_path])
+        .env("ROOZ_TRUSTED_CONFIGS", dir.to_str().unwrap())
+        .assert()
+        .success();
+
+    let work_vol = format!("rooz-{}-work", key);
+    assert_eq!(env.volume_file(&work_vol, "uid").await.trim(), "0");
+
+    cleanup(&env, &key, &cfg_path);
+    let _ = fs::remove_dir_all(&dir);
+}
