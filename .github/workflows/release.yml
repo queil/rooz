@@ -173,6 +173,16 @@ jobs:
           sha256sum rooz-* > SHA256SUMS
           cat SHA256SUMS
 
+      # the PINNED installer: install.sh is a template; this copy pins the tag and embeds the
+      # SHA256SUMS above, so the script rooz.dev serves trusts checksums from a different origin
+      # than the binaries. The site workflow fetches it from this release.
+      - name: generate the pinned installer
+        run: |
+          curl -fsSL https://weir.sh/install.sh | sh
+          ~/.local/bin/weir scripts/gen-install.weir --template install.sh --sums dist/SHA256SUMS \
+            --tag "${{ github.ref_name }}" --out dist/install.sh
+          sh -n dist/install.sh
+
       # the hand-written section for this version, with the generated commit list
       # appended by --generate-notes
       - name: release notes from CHANGELOG.md
@@ -198,7 +208,7 @@ jobs:
           for attempt in 1 2 3; do
             if gh release upload "${{ github.ref_name }}" --clobber \
                  --repo "${{ github.repository }}" \
-                 dist/rooz-* dist/SHA256SUMS; then
+                 dist/rooz-* dist/SHA256SUMS dist/install.sh; then
               exit 0
             fi
             if [ "$attempt" -lt 3 ]; then
@@ -211,8 +221,8 @@ jobs:
 
       # the completeness gate: every expected asset present, uploaded and
       # non-empty, before a human is asked to review a draft. The list here is
-      # the release's contract - the install URLs in README.md point at these
-      # exact names.
+      # the release's contract - install.sh, docs/src/install.md and README.md
+      # point at these exact names.
       - name: verify the draft carries every expected asset
         env:
           GH_TOKEN: ${{ github.token }}
@@ -221,7 +231,8 @@ jobs:
           rooz-aarch64-unknown-linux-gnu
           rooz-aarch64-apple-darwin
           rooz-x86_64-apple-darwin
-          SHA256SUMS"
+          SHA256SUMS
+          install.sh"
           gh release view "${{ github.ref_name }}" \
             --repo "${{ github.repository }}" \
             --json assets --jq '.assets[] | "\(.name) \(.state) \(.size)"' > assets.txt

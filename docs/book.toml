@@ -1,0 +1,12 @@
+[book]
+title = "rooz"
+description = "Work in containers: workspaces with git, SSH keys, git-safe secrets, shared caches and sidecars, on local or remote Docker/Podman."
+authors = ["queil"]
+language = "en"
+src = "src"
+
+[output.html]
+site-url = "/"
+git-repository-url = "https://github.com/queil/rooz"
+edit-url-template = "https://github.com/queil/rooz/edit/main/docs/{path}"
+no-section-label = true
