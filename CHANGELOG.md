@@ -8,6 +8,17 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases before 0.159.0 predate this
 file - see the git history.
 
+## [0.167.0] - 2026-10-17
+
+### Added
+
+- Docs site at [rooz.dev](https://rooz.dev), built from `docs/` with mdBook, including a generated CLI
+  reference and config schema.
+- `curl -fsSL https://rooz.dev/install.sh | sh` installs the latest release. Each release carries an
+  `install.sh` that pins its own version and `SHA256SUMS`, so the binary is checked against data
+  served from rooz.dev, not the GitHub release it comes from. With a logged-in `gh`, it also checks
+  the signed build provenance.
+
 ## [0.166.0] - 2026-10-16
 
 ### Changed
