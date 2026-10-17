@@ -23,6 +23,7 @@ use bollard::errors::Error;
 use bollard_stubs::models::NetworkCreateRequest;
 use std::collections::HashMap;
 use std::fs;
+use std::str::FromStr;
 
 pub const ALLOW_PRIVILEGED_ENV: &str = "ROOZ_ALLOW_PRIVILEGED";
 pub const ALLOW_SECRETS_ENV: &str = "ROOZ_ALLOW_SECRETS";
@@ -427,7 +428,7 @@ impl<'a> WorkspaceApi<'a> {
             ),
         );
 
-        let home_dir = format!("/home/{}", &cfg.user);
+        let home_dir = format!("/home/{}", cfg.user);
         let mounts_config = self
             .api
             .volume
@@ -440,13 +441,13 @@ impl<'a> WorkspaceApi<'a> {
             ..cfg.clone()
         };
 
-        let mut cfg2 = cfg.clone();
+        let cfg2 = cfg.clone();
 
         let container_mounts = self.api.volume.mounts(&real_mounts).await?;
         for (_, m) in real_mounts.clone() {
             //TODO: when initializing volumes both here in sidecars we should verify
             // if each file exists and if not create them
-            if let VolumeResult::Created {} = volume_results[&m.volume_name] {
+            if let VolumeResult::Created = volume_results[&m.volume_name] {
                 self.api
                     .volume
                     .populate_volume(m, Some(work_spec.uid.to_string().parse::<i32>()?))
@@ -474,7 +475,7 @@ impl<'a> WorkspaceApi<'a> {
         }
 
         let cfg2 = self
-            .ensure_sidecars(&mut cfg2, workspace_key, force, cli_params.pull_image)
+            .ensure_sidecars(&cfg2, workspace_key, force, cli_params.pull_image)
             .await?;
 
         labels.extend(&[Labels::container(constants::DEFAULT_CONTAINER_NAME)]);
@@ -505,14 +506,14 @@ impl<'a> WorkspaceApi<'a> {
             labels,
             privileged: cfg2.privileged,
             init: cfg2.init,
-            args: (if cfg2.args.len() > 0 {
+            args: (if !cfg2.args.is_empty() {
                 Some(&cfg2.args)
             } else {
                 None
             })
             .as_ref()
             .map(|x| x.iter().map(|z| z.as_ref()).collect()),
-            command: (if cfg2.command.len() > 0 {
+            command: (if !cfg2.command.is_empty() {
                 Some(&cfg2.command)
             } else {
                 None
@@ -559,7 +560,7 @@ impl<'a> WorkspaceApi<'a> {
                     origin,
                     format,
                 } => {
-                    let body = value.to_string(format.clone())?;
+                    let body = value.to_string(*format)?;
                     let reader = LocalReader::default();
                     let mut value = value.clone();
                     if let Ok(ConfigPath::File { path }) = ConfigPath::from_str(origin) {
@@ -590,10 +591,10 @@ impl<'a> WorkspaceApi<'a> {
                 }
                 ConfigSource::Path { value: path } => match path {
                     ConfigPath::File { path } => {
-                        let body = fs::read_to_string(&path)?;
+                        let body = fs::read_to_string(path)?;
                         let absolute_path =
                             std::path::absolute(path)?.to_string_lossy().into_owned();
-                        let fmt = FileFormat::from_path(&path)?;
+                        let fmt = FileFormat::from_path(path)?;
                         let mut cfg = RoozCfg::deserialize_config(&body, fmt)?;
                         let reader = LocalReader::default();
                         if let Some(c) = cfg.as_mut() {
@@ -620,7 +621,7 @@ impl<'a> WorkspaceApi<'a> {
                         trusted = trusted_configs.trusts_repo(url);
                         let (result, _) = self
                             .git
-                            .clone_config_repo(clone_env.clone(), &url, &file_path)
+                            .clone_config_repo(clone_env.clone(), url, file_path)
                             .await?;
 
                         let (rooz_cfg, main_body, base_body) = match result {
@@ -629,7 +630,7 @@ impl<'a> WorkspaceApi<'a> {
                                 bases,
                                 merged,
                             }) => {
-                                let fmt = FileFormat::from_path(&file_path)?;
+                                let fmt = FileFormat::from_path(file_path)?;
                                 let cfg = merged.map(Ok).unwrap_or_else(|| {
                                     RoozCfg::deserialize_config(&body, fmt).map(|o| o.unwrap())
                                 })?;
@@ -728,7 +729,7 @@ impl<'a> WorkspaceApi<'a> {
             .unwrap_or(constants::DEFAULT_UID.to_string());
 
         let labels = Labels::from(&[
-            Labels::workspace(&workspace_key),
+            Labels::workspace(workspace_key),
             Labels::role(labels::WORK_ROLE),
         ]);
 
@@ -778,17 +779,15 @@ impl<'a> WorkspaceApi<'a> {
 
         // a '--config git:...' source is the repository's configuration, wherever the
         // operator typed its URL
-        if !operator_local {
-            if let Some(c) = &cli_cfg {
-                check_repo_authored(c, &consented_caches)?;
-            }
+        if !operator_local && let Some(c) = &cli_cfg {
+            check_repo_authored(c, &consented_caches)?;
         }
 
         let work_spec = WorkSpec {
             uid: &orig_uid,
-            container_working_dir: &work_dir,
-            container_name: &workspace_key,
-            workspace_key: &workspace_key,
+            container_working_dir: work_dir,
+            container_name: workspace_key,
+            workspace_key,
             ephemeral,
             force_recreate: false,
             ..Default::default()
@@ -811,7 +810,7 @@ impl<'a> WorkspaceApi<'a> {
         let root_repo_result = match &RoozCfg::git_ssh_url(cli_params, &cli_cfg) {
             Some(url) => {
                 progress::phase("clone", url);
-                Some(self.git.clone_root_repo(&url, &clone_env).await?)
+                Some(self.git.clone_root_repo(url, &clone_env).await?)
             }
             None => None,
         };
@@ -827,7 +826,7 @@ impl<'a> WorkspaceApi<'a> {
                 },
                 &clone_env,
                 root_repo_result,
-                &workspace_key,
+                workspace_key,
                 false,
                 stored_config,
                 operator_authored,
@@ -835,7 +834,7 @@ impl<'a> WorkspaceApi<'a> {
             .await?;
 
         if let Some(true) = cli_params.start {
-            self.start(&workspace_key).await?;
+            self.start(workspace_key).await?;
         }
         Ok(NewOutcome::Created(enter_spec))
     }
@@ -851,7 +850,7 @@ impl<'a> WorkspaceApi<'a> {
             .await?;
 
         let working_dir = git_spec
-            .map(|v| (&v).dir.to_string())
+            .map(|v| v.dir.to_string())
             .or(Some(workspace.working_dir));
 
         let cfg = RuntimeConfig::try_from(&RoozCfg {
@@ -884,7 +883,7 @@ impl<'a> WorkspaceApi<'a> {
 
         let futures = volumes
             .iter()
-            .filter_map(|v| Some(async move { volume_api.remove_volume(&v.name, true).await }));
+            .map(|v| async move { volume_api.remove_volume(&v.name, true).await });
         futures::future::try_join_all(futures).await?;
         Ok(())
     }

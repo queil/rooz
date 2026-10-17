@@ -51,7 +51,6 @@ impl<'a> Api<'a> {
         let volume_labels = Labels::from(&[Labels::role(WORKSPACE_CONFIG_ROLE)]);
         let list_options = ListVolumesOptions {
             filters: Some(volume_labels.into()),
-            ..Default::default()
         };
 
         let volumes = self.client.list_volumes(Some(list_options)).await?;

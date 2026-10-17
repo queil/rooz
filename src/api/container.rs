@@ -118,7 +118,7 @@ impl<'a> ContainerApi<'a> {
     }
 
     pub async fn get_single(&self, labels: &Labels) -> Result<Option<ContainerSummary>, AnyError> {
-        match self.get_all(&labels).await?.as_slice() {
+        match self.get_all(labels).await?.as_slice() {
             [] => Ok(None),
             [container] => Ok(Some(container.clone())),
             // as with volumes: engine-writable labels must not be able to abort rooz
@@ -154,7 +154,6 @@ impl<'a> ContainerApi<'a> {
                     if message.starts_with("unknown variant `stopped`") {
                         // hack: https://github.com/containers/podman/issues/17728
                         // nothing to kill as the container is already stopped
-                        ()
                     } else {
                         panic!("{}", message)
                     }
@@ -172,7 +171,7 @@ impl<'a> ContainerApi<'a> {
         match self
             .client
             .remove_container(
-                &container_id,
+                container_id,
                 Some(RemoveContainerOptions {
                     force,
                     ..Default::default()
@@ -181,7 +180,7 @@ impl<'a> ContainerApi<'a> {
             .await
         {
             Ok(_) => {
-                log::debug!("Removed container: {}{}", &container_id, &force_display);
+                log::debug!("Removed container: {}{}", container_id, force_display);
                 self.wait_removed(container_id).await;
                 Ok(())
             }
@@ -190,8 +189,8 @@ impl<'a> ContainerApi<'a> {
             }) => {
                 log::debug!(
                     "No such container. Skipping: {}{}",
-                    &container_id,
-                    &force_display
+                    container_id,
+                    force_display
                 );
                 Ok(())
             }
@@ -200,8 +199,8 @@ impl<'a> ContainerApi<'a> {
             }) => {
                 log::debug!(
                     "Container removal already in progress. Skipping: {}{}",
-                    &container_id,
-                    &force_display
+                    container_id,
+                    force_display
                 );
                 self.wait_removed(container_id).await;
                 Ok(())
@@ -221,15 +220,13 @@ impl<'a> ContainerApi<'a> {
 
     async fn wait_removed(&self, container_id: &str) {
         let _ = timeout(Duration::from_secs(30), async {
-            loop {
-                match self
-                    .client
-                    .inspect_container(container_id, None::<InspectContainerOptions>)
-                    .await
-                {
-                    Ok(_) => sleep(Duration::from_millis(100)).await,
-                    Err(_) => break,
-                }
+            while self
+                .client
+                .inspect_container(container_id, None::<InspectContainerOptions>)
+                .await
+                .is_ok()
+            {
+                sleep(Duration::from_millis(100)).await;
             }
         })
         .await;
@@ -238,7 +235,7 @@ impl<'a> ContainerApi<'a> {
     pub async fn kill(&self, container_id: &str, wait_for_remove: bool) -> Result<(), AnyError> {
         match self
             .client
-            .kill_container(&container_id, None::<KillContainerOptions>)
+            .kill_container(container_id, None::<KillContainerOptions>)
             .await
         {
             Ok(_) => {
@@ -265,7 +262,6 @@ impl<'a> ContainerApi<'a> {
                                     if message.starts_with("unknown variant `stopped`") {
                                         // hack: https://github.com/containers/podman/issues/17728
                                         // nothing to kill as the container is already stopped
-                                        ()
                                     } else {
                                         panic!("{}", message)
                                     }
@@ -296,7 +292,7 @@ impl<'a> ContainerApi<'a> {
     pub async fn stop(&self, container_id: &str) -> Result<(), AnyError> {
         self.client
             .stop_container(
-                &container_id,
+                container_id,
                 Some(StopContainerOptions {
                     t: Some(0),
                     signal: Some("SIGINT".into()),
@@ -308,7 +304,7 @@ impl<'a> ContainerApi<'a> {
             log::debug!("Waiting for container {} to be gone...", container_id);
             let r = self
                 .client
-                .inspect_container(&container_id, None::<InspectContainerOptions>)
+                .inspect_container(container_id, None::<InspectContainerOptions>)
                 .await;
             if let Err(DockerResponseServerError {
                 status_code: 404, ..
@@ -325,7 +321,7 @@ impl<'a> ContainerApi<'a> {
     }
 
     async fn create_core(&self, spec: RunSpec<'a>) -> Result<ContainerCreateResponse, AnyError> {
-        let image_info = self.image.ensure(&spec.image, spec.force_pull).await?;
+        let image_info = self.image.ensure(spec.image, spec.force_pull).await?;
 
         let options = CreateContainerOptions {
             name: Some(spec.container_name.to_string()),
@@ -421,12 +417,12 @@ impl<'a> ContainerApi<'a> {
         };
 
         let mut env_kv = vec![
-            KeyValue::new("ROOZ_META_IMAGE", &spec.image),
-            KeyValue::new("ROOZ_META_UID", &spec.uid.to_string()),
-            KeyValue::new("ROOZ_META_USER", &spec.user),
-            KeyValue::new("ROOZ_META_HOME", &spec.home_dir),
-            KeyValue::new("ROOZ_META_WORKSPACE", &spec.workspace_key),
-            KeyValue::new("ROOZ_META_CONTAINER_NAME", &spec.container_name),
+            KeyValue::new("ROOZ_META_IMAGE", spec.image),
+            KeyValue::new("ROOZ_META_UID", spec.uid),
+            KeyValue::new("ROOZ_META_USER", spec.user),
+            KeyValue::new("ROOZ_META_HOME", spec.home_dir),
+            KeyValue::new("ROOZ_META_WORKSPACE", spec.workspace_key),
+            KeyValue::new("ROOZ_META_CONTAINER_NAME", spec.container_name),
         ];
 
         if let Some(env) = spec.env {
@@ -494,7 +490,7 @@ impl<'a> ContainerApi<'a> {
         log::debug!(
             "Created container: {} ({})",
             spec.container_name,
-            response.id.to_string()
+            response.id
         );
         Ok(response)
     }
@@ -502,7 +498,7 @@ impl<'a> ContainerApi<'a> {
     pub async fn create(&self, spec: RunSpec<'a>) -> Result<ContainerResult, AnyError> {
         log::debug!(
             "[{}: {:?}]: CREATE CONTAINER - name: {}, uid: {}, user: {}, image: {}, entrypoint: {}",
-            &spec.reason,
+            spec.reason,
             spec.run_mode,
             spec.container_name,
             spec.uid,
@@ -513,7 +509,7 @@ impl<'a> ContainerApi<'a> {
 
         let container_id = match self
             .client
-            .inspect_container(&spec.container_name, None::<InspectContainerOptions>)
+            .inspect_container(spec.container_name, None::<InspectContainerOptions>)
             .await
         {
             Ok(ContainerInspectResponse { id: Some(id), .. }) if !spec.force_recreate => {
@@ -547,7 +543,7 @@ impl<'a> ContainerApi<'a> {
 
     pub async fn start(&self, container_id: &str) -> Result<(), Error> {
         self.client
-            .start_container(&container_id, None::<StartContainerOptions>)
+            .start_container(container_id, None::<StartContainerOptions>)
             .await
     }
 
@@ -571,7 +567,7 @@ EXEC_EXIT_CODE=$(cat /tmp/exec_exit)
 echo "Exec session ended: $EXEC_EXIT_CODE"
 exit $EXEC_EXIT_CODE"#;
 
-        let epv = inject(&wait_for_exec, "entrypoint.sh");
+        let epv = inject(wait_for_exec, "entrypoint.sh");
         let entrypoint = epv.iter().map(String::as_str).collect();
         let work_dir = "/tmp/one-shot";
         let id = self

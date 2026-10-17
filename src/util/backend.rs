@@ -91,10 +91,10 @@ impl ContainerBackend {
             }
         }
 
-        let info = backend(&info, &version);
+        let info = backend(info, version);
         if let ContainerEngine::Unknown = info.engine {
-            log::debug!("{:?}", &version);
-            log::debug!("{:?}", &info);
+            log::debug!("{:?}", version);
+            log::debug!("{:?}", info);
         }
         Ok(info)
     }

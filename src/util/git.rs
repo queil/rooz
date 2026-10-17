@@ -176,28 +176,25 @@ fn get_clone_dir(
         let config = File::try_from(git_config.as_str())?;
         let url_lookup = config.sections_by_name("url").map(|f| {
             f.map(|s| (s.body().value("insteadOf"), s.header().subsection_name()))
-                .filter_map(|(key, value)| match (key?, value?) {
-                    (k, v) => Some((k.to_string(), v.to_string())),
-                })
+                .filter_map(|(key, value)| Some((key?.to_string(), value?.to_string())))
                 .collect::<Vec<(_, _)>>()
         });
-        if let Some(lookup) = url_lookup {
-            if let Some((alias, url)) = lookup
+        if let Some(lookup) = url_lookup
+            && let Some((alias, url)) = lookup
                 .into_iter()
                 .find(|(alias, _)| git_ssh_url.starts_with(alias))
-            {
-                git_url = git_ssh_url
-                    .strip_prefix(&alias)
-                    .map(|rest| format!("{}{}", url, rest))
-                    .unwrap();
-                log::debug!("Expanded URL: {}", git_url);
-            }
+        {
+            git_url = git_ssh_url
+                .strip_prefix(&alias)
+                .map(|rest| format!("{}{}", url, rest))
+                .unwrap();
+            log::debug!("Expanded URL: {}", git_url);
         }
     }
 
     let clone_work_dir = git_url
         .split(&['/'])
-        .last()
+        .next_back()
         .unwrap_or("repo")
         .replace(".git", "")
         .to_string();
@@ -210,11 +207,11 @@ fn get_clone_dir(
         .into());
     }
 
-    log::debug!("Clone dir: {}", &clone_work_dir);
+    log::debug!("Clone dir: {}", clone_work_dir);
 
     let work_dir = format!("{}/{}", root_dir, clone_work_dir.clone());
 
-    log::debug!("Full clone dir: {:?}", &work_dir);
+    log::debug!("Full clone dir: {:?}", work_dir);
     Ok(work_dir)
 }
 
@@ -350,11 +347,11 @@ impl<'a> GitApi<'a> {
         spec: &CloneEnv,
     ) -> Result<RootRepoCloneResult, AnyError> {
         let container_id = self
-            .clone_from_spec(&spec, &CloneUrls::Root { url: url.into() })
+            .clone_from_spec(spec, &CloneUrls::Root { url: url.into() })
             .await?;
         let clone_dir = get_clone_dir(
             &spec.working_dir,
-            &url,
+            url,
             &self.api.get_system_config().await?.gitconfig,
         )?;
         self.api.container.kill(&container_id, false).await?;
@@ -399,7 +396,7 @@ impl<'a> GitApi<'a> {
             .await?;
         let clone_dir = get_clone_dir(
             &spec.working_dir,
-            &url,
+            url,
             &self.api.get_system_config().await?.gitconfig,
         )?;
         let file_format = FileFormat::from_path(path)?;

@@ -112,7 +112,6 @@ impl<'a> VolumeApi<'a> {
     pub async fn get_all(&self, labels: &Labels) -> Result<Vec<Volume>, AnyError> {
         let list_options = ListVolumesOptions {
             filters: Some(labels.clone().into()),
-            ..Default::default()
         };
 
         Ok(self
@@ -124,7 +123,7 @@ impl<'a> VolumeApi<'a> {
     }
 
     pub async fn get_single(&self, labels: &Labels) -> Result<Option<Volume>, AnyError> {
-        match self.get_all(&labels).await?.as_slice() {
+        match self.get_all(labels).await?.as_slice() {
             [] => Ok(None),
             [volume] => Ok(Some(volume.clone())),
             // labels are engine metadata anyone with engine access can write, so more than
@@ -187,7 +186,7 @@ impl<'a> VolumeApi<'a> {
         match &self.client.remove_volume(name, Some(options)).await {
             Ok(_) => {
                 let force_display = if force { " (force)" } else { "" };
-                log::debug!("Volume removed: {} {}", &name, &force_display);
+                log::debug!("Volume removed: {} {}", name, force_display);
                 Ok(())
             }
             Err(e) => Err(format!(
@@ -218,7 +217,7 @@ impl<'a> VolumeApi<'a> {
         match self.client.inspect_volume(&spec.name).await {
             Ok(volume) => {
                 validate_reuse(spec, &volume.labels)?;
-                log::debug!("Reusing an existing {} volume", &spec.name);
+                log::debug!("Reusing an existing {} volume", spec.name);
                 Ok(VolumeResult::AlreadyExists)
             }
             Err(DockerResponseServerError {
@@ -331,7 +330,7 @@ impl<'a> VolumeApi<'a> {
         }
 
         let ref_mounts = mounts
-            .into_iter()
+            .iter()
             .filter_map(|((container_name, _), v)| match v {
                 MountSource::DataEntryReference(data_key) => Some((data_key, container_name)),
                 MountSource::InlineDataValue(_) => None,
@@ -343,8 +342,8 @@ impl<'a> VolumeApi<'a> {
                     acc
                 },
             )
-            .iter()
-            .map(|(data_key, _)| {
+            .keys()
+            .map(|data_key| {
                 (
                     *data_key,
                     Self::data_volume_spec(workspace_key, data_key.as_str()),
@@ -354,27 +353,27 @@ impl<'a> VolumeApi<'a> {
 
         Ok(data_entries
             .iter()
-            .filter_map(|d| match d {
-                DataEntry::Dir { name } => Some((
+            .map(|d| match d {
+                DataEntry::Dir { name } => (
                     DataEntryKey(name.to_string()),
                     DataEntryVolumeSpec {
                         data: d.clone(),
                         volume: Self::data_volume_spec(workspace_key, name),
                     },
-                )),
+                ),
                 DataEntry::File { name, .. } => {
                     let volume_spec = ref_mounts
                         .get(&DataEntryKey(name.to_string()))
-                        .map(|z| z.clone())
+                        .cloned()
                         .unwrap_or(Self::data_volume_spec(workspace_key, "inline"));
 
-                    Some((
+                    (
                         DataEntryKey(name.to_string()),
                         DataEntryVolumeSpec {
                             data: d.clone(),
                             volume: volume_spec,
                         },
-                    ))
+                    )
                 }
             })
             .collect::<HashMap<_, _>>())
@@ -430,8 +429,8 @@ impl<'a> VolumeApi<'a> {
     ) -> Result<HashMap<VolumeName, VolumeResult>, AnyError> {
         let mut result = HashMap::new();
         for (k, v) in data_entries
-            .iter()
-            .map(|(_, v)| (v.volume.name.clone(), v.volume.clone()))
+            .values()
+            .map(|v| (v.volume.name.clone(), v.volume.clone()))
             .collect::<HashMap<_, _>>()
         {
             let volume_result = self.ensure_volume(&v).await?;
@@ -516,7 +515,7 @@ impl<'a> VolumeApi<'a> {
     ) -> Result<Vec<Mount>, AnyError> {
         let mut mounts = vec![];
         for v in volumes {
-            log::debug!("Process volume: {:?}", &v);
+            log::debug!("Process volume: {:?}", v);
             self.ensure_volume(&v.to_spec()).await?;
             mounts.push(v.to_mount(tilde_replacement));
         }

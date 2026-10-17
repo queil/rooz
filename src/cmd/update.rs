@@ -1,3 +1,4 @@
+use std::str::FromStr;
 use std::{fs, process::exit};
 
 use crate::{
@@ -77,8 +78,8 @@ impl<'a> WorkspaceApi<'a> {
         }
 
         match mode {
-            UpdateMode::Apply => self.remove_containers_only(&workspace_key, true).await?,
-            UpdateMode::Purge => self.remove(&workspace_key, true, true).await?,
+            UpdateMode::Apply => self.remove_containers_only(workspace_key, true).await?,
+            UpdateMode::Purge => self.remove(workspace_key, true, true).await?,
         };
 
         self.new(
@@ -113,19 +114,19 @@ impl<'a> WorkspaceApi<'a> {
             .volume
             .get_single(&labels)
             .await?
-            .ok_or(format!("Workspace not found: {}", &workspace_key))?;
+            .ok_or(format!("Workspace not found: {}", workspace_key))?;
 
         let config_source = {
             if let Some(config_source) = &volume.labels.get(labels::CONFIG_ORIGIN) {
                 let format = FileFormat::from_path(config_source)?;
-                let config_path = ConfigPath::from_str(&config_source)?;
+                let config_path = ConfigPath::from_str(config_source)?;
                 let mut original_body = self.config.read(workspace_key, &ConfigType::Body).await?;
                 let mut pre_merged: Option<RoozCfg> = None;
 
                 if !interactive && from_origin {
                     match &config_path {
                         ConfigPath::File { path } => {
-                            original_body = fs::read_to_string(&path)?;
+                            original_body = fs::read_to_string(path)?;
                         }
                         ConfigPath::Git { url, file_path } => {
                             let clone_env = CloneEnv {
@@ -135,7 +136,7 @@ impl<'a> WorkspaceApi<'a> {
 
                             let (result, _) = self
                                 .git
-                                .clone_config_repo(clone_env, &url, &file_path)
+                                .clone_config_repo(clone_env, url, file_path)
                                 .await?;
                             if let Some(cb) = result {
                                 original_body = cb.body;

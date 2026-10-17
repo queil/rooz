@@ -6,7 +6,7 @@ use indexmap::IndexMap;
 impl<'a> ConfigApi<'a> {
     pub async fn decrypt(&self, config: &mut RoozCfg, identity: &Identity) -> Result<(), AnyError> {
         config.secrets = match config.secrets.clone() {
-            Some(secrets) if secrets.len() > 0 => {
+            Some(secrets) if !secrets.is_empty() => {
                 log::debug!("Decrypting secrets");
                 let mut ret = IndexMap::<String, String>::new();
                 for (k, v) in secrets.iter() {
@@ -36,7 +36,7 @@ impl<'a> ConfigApi<'a> {
                 );
             }
         };
-        config.secrets = if encrypted_secrets.len() > 0 {
+        config.secrets = if !encrypted_secrets.is_empty() {
             Some(encrypted_secrets)
         } else {
             None

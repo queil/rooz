@@ -51,9 +51,7 @@ fn resolve<'a>(arg: &str, scope: &str, known: &'a [Cache]) -> Option<&'a Cache> 
         format!("{}{}", prefix, arg),
         cache_volume_name(scope, arg),
     ];
-    known
-        .iter()
-        .find(|c| candidates.iter().any(|cand| *cand == c.name))
+    known.iter().find(|c| candidates.contains(&c.name))
 }
 
 impl<'a> Api<'a> {
@@ -64,7 +62,6 @@ impl<'a> Api<'a> {
             .client
             .list_volumes(Some(ListVolumesOptions {
                 filters: Some(Labels::from(&[Labels::role(CACHE_ROLE)]).into()),
-                ..Default::default()
             }))
             .await?
             .volumes

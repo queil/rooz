@@ -46,6 +46,9 @@ jobs:
       - name: formatting
         run: cargo fmt --check
 
+      - name: clippy
+        run: cargo clippy --locked --all-targets -- -D warnings
+
       - name: build
         run: cargo build --locked
 
@@ -164,8 +167,11 @@ jobs:
       # than the binaries. The site workflow fetches it from this release.
       - name: generate the pinned installer
         run: |
-          curl -fsSL https://weir.sh/install.sh | sh
-          ~/.local/bin/weir scripts/gen-install.weir --template install.sh --sums dist/SHA256SUMS \
+          weir="weir-v0.0.74-linux-x64"
+          curl -fsSL -o "$RUNNER_TEMP/weir" "https://github.com/weir-shell/weir/releases/download/v0.0.74/$weir"
+          echo "dd8797ce9caa29d101f39f7096c624a92cea676922f8c1822ced7348e01611d9  $RUNNER_TEMP/weir" | sha256sum -c -
+          chmod +x "$RUNNER_TEMP/weir"
+          "$RUNNER_TEMP/weir" scripts/gen-install.weir --template install.sh --sums dist/SHA256SUMS \
             --tag "${{ github.ref_name }}" --out dist/install.sh
           sh -n dist/install.sh
 

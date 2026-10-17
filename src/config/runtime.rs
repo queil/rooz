@@ -133,14 +133,14 @@ impl<'a> TryFrom<(&'a str, &'a RoozSidecar)> for RoozSidecarRuntime {
                 .collect(),
             real_mounts: HashMap::new(),
             ports: value.ports.clone().unwrap_or_default(),
-            privileged: value.privileged.clone().unwrap_or_default(),
+            privileged: value.privileged.unwrap_or_default(),
             vpn,
-            init: value.init.clone().unwrap_or(true),
+            init: value.init.unwrap_or(true),
             work_dir: value.work_dir.clone().unwrap_or_default(),
             user: value.user.clone(),
-            egress: value.egress.clone().unwrap_or(false),
+            egress: value.egress.unwrap_or(false),
             install: value.install.clone(),
-            uid: value.uid.clone(),
+            uid: value.uid,
             peers: value.peers.clone().unwrap_or_default(),
         })
     }
@@ -219,7 +219,7 @@ fn mask_vec(values: &mut [String], secrets: &[&String]) {
 }
 
 fn mask_map(values: &mut HashMap<String, String>, secrets: &[&String]) {
-    for (_, v) in values.iter_mut() {
+    for v in values.values_mut() {
         mask_in(v, secrets);
     }
 }
@@ -235,7 +235,7 @@ fn mask_generator(generator: &mut ContentGenerator, secrets: &[&String]) {
 }
 
 fn mask_real_mounts(mounts: &mut HashMap<TargetDir, VolumeFilesSpec>, secrets: &[&String]) {
-    for (_, spec) in mounts.iter_mut() {
+    for spec in mounts.values_mut() {
         for file in spec.files.iter_mut() {
             mask_generator(&mut file.generator, secrets);
         }
@@ -261,13 +261,13 @@ fn mask_data_value(value: &mut DataValue, secrets: &[&String]) {
 }
 
 fn mask_data(data: &mut HashMap<String, DataValue>, secrets: &[&String]) {
-    for (_, v) in data.iter_mut() {
+    for v in data.values_mut() {
         mask_data_value(v, secrets);
     }
 }
 
 fn mask_mounts(mounts: &mut HashMap<String, MountSource>, secrets: &[&String]) {
-    for (_, v) in mounts.iter_mut() {
+    for v in mounts.values_mut() {
         if let MountSource::InlineDataValue(dv) = v {
             mask_data_value(dv, secrets);
         }
@@ -383,7 +383,7 @@ impl RuntimeConfig {
         mask_real_mounts(&mut masked.real_mounts, &secrets);
         mask_install(&mut masked.install, &secrets);
 
-        for (_, sidecar) in masked.sidecars.iter_mut() {
+        for sidecar in masked.sidecars.values_mut() {
             mask_in(&mut sidecar.image, &secrets);
             mask_map(&mut sidecar.env, &secrets);
             mask_vec(&mut sidecar.command, &secrets);
@@ -417,6 +417,87 @@ impl RuntimeConfig {
                 })
             }))
             .collect()
+    }
+}
+
+impl<'a> TryFrom<&'a RoozCfg> for RuntimeConfig {
+    type Error = AnyError;
+
+    fn try_from(value: &'a RoozCfg) -> Result<Self, Self::Error> {
+        let default = RuntimeConfig::default();
+
+        let sidecar_cfgs = value.sidecars.clone().unwrap_or_default();
+        for (name, s) in &sidecar_cfgs {
+            for peer in s.peers.iter().flatten() {
+                if peer == name {
+                    return Err(
+                        format!("sidecar '{}': cannot declare itself as a peer", name).into(),
+                    );
+                }
+                if !sidecar_cfgs.contains_key(peer) {
+                    return Err(format!(
+                        "sidecar '{}': unknown peer '{}' (peers must name sidecars defined in this workspace)",
+                        name, peer
+                    )
+                    .into());
+                }
+            }
+        }
+
+        let mut ports = HashMap::<String, Option<String>>::new();
+        RoozCfg::parse_ports(&mut ports, value.clone().ports.unwrap_or_default())?;
+
+        let user = value.user.as_deref().unwrap_or(&default.user);
+        validate_user(user)?;
+
+        Ok(RuntimeConfig {
+            git_ssh_url: value.git_ssh_url.clone(),
+            extra_repos: value
+                .extra_repos
+                .as_deref()
+                .unwrap_or(&default.extra_repos)
+                .to_vec(),
+            shell: value.shell.as_deref().unwrap_or(&default.shell).into(),
+            image: value.image.as_deref().unwrap_or(&default.image).into(),
+            user: user.to_string(),
+            caches: {
+                let mut val = value.caches.as_deref().unwrap_or(&default.caches).to_vec();
+                val.dedup();
+                val
+            },
+            sidecars: sidecar_cfgs
+                .into_iter()
+                .map(|(k, v)| Ok((k.clone(), (k.as_str(), &v).try_into()?)))
+                .collect::<Result<HashMap<_, _>, AnyError>>()?,
+            env: value
+                .env
+                .clone()
+                .unwrap_or_default()
+                .into_iter()
+                .map(|(k, v)| {
+                    validate_env_key(&k, "workspace")?;
+                    Ok((k, v))
+                })
+                .collect::<Result<HashMap<_, _>, AnyError>>()?,
+            ports,
+            privileged: value.privileged.unwrap_or(default.privileged),
+            init: value.init.unwrap_or(default.init),
+            command: value
+                .command
+                .as_deref()
+                .unwrap_or(&default.command)
+                .to_vec(),
+            args: value.args.as_deref().unwrap_or(&default.args).to_vec(),
+            data: value.data.clone().unwrap_or_default().into_iter().collect(),
+            mounts: value
+                .mounts
+                .clone()
+                .unwrap_or_default()
+                .into_iter()
+                .collect(),
+            install: value.install.clone(),
+            ..default
+        })
     }
 }
 
@@ -724,86 +805,5 @@ mod tests {
         };
         let parsed = RuntimeConfig::from_string(cfg.to_string().unwrap()).unwrap();
         assert_eq!(parsed.install, Some(InstallSpec::Steps(steps)));
-    }
-}
-
-impl<'a> TryFrom<&'a RoozCfg> for RuntimeConfig {
-    type Error = AnyError;
-
-    fn try_from(value: &'a RoozCfg) -> Result<Self, Self::Error> {
-        let default = RuntimeConfig::default();
-
-        let sidecar_cfgs = value.sidecars.clone().unwrap_or_default();
-        for (name, s) in &sidecar_cfgs {
-            for peer in s.peers.iter().flatten() {
-                if peer == name {
-                    return Err(
-                        format!("sidecar '{}': cannot declare itself as a peer", name).into(),
-                    );
-                }
-                if !sidecar_cfgs.contains_key(peer) {
-                    return Err(format!(
-                        "sidecar '{}': unknown peer '{}' (peers must name sidecars defined in this workspace)",
-                        name, peer
-                    )
-                    .into());
-                }
-            }
-        }
-
-        let mut ports = HashMap::<String, Option<String>>::new();
-        RoozCfg::parse_ports(&mut ports, value.clone().ports.unwrap_or_default())?;
-
-        let user = value.user.as_deref().unwrap_or(&default.user);
-        validate_user(user)?;
-
-        Ok(RuntimeConfig {
-            git_ssh_url: value.git_ssh_url.clone(),
-            extra_repos: value
-                .extra_repos
-                .as_deref()
-                .unwrap_or(&default.extra_repos)
-                .to_vec(),
-            shell: value.shell.as_deref().unwrap_or(&default.shell).into(),
-            image: value.image.as_deref().unwrap_or(&default.image).into(),
-            user: user.to_string(),
-            caches: {
-                let mut val = value.caches.as_deref().unwrap_or(&default.caches).to_vec();
-                val.dedup();
-                val
-            },
-            sidecars: sidecar_cfgs
-                .into_iter()
-                .map(|(k, v)| Ok((k.clone(), (k.as_str(), &v).try_into()?)))
-                .collect::<Result<HashMap<_, _>, AnyError>>()?,
-            env: value
-                .env
-                .clone()
-                .unwrap_or_default()
-                .into_iter()
-                .map(|(k, v)| {
-                    validate_env_key(&k, "workspace")?;
-                    Ok((k, v))
-                })
-                .collect::<Result<HashMap<_, _>, AnyError>>()?,
-            ports,
-            privileged: value.privileged.unwrap_or(default.privileged),
-            init: value.init.unwrap_or(default.init),
-            command: value
-                .command
-                .as_deref()
-                .unwrap_or(&default.command)
-                .to_vec(),
-            args: value.args.as_deref().unwrap_or(&default.args).to_vec(),
-            data: value.data.clone().unwrap_or_default().into_iter().collect(),
-            mounts: value
-                .mounts
-                .clone()
-                .unwrap_or_default()
-                .into_iter()
-                .collect(),
-            install: value.install.clone(),
-            ..default
-        })
     }
 }

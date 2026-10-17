@@ -18,8 +18,8 @@ pub enum ContainerResult {
 impl ContainerResult {
     pub fn id(&self) -> &str {
         match self {
-            ContainerResult::Created { id } => &id,
-            ContainerResult::AlreadyExists { id } => &id,
+            ContainerResult::Created { id } => id,
+            ContainerResult::AlreadyExists { id } => id,
         }
     }
 }

@@ -51,7 +51,6 @@ impl<'a> Api<'a> {
             .client
             .list_volumes(Some(ListVolumesOptions {
                 filters: Some(Labels::workspace_config(workspace_key).into()),
-                ..Default::default()
             }))
             .await?
             .volumes
@@ -98,7 +97,6 @@ impl<'a> Api<'a> {
             .client
             .list_volumes(Some(ListVolumesOptions {
                 filters: Some(ws_labels.into()),
-                ..Default::default()
             }))
             .await?
             .volumes

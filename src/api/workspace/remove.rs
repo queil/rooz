@@ -32,7 +32,7 @@ impl<'a> WorkspaceApi<'a> {
 
         let futures = images
             .into_iter()
-            .filter_map(|img| Some(async move { image_api.remove_local(&img.id, force).await }));
+            .map(|img| async move { image_api.remove_local(&img.id, force).await });
 
         futures::future::try_join_all(futures).await?;
         Ok(())
@@ -45,7 +45,6 @@ impl<'a> WorkspaceApi<'a> {
         self.remove_containers(labels, force).await?;
         let ls_vol_options = ListVolumesOptions {
             filters: Some(labels.clone().into()),
-            ..Default::default()
         };
 
         if let Some(volumes) = self
@@ -56,9 +55,10 @@ impl<'a> WorkspaceApi<'a> {
             .volumes
         {
             let volume_api = self.api.volume;
-            let futures = volumes.iter().filter(filter).into_iter().filter_map(|v| {
-                Some(async move { volume_api.remove_volume(&v.name, force).await })
-            });
+            let futures = volumes
+                .iter()
+                .filter(filter)
+                .map(|v| async move { volume_api.remove_volume(&v.name, force).await });
             futures::future::try_join_all(futures).await?;
         }
 
@@ -73,7 +73,7 @@ impl<'a> WorkspaceApi<'a> {
         {
             if let Some(name) = n.name {
                 let force_display = if force { " (force)" } else { "" };
-                log::debug!("Remove network: {}{}", &name, &force_display);
+                log::debug!("Remove network: {}{}", name, force_display);
                 self.api.client.remove_network(&name).await?
             }
         }
@@ -90,7 +90,7 @@ impl<'a> WorkspaceApi<'a> {
     ) -> Result<(), AnyError> {
         let labels = Labels::from(&[Labels::workspace(workspace_key)]);
         self.remove_core(
-            (&labels).into(),
+            &labels,
             |v| match v.labels.get(ROLE) {
                 Some(r) if r == WORKSPACE_CONFIG_ROLE => !keep_config,
                 _ => true,
@@ -107,7 +107,7 @@ impl<'a> WorkspaceApi<'a> {
         force: bool,
     ) -> Result<(), AnyError> {
         let labels = Labels::from(&[Labels::workspace(workspace_key)]);
-        self.remove_containers((&labels).into(), force).await?;
+        self.remove_containers(&labels, force).await?;
         Ok(())
     }
 

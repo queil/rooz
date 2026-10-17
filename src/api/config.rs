@@ -141,8 +141,7 @@ impl<'a> ConfigApi<'a> {
                 format!(
                     "ls /etc/rooz/{} > /dev/null 2>&1 && cat /etc/rooz/{} || true",
                     config_path, config_path
-                )
-                .into(),
+                ),
                 Some(vec![
                     RoozVolume::workspace_config_read(workspace_key, "/etc/rooz").to_mount(None),
                 ]),
@@ -158,7 +157,7 @@ impl<'a> ConfigApi<'a> {
             .await
     }
 
-    fn edit_error(&self, message: &str) -> () {
+    fn edit_error(&self, message: &str) {
         eprintln!("{}", "Error: Invalid configuration".bold().red());
         eprintln!("{}", message.red());
         eprintln!("Press any key to continue editing...");
@@ -189,19 +188,15 @@ impl<'a> ConfigApi<'a> {
                 }
             };
 
-            match (&edited_config.vars, &edited_config.secrets) {
-                (Some(vars), Some(secrets)) => {
-                    if let Some(duplicate_key) =
-                        vars.keys().find(|k| secrets.contains_key(&k.to_string()))
-                    {
-                        self.edit_error(&format!(
-                            "The key: '{}' can be only defined in either vars or secrets.",
-                            &duplicate_key.to_string()
-                        ));
-                        continue;
-                    }
-                }
-                _ => (),
+            if let (Some(vars), Some(secrets)) = (&edited_config.vars, &edited_config.secrets)
+                && let Some(duplicate_key) =
+                    vars.keys().find(|k| secrets.contains_key(&k.to_string()))
+            {
+                self.edit_error(&format!(
+                    "The key: '{}' can be only defined in either vars or secrets.",
+                    duplicate_key
+                ));
+                continue;
             };
             break;
         }
@@ -461,7 +456,11 @@ else echo ok; fi"#,
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{fs, os::unix::fs::symlink, path::PathBuf};
+    use std::{
+        fs,
+        os::unix::fs::symlink,
+        path::{Path, PathBuf},
+    };
 
     fn scratch(name: &str) -> PathBuf {
         let dir =
@@ -471,7 +470,7 @@ mod tests {
         dir
     }
 
-    async fn read(dir: &PathBuf, rel: &str) -> Result<String, String> {
+    async fn read(dir: &Path, rel: &str) -> Result<String, String> {
         LocalReader::default()
             .read_data_file(&dir.to_string_lossy(), rel)
             .await
