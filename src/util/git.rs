@@ -41,10 +41,6 @@ enum Transport {
     Local,
 }
 
-pub fn is_cleartext(url: &str) -> bool {
-    matches!(transport(url), Ok(Transport::Cleartext))
-}
-
 // Only the transports git users actually clone over are accepted; everything else
 // (remote helpers, ftp, invented schemes) is refused rather than handed to git.
 fn transport(url: &str) -> Result<Transport, AnyError> {
@@ -73,8 +69,8 @@ fn transport(url: &str) -> Result<Transport, AnyError> {
 }
 
 // A cleartext clone authenticates nothing: an on-path attacker substitutes the repository
-// content, and with it any '--config' file rooz reads from it as workspace configuration. Warned about
-// by default so local http:// remotes keep working; refused outright when the operator asks.
+// content. Warned about by default so local http:// remotes keep working; refused outright
+// when the operator asks. Remote '--config' sources are ssh-only, so this never covers them.
 fn check_transport(url: &str, require_secure: bool) -> Result<Option<String>, AnyError> {
     match transport(url)? {
         Transport::Cleartext if require_secure => Err(format!(
@@ -84,8 +80,8 @@ fn check_transport(url: &str, require_secure: bool) -> Result<Option<String>, An
         .into()),
         Transport::Cleartext => Ok(Some(format!(
             "WARNING: cloning '{}' over a cleartext transport. Nothing authenticates the server \
-             or protects the content, so anyone on the network path can substitute the repository \
-             - including any '--config' file rooz reads from it. Prefer https:// or ssh://, \
+             or protects the content, so anyone on the network path can substitute the repository. \
+             Prefer https:// or ssh://, \
              or set {}=true to refuse cleartext clones.",
             url, REQUIRE_SECURE_TRANSPORT_ENV
         ))),

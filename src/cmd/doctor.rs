@@ -152,7 +152,7 @@ pub async fn run(
                     "{} of about {} default subnets in use",
                     used, DOCKER_POOL_SUBNETS
                 );
-                let hint = " Each workspace with sidecars takes one. Remove unused workspaces \
+                let hint = " Each workspace takes one, plus one per sidecar and one per peer relation. Remove unused workspaces \
                             ('rooz rm') or widen 'default-address-pools' in the daemon config.";
                 if used >= DOCKER_POOL_SUBNETS {
                     r.line(Level::Fail, "networks", format!("{}.{}", detail, hint));

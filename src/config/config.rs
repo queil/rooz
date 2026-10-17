@@ -23,7 +23,7 @@ pub const SECRETS_NOT_ALLOWED: &str = "Refusing to expand 'secrets': this worksp
      author, which could reference any of your secrets and read the plaintext from inside a \
      container it also controls. Secrets are only expanded when the whole configuration is yours: \
      a local '--config' file without 'bases', or a source listed in ROOZ_TRUSTED_CONFIGS - not an \
-     unlisted '--config git:...' source, which may be the repository's own, and not an unlisted \
+     unlisted '--config <url>//<path>' source, which may be the repository's own, and not an unlisted \
      'bases' layer, which is a separate file that may have come from anywhere. List the source in \
      ROOZ_TRUSTED_CONFIGS (the repository URL exactly as passed to '--config', or a local \
      directory holding the config and all its bases), move the settings you need into your own \
@@ -51,25 +51,46 @@ impl FromStr for ConfigPath {
     type Err = AnyError;
 
     fn from_str(value: &str) -> Result<Self, AnyError> {
-        if value.contains(":") {
-            let chunks = value.split("//").collect::<Vec<_>>();
-            match chunks.as_slice() {
-                &[url, file_path] => {
-                    // reject the fragment here rather than at the sink: it reaches a shell
-                    // in the clone container, and FileFormat::from_path would otherwise
-                    // panic on it first
-                    validate_relative_config_path(file_path, "config path")?;
-                    Ok(Self::Git {
-                        url: url.to_string(),
-                        file_path: file_path.to_string(),
-                    })
-                }
-                _ => Err(format!("Invalid remote config spec URL {}", value).into()),
-            }
-        } else {
-            Ok(Self::File {
+        if !value.contains(':') {
+            return Ok(Self::File {
                 path: value.to_string(),
-            })
+            });
+        }
+        // remote configs are cloned with rooz's ssh key, so only ssh transports apply
+        let not_ssh = || -> AnyError {
+            format!(
+                "Remote --config must use SSH: 'git@host:repo//path.yaml' or \
+                 'ssh://git@host[:port]/repo//path.yaml', got '{}'",
+                value
+            )
+            .into()
+        };
+        let (scheme, rest) = match value.split_once("://") {
+            Some((scheme, rest)) => {
+                if !matches!(
+                    scheme.to_ascii_lowercase().as_str(),
+                    "ssh" | "git+ssh" | "ssh+git"
+                ) {
+                    return Err(not_ssh());
+                }
+                (&value[..scheme.len() + 3], rest)
+            }
+            // 'name::address' is a remote helper, not the scp-like ssh form
+            None if value.contains("::") => return Err(not_ssh()),
+            None => ("", value),
+        };
+        match *rest.split("//").collect::<Vec<_>>().as_slice() {
+            [repo, file_path] => {
+                // reject the fragment here rather than at the sink: it reaches a shell
+                // in the clone container, and FileFormat::from_path would otherwise
+                // panic on it first
+                validate_relative_config_path(file_path, "config path")?;
+                Ok(Self::Git {
+                    url: format!("{}{}", scheme, repo),
+                    file_path: file_path.to_string(),
+                })
+            }
+            _ => Err(format!("Invalid remote config spec URL {}", value).into()),
         }
     }
 }
@@ -258,7 +279,6 @@ pub struct RoozSidecar {
     pub init: Option<bool>,
     pub install: Option<InstallSpec>,
     pub work_dir: Option<String>,
-    pub user: Option<String>,
     pub uid: Option<i32>,
     pub egress: Option<bool>,
     pub shell: Option<Vec<String>>,
@@ -281,7 +301,6 @@ impl RoozSidecar {
             peers: render_vec(reg, &self.peers, vars)?,
             install: render_install(reg, &self.install, vars)?,
             work_dir: render_opt(reg, &self.work_dir, vars)?,
-            user: render_opt(reg, &self.user, vars)?,
             mounts: self
                 .mounts
                 .as_ref()
@@ -615,7 +634,7 @@ impl RoozCfg {
         let invalid = || -> AnyError {
             format!(
                 "Invalid port mapping: '{}'. Expected '<containerPort>' or \
-                 '<containerPort>:<hostPort>' with ports in 0-65535.",
+                 '<hostPort>:<containerPort>' with ports in 0-65535.",
                 port_mapping
             )
             .into()
@@ -624,7 +643,7 @@ impl RoozCfg {
 
         match *port_mapping.split(":").collect::<Vec<_>>().as_slice() {
             [a] => Ok((port(a)?, None)),
-            [a, b] => Ok((port(a)?, Some(port(b)?))),
+            [host, container] => Ok((port(container)?, Some(port(host)?))),
             _ => Err(invalid()),
         }
     }
@@ -840,7 +859,6 @@ impl RoozSidecar {
         self.init = other.init.or(self.init);
         self.install = InstallSpec::merged(&self.install, &other.install);
         self.work_dir = other.work_dir.clone().or(self.work_dir.clone());
-        self.user = other.user.clone().or(self.user.clone());
         self.uid = other.uid.or(self.uid);
         self.egress = other.egress.or(self.egress);
         self.peers = union_sorted(self.peers.take(), other.peers.clone());
@@ -1341,6 +1359,42 @@ mod tests {
     }
 
     #[test]
+    fn ssh_url_config_path_is_accepted() {
+        for (spec, want) in [
+            (
+                "ssh://git@host:2222/my/configs//cfg.yaml",
+                "ssh://git@host:2222/my/configs",
+            ),
+            (
+                "git+ssh://git@host/my/configs//cfg.yaml",
+                "git+ssh://git@host/my/configs",
+            ),
+        ] {
+            match ConfigPath::from_str(spec) {
+                Ok(ConfigPath::Git { url, file_path }) => {
+                    assert_eq!(url, want);
+                    assert_eq!(file_path, "cfg.yaml");
+                }
+                other => panic!("expected a git config path for {}, got {:?}", spec, other),
+            }
+        }
+    }
+
+    #[test]
+    fn non_ssh_config_urls_are_refused() {
+        for spec in [
+            "https://github.com/my/configs//cfg.yaml",
+            "http://host/my/configs//cfg.yaml",
+            "git://host/my/configs//cfg.yaml",
+            "file:///srv/configs//cfg.yaml",
+            "ext::sh -c id//cfg.yaml",
+        ] {
+            let err = ConfigPath::from_str(spec).unwrap_err().to_string();
+            assert!(err.contains("must use SSH"), "{}: {}", spec, err);
+        }
+    }
+
+    #[test]
     fn local_config_paths_stay_unrestricted() {
         // these are operator-typed host paths, not shell input - absolute and .. are fine
         for spec in ["../configs/my.yaml", "/home/me/my.yaml", "./my.yaml"] {
@@ -1424,7 +1478,7 @@ mod tests {
     #[test]
     fn valid_port_mappings_still_parse() {
         let mut map = HashMap::new();
-        RoozCfg::parse_ports(&mut map, vec!["8080".into(), "80:8081".into()]).unwrap();
+        RoozCfg::parse_ports(&mut map, vec!["8080".into(), "8081:80".into()]).unwrap();
         assert_eq!(map.get("8080"), Some(&None));
         assert_eq!(map.get("80"), Some(&Some("8081".to_string())));
     }
@@ -1805,6 +1859,38 @@ mod tests {
         assert_eq!(resolved[0].name, "00-tools");
         let sidecar_install = cfg.sidecars.unwrap()["test"].install.clone().unwrap();
         assert_eq!(sidecar_install.resolved()[0].name, "00-tinyproxy");
+    }
+
+    #[test]
+    fn all_examples_parse() {
+        fn walk(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+            for entry in std::fs::read_dir(dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    walk(&path, out);
+                } else if matches!(
+                    path.extension().and_then(|e| e.to_str()),
+                    Some("yaml" | "yml")
+                ) {
+                    out.push(path);
+                }
+            }
+        }
+        let mut files = Vec::new();
+        walk(
+            &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples"),
+            &mut files,
+        );
+        assert!(!files.is_empty());
+        let failures = files
+            .iter()
+            .filter_map(|f| {
+                serde_yaml::from_str::<RoozCfg>(&std::fs::read_to_string(f).unwrap())
+                    .err()
+                    .map(|e| format!("{}: {}", f.display(), e))
+            })
+            .collect::<Vec<_>>();
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
     }
 
     #[test]

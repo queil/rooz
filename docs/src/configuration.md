@@ -1,112 +1,76 @@
 # Configuration
 
-ℹ️ Rooz supports `yaml` as configuration formats.
+ℹ️ Rooz uses YAML for configuration.
 
-Most of the settings can be configured via:
+Settings come from env vars, command-line parameters, and a config file (`--config` on `rooz new`, most options - [examples](https://github.com/queil/rooz/tree/main/examples)).
 
-* environment variables
-* a config file specified via `--config` (on `rooz new`)
-  ℹ️ it can be a local file path or a remote git file like: `git@github.com/my/configs//path/in/repo/config.rooz.yaml`
-
-  ℹ️ rooz does not look for configuration in the repositories it clones. To use a
-  repository's own config file, pass it explicitly: `rooz new ws -g <url> --config <url>//.rooz.yaml`
-* cmd-line parameters
-
-The configuration file provides the most options: [example](examples/dotnet-nats.rooz.yaml)
+* `--config` takes a local path or a git file, `<repo-url>//<path-in-repo>`, e.g. `git@github.com:my/configs//path/in/repo/config.rooz.yaml`. The repo is cloned with rooz's SSH key, so only SSH URLs work: scp-like `git@host:repo` or `ssh://git@host[:port]/repo` (also `git+ssh://`, `ssh+git://`). Other schemes are refused.
+* Rooz does not read config from cloned repositories. Pass it explicitly: `rooz new ws -g <url> --config <url>//.rooz.yaml`
 
 ## What a repository's configuration may set
 
-Configuration authored by the repository being opened (a `--config git:...` source, such as its
-`.rooz.yaml`) may set anything that only shapes the workspace container - `image`, `shell`, `command`,
-`args`, `env`, `install`, `ports`, `data`, `mounts`, `sidecars`, `extra_repos`, `vars`, `user`, `init`. That
-grants the repository nothing it does not already have: the workspace runs its code either way.
+Repository config (a `--config <url>//<path>` source, e.g. its `.rooz.yaml`) may set fields scoped to the workspace: `bases`, `git_ssh_url`, `image`, `shell`, `command`, `args`, `env`, `install`, `ports`, `data`, `mounts`, `sidecars`, `extra_repos`, `vars`, `user`, `init`.
 
-Fields that reach past the workspace - your host, your other workspaces, your secrets - are yours to set:
+Refused from repository config:
 
-| field | why | how to allow it anyway |
+| field | reason | to allow |
 | --- | --- | --- |
-| `secrets` | plaintext would land in a container the repository controls | list the source in `ROOZ_TRUSTED_CONFIGS` if it is yours (see [Trusted config sources](secrets.md#trusted-config-sources)), or move the settings into your own local `--config` file |
-| `caches` | a cache volume is shared with your other workspaces | list the same paths in `--caches` / `ROOZ_CACHES`, or list the source in `ROOZ_TRUSTED_CONFIGS` |
-| `privileged` | full access to the host running the engine | `ROOZ_ALLOW_PRIVILEGED=<names>` (refused on *any* config file's say-so, including your own) |
-| sidecar `vpn` | `NET_ADMIN` and `/dev/net/tun` - real root's reach into the kernel's netfilter code on a rootful engine | `ROOZ_ALLOW_VPN=<names>` (refused on *any* config file's say-so, including your own) |
+| `secrets` | plaintext lands in a repo-controlled container | list the source in `ROOZ_TRUSTED_CONFIGS` ([Trusted config sources](secrets.md#trusted-config-sources)), or use a local `--config` file |
+| `caches` | shared with your other workspaces | same paths in `ROOZ_CACHES` (or `--caches`, which covers `rooz new` only, not `rooz update`), or source in `ROOZ_TRUSTED_CONFIGS` |
+| `install` step `root: true` | runs as root in the workspace | source in `ROOZ_TRUSTED_CONFIGS`, or use a local `--config` file ([Install steps](#install-steps)) |
+| `privileged` | full host access | `ROOZ_ALLOW_PRIVILEGED=<names>` (required for *any* config file) |
+| sidecar `vpn` | kernel netfilter access as root on a rootful engine | `ROOZ_ALLOW_VPN=<names>` (required for *any* config file) |
 
 ## Clone transports
 
-Clone URLs (the root repo, `extra_repos`, `--config git:...`) may use `ssh://`, `git+ssh://`,
-the scp-like `user@host:path`, `https://`, `http://`, `git://` or `file://`. Anything else -
-`ftp://`, invented schemes, and `name::address` remote helpers such as `ext::` (which hands git
-a command to run) - is refused.
+Clone URLs (root repo, `extra_repos`) accept `ssh://`, `git+ssh://`, `ssh+git://`, scp-like `user@host:path`, `https://`, `http://`, `git://` or `file://`. Anything else is refused, including `ftp://` and remote helpers (`name::address`, e.g. `ext::`). Remote `--config` sources take SSH URLs only (see above).
 
-`http://` and `git://` authenticate nothing: whoever sits on the network path decides what the
-clone contains, including any `--config` file rooz reads from it. Those clones
-print a warning. Set `ROOZ_REQUIRE_SECURE_TRANSPORT=true` to refuse them outright.
+`http://` and `git://` are unauthenticated (a network attacker controls the clone); rooz warns. Set `ROOZ_REQUIRE_SECURE_TRANSPORT=true` to refuse them.
 
 ## Images
 
-ℹ️ the default image is `docker.io/chainguard/git:latest-dev`
+ℹ️ Default image: `docker.io/chainguard/git:latest-dev`
 
-There are a few ways of specifying images:
-* via the `ROOZ_IMAGE` env variable
-* via  the `--image` cmd-line parameter
-* via `image` in a config file (`--config`):
+Set the image via:
+* `ROOZ_IMAGE` env var
+* `--image` parameter
+* `image` in a config file (`--config`):
 
   ```yaml
   image: ghcr.io/queil/image:dotnet
-  shell: bash
+  shell: [bash]
   ```
 
 ## User
 
-`rooz` runs as uid `1000` (always - it's hard-coded) so make sure it exists in your image
-(with `rooz_user` as the name - it can be overridden via `ROOZ_USER` or `--user`)
-
-The name must be a plain account name (letters, digits, `_`, `-`, `.`, not starting with `-` or
-`.`): it becomes the workspace home `/home/<user>`, which is where the ssh key volume mounts and
-what `~/` mount targets expand to.
+Rooz runs as uid `1000` (override with `--uid` on `rooz new`); the image must have this user, named `rooz_user` by default. Override the name with `ROOZ_USER` or `--user`: letters, digits, `_`, `-`, `.`, not starting with `-` or `.`. Home is `/home/<user>`: the SSH key volume mounts there and `~/` in mount targets expands to it.
 
 ## Shell
 
-The default shell is `bash` but you can override it via:
+Default: `sh` (`bash` for `rooz tmp`). Override via:
 
-* `ROOZ_SHELL` env var
-* `--shell` cmd-line parameter (on `rooz enter`)
-* in a config file via `shell`
+* `ROOZ_SHELL` env var (on `rooz new`, `rooz update`, `rooz tmp`)
+* `--shell` parameter (on `rooz enter`, `rooz tmp`)
+* `shell` in a config file (a list, e.g. `[bash]`)
 
 ## Caching
 
-`rooz` supports basic path-keyed shared caches. It can be set in a config file like:
+Path-keyed shared caches:
 
 ```yaml
 caches: 
 - ~/.nuget
 ```
 
-All the workspaces specifying a cache path will share a container volume mounted at that path enabling cache reuse.
-It also can be set globally via `ROOZ_CACHES` (comma-separated paths), or per workspace with `--caches`.
-The global paths get combined with the config file's paths.
+Workspaces with the same cache path share one volume at that path. Also set via `ROOZ_CACHES` (comma-separated, merged with config paths) or `--caches`.
 
-⚠️ A cache is shared with *every* workspace of yours mounting the same path, so whatever writes
-into it (a cargo registry source, a linker config, a crate with a build script) later executes in those
-workspaces. That makes a cache path an operator decision: if the configuration comes from the repository
-being opened (a `--config git:...` source not listed in `ROOZ_TRUSTED_CONFIGS`), rooz refuses its cache paths
-unless you list the same paths yourself with `--caches` (on `rooz new`) or `ROOZ_CACHES` - the latter also
-covers `rooz update`, which re-reads a repository-authored config on every run. Config files you wrote
-locally and pass with `--config` are unaffected.
+⚠️ Cache contents (cargo sources, linker config, build scripts) execute in every workspace mounting that path. Cache paths from repository config (a `--config <url>//<path>` source not in `ROOZ_TRUSTED_CONFIGS`) are refused unless you also list them in `--caches` (on `rooz new`) or `ROOZ_CACHES`. `rooz update` re-reads repository config each run, so only `ROOZ_CACHES` covers it. Local `--config` files are unaffected.
 
-ℹ️ Cache volumes are scoped to the operator, not just the path. The scope defaults to the
-uid of the rooz process, so one person's workspaces share their caches while unrelated operators on a
-*shared* engine (a remote `DOCKER_HOST`, a multi-user socket) get separate volumes. Toolchain caches hold
-configuration that the toolchain executes (`~/.cargo/config.toml`, `~/.m2/settings.xml`, ...), so sharing
-them across operators means sharing code execution.
-
-If several machines share one remote engine and their local uids collide (both `1000`, say), set a
-distinct `ROOZ_CACHE_SCOPE` per operator. Note that the scope is a collision boundary, not an
-authorization boundary: anyone able to create workspaces on an engine can name any scope.
+Cache volumes are scoped per operator (default: rooz process uid), so operators on a shared engine (remote `DOCKER_HOST`, multi-user socket) get separate volumes - toolchain caches hold executable config (`~/.cargo/config.toml`, `~/.m2/settings.xml`, ...). If uids collide across machines on one engine, set a distinct `ROOZ_CACHE_SCOPE` per operator. The scope is not access control: anyone who can create workspaces on the engine can use any scope.
 
 ## Dry run
 
-`rooz new <name> --dry-run` and `rooz update <name> --dry-run` report what the command would do and change
-nothing:
+`rooz new <name> --dry-run` and `rooz update <name> --dry-run` print the plan and change nothing:
 
 ```
 $ rooz new demo --config demo.rooz.yaml --dry-run
@@ -114,6 +78,7 @@ pull     image     docker.io/alpine:latest
 create   volume    rooz_demo_work
 reuse    cache     rooz_cache_uid-1000_---nuget  ~/.nuget
 create   network   demo-egress
+create   network   demo-net-db
 create   sidecar   db  image=docker.io/postgres:17 install: 00-x[root]
 create   work      demo  image=docker.io/alpine:latest user=rooz_user uid=1000 env=PGHOST
 run      install   00-tools  root,skip_if
@@ -121,19 +86,15 @@ run      install   00-tools  root,skip_if
 Dry run: nothing was changed.
 ```
 
-* the configuration is resolved and gated exactly as for a real run (bases, templating, secrets, consent,
-  trust), so a plan fails with the same error a run would.
-* `update` also lists the containers (and with `--purge`, the volumes) it would remove.
-* env values, install scripts and secrets are never printed - env by name, steps by name and flags.
-* it queries the engine but creates nothing: no workspace volumes, networks or containers, no clone. A
-  `--config git:...` source is fetched with a short-lived helper container, which is removed again.
-* what it cannot know is shown as is: `skip_if` checks run in the container, so a step is listed with its
-  flags and may still be skipped.
+* Config is resolved and gated as in a real run (bases, templating, secrets, consent, trust); errors match.
+* `update` also lists containers to remove (and volumes, with `--purge`).
+* Env values, install scripts and secrets are not printed - only env names and step names/flags.
+* Queries the engine, creates nothing (no volumes, networks, containers, clones). A `--config <url>//<path>` source is fetched via a temporary helper container.
+* `skip_if` runs in the container, so a listed step may still be skipped.
 
 ## Install steps
 
-`install` runs shell steps in the work container when a workspace is created. A step is a string, or an
-object:
+`install` runs shell steps in the work container on workspace creation. A step is a string or an object:
 
 ```yaml
 vars:
@@ -148,66 +109,37 @@ install:
     run: ./install-dotnet.sh {{ dotnet }}
 ```
 
-* steps run in key order, as the **workspace user**. `root: true` runs a step as root (package managers,
-  system files). A sidecar's steps run as its `uid` (root unless set).
-* `skip_if` is a shell check that runs first, as the same user: exit 0 skips the step. Pair it with a
-  [cache](#caching) so a tool downloaded once is not downloaded again. `run` and `skip_if` are templated.
-* the check runs with the container's environment: a tool installed under a cache path must be on `PATH`
-  (set it in `env`) or be checked by absolute path.
-* layers (`bases`) add steps by key, replace a step as a whole, and remove one with `null`.
-* `root: true` is refused in a configuration the operator did not author (an unlisted `--config git:...`
-  source or `bases` layer); list the source in `ROOZ_TRUSTED_CONFIGS` or move the step into your own local
-  config.
+* Steps run in key order as the **workspace user**; `root: true` runs as root. Sidecar steps run as the sidecar's `uid` (default root).
+* `skip_if` runs first as the same user; exit 0 skips the step. Combine with a [cache](#caching) to skip repeat downloads. `run` and `skip_if` are templated.
+* `skip_if` sees the container env: put cached tools on `PATH` (via `env`) or use absolute paths.
+* `bases` layers add steps by key, replace whole steps, or remove with `null`.
+* `root: true` is refused from untrusted config (unlisted `--config <url>//<path>` source or `bases` layer). Add the source to `ROOZ_TRUSTED_CONFIGS` or use a local config.
 
 ## Sidecars
 
-A sidecar with `install` steps is built once: rooz runs the steps in a container and commits the
-result as `localhost/rooz/<workspace>/<sidecar>:latest`, then starts the sidecar from that image.
+A sidecar with `install` steps is built once: rooz runs the steps, commits `localhost/rooz/<workspace>/<sidecar>:latest`, and starts the sidecar from it.
 
-The sidecar is created from the image **id** rooz got back from that commit, never from the name -
-and the id is recorded on the sidecar container (`dev.rooz.runtime-image`), which is what a later
-run checks before skipping the install stage. A name in the engine's image namespace is not evidence
-of what carries it, and neither are the labels on it: anyone able to tag an image can write both. An
-id is the image's content, so it cannot be pointed at somebody else's image. If the recorded id is
-gone or no longer what rooz committed, the install stage runs again and the tag is rebuilt over.
-Removing a workspace removes the images rooz built for it.
+* The sidecar uses the committed image **id**, not the name (tags and labels are forgeable). The id is recorded on the sidecar container (`dev.rooz.runtime-image`).
+* Later runs skip install only if that id still exists and matches; otherwise install reruns and the tag is rebuilt.
+* Removing a workspace removes its built images.
 
 ## Privileged containers
 
-A privileged container has full access to the host running the container engine, so rooz does not
-grant it on a config file's say-so. If `privileged: true` appears in a config file (a local or git
-`--config` file, including its sidecars), workspace creation aborts and names the containers involved. To go
-ahead, confirm explicitly with either:
+`privileged: true` in any config file (local or git, including sidecars) aborts workspace creation and names the containers. To allow:
 
-* `ROOZ_ALLOW_PRIVILEGED=<names>` - a comma-separated list of the container names you are allowing,
-  e.g. `ROOZ_ALLOW_PRIVILEGED=dkr`. Pure consent: the configuration is applied exactly as written,
-  and anything *not* named is still refused.
-* `ROOZ_ALLOW_PRIVILEGED=true` - allows whatever the configuration privileges. Convenient for CI,
-  blunt everywhere else.
-* `--privileged true` - consents *and* makes the work container privileged whether or not the
-  configuration asked for it.
+* `ROOZ_ALLOW_PRIVILEGED=<names>` - comma-separated container names, e.g. `ROOZ_ALLOW_PRIVILEGED=dkr`. Unnamed containers are still refused.
+* `ROOZ_ALLOW_PRIVILEGED=true` - allows any. Use for CI only.
+* `--privileged true` - consents *and* makes the work container privileged regardless of config.
 
-Name the containers rather than reaching for `true`. The common case is a container-engine sidecar
-(docker-in-docker and friends): the daemon's container needs the privilege, the workspace talking to
-it over `DOCKER_HOST` does not. Naming it keeps the setting safe to leave in your shell profile - a
-standing `=true` would wave through a privileged container that a repository's own config file
-slipped into the merged configuration, which is exactly what this check exists to stop.
+Prefer names over `true`, e.g. name only the docker-in-docker sidecar, not the workspace using it via `DOCKER_HOST`. Names are safe to keep in your shell profile; a standing `=true` also allows privileged containers added by repository config.
 
-⚠️ Only do this for configurations you trust. When opening repositories you do not control,
-prefer rootless Podman, which confines the grant to your own user namespace.
+⚠️ Only for trusted configs. For repositories you do not control, prefer rootless Podman (confines the grant to your user namespace).
 
 ## VPN sidecars
 
-`vpn: true` on a sidecar gives it what WireGuard (`wg-quick`, kernel or `wireguard-go`), OpenVPN and
-the like need to run inside it, and nothing more: the `NET_ADMIN` capability, the `/dev/net/tun`
-device and `net.ipv4.conf.all.src_valid_mark=1`. All three are scoped to the sidecar's own network
-namespace - unlike `privileged`, it does not reach the host's devices or network.
+`vpn: true` on a sidecar grants what WireGuard (`wg-quick`, kernel or `wireguard-go`), OpenVPN etc. need: `NET_ADMIN`, `/dev/net/tun` and `net.ipv4.conf.all.src_valid_mark=1`, scoped to the sidecar's network namespace (no host devices or network, unlike `privileged`).
 
-It still opens the kernel's netfilter and netlink interfaces to the sidecar, which on a rootful
-engine is real root's reach into code with a history of container escapes. So, like `privileged`,
-rooz does not grant it on a config file's say-so: name the sidecars with `ROOZ_ALLOW_VPN=<names>`
-(or `ROOZ_ALLOW_VPN=true` for any). The consent is separate from `ROOZ_ALLOW_PRIVILEGED` - allowing
-one does not allow the other.
+It exposes kernel netfilter/netlink, a container-escape surface on rootful engines, so it requires `ROOZ_ALLOW_VPN=<names>` (or `=true` for any). Independent of `ROOZ_ALLOW_PRIVILEGED`.
 
 ```yaml
 sidecars:
@@ -223,20 +155,15 @@ sidecars:
           ...
 ```
 
-* the sidecar must run as uid 0 (the default) - `NET_ADMIN` is not effective for a non-root user,
-  so `vpn` with any other `uid` is refused
-* kernel WireGuard needs the `wireguard` module loaded on the engine's host - a container cannot
-  load it; without it `wg-quick` falls back to `wireguard-go` over `/dev/net/tun`
-* full tunnels (`AllowedIPs = 0.0.0.0/0`) work: `wg-quick` finds `src_valid_mark` already set and
-  the work container keeps reaching the sidecar over its pair network
-* leave out `DNS =` - it calls `resolvconf`, which conflicts with the engine-managed `/etc/resolv.conf`
-* the tunnel is the sidecar's: give the work container (or `peers:`) access through a proxy the
-  sidecar runs, e.g. `HTTP_PROXY=http://vpn:3128`
+* Must run as uid 0 (default); `vpn` with another `uid` is refused (`NET_ADMIN` is ineffective for non-root).
+* Kernel WireGuard needs the `wireguard` module loaded on the engine host (containers cannot load it); otherwise `wg-quick` falls back to `wireguard-go`.
+* Full tunnels (`AllowedIPs = 0.0.0.0/0`) work; the work container still reaches the sidecar over its pair network.
+* Omit `DNS =`: `resolvconf` conflicts with the engine-managed `/etc/resolv.conf`.
+* The tunnel is the sidecar's only. Expose it via a proxy in the sidecar, e.g. `HTTP_PROXY=http://vpn:3128` for the work container (or `peers:`).
 
 ## Files next to the config
 
-`file:` takes a data value's content from a file instead of inlining it, the way a Kustomize config
-map generator does. It works wherever `content:` does: `data`, inline `mounts` and sidecar `mounts`.
+`file:` loads content from a file (like a Kustomize config map generator). Works wherever `content:` does: `data`, inline `mounts`, sidecar `mounts`.
 
 ```yaml
 data:
@@ -249,22 +176,19 @@ mounts:
     file: files/starship.toml
 ```
 
-* the path is relative to the config that declares it (a base's files are relative to that base),
-  below its directory: no absolute paths, no `..`
-* a local config reads the file from disk; a config from git reads it from the same checkout,
-  next to the declaring file
-* symlinks are refused - the file, or any directory on the way to it
-* at most 64 KiB, valid UTF-8 text. For anything bigger or binary use a volume or `generate:`
-* the content is used as is - not templated. Anything that needs `{{ vars }}` belongs in `content:`
-* the stored config keeps the reference, not the content
+* Path is relative to, and below, the declaring config's directory (a base's to the base). No absolute paths, no `..`.
+* Git configs read from the same checkout.
+* Symlinks are refused anywhere on the path.
+* Max 64 KiB, UTF-8 text. For larger or binary data use a volume or `generate:`.
+* Not templated; use `content:` for `{{ vars }}`.
+* The stored config keeps the reference, not the content.
 
 ## Port mappings
 
-Port mappings for the work container can be specified via a config file only:
+Work container ports - config file only. Format `[<host port>:]<container port>`, as in Docker, bound to `127.0.0.1`:
 
 ```yaml
 ports:
-- "80:8080"
-- "22:8022"
+- "8080:80"
+- "8022:22"
 ```
-

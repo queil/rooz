@@ -24,7 +24,6 @@ pub struct RoozSidecarRuntime {
     pub vpn: bool,
     pub init: bool,
     pub work_dir: String,
-    pub user: Option<String>,
     pub uid: Option<i32>,
     pub egress: bool,
     pub install: Option<InstallSpec>,
@@ -137,7 +136,6 @@ impl<'a> TryFrom<(&'a str, &'a RoozSidecar)> for RoozSidecarRuntime {
             vpn,
             init: value.init.unwrap_or(true),
             work_dir: value.work_dir.clone().unwrap_or_default(),
-            user: value.user.clone(),
             egress: value.egress.unwrap_or(false),
             install: value.install.clone(),
             uid: value.uid,
@@ -390,7 +388,6 @@ impl RuntimeConfig {
             mask_vec(&mut sidecar.args, &secrets);
             mask_vec(&mut sidecar.ports, &secrets);
             mask_in(&mut sidecar.work_dir, &secrets);
-            mask_opt(&mut sidecar.user, &secrets);
             mask_mounts(&mut sidecar.mounts, &secrets);
             mask_real_mounts(&mut sidecar.real_mounts, &secrets);
             mask_install(&mut sidecar.install, &secrets);

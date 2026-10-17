@@ -1,14 +1,13 @@
 # Config schema
 
-The JSON Schema of the config file, for YAML language servers, is published with every release at
-[rooz.dev/schema.json](https://rooz.dev/schema.json). Point your editor at it with a modeline:
+Each release publishes the config file's JSON Schema at [rooz.dev/schema.json](https://rooz.dev/schema.json).
+Use it with YAML language servers via a modeline:
 
 ```yaml
 # yaml-language-server: $schema=https://rooz.dev/schema.json
 ```
 
-It describes the latest release. To match the rooz you have installed, write the schema locally
-instead:
+It matches the latest release. For the schema of your installed version:
 
 ```sh
 rooz config schema > rooz.schema.json

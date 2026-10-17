@@ -4,16 +4,14 @@
 curl -fsSL https://rooz.dev/install.sh | sh
 ```
 
-The script installs the latest release to `~/.local/bin/rooz` (`ROOZ_INSTALL_DIR` overrides it) on
-Linux and macOS, x86_64 or arm64. It pins one version and carries that release's checksums, so the
-binary is verified against data served from rooz.dev rather than from the GitHub release it
-downloads from. If the GitHub CLI is installed and logged in, it also verifies the binary's signed
-build provenance.
+Installs the latest release to `~/.local/bin/rooz` (override with `ROOZ_INSTALL_DIR`). Supports Linux
+and macOS, x86_64 and arm64. The script pins one version and embeds its checksums, so the binary is
+verified against data from rooz.dev, not from the GitHub release. If the GitHub CLI is installed and
+logged in, it also verifies the signed build provenance.
 
 ## Manually
 
-Download the binary for your platform from the
-[latest release](https://github.com/queil/rooz/releases/latest):
+Download the binary from the [latest release](https://github.com/queil/rooz/releases/latest):
 
 | Platform              | Asset                              |
 |-----------------------|------------------------------------|
@@ -29,7 +27,6 @@ sha256sum --check --ignore-missing SHA256SUMS
 install -m 755 rooz-x86_64-unknown-linux-gnu ~/.local/bin/rooz
 ```
 
-Every release carries `SHA256SUMS`, and the binaries have signed build provenance
-(`gh attestation verify ./rooz --repo queil/rooz`).
+Every release has `SHA256SUMS` and signed build provenance; verify the latter with `gh attestation verify ./rooz-x86_64-unknown-linux-gnu --repo queil/rooz`.
 
 Next: [Getting started](getting-started.md).

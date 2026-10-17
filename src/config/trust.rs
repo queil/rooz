@@ -1,4 +1,3 @@
-use crate::util::git;
 use std::path::{Path, PathBuf};
 
 pub const TRUSTED_CONFIGS_ENV: &str = "ROOZ_TRUSTED_CONFIGS";
@@ -42,18 +41,7 @@ impl TrustedConfigs {
     }
 
     pub fn trusts_repo(&self, url: &str) -> bool {
-        if !self.repos.iter().any(|r| r == url) {
-            return false;
-        }
-        if git::is_cleartext(url) {
-            eprintln!(
-                "WARN: '{}' is listed in {} but is fetched over a cleartext transport, so \
-                 anyone on the network path can substitute it - not trusting it.",
-                url, TRUSTED_CONFIGS_ENV
-            );
-            return false;
-        }
-        true
+        self.repos.iter().any(|r| r == url)
     }
 
     pub fn trusts_files<'p>(&self, paths: impl IntoIterator<Item = &'p str>) -> bool {
@@ -94,21 +82,14 @@ mod tests {
     #[test]
     fn repos_match_exactly_as_listed() {
         let t = TrustedConfigs::parse(
-            Some(" git@github.com:me/configs , https://github.com/me/other.git,"),
+            Some(" git@github.com:me/configs , ssh://git@github.com/me/other.git,"),
             None,
         );
         assert!(t.trusts_repo("git@github.com:me/configs"));
-        assert!(t.trusts_repo("https://github.com/me/other.git"));
+        assert!(t.trusts_repo("ssh://git@github.com/me/other.git"));
         assert!(!t.trusts_repo("git@github.com:me/configs.git"));
-        assert!(!t.trusts_repo("https://github.com/me/other"));
+        assert!(!t.trusts_repo("ssh://git@github.com/me/other"));
         assert!(!t.trusts_repo("git@github.com:me/configs-evil"));
-    }
-
-    #[test]
-    fn cleartext_repos_are_never_trusted() {
-        let t = TrustedConfigs::parse(Some("http://h/me/configs,git://h/me/configs"), None);
-        assert!(!t.trusts_repo("http://h/me/configs"));
-        assert!(!t.trusts_repo("git://h/me/configs"));
     }
 
     #[test]

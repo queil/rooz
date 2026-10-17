@@ -8,6 +8,30 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases before 0.159.0 predate this
 file - see the git history.
 
+## [0.168.0] - 2026-10-17
+
+### Changed
+
+- **Breaking:** `ports` mappings are `<host>:<container>`, as in Docker and `kubectl port-forward`
+  (was `<container>:<host>`). Swap the numbers in existing configs: `"80:8080"` that exposed
+  container port 80 on host port 8080 is now `"8080:80"`.
+- **Breaking:** remote `--config` sources must use SSH. Non-SSH URLs (`https://`, `http://`,
+  `git://`, `file://`, remote helpers) are refused with a clear message.
+- **Breaking:** the sidecar `user` key is removed; it was accepted but never used. Configs that set it
+  fail to parse - use `uid`.
+
+### Added
+
+- Remote `--config` accepts `ssh://` URLs (also `git+ssh://`, `ssh+git://`), e.g.
+  `ssh://git@host:2222/my/configs//cfg.yaml` for a non-standard port.
+
+### Fixed
+
+- The examples in `examples/` parse again; a unit test keeps them that way.
+- `rooz doctor`'s network hint counts networks correctly: one per workspace, plus one per sidecar and
+  one per peer relation.
+- The secrets refusal message showed a `--config git:...` syntax that does not exist.
+
 ## [0.167.0] - 2026-10-17
 
 ### Added

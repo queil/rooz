@@ -1,18 +1,14 @@
-# Variables/templating
+# Variables and templating
 
-Rooz supports basic variable replacement/templating:
-* [handlebars](https://handlebarsjs.com/guide/) syntax is used
-* variables are declared via `vars`
-* secrets are declared via `secrets`
-* secrets are decrypted before expanding
-* handlebars can be used in the most of the config values but not in YAML keys
-* vars/secrets replacement works within `vars` themselves too. However, only if the var usage is 
-below the var definition (in the document order).
-* the secret section does not support var/secrets replacement
+* Syntax: [handlebars](https://handlebarsjs.com/guide/).
+* Declare variables in `vars`, secrets in `secrets`. Secrets are decrypted before expansion.
+* Works in most config values, not in YAML keys.
+* Works inside `vars`, but only for variables defined earlier in the document.
+* Does not work inside `secrets`.
 
 ```yaml
 secrets:
-  sqlPassword: '----BEGIN AGE ENCRYPTED FILE-----|YWdlLWVuY3J ... truncated'
+  sqlPassword: '-----BEGIN AGE ENCRYPTED FILE-----|YWdlLWVuY3J ... truncated'
 
 vars:
   sqlUser: admin
@@ -29,4 +25,3 @@ sidecars:
       SQL_PASSWORD: "{{ sqlPassword }}"
 
 ```
-
