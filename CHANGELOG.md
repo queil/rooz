@@ -8,6 +8,16 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases before 0.159.0 predate this
 file - see the git history.
 
+## [0.168.1] - 2026-10-17
+
+### Added
+
+- The docs site shows the release version in the top bar.
+
+### Fixed
+
+- `rooz enter` follows terminal resizes; the session used to keep the size it started with.
+
 ## [0.168.0] - 2026-10-17
 
 ### Changed
@@ -27,7 +37,6 @@ file - see the git history.
 
 ### Fixed
 
-- `rooz enter` follows terminal resizes; the session used to keep the size it started with.
 - The examples in `examples/` parse again; a unit test keeps them that way.
 - `rooz doctor`'s network hint counts networks correctly: one per workspace, plus one per sidecar and
   one per peer relation.
