@@ -27,6 +27,7 @@ file - see the git history.
 
 ### Fixed
 
+- `rooz enter` follows terminal resizes; the session used to keep the size it started with.
 - The examples in `examples/` parse again; a unit test keeps them that way.
 - `rooz doctor`'s network hint counts networks correctly: one per workspace, plus one per sidecar and
   one per peer relation.

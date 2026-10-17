@@ -1,4 +1,4 @@
-# Notes and known issues
+# Notes
 
 ## Other facts
 
@@ -7,7 +7,3 @@
 * `rooz system prune` removes ALL rooz containers and volumes. `rooz rm --all --force` removes only workspaces, keeping shared cache volumes and the SSH key volume
 
   ⚠️ `rooz system prune` deletes all rooz state. Back up anything important first.
-
-## Known issues
-
-* the session doesn't auto-resize with the terminal. Workaround: exit, resize the window, enter again.

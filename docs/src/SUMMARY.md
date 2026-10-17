@@ -11,7 +11,7 @@
 - [Sidecars](sidecars.md)
 - [Remote hosts](remote-hosts.md)
 - [Podman](podman.md)
-- [Notes and known issues](notes.md)
+- [Notes](notes.md)
 
 # Reference
 

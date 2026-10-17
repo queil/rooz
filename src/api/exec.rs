@@ -18,7 +18,9 @@ use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use std::{io::Read, time::Duration};
 use tokio::{
     io::{AsyncWriteExt, unix::AsyncFd},
-    select, spawn,
+    select,
+    signal::unix::{SignalKind, signal},
+    spawn,
     sync::broadcast,
     time::sleep,
 };
@@ -142,11 +144,34 @@ impl<'a> ExecApi<'a> {
                         .inspect_err(|e| log::debug!("Exec might have already terminated: {}", e))
                         .ok();
 
+                    // follow terminal resizes for the rest of the session
+                    let mut winch = signal(SignalKind::window_change())?;
+                    let mut resize_stop = s.subscribe();
+                    let resize_client = self.client.clone();
+                    let resize_exec_id = exec_id.to_string();
+                    let resize_handle = spawn(async move {
+                        loop {
+                            select! {
+                                _ = winch.recv() => {
+                                    if let Ok((width, height)) = crossterm::terminal::size() {
+                                        resize_client
+                                            .resize_exec(&resize_exec_id, ResizeExecOptions { height, width })
+                                            .await
+                                            .inspect_err(|e| log::debug!("Resize failed: {}", e))
+                                            .ok();
+                                    }
+                                }
+                                _ = resize_stop.recv() => break,
+                            }
+                        }
+                    });
+
                     self.handle_output(output).await;
 
                     s.send(true).ok();
 
                     handle.await??;
+                    resize_handle.await.ok();
                     disable_raw_mode()?;
                     // try ping to see if the connection was lost
                     // if this fails the calling code loops retrying to connect to the session

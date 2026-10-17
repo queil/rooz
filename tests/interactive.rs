@@ -206,3 +206,135 @@ async fn enter_runs_interactive_shell() {
 
     env.rooz().args(["rm", &key, "--force"]).assert().success();
 }
+
+/// Reads the pty master until `needle` appears or `secs` pass.
+fn read_pty_until(master: i32, needle: &str, secs: u64) -> String {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(secs);
+    let mut out = Vec::new();
+    while std::time::Instant::now() < deadline {
+        let mut pfd = libc::pollfd {
+            fd: master,
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        if unsafe { libc::poll(&mut pfd, 1, 200) } <= 0 {
+            continue;
+        }
+        let mut buf = [0u8; 4096];
+        let n = unsafe { libc::read(master, buf.as_mut_ptr().cast(), buf.len()) };
+        if n <= 0 {
+            break;
+        }
+        out.extend_from_slice(&buf[..n as usize]);
+        if String::from_utf8_lossy(&out).contains(needle) {
+            break;
+        }
+    }
+    String::from_utf8_lossy(&out).to_string()
+}
+
+fn set_pty_size(fd: i32, rows: u16, cols: u16) {
+    let size = libc::winsize {
+        ws_row: rows,
+        ws_col: cols,
+        ws_xpixel: 0,
+        ws_ypixel: 0,
+    };
+    assert_eq!(unsafe { libc::ioctl(fd, libc::TIOCSWINSZ, &size) }, 0);
+}
+
+#[tokio::test]
+async fn enter_follows_terminal_resize() {
+    use std::os::fd::{FromRawFd, OwnedFd};
+    use std::os::unix::process::CommandExt;
+
+    let Some(env) = TestEnv::from_env() else {
+        return;
+    };
+    let key = unique_key("int-resize");
+
+    env.rooz()
+        .args(["system", "init", "--force"])
+        .assert()
+        .success();
+    env.rooz()
+        .args(["new", &key, "--image", "alpine:latest"])
+        .assert()
+        .success();
+
+    let (mut master, mut slave) = (0, 0);
+    let rc = unsafe {
+        libc::openpty(
+            &mut master,
+            &mut slave,
+            std::ptr::null_mut(),
+            std::ptr::null(),
+            std::ptr::null(),
+        )
+    };
+    assert_eq!(rc, 0, "openpty failed");
+    set_pty_size(master, 24, 80);
+
+    let slave_fd = unsafe { OwnedFd::from_raw_fd(slave) };
+    // same environment as TestEnv::rooz, on a plain Command so the pty can be wired in
+    let mut cmd = Command::new(cargo_bin("rooz"));
+    cmd.args(["enter", &key, "--shell", "sh"])
+        .env("DOCKER_HOST", &env.docker_host)
+        .env("http_proxy", "")
+        .env("HTTP_PROXY", "")
+        .env(
+            "ROOZ_AGE_KEY_FILE",
+            std::env::temp_dir()
+                .join("rooz-test-identity")
+                .join("age.key"),
+        )
+        .stdin(slave_fd.try_clone().unwrap())
+        .stdout(slave_fd.try_clone().unwrap())
+        .stderr(slave_fd.try_clone().unwrap());
+    // rooz reads the size from /dev/tty, so the pty must be its controlling terminal
+    unsafe {
+        cmd.pre_exec(|| {
+            libc::setsid();
+            libc::ioctl(0, libc::TIOCSCTTY as _, 0);
+            Ok(())
+        });
+    }
+    let mut child = cmd.spawn().expect("spawn rooz enter");
+    drop(slave_fd);
+
+    let write = |s: &str| unsafe {
+        libc::write(master, s.as_ptr().cast(), s.len());
+    };
+    // the marker is computed in the shell so the echoed command line does not match it.
+    // Input typed before the session attaches is lost, so retry until the shell answers
+    let mut before = String::new();
+    for _ in 0..30 {
+        write("stty size; echo winsz-$((40+2))\n");
+        before.push_str(&read_pty_until(master, "winsz-42", 2));
+        if before.contains("winsz-42") {
+            break;
+        }
+    }
+    assert!(
+        before.contains("24 80"),
+        "initial size, pty output:\n{}",
+        before
+    );
+
+    // the kernel sends SIGWINCH to the session's foreground process group
+    set_pty_size(master, 40, 120);
+    std::thread::sleep(std::time::Duration::from_secs(1));
+    write("stty size; echo winsz-$((40+3))\n");
+    let after = read_pty_until(master, "winsz-43", 30);
+    assert!(
+        after.contains("40 120"),
+        "size after resize, pty output:\n{}",
+        after
+    );
+
+    write("exit\n");
+    let _ = child.wait();
+    unsafe { libc::close(master) };
+
+    env.rooz().args(["rm", &key, "--force"]).assert().success();
+}
