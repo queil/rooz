@@ -55,3 +55,9 @@ predicates = "3.0"
 [[example]]
 name = "cli-reference"
 path = "docs/gen/cli_reference.rs"
+
+[lints.clippy]
+too_many_arguments = "allow"
+large_enum_variant = "allow"
+module_inception = "allow"
+new_ret_no_self = "allow"

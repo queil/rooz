@@ -175,9 +175,7 @@ async fn inline_data_content_written_to_volume() {
     // unique_key output is already alphanumeric+dashes so sanitize is a no-op.
     let data_vol = format!("rooz_{}_greeting", key);
 
-    let cfg = format!(
-        "data:\n  greeting:\n    content: \"hello from rooz\\n\"\nmounts:\n  ~/greeting: greeting\n"
-    );
+    let cfg = "data:\n  greeting:\n    content: \"hello from rooz\\n\"\nmounts:\n  ~/greeting: greeting\n".to_string();
     let cfg_path = format!("/tmp/rooz-test-{}.yaml", key);
     {
         let mut f = fs::File::create(&cfg_path).expect("write config");

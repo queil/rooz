@@ -43,12 +43,12 @@ impl<'a> WorkspaceApi<'a> {
             log::debug!("Process sidecar: {}", name);
             let container_name = format!("{}-{}", workspace_key, name);
             let mut labels = labels.clone();
-            labels.extend(&[Labels::container(&name), Labels::role(labels::SIDECAR_ROLE)]);
+            labels.extend(&[Labels::container(name), Labels::role(labels::SIDECAR_ROLE)]);
             let mut ports = HashMap::<String, Option<String>>::new();
             RoozCfg::parse_ports(&mut ports, s.ports.clone())?;
 
             //TODO: read the uid from the sidecar image if not overridden by the user
-            let uid = s.uid.clone();
+            let uid = s.uid;
 
             let mounts: HashMap<String, MountSource> = s.mounts.clone();
 
@@ -100,7 +100,7 @@ impl<'a> WorkspaceApi<'a> {
                 uid: &uid_string,
                 image: &s.image,
                 force_recreate: force,
-                workspace_key: &workspace_key,
+                workspace_key,
                 labels: labels.clone(),
                 env: Some(s.env.clone()),
                 default_network: Some(pair_network),
@@ -133,11 +133,11 @@ impl<'a> WorkspaceApi<'a> {
 
             let install_steps = s.install.as_ref().map(|i| i.resolved()).unwrap_or_default();
             if !install_steps.is_empty() {
-                let runtime_image = format!("localhost/rooz/{}/{}", &workspace_key, &name);
+                let runtime_image = format!("localhost/rooz/{}/{}", workspace_key, name);
                 let runtime_image_labels = Labels::from(&[
-                    Labels::workspace(&workspace_key),
+                    Labels::workspace(workspace_key),
                     Labels::role(labels::SIDECAR_RUNTIME_ROLE),
-                    Labels::container(&name),
+                    Labels::container(name),
                 ]);
 
                 // The tag is predictable and the image namespace is shared with every user of the
@@ -154,14 +154,14 @@ impl<'a> WorkspaceApi<'a> {
                     _ => None,
                 };
 
-                if let Some(id) = &image_id {
-                    if !self.api.image.is_pinned(id, &runtime_image_labels).await? {
-                        image_id = None;
-                    }
+                if let Some(id) = &image_id
+                    && !self.api.image.is_pinned(id, &runtime_image_labels).await?
+                {
+                    image_id = None;
                 }
 
-                if image_id.is_none() {
-                    if let ContainerResult::Created { id: container_id } = self
+                if image_id.is_none()
+                    && let ContainerResult::Created { id: container_id } = self
                         .api
                         .container
                         .create(RunSpec {
@@ -178,44 +178,43 @@ impl<'a> WorkspaceApi<'a> {
                             ..run_spec.clone()
                         })
                         .await?
-                    {
-                        self.api.container.start(&container_id).await?;
-                        self.api
-                            .exec
-                            .install(&container_name, &container_id, install_steps)
-                            .await?;
-                        let committed = self
-                            .api
-                            .container
-                            .client
-                            .commit_container(
-                                CommitContainerOptions {
-                                    container: Some(container_id.clone()),
-                                    repo: Some(runtime_image.to_string()),
-                                    tag: Some("latest".to_string()),
-                                    pause: false,
-                                    ..Default::default()
+                {
+                    self.api.container.start(&container_id).await?;
+                    self.api
+                        .exec
+                        .install(&container_name, &container_id, install_steps)
+                        .await?;
+                    let committed = self
+                        .api
+                        .container
+                        .client
+                        .commit_container(
+                            CommitContainerOptions {
+                                container: Some(container_id.clone()),
+                                repo: Some(runtime_image.to_string()),
+                                tag: Some("latest".to_string()),
+                                pause: false,
+                                ..Default::default()
+                            },
+                            ContainerConfig {
+                                labels: Some(runtime_image_labels.clone().into()),
+                                cmd: if s.args.is_empty() {
+                                    None
+                                } else {
+                                    Some(s.args.clone())
                                 },
-                                ContainerConfig {
-                                    labels: Some(runtime_image_labels.clone().into()),
-                                    cmd: if s.args.is_empty() {
-                                        None
-                                    } else {
-                                        Some(s.args.clone())
-                                    },
-                                    entrypoint: if s.command.is_empty() {
-                                        None
-                                    } else {
-                                        Some(s.command.clone())
-                                    },
-                                    ..Default::default()
+                                entrypoint: if s.command.is_empty() {
+                                    None
+                                } else {
+                                    Some(s.command.clone())
                                 },
-                            )
-                            .await?;
-                        self.api.container.stop(&container_id).await?;
-                        self.api.container.remove(&container_id, true).await?;
-                        image_id = Some(committed.id);
-                    }
+                                ..Default::default()
+                            },
+                        )
+                        .await?;
+                    self.api.container.stop(&container_id).await?;
+                    self.api.container.remove(&container_id, true).await?;
+                    image_id = Some(committed.id);
                 }
 
                 // nothing to point at means the sidecar container is already there and was not

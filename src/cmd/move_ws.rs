@@ -39,7 +39,6 @@ impl<'a> WorkspaceApi<'a> {
             .client
             .list_volumes(Some(ListVolumesOptions {
                 filters: Some(Labels::from(&[Labels::workspace(from)]).into()),
-                ..Default::default()
             }))
             .await?
             .volumes
@@ -103,7 +102,6 @@ impl<'a> WorkspaceApi<'a> {
                 .client
                 .list_volumes(Some(ListVolumesOptions {
                     filters: Some(dest.clone().into()),
-                    ..Default::default()
                 }))
                 .await?
                 .volumes
@@ -213,33 +211,6 @@ impl<'a> WorkspaceApi<'a> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::renamed_volume;
-
-    #[test]
-    fn volumes_are_renamed_by_their_workspace_segment() {
-        assert_eq!(
-            renamed_volume("rooz_old_work", "old", "new").as_deref(),
-            Some("rooz_new_work")
-        );
-        assert_eq!(
-            renamed_volume("rooz_old_---dir_data", "old", "new").as_deref(),
-            Some("rooz_new_---dir_data")
-        );
-    }
-
-    #[test]
-    fn another_workspace_with_a_longer_name_is_not_matched() {
-        assert_eq!(
-            renamed_volume("rooz_old-b_work", "old-b", "x").as_deref(),
-            Some("rooz_x_work")
-        );
-        assert_eq!(renamed_volume("rooz_older_work", "old", "new"), None);
-        assert_eq!(renamed_volume("something-else", "old", "new"), None);
-    }
-}
-
 impl<'a> WorkspaceApi<'a> {
     // Run on the receiving engine: whether a moved workspace can land here. The platform comes
     // back so the sending side can warn about an architecture change.
@@ -307,5 +278,32 @@ impl<'a> WorkspaceApi<'a> {
             .await
             .ok();
         result
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::renamed_volume;
+
+    #[test]
+    fn volumes_are_renamed_by_their_workspace_segment() {
+        assert_eq!(
+            renamed_volume("rooz_old_work", "old", "new").as_deref(),
+            Some("rooz_new_work")
+        );
+        assert_eq!(
+            renamed_volume("rooz_old_---dir_data", "old", "new").as_deref(),
+            Some("rooz_new_---dir_data")
+        );
+    }
+
+    #[test]
+    fn another_workspace_with_a_longer_name_is_not_matched() {
+        assert_eq!(
+            renamed_volume("rooz_old-b_work", "old-b", "x").as_deref(),
+            Some("rooz_x_work")
+        );
+        assert_eq!(renamed_volume("rooz_older_work", "old", "new"), None);
+        assert_eq!(renamed_volume("something-else", "old", "new"), None);
     }
 }

@@ -132,12 +132,7 @@ impl RoozVolume {
                 role: RoozVolumeRole::Data,
                 sharing: RoozVolumeSharing::Exclusive { key },
                 ..
-            } => format!(
-                "rooz_{}_{}_{}",
-                sanitize(&key),
-                sanitize(&path),
-                &role_segment
-            ),
+            } => format!("rooz_{}_{}_{}", sanitize(key), sanitize(path), role_segment),
             RoozVolume {
                 path,
                 sharing: RoozVolumeSharing::Shared,
@@ -147,14 +142,14 @@ impl RoozVolume {
             RoozVolume {
                 sharing: RoozVolumeSharing::Exclusive { key },
                 ..
-            } => format!("rooz_{}_{}", sanitize(&key), &role_segment),
-            RoozVolume { .. } => format!("rooz_{}", &role_segment),
+            } => format!("rooz_{}_{}", sanitize(key), role_segment),
+            RoozVolume { .. } => format!("rooz_{}", role_segment),
         }
     }
 
     pub fn expanded_path(&self, tilde_replacement: Option<&str>) -> String {
         match tilde_replacement {
-            Some(replacement) => self.path.replace("~", &replacement),
+            Some(replacement) => self.path.replace("~", replacement),
             None => self.path.to_string(),
         }
     }
@@ -164,7 +159,7 @@ impl RoozVolume {
 
         Mount {
             typ: Some(MountType::VOLUME),
-            source: Some(vol_name.into()),
+            source: Some(vol_name),
             target: Some(self.expanded_path(tilde_replacement)),
             read_only: Some(false),
             ..Default::default()

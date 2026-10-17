@@ -27,7 +27,7 @@ impl<'a> WorkspaceApi<'a> {
         } else {
             log::debug!("No caches configured. Skipping");
         }
-        let home_dir = format!("/home/{}", &spec.user);
+        let home_dir = format!("/home/{}", spec.user);
         let mut mounts = self
             .api
             .volume
@@ -49,13 +49,13 @@ impl<'a> WorkspaceApi<'a> {
 
         let run_spec = RunSpec {
             reason: "work",
-            image: &spec.image,
-            uid: &spec.uid,
-            user: &spec.user,
-            work_dir: Some(&spec.container_working_dir),
+            image: spec.image,
+            uid: spec.uid,
+            user: spec.user,
+            work_dir: Some(spec.container_working_dir),
             home_dir: &home_dir,
-            container_name: &spec.container_name,
-            workspace_key: &spec.workspace_key,
+            container_name: spec.container_name,
+            workspace_key: spec.workspace_key,
             mounts: Some(mounts),
             command: spec.command.clone(),
             args: spec.args.clone(),
@@ -68,7 +68,7 @@ impl<'a> WorkspaceApi<'a> {
                 RunMode::Workspace
             },
             labels: spec.labels.clone(),
-            default_network: spec.default_network.clone(),
+            default_network: spec.default_network,
             additional_networks: spec.additional_networks.clone(),
             env: spec.env_vars.clone(),
             ports: spec.ports.clone(),
@@ -100,8 +100,8 @@ impl<'a> WorkspaceApi<'a> {
                 }
 
                 Ok(WorkspaceResult {
-                    workspace_key: (&spec).workspace_key.to_string(),
-                    working_dir: (&spec).container_working_dir.to_string(),
+                    workspace_key: spec.workspace_key.to_string(),
+                    working_dir: spec.container_working_dir.to_string(),
                 })
             }
 

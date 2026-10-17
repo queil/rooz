@@ -80,8 +80,8 @@ async fn connect(
 
     println!(
         "{} SSH: connected to {}",
-        progress::host_tag(&name),
-        &host.ssh
+        progress::host_tag(name),
+        host.ssh
     );
 
     let socket_url = match &host.socket {
@@ -100,7 +100,7 @@ async fn connect(
     if socket_url.is_empty() {
         return Err(format!(
             "env var DOCKER_HOST is not set on {}. Set it there or give the host a 'socket'",
-            &host.ssh
+            host.ssh
         )
         .into());
     }
@@ -110,7 +110,7 @@ async fn connect(
     let remote_socket_path = Path::new(&socket_url);
     let remote_socket = remote_socket_path
         .strip_prefix("unix://")
-        .unwrap_or(&remote_socket_path);
+        .unwrap_or(remote_socket_path);
 
     session
         .request_port_forward(ForwardType::Local, local_socket_path, remote_socket)
@@ -118,14 +118,14 @@ async fn connect(
 
     println!(
         "{} Forwarding: {} -> {}:{}",
-        progress::host_tag(&name),
+        progress::host_tag(name),
         local_socket_path.display(),
-        &host.ssh,
-        &remote_socket.display()
+        host.ssh,
+        remote_socket.display()
     );
     println!(
         "{} Use it with 'rooz -H {}' (or ROOZ_HOST={}); for other tools: DOCKER_HOST=unix://{}",
-        progress::host_tag(&name),
+        progress::host_tag(name),
         name,
         name,
         local_socket_path.display()
@@ -183,14 +183,15 @@ async fn close_port_forward(
     local_port: u16,
     remote_port: u16,
 ) -> Result<(), AnyError> {
-    Ok(session
+    let _: () = session
         .close_port_forward(
             ForwardType::Local,
             (Ipv4Addr::new(127, 0, 0, 1), local_port),
             (Ipv4Addr::new(127, 0, 0, 1), remote_port),
         )
         .await
-        .unwrap_or_else(|e| log::debug!("Failed closing tunnel: {}", e)))
+        .unwrap_or_else(|e| log::debug!("Failed closing tunnel: {}", e));
+    Ok(())
 }
 
 fn release(claims: &Claims, host: &str, local_port: u16) {
@@ -220,7 +221,7 @@ async fn close_tunnel(
         local_socket,
         remote_socket
     );
-    close_port_forward(&session, *local_port, *remote_port).await?;
+    close_port_forward(session, *local_port, *remote_port).await?;
     release(claims, host, *local_port);
     open_tunnels_map.remove(remote_port);
     Ok(())
@@ -314,7 +315,7 @@ async fn manage_tunnels(
 ) -> Result<(), AnyError> {
     session.check().await?;
 
-    let docker_ports_map = get_docker_ports(&docker).await?;
+    let docker_ports_map = get_docker_ports(docker).await?;
 
     let docker_ports: HashSet<_> = docker_ports_map.keys().cloned().collect();
     let open_tunnels: HashSet<_> = open_tunnels_map.keys().cloned().collect();
@@ -341,7 +342,7 @@ async fn manage_tunnels(
             (true, false) => {
                 eprintln!(
                     "{} Tunnel endpoint is now down: {} -> {}",
-                    progress::host_tag(&host),
+                    progress::host_tag(host),
                     local_socket,
                     remote_socket
                 );
@@ -356,7 +357,7 @@ async fn manage_tunnels(
             (false, true) => {
                 eprintln!(
                     "{} Tunnel endpoint is now up: {} -> {}",
-                    progress::host_tag(&host),
+                    progress::host_tag(host),
                     local_socket,
                     remote_socket
                 );
@@ -382,11 +383,11 @@ async fn manage_tunnels(
         let remote_socket = format!("{}:{}", container_name, remote_port);
         eprintln!(
             "{} Dead tunnel - closing: {} {}",
-            progress::host_tag(&host),
+            progress::host_tag(host),
             local_socket,
             remote_socket
         );
-        close_tunnel(host, &session, claims, remote_port, open_tunnels_map).await?;
+        close_tunnel(host, session, claims, remote_port, open_tunnels_map).await?;
     }
 
     for remote_port in new_ports {
@@ -401,7 +402,7 @@ async fn manage_tunnels(
             if skipped.insert(*local_port) {
                 eprintln!(
                     "{} Local port {} is already forwarded for host '{}' - skipping",
-                    progress::host_tag(&host),
+                    progress::host_tag(host),
                     local_port,
                     owner
                 );
@@ -409,7 +410,7 @@ async fn manage_tunnels(
             continue;
         }
 
-        if is_available(&local_port) {
+        if is_available(local_port) {
             let local_socket = format!("{}:{}", LOCALHOST_IP, local_port);
             let remote_socket = format!("{}:{}", container_name, remote_port);
             log::debug!(
@@ -418,7 +419,7 @@ async fn manage_tunnels(
                 local_socket,
                 remote_socket
             );
-            open_tunnel(&session, *local_port, *remote_port).await?;
+            open_tunnel(session, *local_port, *remote_port).await?;
             claims.lock().unwrap().insert(*local_port, host.to_string());
             let is_active = test_tunnel(LOCALHOST_IP, *local_port).await?;
             open_tunnels_map.insert(
@@ -431,7 +432,7 @@ async fn manage_tunnels(
             );
             eprintln!(
                 "{} Opened tunnel (endpoint: {}): {} -> {}",
-                progress::host_tag(&host),
+                progress::host_tag(host),
                 if is_active { "UP" } else { "DOWN" },
                 local_socket,
                 remote_socket
@@ -440,7 +441,7 @@ async fn manage_tunnels(
             let binding_pid = get_pid_using_port(&local_port.to_string()).await?;
             eprintln!(
                 "{} Local port {} is already bound by another process: {:?} - skipping",
-                progress::host_tag(&host),
+                progress::host_tag(host),
                 local_port,
                 binding_pid
             );
@@ -483,18 +484,18 @@ async fn serve(
     let mut backoff = MIN_BACKOFF;
 
     while !*stop.borrow() {
-        if let Some(s) = &session {
-            if s.check().await.is_err() {
-                eprintln!(
-                    "{} SSH connection lost. Reconnecting...",
-                    progress::host_tag(&name)
-                );
-                // forwards die with the session
-                drop_tunnels(&name, &claims, &mut tunnels);
-                skipped.clear();
-                if let Some(s) = session.take() {
-                    let _ = s.close().await;
-                }
+        if let Some(s) = &session
+            && s.check().await.is_err()
+        {
+            eprintln!(
+                "{} SSH connection lost. Reconnecting...",
+                progress::host_tag(&name)
+            );
+            // forwards die with the session
+            drop_tunnels(&name, &claims, &mut tunnels);
+            skipped.clear();
+            if let Some(s) = session.take() {
+                let _ = s.close().await;
             }
         }
 

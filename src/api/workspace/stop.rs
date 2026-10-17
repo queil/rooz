@@ -16,7 +16,7 @@ impl<'a> WorkspaceApi<'a> {
         for c in self.api.container.get_running(labels).await? {
             print!("Stopping container: {} ... ", c.names.unwrap().join(", "));
             self.api.container.stop(&c.id.unwrap()).await?;
-            println!("{}", format!("OK").green())
+            println!("{}", "OK".to_string().green())
         }
         Ok(())
     }

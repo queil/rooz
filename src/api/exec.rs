@@ -88,11 +88,11 @@ impl<'a> ExecApi<'a> {
         while let Some(Ok(out)) = output.next().await {
             let bytes = out.into_bytes();
 
-            while let Err(_) = stdout.write_all(&bytes).await {
+            while stdout.write_all(&bytes).await.is_err() {
                 sleep(Duration::from_millis(10)).await;
             }
 
-            while let Err(_) = stdout.flush().await {
+            while stdout.flush().await.is_err() {
                 sleep(Duration::from_millis(10)).await;
             }
         }
@@ -103,7 +103,7 @@ impl<'a> ExecApi<'a> {
         if let StartExecResults::Attached { output, mut input } =
             self.client.start_exec(exec_id, None).await?
         {
-            let exec_state = self.client.inspect_exec(&exec_id).await?;
+            let exec_state = self.client.inspect_exec(exec_id).await?;
 
             match exec_state.clone() {
                 ExecInspectResponse {
@@ -122,12 +122,9 @@ impl<'a> ExecApi<'a> {
                             select! {
                                 guard = async_stdin.readable() => {
                                     let mut guard = guard?;
-                                    match guard.try_io(|inner| inner.get_ref().read(&mut buffer)) {
-                                        Ok(Ok(n)) => {
-                                            input.write_all(&buffer[..n]).await?;
-                                            guard.clear_ready();
-                                        }
-                                        _ => {}
+                                    if let Ok(Ok(n)) = guard.try_io(|inner| inner.get_ref().read(&mut buffer)) {
+                                        input.write_all(&buffer[..n]).await?;
+                                        guard.clear_ready();
                                     }
                                 }
 
@@ -198,7 +195,7 @@ impl<'a> ExecApi<'a> {
             Ok(self
                 .client
                 .create_exec(
-                    &container_id,
+                    container_id,
                     CreateExecOptions {
                         attach_stdout: Some(true),
                         attach_stderr: Some(true),
@@ -402,9 +399,9 @@ echo '[install] {}: {}'
         //    return Ok(());
         //};
 
-        log::debug!("Changing ownership... ({} {})", &uid, &dir);
+        log::debug!("Changing ownership... ({} {})", uid, dir);
 
-        let uid_format = format!("{}:{}", &uid, &uid);
+        let uid_format = format!("{}:{}", uid, uid);
         let chown_response = self
             .output(
                 "chown",
@@ -413,7 +410,7 @@ echo '[install] {}: {}'
                 Some(vec![
                     "sh",
                     "-c",
-                    &format!("chown -R {} {}", &uid_format, &chown_target(dir)),
+                    &format!("chown -R {} {}", uid_format, chown_target(dir)),
                 ]),
             )
             .await?;
@@ -431,11 +428,9 @@ echo '[install] {}: {}'
 
     pub async fn ensure_user(&self, container_id: &str) -> Result<(), AnyError> {
         let ensure_user_cmd = inject(
-            format!(
-                    r#"grep -q "^$ROOZ_META_USER:x:$ROOZ_META_UID" /etc/passwd && exit 0
-                       sed -i "/:x:${{ROOZ_META_UID}}/d" /etc/passwd && \
-                       echo "$ROOZ_META_USER:x:$ROOZ_META_UID:$ROOZ_META_UID:$ROOZ_META_USER:$ROOZ_META_HOME:/bin/sh" >> /etc/passwd"#,
-            )
+            r#"grep -q "^$ROOZ_META_USER:x:$ROOZ_META_UID" /etc/passwd && exit 0
+                       sed -i "/:x:${ROOZ_META_UID}/d" /etc/passwd && \
+                       echo "$ROOZ_META_USER:x:$ROOZ_META_UID:$ROOZ_META_UID:$ROOZ_META_USER:$ROOZ_META_HOME:/bin/sh" >> /etc/passwd"#.to_string()
             .as_ref(),
             "make_user.sh",
         );
@@ -448,14 +443,14 @@ echo '[install] {}: {}'
                 Some(ensure_user_cmd.iter().map(String::as_str).collect()),
             )
             .await?;
-        log::debug!("{}", &ensure_user_output);
+        log::debug!("{}", ensure_user_output);
         Ok(())
     }
 }
 
 fn script_body(script: &str) -> &str {
     if script.starts_with("#!") {
-        script.splitn(2, '\n').nth(1).unwrap_or(script)
+        script.split_once('\n').map(|x| x.1).unwrap_or(script)
     } else {
         script
     }

@@ -83,10 +83,10 @@ fn dotnet_version(dir: &Path) -> Result<Option<String>, AnyError> {
                 if let (Some(Ok(major)), Some(Ok(minor))) = (
                     parts.next().map(str::parse::<u32>),
                     parts.next().map(str::parse::<u32>),
-                ) {
-                    if major >= 5 && best.map_or(true, |b| (major, minor) > b) {
-                        best = Some((major, minor));
-                    }
+                ) && major >= 5
+                    && best.is_none_or(|b| (major, minor) > b)
+                {
+                    best = Some((major, minor));
                 }
             }
         }

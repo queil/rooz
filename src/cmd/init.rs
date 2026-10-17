@@ -33,8 +33,8 @@ impl<'a> InitApi<'a> {
                 ""
             },
             ssh_config = ssh::ensure_config_script("/tmp/.ssh"),
-            hostname = &hostname,
-            uid = &uid,
+            hostname = hostname,
+            uid = uid,
         );
 
         self.container
@@ -43,7 +43,7 @@ impl<'a> InitApi<'a> {
                 init_ssh,
                 Some(vec![ssh::mount("/tmp/.ssh", false)]),
                 None,
-                Some(&image_id),
+                Some(image_id),
             )
             .await
     }
@@ -61,7 +61,7 @@ impl<'a> InitApi<'a> {
                 script,
                 Some(vec![ssh::mount("/tmp/.ssh", false)]),
                 None,
-                Some(&image_id),
+                Some(image_id),
             )
             .await
     }
@@ -112,7 +112,7 @@ impl<'a> InitApi<'a> {
     }
 
     pub async fn init(&self, image: &str, uid: &str, spec: &InitParams) -> Result<(), AnyError> {
-        let image_id = self.image.ensure(&image, false).await?.id;
+        let image_id = self.image.ensure(image, false).await?.id;
 
         self.init_age_identity(spec)?;
 
@@ -148,7 +148,7 @@ impl<'a> InitApi<'a> {
             })
             .await?
         {
-            VolumeResult::Created { .. } => self.init_ssh(&image_id, uid, false).await?,
+            VolumeResult::Created => self.init_ssh(&image_id, uid, false).await?,
             VolumeResult::AlreadyExists if spec.rotate_ssh_key => {
                 println!(
                     "Rotating the rooz ssh key pair. Register the new public key below wherever \

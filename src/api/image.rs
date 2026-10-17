@@ -139,7 +139,7 @@ pub fn human_bytes(b: i64) -> String {
 
 impl<'a> ImageApi<'a> {
     async fn pull(&self, image: &str) -> Result<ImageInfo, AnyError> {
-        let mut progress = PullProgress::new(&image);
+        let mut progress = PullProgress::new(image);
         let img_chunks = &image.split(':').collect::<Vec<&str>>();
         let mut image_info = self.client.create_image(
             Some(CreateImageOptions {
@@ -185,16 +185,13 @@ impl<'a> ImageApi<'a> {
         }
         println!();
 
-        let response = self.client.inspect_image(&image).await?;
+        let response = self.client.inspect_image(image).await?;
 
         image_info_of(image, response)
     }
 
     pub async fn exists(&self, image: &str) -> Result<bool, AnyError> {
-        Ok(match self.client.inspect_image(&image).await {
-            Ok(_) => true,
-            Err(_) => false,
-        })
+        Ok(self.client.inspect_image(image).await.is_ok())
     }
 
     // Images rooz builds live under a predictable name in the engine's shared image namespace,
@@ -209,7 +206,7 @@ impl<'a> ImageApi<'a> {
             Ok(false)
         };
 
-        let inspect = match self.client.inspect_image(&image_id).await {
+        let inspect = match self.client.inspect_image(image_id).await {
             Ok(inspect) => inspect,
             Err(_) => return refuse("no such image"),
         };
@@ -235,9 +232,9 @@ impl<'a> ImageApi<'a> {
     }
 
     pub async fn ensure(&self, image: &str, always_pull: bool) -> Result<ImageInfo, AnyError> {
-        log::debug!("Ensuring image: {}", &image);
+        log::debug!("Ensuring image: {}", image);
 
-        let info = match self.client.inspect_image(&image).await {
+        let info = match self.client.inspect_image(image).await {
             Ok(ImageInspect {
                 id,
                 architecture,
@@ -289,7 +286,7 @@ impl<'a> ImageApi<'a> {
         match self
             .client
             .remove_image(
-                &image_name,
+                image_name,
                 Some(RemoveImageOptions {
                     force,
                     ..Default::default()
@@ -299,13 +296,13 @@ impl<'a> ImageApi<'a> {
             .await
         {
             Ok(_) => {
-                log::debug!("Removed image: {}{}", &image_name, &force_display);
+                log::debug!("Removed image: {}{}", image_name, force_display);
                 Ok(())
             }
             Err(DockerResponseServerError {
                 status_code: 404, ..
             }) => {
-                log::debug!("No such image. Skipping: {}{}", &image_name, &force_display);
+                log::debug!("No such image. Skipping: {}{}", image_name, force_display);
                 Ok(())
             }
             Err(DockerResponseServerError {

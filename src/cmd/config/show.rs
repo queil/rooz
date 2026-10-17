@@ -1,4 +1,5 @@
 use serde::Deserialize;
+use std::str::FromStr;
 use tabled::{Table, Tabled, settings::Style};
 
 use crate::{
@@ -30,7 +31,7 @@ impl<'a> ConfigApi<'a> {
             .volume
             .get_single(&labels)
             .await?
-            .ok_or(format!("Workspace not found: {}", &workspace_key))?;
+            .ok_or(format!("Workspace not found: {}", workspace_key))?;
 
         if resolved {
             let origin = volume.labels.get(labels::CONFIG_ORIGIN).ok_or(
@@ -56,7 +57,7 @@ impl<'a> ConfigApi<'a> {
 
                 let body = if let Some(format) = new_format {
                     let origin_path = volume.labels.get(labels::CONFIG_ORIGIN).unwrap();
-                    let original_format = FileFormat::from_path(&origin_path)?;
+                    let original_format = FileFormat::from_path(origin_path)?;
                     let cfg = RoozCfg::from_string(&body, original_format)?;
                     cfg.to_string(format)?
                 } else {

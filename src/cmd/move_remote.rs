@@ -1,3 +1,4 @@
+use std::str::FromStr;
 use std::{path::PathBuf, process::Stdio};
 
 use futures::StreamExt;
@@ -70,15 +71,14 @@ impl<'a> WorkspaceApi<'a> {
             Some(origin) => {
                 if let Ok(crate::config::config::ConfigPath::File { path }) =
                     crate::config::config::ConfigPath::from_str(origin)
+                    && !std::path::Path::new(&path).is_file()
                 {
-                    if !std::path::Path::new(&path).is_file() {
-                        return Err(format!(
-                            "The workspace was made from '{}', which is not on this machine any \\
+                    return Err(format!(
+                        "The workspace was made from '{}', which is not on this machine any \\
                              more. The target is rebuilt from the config file.",
-                            path
-                        )
-                        .into());
-                    }
+                        path
+                    )
+                    .into());
                 }
                 args.extend(["--config".to_string(), origin.clone()]);
             }
@@ -189,7 +189,7 @@ impl<'a> WorkspaceApi<'a> {
         let new_args = self.remote_new_args(from, to, allow_secrets).await?;
 
         let platform = captured(host, &["internal", "preflight", to]).await?;
-        if platform != self.api.container.backend.platform.to_string() {
+        if platform != self.api.container.backend.platform {
             eprintln!(
                 "WARN: the target runs {} and this engine {}: compiled artifacts in the work \\
                  volume will not run there.",

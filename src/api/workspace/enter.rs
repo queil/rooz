@@ -105,7 +105,7 @@ impl<'a> WorkspaceApi<'a> {
             .container
             .get_single(&enter_labels)
             .await?
-            .ok_or(format!("Workspace not found: {}", &workspace_key))?;
+            .ok_or(format!("Workspace not found: {}", workspace_key))?;
 
         let config = RuntimeConfig::from_string(
             self.config
@@ -165,10 +165,10 @@ impl<'a> WorkspaceApi<'a> {
                         }
                     };
 
-                    for (target, _) in real_mounts {
+                    for target in real_mounts.keys() {
                         self.api
                             .exec
-                            .chown(&container_id, &chown_uid, target.as_str())
+                            .chown(container_id, &chown_uid, target.as_str())
                             .await?;
                     }
                 }
@@ -179,7 +179,7 @@ impl<'a> WorkspaceApi<'a> {
                 .exec
                 .tty(
                     "work",
-                    &container_id,
+                    container_id,
                     working_dir,
                     if root {
                         Some(constants::ROOT_USER)

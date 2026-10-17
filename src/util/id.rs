@@ -39,7 +39,7 @@ pub fn validate_workspace_name(name: &str) -> Result<(), AnyError> {
 
 pub fn sanitize(dirty: &str) -> String {
     ID_REGEX
-        .replace_all(&dirty, "-")
+        .replace_all(dirty, "-")
         .to_ascii_lowercase()
         .to_string()
 }

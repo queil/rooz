@@ -85,7 +85,6 @@ impl TestEnv {
         );
         let opts = ListVolumesOptions {
             filters: Some(filters),
-            ..Default::default()
         };
         self.docker
             .list_volumes(Some(opts))
@@ -251,7 +250,6 @@ impl TestEnv {
         filters.insert("name".to_string(), vec![name.to_string()]);
         let opts = ListVolumesOptions {
             filters: Some(filters),
-            ..Default::default()
         };
         self.docker
             .list_volumes(Some(opts))
@@ -402,7 +400,6 @@ impl TestEnv {
         filters.insert("label".to_string(), vec!["dev.rooz=true".to_string()]);
         let opts = ListVolumesOptions {
             filters: Some(filters),
-            ..Default::default()
         };
         self.docker
             .list_volumes(Some(opts))

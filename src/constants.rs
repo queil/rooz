@@ -1,15 +1,15 @@
-pub const DEFAULT_IMAGE: &'static str = "docker.io/chainguard/git:latest-dev";
-pub const DEFAULT_SHELL: &'static str = "sh";
-pub const DEFAULT_USER: &'static str = "rooz_user";
-pub const DEFAULT_UID: &'static str = "1000";
-pub const DEFAULT_CONTAINER_NAME: &'static str = "work";
-pub const ROOT_UID: &'static str = "0";
+pub const DEFAULT_IMAGE: &str = "docker.io/chainguard/git:latest-dev";
+pub const DEFAULT_SHELL: &str = "sh";
+pub const DEFAULT_USER: &str = "rooz_user";
+pub const DEFAULT_UID: &str = "1000";
+pub const DEFAULT_CONTAINER_NAME: &str = "work";
+pub const ROOT_UID: &str = "0";
 pub const ROOT_UID_INT: i32 = 0;
-pub const ROOT_USER: &'static str = "root";
-pub const WORK_DIR: &'static str = "/work";
-pub const CONFIG_CLONE_DIR: &'static str = "/tmp/rooz-config";
-pub const SYSTEM_CONFIG_FILE: &'static str = "rooz.config";
-pub const SYSTEM_CONFIG_MOUNT: &'static str = "/tmp/sys";
+pub const ROOT_USER: &str = "root";
+pub const WORK_DIR: &str = "/work";
+pub const CONFIG_CLONE_DIR: &str = "/tmp/rooz-config";
+pub const SYSTEM_CONFIG_FILE: &str = "rooz.config";
+pub const SYSTEM_CONFIG_MOUNT: &str = "/tmp/sys";
 pub fn default_command<'a>() -> Option<Vec<&'a str>> {
     Some(vec!["cat"])
 }

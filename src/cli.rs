@@ -102,7 +102,7 @@ pub struct RemoteParams {
     pub names: Vec<String>,
 }
 
-#[derive(Clone, Parser, Debug)]
+#[derive(Clone, Parser, Debug, Default)]
 pub struct WorkEnvParams {
     #[arg(
         long = "env_image",
@@ -130,18 +130,7 @@ pub struct WorkEnvParams {
     pub caches: Option<Vec<String>>,
 }
 
-impl Default for WorkEnvParams {
-    fn default() -> Self {
-        Self {
-            image: Default::default(),
-            user: Default::default(),
-            shell: Default::default(),
-            caches: Default::default(),
-        }
-    }
-}
-
-#[derive(Clone, Parser, Debug)]
+#[derive(Clone, Parser, Debug, Default)]
 pub struct WorkParams {
     #[arg(short, long, alias = "git")]
     pub git_ssh_url: Option<String>,
@@ -176,24 +165,6 @@ pub struct WorkParams {
     pub start: Option<bool>,
     #[command(flatten)]
     pub env: WorkEnvParams,
-}
-
-impl Default for WorkParams {
-    fn default() -> Self {
-        Self {
-            git_ssh_url: Default::default(),
-            image: Default::default(),
-            home_from_image: Default::default(),
-            pull_image: Default::default(),
-            user: Default::default(),
-            caches: Default::default(),
-            privileged: Default::default(),
-            allow_secrets: Default::default(),
-            start: Default::default(),
-            env: Default::default(),
-            uid: Default::default(),
-        }
-    }
 }
 
 #[derive(Parser, Debug)]

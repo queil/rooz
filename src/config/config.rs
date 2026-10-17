@@ -10,7 +10,9 @@ use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use std::collections::HashMap;
 use std::ffi::OsStr;
+use std::fmt;
 use std::path::Path;
+use std::str::FromStr;
 
 pub const ROOT_STEPS_NOT_ALLOWED: &str = "Refusing install steps with 'root: true': this workspace merges \
      configuration the operator did not author. Install steps run as the workspace user unless \
@@ -45,8 +47,10 @@ pub enum ConfigPath {
     Git { url: String, file_path: String },
 }
 
-impl<'a> ConfigPath {
-    pub fn from_str(value: &'a str) -> Result<Self, AnyError> {
+impl FromStr for ConfigPath {
+    type Err = AnyError;
+
+    fn from_str(value: &str) -> Result<Self, AnyError> {
         if value.contains(":") {
             let chunks = value.split("//").collect::<Vec<_>>();
             match chunks.as_slice() {
@@ -68,11 +72,13 @@ impl<'a> ConfigPath {
             })
         }
     }
+}
 
-    pub fn to_string(&self) -> String {
+impl fmt::Display for ConfigPath {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ConfigPath::File { path } => path.to_string(),
-            ConfigPath::Git { url, file_path } => format!("{}//{}", url, file_path),
+            ConfigPath::File { path } => write!(f, "{}", path),
+            ConfigPath::Git { url, file_path } => write!(f, "{}//{}", url, file_path),
         }
     }
 }
@@ -99,13 +105,15 @@ pub enum FileFormat {
     Yaml,
 }
 
-impl FileFormat {
-    pub fn to_string(&self) -> String {
+impl fmt::Display for FileFormat {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            FileFormat::Yaml => "yaml".into(),
+            FileFormat::Yaml => write!(f, "yaml"),
         }
     }
+}
 
+impl FileFormat {
     // Paths reaching here come from config files as well as the command line, so an
     // unsupported extension is a validation error, not a reason to abort the process.
     pub fn from_path(path: &str) -> Result<FileFormat, AnyError> {
@@ -424,7 +432,7 @@ impl RoozCfg {
 
     pub fn from_string(config: &str, file_format: FileFormat) -> Result<Self, AnyError> {
         Ok(match file_format {
-            FileFormat::Yaml => serde_yaml::from_str(&config)?,
+            FileFormat::Yaml => serde_yaml::from_str(config)?,
         })
     }
 
@@ -458,7 +466,7 @@ impl RoozCfg {
         }
     }
 
-    pub fn from_cli(&mut self, cli: &WorkParams, shell: Option<String>) -> () {
+    pub fn from_cli(&mut self, cli: &WorkParams, shell: Option<String>) {
         *self = RoozCfg {
             shell: shell.map(|v| vec![v]).or(self.shell.clone()),
             image: cli.image.clone().or(self.image.clone()),
@@ -470,7 +478,7 @@ impl RoozCfg {
         }
     }
 
-    pub fn from_config(&mut self, config: &RoozCfg) -> () {
+    pub fn from_config(&mut self, config: &RoozCfg) {
         *self = RoozCfg {
             bases: None,
             vars: extend_if_any(self.vars.clone(), config.vars.clone()),
@@ -482,8 +490,8 @@ impl RoozCfg {
             shell: config.shell.clone().or(self.shell.clone()),
             user: config.user.clone().or(self.user.clone()),
             ports: extend_if_any(self.ports.clone(), config.ports.clone()),
-            privileged: config.privileged.clone().or(self.privileged.clone()),
-            init: config.init.clone().or(self.init.clone()),
+            privileged: config.privileged.or(self.privileged),
+            init: config.init.or(self.init),
             command: config.command.clone().or(self.command.clone()),
             args: config.args.clone().or(self.args.clone()),
             env: extend_if_any(self.env.clone(), config.env.clone()),
@@ -500,25 +508,26 @@ impl RoozCfg {
         fn widen(v: &mut serde_json::Value) {
             match v {
                 serde_json::Value::Object(map) => {
-                    if !map.contains_key("enum") && !map.contains_key("const") {
-                        if let Some(t) = map.get_mut("type") {
-                            let mut types = match t.take() {
-                                serde_json::Value::Array(a) => a,
-                                other => vec![other],
-                            };
-                            if types.iter().any(|x| x == "string") {
-                                for extra in ["number", "boolean"] {
-                                    if !types.iter().any(|x| x == extra) {
-                                        types.push(extra.into());
-                                    }
+                    if !map.contains_key("enum")
+                        && !map.contains_key("const")
+                        && let Some(t) = map.get_mut("type")
+                    {
+                        let mut types = match t.take() {
+                            serde_json::Value::Array(a) => a,
+                            other => vec![other],
+                        };
+                        if types.iter().any(|x| x == "string") {
+                            for extra in ["number", "boolean"] {
+                                if !types.iter().any(|x| x == extra) {
+                                    types.push(extra.into());
                                 }
                             }
-                            *t = if types.len() == 1 {
-                                types.remove(0)
-                            } else {
-                                types.into()
-                            };
                         }
+                        *t = if types.len() == 1 {
+                            types.remove(0)
+                        } else {
+                            types.into()
+                        };
                     }
                     map.values_mut().for_each(widen);
                 }
@@ -585,13 +594,13 @@ impl RoozCfg {
     pub fn git_ssh_url(cli: &WorkParams, cli_cfg: &Option<RoozCfg>) -> Option<String> {
         cli.git_ssh_url
             .clone()
-            .or(cli_cfg.clone().map(|c| c.git_ssh_url).flatten())
+            .or(cli_cfg.clone().and_then(|c| c.git_ssh_url))
     }
 
-    pub fn parse_ports<'a>(
-        map: &'a mut HashMap<String, Option<String>>,
+    pub fn parse_ports(
+        map: &mut HashMap<String, Option<String>>,
         ports: Vec<String>,
-    ) -> Result<&'a HashMap<String, Option<String>>, AnyError> {
+    ) -> Result<&HashMap<String, Option<String>>, AnyError> {
         for mapping in ports.iter() {
             let (source, target) = RoozCfg::parse_port(mapping)?;
             map.insert(source.to_string(), target.map(|p| p.to_string()));
@@ -613,9 +622,9 @@ impl RoozCfg {
         };
         let port = |p: &str| p.parse::<u16>().map_err(|_| invalid());
 
-        match port_mapping.split(":").collect::<Vec<_>>().as_slice() {
-            &[a] => Ok((port(a)?, None)),
-            &[a, b] => Ok((port(a)?, Some(port(b)?))),
+        match *port_mapping.split(":").collect::<Vec<_>>().as_slice() {
+            [a] => Ok((port(a)?, None)),
+            [a, b] => Ok((port(a)?, Some(port(b)?))),
             _ => Err(invalid()),
         }
     }
@@ -639,7 +648,7 @@ impl RoozCfg {
                 {
                     panic!(
                         "The key: '{}' can be only defined in either vars or secrets.",
-                        &duplicate_key.to_string()
+                        duplicate_key
                     )
                 }
                 let mut secrets = secrets.clone();
@@ -708,12 +717,9 @@ impl RoozCfg {
             Err(e) => {
                 eprintln!(
                     "{}\n{}",
-                    format!(
-                        "WARNING: Could not read config ({})",
-                        file_format.to_string()
-                    )
-                    .bold()
-                    .yellow(),
+                    format!("WARNING: Could not read config ({})", file_format)
+                        .bold()
+                        .yellow(),
                     e.to_string().yellow()
                 );
                 Ok(None)
@@ -947,7 +953,7 @@ impl SystemConfig {
     }
 
     pub fn from_string(config: &str) -> Result<Self, AnyError> {
-        Ok(serde_yaml::from_str(&config)?)
+        Ok(serde_yaml::from_str(config)?)
     }
 
     pub fn to_string(config: &Self) -> Result<String, AnyError> {
@@ -1841,7 +1847,7 @@ data:
                 }
                 DataEntry::File {
                     name,
-                    generator: Script { script: _, .. },
+                    generator: Script { .. },
                     ..
                 } => {
                     assert_eq!(name, "generated-file");

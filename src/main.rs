@@ -1,4 +1,5 @@
 use std::io;
+use std::str::FromStr;
 
 use rooz::{
     api::{Api, ContainerApi, ExecApi, GitApi, ImageApi, InitApi, VolumeApi, WorkspaceApi},
@@ -124,7 +125,7 @@ async fn run() -> Result<(), AnyError> {
 
     let docker = connection.map_err(|e| rooz::util::backend::engine_error_message(&target, &e))?;
 
-    log::debug!("Client ver: {}", &docker.client_version());
+    log::debug!("Client ver: {}", docker.client_version());
     let (version, info) = tokio::join!(docker.version(), docker.info());
     let (version, info) = match (version, info) {
         (Ok(v), Ok(i)) => (v, i),
@@ -143,7 +144,7 @@ async fn run() -> Result<(), AnyError> {
         }
     }
     let backend = ContainerBackend::resolve(&version, &info).await?;
-    log::debug!("Container backend: {:?}", &backend);
+    log::debug!("Container backend: {:?}", backend);
     check_version_floor(&version, &backend)?;
 
     let exec_api = ExecApi { client: &docker };
@@ -250,7 +251,7 @@ async fn run() -> Result<(), AnyError> {
                 .enter(
                     &name,
                     work_dir.as_deref(),
-                    shell.as_deref().map(|v| vec![v.as_ref()]),
+                    shell.as_deref().map(|v| vec![v]),
                     container.as_deref(),
                     root,
                     chown,
