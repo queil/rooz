@@ -92,6 +92,7 @@ jobs:
           tag="${{ steps.rel.outputs.tag }}"
           git fetch --depth 1 origin tag "$tag"
           git worktree add "$RUNNER_TEMP/rel" "$tag"
+          mkdir -p docs/src/reference
           (cd "$RUNNER_TEMP/rel" && CARGO_TARGET_DIR="$GITHUB_WORKSPACE/target" \
             cargo run --locked --quiet --example cli-reference) > docs/src/reference/cli.md
           grep -q "^Generated from \`rooz ${tag#v}\`" docs/src/reference/cli.md \
