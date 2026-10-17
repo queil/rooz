@@ -1,9 +1,17 @@
 /* rooz docs theme - layered over mdBook's stock CSS. Palette from the logo: container teal, kangaroo rust. */
 
 @font-face {
-    font-family: "Inter";
-    src: url("../assets/fonts/inter.woff2") format("woff2");
-    font-weight: 100 900;
+    font-family: "Plus Jakarta Sans";
+    src: url("../assets/fonts/plus-jakarta-sans.woff2") format("woff2");
+    font-weight: 200 800;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: "Bricolage Grotesque";
+    src: url("../assets/fonts/bricolage-grotesque.woff2") format("woff2");
+    font-weight: 200 800;
     font-style: normal;
     font-display: swap;
 }
@@ -110,8 +118,8 @@
 /* typography */
 
 html {
-    font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-    font-feature-settings: "cv11", "ss01";
+    font-family: "Plus Jakarta Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    word-spacing: 0.08em;
     -webkit-font-smoothing: antialiased;
 }
 
@@ -120,8 +128,10 @@ html {
 }
 
 .content h1, .content h2, .content h3, .content h4 {
-    font-weight: 650;
-    letter-spacing: -0.015em;
+    font-family: "Bricolage Grotesque", "Plus Jakarta Sans", sans-serif;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    word-spacing: normal;
     line-height: 1.25;
 }
 
@@ -168,6 +178,7 @@ html {
 
 code {
     font-family: var(--mono-font);
+    word-spacing: normal;
 }
 
 :not(pre) > code {
