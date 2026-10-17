@@ -1,0 +1,310 @@
+/* rooz docs theme - layered over mdBook's stock CSS. Palette from the logo: container teal, kangaroo rust. */
+
+@font-face {
+    font-family: "Inter";
+    src: url("../assets/fonts/inter.woff2") format("woff2");
+    font-weight: 100 900;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: "JetBrains Mono";
+    src: url("../assets/fonts/jetbrains-mono.woff2") format("woff2");
+    font-weight: 100 800;
+    font-style: normal;
+    font-display: swap;
+}
+
+:root {
+    --content-max-width: 820px;
+    --sidebar-target-width: 280px;
+    --page-padding: 20px;
+    --mono-font: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --code-font-size: 0.86em;
+    --radius: 8px;
+}
+
+.light, html:not(.js) {
+    --bg: #fbfaf8;
+    --fg: #1d2328;
+    --muted: #5b6670;
+    --accent: #0e7490;
+    --accent-2: #c2581c;
+
+    --sidebar-bg: #f3f1ed;
+    --sidebar-fg: #2b343c;
+    --sidebar-non-existant: #a3a9ae;
+    --sidebar-active: #0e7490;
+    --sidebar-spacer: #e4e1db;
+    --sidebar-header-border-color: #0e7490;
+
+    --icons: #6b757e;
+    --icons-hover: #0e7490;
+
+    --links: #0e7490;
+    --inline-code-color: #9a3f10;
+    --inline-code-bg: #efe8dd;
+    --code-bg: #f3f1ed;
+    --code-border: #e4e1db;
+
+    --quote-bg: #eef6f8;
+    --quote-border: #0e7490;
+
+    --table-border-color: #e4e1db;
+    --table-header-bg: #ece9e3;
+    --table-alternate-bg: #f6f4f0;
+
+    --searchbar-border-color: #d6d2ca;
+    --searchbar-bg: #ffffff;
+    --searchresults-li-bg: #eef6f8;
+    --search-mark-bg: #fde3c8;
+
+    --theme-popup-bg: #fbfaf8;
+    --theme-popup-border: #d6d2ca;
+    --theme-hover: #ece9e3;
+}
+
+.navy {
+    --bg: #0f1419;
+    --fg: #d3d7dc;
+    --muted: #8b96a1;
+    --accent: #4fc3d4;
+    --accent-2: #e8894a;
+
+    --sidebar-bg: #141a21;
+    --sidebar-fg: #b9c1c9;
+    --sidebar-non-existant: #4c5661;
+    --sidebar-active: #4fc3d4;
+    --sidebar-spacer: #222b35;
+    --sidebar-header-border-color: #4fc3d4;
+
+    --icons: #7a8590;
+    --icons-hover: #4fc3d4;
+
+    --links: #4fc3d4;
+    --inline-code-color: #f0a46e;
+    --inline-code-bg: #1d2731;
+    --code-bg: #161d25;
+    --code-border: #232d38;
+
+    --quote-bg: #13222a;
+    --quote-border: #4fc3d4;
+
+    --table-border-color: #222b35;
+    --table-header-bg: #1a222b;
+    --table-alternate-bg: #121920;
+
+    --searchbar-border-color: #2c3742;
+    --searchbar-bg: #1a222b;
+    --searchbar-fg: #d3d7dc;
+    --searchbar-shadow-color: transparent;
+    --searchresults-li-bg: #1a2a33;
+    --search-mark-bg: #7a4520;
+
+    --theme-popup-bg: #141a21;
+    --theme-popup-border: #2c3742;
+    --theme-hover: #1e2730;
+}
+
+/* typography */
+
+html {
+    font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-feature-settings: "cv11", "ss01";
+    -webkit-font-smoothing: antialiased;
+}
+
+.content {
+    line-height: 1.7;
+}
+
+.content h1, .content h2, .content h3, .content h4 {
+    font-weight: 650;
+    letter-spacing: -0.015em;
+    line-height: 1.25;
+}
+
+.content h1 {
+    font-size: 2.3em;
+    margin-top: 0.6em;
+}
+
+.content h1::after {
+    content: "";
+    display: block;
+    width: 48px;
+    height: 4px;
+    margin-top: 0.35em;
+    border-radius: 2px;
+    background: linear-gradient(90deg, var(--accent), var(--accent-2));
+}
+
+.content h2 {
+    margin-top: 2.2em;
+    padding-bottom: 0.3em;
+    border-bottom: 1px solid var(--table-border-color);
+}
+
+.content a:link, .content a:visited {
+    color: var(--links);
+    text-decoration: none;
+    border-bottom: 1px solid transparent;
+    transition: border-color 0.15s;
+}
+
+.content a:hover {
+    border-bottom-color: currentColor;
+}
+
+/* header anchors keep mdBook's plain look */
+.content :is(h1, h2, h3, h4, h5, h6) a.header:link,
+.content :is(h1, h2, h3, h4, h5, h6) a.header:visited {
+    color: var(--fg);
+    border-bottom: none;
+}
+
+/* code */
+
+code {
+    font-family: var(--mono-font);
+}
+
+:not(pre) > code {
+    padding: 0.12em 0.4em;
+    border-radius: 5px;
+    border: 1px solid var(--code-border);
+    background: var(--inline-code-bg);
+    color: var(--inline-code-color);
+    font-size: 0.85em;
+}
+
+pre {
+    border: 1px solid var(--code-border);
+    border-radius: var(--radius);
+}
+
+pre > code.hljs, pre > code {
+    background: var(--code-bg);
+    padding: 1em 1.2em;
+    border-radius: var(--radius);
+}
+
+/* blockquotes and tables */
+
+blockquote {
+    margin: 1.5em 0;
+    padding: 0.4em 1.2em;
+    border: none;
+    border-left: 3px solid var(--quote-border);
+    border-radius: 0 var(--radius) var(--radius) 0;
+    background: var(--quote-bg);
+}
+
+table {
+    border-collapse: separate;
+    border-spacing: 0;
+    border: 1px solid var(--table-border-color);
+    border-radius: var(--radius);
+    overflow: hidden;
+}
+
+table thead th {
+    font-weight: 600;
+    text-align: left;
+}
+
+table td, table th {
+    padding: 0.55em 0.9em;
+    border: none;
+    border-bottom: 1px solid var(--table-border-color);
+}
+
+table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+/* sidebar */
+
+.sidebar {
+    border-right: 1px solid var(--sidebar-spacer);
+}
+
+.sidebar .sidebar-scrollbox {
+    padding: 16px 14px;
+}
+
+.sidebar .sidebar-scrollbox::before {
+    content: "";
+    display: block;
+    height: 96px;
+    margin: 4px 0 18px;
+    background: url("../rooz512.webp") center / contain no-repeat;
+    border-radius: 14px;
+    width: 96px;
+    margin-inline: auto;
+}
+
+.content img {
+    border-radius: 14px;
+    box-shadow: 0 8px 30px rgb(0 0 0 / 0.25);
+}
+
+.chapter-link-wrapper > a {
+    flex: 1;
+}
+
+.chapter li a {
+    padding: 5px 10px;
+    border-radius: 6px;
+    transition: background 0.12s, color 0.12s;
+}
+
+.chapter li a:hover {
+    background: var(--theme-hover);
+    color: var(--sidebar-fg);
+}
+
+.chapter li a.active {
+    background: color-mix(in srgb, var(--sidebar-active) 14%, transparent);
+    color: var(--sidebar-active);
+    font-weight: 600;
+}
+
+.chapter li.part-title {
+    margin: 1.6em 0 0.4em 10px;
+    color: var(--muted);
+    font-size: 0.75em;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+/* top bar */
+
+.menu-bar, .menu-bar:hover, .menu-bar.bordered {
+    background: color-mix(in srgb, var(--bg) 85%, transparent);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--table-border-color);
+}
+
+.menu-title {
+    font-weight: 650;
+    letter-spacing: -0.01em;
+}
+
+/* prev/next */
+
+.nav-chapters {
+    border-radius: var(--radius);
+    transition: color 0.15s, background 0.15s;
+}
+
+.nav-chapters:hover {
+    color: var(--accent);
+    background: var(--theme-hover);
+}
+
+#mdbook-searchbar {
+    border-radius: var(--radius);
+}

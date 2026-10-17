@@ -16,7 +16,3 @@ use. Rooz defends your host, your other workspaces and your secrets against the 
 open; it cannot defend a workspace against another tenant of the same engine. Anyone who can reach
 the engine API can read every volume, run containers on your networks, and name images and volumes
 whatever they like, so sharing one engine between people who do not trust each other is out of scope.
-
-## Resources
-
-* [my image I use with rooz](https://github.com/queil/image/blob/main/src/Containerfile)

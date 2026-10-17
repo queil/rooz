@@ -10,3 +10,6 @@ site-url = "/"
 git-repository-url = "https://github.com/queil/rooz"
 edit-url-template = "https://github.com/queil/rooz/edit/main/docs/{path}"
 no-section-label = true
+default-theme = "navy"
+preferred-dark-theme = "navy"
+additional-css = ["theme/rooz.css"]
