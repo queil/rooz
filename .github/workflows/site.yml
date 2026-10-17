@@ -107,6 +107,13 @@ jobs:
           sudo install "$RUNNER_TEMP/mdbook" /usr/local/bin/mdbook
           mdbook --version
 
+      - name: stamp the version badge
+        run: |
+          tag="${{ steps.rel.outputs.tag }}"
+          sed -i "s/const version = \"dev\";/const version = \"$tag\";/" docs/theme/version.js
+          grep -q "const version = \"$tag\";" docs/theme/version.js \
+            || { echo "version badge not stamped with $tag" >&2; exit 1; }
+
       - name: build
         run: mdbook build docs
 
@@ -118,6 +125,8 @@ jobs:
             || { echo "built site would serve an installer not pinned to $tag" >&2; exit 1; }
           jq empty docs/book/schema.json
           test -f docs/book/_headers
+          grep -q "const version = \"$tag\";" docs/book/theme/version-*.js \
+            || { echo "built site would show a version other than $tag" >&2; exit 1; }
 
       - name: deploy (Cloudflare Pages, direct upload)
         env:

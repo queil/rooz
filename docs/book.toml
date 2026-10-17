@@ -13,3 +13,4 @@ no-section-label = true
 default-theme = "navy"
 preferred-dark-theme = "navy"
 additional-css = ["theme/rooz.css"]
+additional-js = ["theme/version.js"]

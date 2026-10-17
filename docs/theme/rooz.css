@@ -319,3 +319,34 @@ table tbody tr:last-child td {
 #mdbook-searchbar {
     border-radius: var(--radius);
 }
+
+/* version badge (theme/version.js) */
+
+.right-buttons {
+    display: flex;
+    align-items: center;
+}
+
+.rooz-version {
+    margin-right: 10px;
+    padding: 2px 9px;
+    border: 1px solid var(--code-border);
+    border-radius: 999px;
+    font-family: var(--mono-font);
+    font-size: 0.75em;
+    line-height: 1.6;
+    color: var(--muted) !important;
+    text-decoration: none;
+    transition: color 0.15s, border-color 0.15s;
+}
+
+.rooz-version:hover {
+    color: var(--accent) !important;
+    border-color: var(--accent);
+}
+
+@media (max-width: 600px) {
+    .rooz-version {
+        display: none;
+    }
+}
