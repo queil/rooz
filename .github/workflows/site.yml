@@ -1,0 +1,134 @@
+name: site
+
+on:
+  release:
+    types: [published]
+  push:
+    branches: [main]
+    paths: ["docs/**", "CHANGELOG.md"]
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: "deploy channel"
+        type: choice
+        options: [production, staging]
+        default: production
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  MDBOOK_VERSION: 0.5.4
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            ~/.cargo/bin/mdbook
+            target/
+          key: site-${{ runner.os }}-cargo-${{ env.MDBOOK_VERSION }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: site-${{ runner.os }}-cargo-${{ env.MDBOOK_VERSION }}-
+
+      - name: resolve channel and tag
+        id: rel
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            echo "tag=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
+            if [ "${{ github.event.release.prerelease }}" = "true" ]; then
+              echo "branch=staging" >> "$GITHUB_OUTPUT"
+            else
+              echo "branch=main" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            if ! tag=$(gh api repos/${{ github.repository }}/releases/latest --jq .tag_name 2>/dev/null); then
+              tag=""
+            fi
+            case "$tag" in
+              v[0-9]*) ;;
+              *) echo "releases/latest is '$tag' - not a rooz release tag" >&2; exit 1 ;;
+            esac
+            echo "tag=$tag" >> "$GITHUB_OUTPUT"
+            if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.channel }}" = "staging" ]; then
+              echo "branch=staging" >> "$GITHUB_OUTPUT"
+            else
+              echo "branch=main" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+      - name: fetch the pinned installer from the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${{ steps.rel.outputs.tag }}"
+          gh release download "$tag" --repo "${{ github.repository }}" \
+            --pattern install.sh --dir docs/src
+          sh -n docs/src/install.sh
+          grep -q "TAG=\"$tag\"" docs/src/install.sh \
+            || { echo "installer from $tag does not pin $tag - refusing to deploy" >&2; exit 1; }
+
+      - name: install the released rooz with that installer
+        run: |
+          sh docs/src/install.sh
+          tag="${{ steps.rel.outputs.tag }}"
+          version="$(~/.local/bin/rooz --version)"
+          [ "$version" = "rooz ${tag#v}" ] \
+            || { echo "installed '$version', released '$tag'" >&2; exit 1; }
+          ~/.local/bin/rooz config schema > docs/src/schema.json
+          jq empty docs/src/schema.json
+
+      - name: CLI reference from the released tag
+        run: |
+          tag="${{ steps.rel.outputs.tag }}"
+          git fetch --depth 1 origin tag "$tag"
+          git worktree add "$RUNNER_TEMP/rel" "$tag"
+          (cd "$RUNNER_TEMP/rel" && CARGO_TARGET_DIR="$GITHUB_WORKSPACE/target" \
+            cargo run --locked --quiet --example cli-reference) > docs/src/reference/cli.md
+          grep -q "^Generated from \`rooz ${tag#v}\`" docs/src/reference/cli.md \
+            || { echo "CLI reference is not rooz ${tag#v}'s" >&2; exit 1; }
+
+      - name: install mdbook
+        run: command -v mdbook || cargo install mdbook --locked --version "$MDBOOK_VERSION"
+
+      - name: build
+        run: mdbook build docs
+
+      - name: verify the artifact before it ships
+        run: |
+          tag="${{ steps.rel.outputs.tag }}"
+          sh -n docs/book/install.sh
+          grep -q "TAG=\"$tag\"" docs/book/install.sh \
+            || { echo "built site would serve an installer not pinned to $tag" >&2; exit 1; }
+          jq empty docs/book/schema.json
+          test -f docs/book/_headers
+
+      - name: deploy (Cloudflare Pages, direct upload)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          npx --yes wrangler@4 pages deploy docs/book \
+            --project-name rooz-dev \
+            --branch "${{ steps.rel.outputs.branch }}"
+
+      - name: served installer pins the released tag
+        if: github.event_name == 'release' && github.event.release.prerelease == false
+        run: |
+          tag="${{ steps.rel.outputs.tag }}"
+          for i in $(seq 1 24); do
+            served=$(curl -fsSL https://rooz.dev/install.sh 2>/dev/null | grep -m1 '^    TAG=' | cut -d'"' -f2 || true)
+            [ "$served" = "$tag" ] && { echo "served installer pins $tag (after $((i * 5))s)"; exit 0; }
+            sleep 5
+          done
+          echo "rooz.dev/install.sh serves '$served', released '$tag' - users are getting an older rooz" >&2
+          exit 1

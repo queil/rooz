@@ -1,10 +1,3 @@
-# Releases - a v* tag produces a DRAFT release carrying one bare binary per
-# platform plus SHA256SUMS. The gate runs the full battery first and nothing
-# builds if anything is red, the tag and Cargo.toml must agree, and every built
-# binary has to report that same version before it is uploaded. Assets are
-# uploaded separately from the release creation and retried, then the asset list
-# is machine-checked: an incomplete draft fails the job instead of waiting for a
-# human to notice. Publishing the draft stays manual.
 name: release
 
 on:
@@ -32,9 +25,6 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-
 
-      # the tag is the release's only input, so it has to agree with the crate
-      # version before anything is built - a forgotten `cargo set-version` ships
-      # a binary that reports the previous release
       - name: tag matches Cargo.toml
         run: |
           tag="${{ github.ref_name }}"
@@ -45,9 +35,6 @@ jobs:
           }
           echo "version: $tag"
 
-      # the notes are written by hand, so a tag without a CHANGELOG section is a
-      # release nobody described - refuse it here rather than publishing a draft
-      # with an auto-generated commit list standing in for notes
       - name: the changelog describes this version
         run: |
           scripts/changelog-section.sh "${{ github.ref_name }}" > /dev/null || {
@@ -65,7 +52,6 @@ jobs:
       - name: unit tests
         run: cargo test --locked --lib --bins
 
-      # the same daemon-backed battery as CI: a release cannot publish from red
       - name: start docker daemon
         run: |
           bash scripts/test-daemon.sh up docker \
@@ -173,6 +159,16 @@ jobs:
           sha256sum rooz-* > SHA256SUMS
           cat SHA256SUMS
 
+      # the PINNED installer: install.sh is a template; this copy pins the tag and embeds the
+      # SHA256SUMS above, so the script rooz.dev serves trusts checksums from a different origin
+      # than the binaries. The site workflow fetches it from this release.
+      - name: generate the pinned installer
+        run: |
+          curl -fsSL https://weir.sh/install.sh | sh
+          ~/.local/bin/weir scripts/gen-install.weir --template install.sh --sums dist/SHA256SUMS \
+            --tag "${{ github.ref_name }}" --out dist/install.sh
+          sh -n dist/install.sh
+
       # the hand-written section for this version, with the generated commit list
       # appended by --generate-notes
       - name: release notes from CHANGELOG.md
@@ -198,7 +194,7 @@ jobs:
           for attempt in 1 2 3; do
             if gh release upload "${{ github.ref_name }}" --clobber \
                  --repo "${{ github.repository }}" \
-                 dist/rooz-* dist/SHA256SUMS; then
+                 dist/rooz-* dist/SHA256SUMS dist/install.sh; then
               exit 0
             fi
             if [ "$attempt" -lt 3 ]; then
@@ -209,10 +205,6 @@ jobs:
           echo "asset upload failed after 3 attempts" >&2
           exit 1
 
-      # the completeness gate: every expected asset present, uploaded and
-      # non-empty, before a human is asked to review a draft. The list here is
-      # the release's contract - the install URLs in README.md point at these
-      # exact names.
       - name: verify the draft carries every expected asset
         env:
           GH_TOKEN: ${{ github.token }}
@@ -221,7 +213,8 @@ jobs:
           rooz-aarch64-unknown-linux-gnu
           rooz-aarch64-apple-darwin
           rooz-x86_64-apple-darwin
-          SHA256SUMS"
+          SHA256SUMS
+          install.sh"
           gh release view "${{ github.ref_name }}" \
             --repo "${{ github.repository }}" \
             --json assets --jq '.assets[] | "\(.name) \(.state) \(.size)"' > assets.txt

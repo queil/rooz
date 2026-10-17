@@ -1,0 +1,6 @@
+# Cloudflare Pages headers - the installer renders as text in a browser (clicking the install line
+# shows the script instead of downloading it); curl | sh does not care either way.
+/install.sh
+  Content-Type: text/plain; charset=utf-8
+/schema.json
+  Content-Type: application/json; charset=utf-8

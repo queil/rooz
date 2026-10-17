@@ -1,0 +1,41 @@
+#!/usr/bin/env weir
+// Generates the pinned install script from its template (install.sh): substitutes the release tag
+// and expands the embedded SHA256SUMS block in place. The result is what rooz.dev serves - a
+// script whose trusted checksums arrive from a different origin than the binaries it verifies, so
+// compromising the release assets alone yields no code execution. release.yml runs it per release.
+//
+//   scripts/gen-install.weir --template install.sh --sums dist/SHA256SUMS --tag v0.167.0 --out dist/install.sh
+
+type Cli = {
+    /// the install.sh template
+    template: string
+    /// the release SHA256SUMS whose lines to embed
+    sums: string
+    /// the release tag to pin (e.g. v0.1.0)
+    tag: string
+    /// where to write the generated script
+    out: string
+}
+
+let cli = Args.load Cli
+
+// the SHA256SUMS lines replace the placeholder line wholesale; every
+// other line has @ROOZ_TAG@ substituted. A line is either the sums
+// anchor or ordinary text, never both (the anchor sits alone).
+let sumLines = File.read cli.sums |> Seq.freeze
+
+// the anchor is a line that is exactly the placeholder (trimmed), not
+// one that merely mentions it — matching a mere mention (a header
+// comment naming the placeholder) would splice raw checksum lines into
+// the served script as executing text
+let expand line =
+    if Str.trim line == "@ROOZ_SHA256SUMS@" then
+        sumLines
+    else
+        [ line |> Str.replace "@ROOZ_TAG@" cli.tag ]
+
+File.read cli.template
+|> Seq.collect expand
+|> File.write cli.out
+
+print $"generated {cli.out}: tag {cli.tag}, {sumLines |> Seq.length} checksum line(s) embedded"

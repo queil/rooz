@@ -569,7 +569,7 @@ secrets:
   apiKey: 1744420283158995
 
 env:
-  API_URL: https://api.rooz.dev/v1
+  API_URL: https://api.example.com/v1
   API_KEY: "{{ apiKey }}"
 
 ```
@@ -580,7 +580,7 @@ Now `cat example.yaml` and you should see something like the below:
 secrets:
   apiKey: '----BEGIN AGE ENCRYPTED FILE-----|YWdlLWVuY3J ... truncated'
 env:
-  API_URL: https://api.rooz.dev/v1
+  API_URL: https://api.example.com/v1
   API_KEY: "{{ apiKey }}"
 
 ```
