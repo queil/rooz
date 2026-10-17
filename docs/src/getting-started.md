@@ -23,13 +23,6 @@ This creates:
   re-encrypted. To use an existing identity, pass `--age-identity`. To use a second machine against
   the same engine, copy the identity file there.
 
-  ℹ️ Upgrading: earlier versions kept the identity in the `rooz_sys-config` volume. The first rooz
-  command after upgrading moves it to `age.engine.bak` and prints the path. It is not adopted
-  automatically, as rooz cannot verify who wrote it. Check it, then install it:
-  `rooz system init --force --age-identity "$(cat ~/.config/rooz/age.engine.bak)"`. If the engine is
-  shared, treat the identity as compromised: re-key with `rooz system init --force` and re-encrypt
-  your secrets.
-
 `--force` regenerates the age identity, deleting the existing one. It does not touch the SSH key pair,
 which existing workspaces mount. To replace the SSH key (e.g. if leaked):
 
@@ -62,6 +55,4 @@ export ROOZ_CACHES='~/.local/share/containers/storage/'
 
 ## System config
 
-`rooz system configure` sets the `.gitconfig` rooz uses for cloning (e.g. for aliases). That is its
-only setting for now. The age identity is not part of it; it lives on your machine (see
-[Initialize](#initialize)).
+`rooz system configure` sets the `.gitconfig` rooz uses for cloning (e.g. for aliases).

@@ -8,10 +8,6 @@
 
   ⚠️ `rooz system prune` deletes all rooz state. Back up anything important first.
 
-## Upgrading
-
-* cache volume names now include an operator scope (`rooz_cache_<scope>_<path>`), so caches from earlier versions are orphaned. They repopulate automatically; `rooz system prune` removes the leftovers.
-
 ## Known issues
 
 * the session doesn't auto-resize with the terminal. Workaround: exit, resize the window, enter again.
