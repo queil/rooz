@@ -1,8 +1,30 @@
-# rooz
+<div class="rooz-hero">
+<div class="rooz-hero-text">
+<p class="rooz-eyebrow">Open source CLI · Linux &amp; macOS</p>
+<h1 class="rooz-title">Work in <span>containers</span>.</h1>
+<p class="rooz-lede">Rooz runs your dev workspaces in containers, on a local or remote Docker/Podman engine. Git cloning, SSH keys, encrypted secrets, shared caches, sidecars and declarative config are built in.</p>
+<div class="rooz-install"><span class="rooz-prompt">$</span><code>curl -fsSL https://rooz.dev/install.sh | sh</code><button class="rooz-copy" type="button" data-copy="curl -fsSL https://rooz.dev/install.sh | sh" title="Copy">Copy</button></div>
+<div class="rooz-cta"><a class="rooz-btn rooz-btn-primary" href="getting-started.html">Get started <span aria-hidden="true">→</span></a><a class="rooz-btn" href="https://github.com/queil/rooz">GitHub</a></div>
+</div>
+<div class="rooz-hero-art"><img src="rooz512.webp" alt="Kangaroos carrying a shipping container"></div>
+</div>
 
-<p align="center"><img width="180" src="rooz512.webp" alt="Rooz"></p>
+<div class="rooz-terminal" aria-label="Quick start">
+<div class="rooz-terminal-bar"><i></i><i></i><i></i><span>quick start</span></div>
+<pre><span class="t-p">$</span> rooz system init                                   <span class="t-c"># SSH and age keys</span>
+<span class="t-p">$</span> rooz new -g git@github.com:your/repo myworkspace   <span class="t-c"># create a workspace from a repo</span>
+<span class="t-p">$</span> rooz enter myworkspace                             <span class="t-c"># open a shell in it</span>
+<span class="t-p">$</span> <span class="t-cursor"></span></pre>
+</div>
 
-Rooz is a CLI for working in containers, aimed at developers and DevOps engineers. Features: git repositories, SSH key generation, git-safe secrets, shared caches, sidecar containers, declarative configuration. It shares as little as possible with the host, so it can also run workspaces on remote Docker/Podman hosts.
+<div class="rooz-features">
+<a class="rooz-card" href="usage.html#create-a-workspace-from-a-git-repo"><b>Git built in</b><span>Clone a repo straight into the workspace volume - plus extra repos alongside it.</span></a>
+<a class="rooz-card" href="getting-started.html#initialize"><b>SSH keys</b><span>One generated ed25519 key, mounted read-only into every work container.</span></a>
+<a class="rooz-card" href="secrets.html"><b>Git-safe secrets</b><span>age-encrypted values in config. The identity never leaves your machine.</span></a>
+<a class="rooz-card" href="usage.html#manage-caches"><b>Shared caches</b><span>Package caches shared across workspaces, so builds stay warm.</span></a>
+<a class="rooz-card" href="sidecars.html"><b>Sidecars</b><span>Databases and services next to your workspace - a minimal compose.</span></a>
+<a class="rooz-card" href="remote-hosts.html"><b>Remote hosts</b><span>Shares as little as possible with the host, so workspaces run on remote engines too.</span></a>
+</div>
 
 ## Requirements
 
