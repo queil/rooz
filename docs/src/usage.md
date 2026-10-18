@@ -1,18 +1,13 @@
-# Usage examples
+# Usage
 
-## Create an empty workspace
-
-```sh
-rooz new myworkspace
-```
-
-## Create a workspace from a git repo
+## Create a workspace
 
 ```sh
-rooz new -g git@github.com:your/repo myworkspace2
+rooz new myworkspace                                # empty
+rooz new -g git@github.com:your/repo myworkspace2   # from a git repo
 ```
 
-## Enter a previously created workspace
+## Enter a workspace
 
 ```sh
 rooz enter myworkspace2
@@ -24,8 +19,8 @@ rooz enter myworkspace2
 rooz exec myworkspace2 -- cargo test
 ```
 
-Passes stdout and stderr through separately, with no tty or stdin, and exits with the command's exit code.
-* `--root`, `--work-dir` and `--container` (a sidecar) work as in `enter`.
+No tty or stdin. stdout and stderr pass through separately, and rooz exits with the command's exit code.
+`--root`, `--work-dir` and `--container` (a sidecar) work as in `enter`.
 
 ## Inspect workspaces
 
@@ -35,17 +30,17 @@ rooz status myworkspace2 [--json]        # containers, volumes, config origin
 rooz logs myworkspace2 [-c sidecar] [-f] [--tail 100]
 ```
 
-## Editor support and inspecting merged config
+## Schema and merged config
 
 ```sh
 rooz config schema > rooz.schema.json              # JSON Schema of the config file
-rooz config show myworkspace --resolved            # merged settings, one row each, with the layer it came from
+rooz config show myworkspace --resolved            # merged settings, each with the layer it came from
 ```
 
-* Use the schema with a YAML language server: add a `# yaml-language-server: $schema=./rooz.schema.json`
-  first line, or set your editor's `yaml.schemas`.
-* `--resolved` merges stored defaults, `bases` and config as a run does. Templates stay unexpanded;
-  secret values show as `***`. Flags given to `rooz new` are not recorded, so not shown.
+* For editor completion and validation, start a config file with
+  `# yaml-language-server: $schema=./rooz.schema.json`, or set your editor's `yaml.schemas`.
+* `--resolved` merges stored defaults, `bases` and config the way a run does. Templates stay unexpanded
+  and secrets show as `***`. Flags passed to `rooz new` are not recorded, so they do not appear.
 
 ## Start a config from your project
 
@@ -53,7 +48,7 @@ rooz config show myworkspace --resolved            # merged settings, one row ea
 rooz config template --detect > ws.rooz.yaml   # or --detect path/to/project
 ```
 
-Prints a commented starter config. `--detect` sets the image and the toolchain's cache paths from:
+Prints a commented starter config. `--detect` picks the image and the toolchain's cache paths from:
 
 | File                                    | Image                                       |
 |-----------------------------------------|---------------------------------------------|
@@ -63,8 +58,9 @@ Prints a commented starter config. `--detect` sets the image and the toolchain's
 | `pyproject.toml` / `requirements.txt`   | `python:3`                                  |
 | `*.sln` / `*.csproj`                    | `mcr.microsoft.com/dotnet/sdk:<highest TargetFramework>`, default `10.0` |
 
-`rooz update` re-pulls floating tags. .NET is pinned because the SDK image only has its own runtime.
-With several stacks, the first picks the image; caches of all are listed.
+Floating tags get updates through `rooz update`. .NET is pinned because an SDK image carries only its
+own runtime. For a project with several stacks, the first one found sets the image; caches are listed
+for all of them.
 
 ## Rename a workspace
 
@@ -72,13 +68,14 @@ With several stacks, the first picks the image; caches of all are listed.
 rooz move myworkspace newname [--dry-run]
 ```
 
-* Stops the old workspace, copies its work and data volumes to the new name (volumes cannot be
-  renamed), rebuilds it from its stored config and removes the old one.
-* Secrets need the same consent as `rooz update`.
-* The new name must be free; it never replaces.
-* On failure, the partial new workspace is removed and the old one is kept.
-* Needs about twice the workspace's disk space. Install steps rerun; workspace processes end.
-* Afterwards, `rooz enter` it (as after `rooz new`).
+Volumes cannot be renamed, so rooz stops the workspace, copies its work and data volumes to the new
+name, rebuilds it from its stored config and removes the old one.
+
+* The new name must be free; nothing is overwritten.
+* Secrets need the same consent as for `rooz update`.
+* Needs about twice the workspace's disk space. Install steps run again; processes in the workspace end.
+* On failure, the partial new workspace is removed and the old one kept.
+* `rooz enter` the new name afterwards, as after `rooz new`.
 
 ## Move a workspace to another host
 
@@ -86,15 +83,18 @@ rooz move myworkspace newname [--dry-run]
 rooz move myworkspace --to buildbox [newname] [--remove-source] [--dry-run]
 ```
 
-* Source: the current engine (`-H`/`DOCKER_HOST`). Target: a host from `rooz remote`. Both must be
-  connected.
-* Volumes stream through this machine as tar (owners, modes, symlinks preserved; not buffered in memory).
-* Rebuilt on the target with `rooz new` from its config file, which must still be on this machine.
-* The source is left stopped. `--remove-source` removes it; otherwise `rooz rm` it yourself.
-* On failure, the partial target workspace is removed and the source is restarted.
-* Not moved: caches, images, the SSH key (run `rooz system init` on the target and register its
-  public key).
-* Warns if the target CPU architecture differs: compiled artifacts will not run.
+Moves from the current engine (`-H`/`DOCKER_HOST`) to a host from `rooz remote`. Both must be
+connected.
+
+* Volumes stream through this machine as tar, preserving owners, modes and symlinks, without buffering
+  in memory.
+* The target is rebuilt with `rooz new` from the workspace's config file, which must still be on this
+  machine.
+* The source is left stopped. Remove it with `--remove-source`, or later with `rooz rm`.
+* On failure, the partial target is removed and the source restarted.
+* Caches, images and the SSH key are not moved. Run `rooz system init` on the target and register its
+  public key.
+* Rooz warns if the target CPU architecture differs: compiled artifacts will not run there.
 
 ## Check the setup
 
@@ -102,13 +102,9 @@ rooz move myworkspace --to buildbox [newname] [--remove-source] [--dry-run]
 rooz doctor
 ```
 
-Checks that:
-
-* the engine is reachable and recent enough
-* `rooz system init` was run (system config and SSH key volumes, age identity on this machine)
-* on Docker: usage of the default network address pool
-
-Exits non-zero if something is missing.
+Checks that the engine is reachable and recent enough, and that `rooz system init` has run (system
+config and SSH key volumes, age identity on this machine). On Docker, it also reports usage of the
+default network address pool. Exits non-zero if anything is missing.
 
 ## Manage caches
 
@@ -118,10 +114,12 @@ rooz cache rm '~/.cargo'                # by path, or by name as shown in 'ls'
 rooz cache prune [--dry-run]            # removes every cache no workspace mounts
 ```
 
-`rm` and `prune` only affect your own scope (see `ROOZ_CACHE_SCOPE`) and refuse caches mounted by a
-container. Size shows `-` on engines without disk usage reporting.
+`rm` and `prune` act on your own scope only (see `ROOZ_CACHE_SCOPE`). `rm` refuses a cache a container
+mounts; `prune` leaves it. Size shows `-` on engines that do not report disk usage.
 
-## Interactive shell in an anonymous ephemeral workspace
+## Throwaway shell
+
+An anonymous workspace, removed when you exit:
 
 ```sh
 rooz tmp --image alpine --shell sh

@@ -14,3 +14,6 @@ default-theme = "navy"
 preferred-dark-theme = "navy"
 additional-css = ["theme/rooz.css"]
 additional-js = ["theme/version.js", "theme/home.js"]
+
+[output.html.print]
+enable = false

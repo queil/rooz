@@ -1,22 +1,23 @@
-# Running with Podman
+# Podman
 
-1. Enable the podman remote socket. `podman info` should contain:
+1. Enable Podman's API socket. `podman info` should show:
 
-```yaml
-remoteSocket:
-    exists: true
-    path: /run/user/1000/podman/podman.sock
-```
+   ```yaml
+   remoteSocket:
+       exists: true
+       path: /run/user/1000/podman/podman.sock
+   ```
 
-If `exists: true` is missing, run `systemctl --user enable --now podman.socket`.
+   If `exists: true` is missing, run `systemctl --user enable --now podman.socket`.
 
-2. Expose the socket as `DOCKER_HOST`:
+2. Point `DOCKER_HOST` at the socket:
 
-```
-export DOCKER_HOST=unix:///run/user/1000/podman/podman.sock
-```
+   ```sh
+   export DOCKER_HOST=unix:///run/user/1000/podman/podman.sock
+   ```
 
-3. Use fully-qualified image names, or define unqualified-search registries in `/etc/containers/registries.conf`.
+3. Use fully qualified image names, or set `unqualified-search-registries` in
+   `/etc/containers/registries.conf`.
 
-4. Complex podman-in-podman scenarios (e.g. networking) may need `--privileged`
-   ([more info](https://www.redhat.com/sysadmin/privileged-flag-container-engines)).
+Nested Podman setups (e.g. with their own networking) may need `--privileged`
+([why](https://www.redhat.com/sysadmin/privileged-flag-container-engines)).

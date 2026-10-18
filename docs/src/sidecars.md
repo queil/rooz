@@ -1,6 +1,7 @@
 # Sidecars
 
-Sidecars are containers running alongside the work container - a minimal docker-compose. Define them in the config file only:
+Sidecars are containers that run next to the work container, a minimal docker-compose. They are defined
+in the config file only:
 
 ```yaml
 sidecars:
@@ -15,68 +16,79 @@ sidecars:
     image: my:tools
 ```
 
-`image` may be omitted in a single config layer (e.g. an overlay extending a sidecar from `bases:`), but must be set once all layers are merged, or workspace creation fails.
+A single config layer may omit `image`, e.g. an overlay extending a sidecar from `bases:`, but it must be
+set once all layers are merged, or workspace creation fails.
 
-`--container <name>` targets a sidecar instead of the work container in `rooz enter`, `rooz exec` and `rooz logs`.
+`--container <name>` targets a sidecar instead of the work container in `rooz enter`, `rooz exec` and
+`rooz logs`.
 
 ## Networking
 
-Hub-and-spoke:
+Hub and spoke:
 
-* the work container reaches every sidecar over a dedicated pair network, by sidecar name (`sql`, `tools` above); container ID and IP also work
-* every sidecar can reach the work container (pair networks are symmetric - keep its listeners minimal)
-* sidecars reach each other only via `peers:` (or both setting `egress: true`)
-* sidecars have no internet access unless `egress: true`
-* workspaces are isolated from each other
+* The work container reaches every sidecar by name (`sql`, `tools` above) over a dedicated pair network.
+  Container ID and IP work too.
+* Every sidecar can reach the work container: pair networks are symmetric, so keep its listeners minimal.
+* Sidecars reach each other only through `peers:`, or when both have `egress: true`.
+* Sidecars have no internet access unless `egress: true`.
+* Workspaces are isolated from each other.
 
-`peers:` lists sidecars this sidecar may reach:
+`peers:` lists the sidecars a sidecar may reach:
 
-* each relation gets its own network; sidecars resolve each other by name on it
-* `a: peers [b]` equals `b: peers [a]`
-* names must refer to sidecars in the same workspace
-* merged as a deduplicated union across config layers (other lists are replaced): overlays can add edges, not remove them
+* Each relation gets its own network, on which the two resolve each other by name.
+* `a: peers [b]` is the same as `b: peers [a]`.
+* Names must be sidecars of the same workspace.
+* Across config layers, `peers` merges as a deduplicated union, unlike other lists, which are replaced:
+  overlays can add edges, not remove them.
 
-  ```yaml
-  sidecars:
-    claude:
-      peers: [proxy]   # no internet; reaches it only via the proxy
-    proxy:
-      egress: true     # internet access
-    dkr:
-      peers: [images]  # docker-in-docker pulling via the mirror
-    images:
-      egress: true     # registry pull-through cache, needs internet
-  ```
+```yaml
+sidecars:
+  claude:
+    peers: [proxy]   # no internet; reaches it only via the proxy
+  proxy:
+    egress: true     # internet access
+  dkr:
+    peers: [images]  # docker-in-docker pulling via the mirror
+  images:
+    egress: true     # registry pull-through cache, needs internet
+```
 
-⚠️ Rooz creates one network per workspace, one per sidecar and one per peer relation. Docker's default address pools allow only ~31 networks host-wide. On an address-pool error, set `default-address-pools` with a smaller subnet size (e.g. `"size": 24`) in `daemon.json`. Podman (netavark) is not affected.
+> [!WARNING]
+> Rooz creates one network per workspace, plus one per sidecar and one per peer relation. Docker's
+> default address pools allow only about 31 networks per host. On an address pool error, set
+> `default-address-pools` with a smaller subnet size (e.g. `"size": 24`) in `daemon.json`. Podman
+> (netavark) is not affected.
 
 ## Keys
 
-* `image` - container image
-* `env` - environment variables
-* `command` - override entrypoint (`ENTRYPOINT`)
-* `args` - override entrypoint arguments (`CMD`)
-* `mounts` - container path to a `data` key or inline `content:`/`file:`, as in the work container's `mounts`. Volumes survive container restarts/deletes:
+* `image`: container image.
+* `env`: environment variables.
+* `command`: overrides the entrypoint (`ENTRYPOINT`).
+* `args`: overrides the entrypoint's arguments (`CMD`).
+* `mounts`: container paths mapped to a `data` key or to inline `content:`/`file:`, as in the work
+  container's `mounts`. Volumes survive container restarts and removal:
 
-```yaml
-data:
-  sql-data: {}   # empty rw volume
-sidecars:
-  sql:
-    mounts:
-      /var/opt/mssql: sql-data
-      /etc/tool/config.json:
-        content: |-
-          {"some": "config"}
-```
+  ```yaml
+  data:
+    sql-data: {}   # empty rw volume
+  sidecars:
+    sql:
+      mounts:
+        /var/opt/mssql: sql-data
+        /etc/tool/config.json:
+          content: |-
+            {"some": "config"}
+  ```
 
-* `ports` - port bindings, same format as [work container ports](configuration.md#port-mappings)
-* `vpn` (`bool`) - grants `NET_ADMIN`, `/dev/net/tun` and `src_valid_mark` for in-sidecar VPNs, with operator consent (see [VPN sidecars](configuration.md#vpn-sidecars))
-* `peers` - sidecars this one may reach (see [Networking](#networking))
-* `egress` (`bool`, default `false`) - outbound internet access: joins the workspace's `<workspace>-egress` network, shared with the work container and other egress sidecars. Install steps always have internet access.
-* `install` - install steps, built into an image (see [Sidecars](configuration.md#sidecars))
-* `uid` - uid to run as (default `0`)
-* `shell` - shell for `rooz enter --container` (default `sh`)
-* `init` (`bool`, default `true`) - run an init process as pid 1
-* `privileged` (`bool`) - with operator consent (see [Privileged containers](configuration.md#privileged-containers))
-* `work_dir` - working directory
+* `ports`: port bindings, in the same format as [work container ports](configuration.md#ports).
+* `vpn` (bool): grants `NET_ADMIN`, `/dev/net/tun` and `src_valid_mark` for a VPN in the sidecar, with
+  operator consent. See [VPN sidecars](configuration.md#vpn-sidecars).
+* `peers`: sidecars this one may reach. See [Networking](#networking).
+* `egress` (bool, default `false`): outbound internet access. Joins the `<workspace>-egress` network,
+  shared with the work container and other egress sidecars. Install steps always have internet access.
+* `install`: install steps, built into an image. See [Sidecar images](configuration.md#sidecar-images).
+* `uid`: uid to run as (default `0`).
+* `shell`: shell for `rooz enter --container` (default `sh`).
+* `init` (bool, default `true`): run an init process as pid 1.
+* `privileged` (bool): with operator consent. See [Privileged containers](configuration.md#privileged-containers).
+* `work_dir`: working directory.

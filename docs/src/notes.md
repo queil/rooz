@@ -1,9 +1,12 @@
 # Notes
 
-## Other facts
+* Cloned repositories live in `/work/<repo_name>`, where `repo_name` is the directory git would clone
+  into by default.
+* `rooz new` and `rooz update` print one `[phase]` line per step (image, volumes, clone, container,
+  install) to stderr. `-v`/`--verbose` adds debug logging; so does `RUST_LOG=rooz`.
+* `rooz rm --all --force` removes every workspace but keeps shared cache volumes and the SSH key volume.
+* `rooz system prune` removes **all** rooz containers and volumes.
 
-* cloned repos are in `/work/{repo_name}`, `repo_name` being git's default clone directory name
-* `rooz new`/`update` print one `[phase]` line per step (image, volumes, clone, container, install) to stderr. `-v`/`--verbose` adds debug logging; `RUST_LOG=rooz` also works
-* `rooz system prune` removes ALL rooz containers and volumes. `rooz rm --all --force` removes only workspaces, keeping shared cache volumes and the SSH key volume
-
-  ⚠️ `rooz system prune` deletes all rooz state. Back up anything important first.
+> [!WARNING]
+> `rooz system prune` deletes all rooz state, caches and the SSH key included. Back up anything you
+> need first.

@@ -2,6 +2,8 @@
 
 [Introduction](introduction.md)
 
+# Guide
+
 - [Install](install.md)
 - [Getting started](getting-started.md)
 - [Usage](usage.md)
