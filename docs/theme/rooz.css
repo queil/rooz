@@ -549,7 +549,7 @@ html.rooz-home .menu-title {
     border-color: transparent;
     background: linear-gradient(100deg, var(--accent), color-mix(in srgb, var(--accent) 55%, var(--accent-2)));
     color: #071317;
-    box-shadow: 0 10px 28px -12px var(--accent);
+    box-shadow: 0 4px 12px -8px color-mix(in srgb, var(--accent) 50%, transparent);
 }
 
 .light .content a.rooz-btn-primary {
@@ -558,7 +558,7 @@ html.rooz-home .menu-title {
 
 .content a.rooz-btn-primary:hover {
     border-color: transparent;
-    box-shadow: 0 14px 32px -12px var(--accent);
+    box-shadow: 0 6px 16px -8px color-mix(in srgb, var(--accent) 60%, transparent);
 }
 
 .rooz-hero-art {
