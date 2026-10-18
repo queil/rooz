@@ -1,0 +1,4 @@
+<!-- Sidebar collapsed by default: seed mdBook's stored preference before its body script reads it. A visitor's own toggle is kept. -->
+<script>
+    try { if (localStorage.getItem("mdbook-sidebar") === null) localStorage.setItem("mdbook-sidebar", "hidden"); } catch (e) { }
+</script>
