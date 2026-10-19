@@ -189,7 +189,7 @@ impl<'a> WorkspaceApi<'a> {
                     .await?;
                 self.api.volume.copy_volume(&m.from, &m.to).await?;
             }
-            self.new(to, &params, config_source, false).await?;
+            self.new(to, &params, config_source, false, false).await?;
             Ok(())
         }
         .await;
@@ -217,17 +217,7 @@ impl<'a> WorkspaceApi<'a> {
     pub async fn preflight_destination(&self, name: &str) -> Result<String, AnyError> {
         id::validate_workspace_name(name)?;
         self.ensure_name_free(name).await?;
-        let ssh_key = VolumeSpec {
-            name: crate::util::ssh::VOLUME_NAME.to_string(),
-            labels: None,
-        };
-        if !self.api.volume.exists_for(&ssh_key).await? {
-            return Err(
-                "This engine has no rooz ssh key. Run 'rooz system init' against it first \\
-                        and register the printed public key with your git hosts."
-                    .into(),
-            );
-        }
+        self.api.volume.require_ssh_key().await?;
         Ok(self.api.container.backend.platform.to_string())
     }
 

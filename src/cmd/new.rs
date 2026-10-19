@@ -382,6 +382,7 @@ impl<'a> WorkspaceApi<'a> {
         force: bool,
         stored_config: Option<StoredConfig>,
         operator_authored: bool,
+        rewrite_files: bool,
     ) -> Result<EnterSpec, AnyError> {
         let (cfg, decrypted_secrets) = self
             .resolve_runtime(cfg_builder, &cli_config, cli_params, operator_authored)
@@ -446,7 +447,8 @@ impl<'a> WorkspaceApi<'a> {
         let container_mounts = self.api.volume.mounts(&real_mounts).await?;
         for (_, m) in real_mounts.clone() {
             let created = matches!(volume_results[&m.volume_name], VolumeResult::Created);
-            if created || !m.files.is_empty() {
+            // on 'new' an existing volume was copied here by a move, so it keeps what it holds
+            if created || (rewrite_files && !m.files.is_empty()) {
                 self.api
                     .volume
                     .populate_volume(m, Some(work_spec.uid.to_string().parse::<i32>()?), created)
@@ -678,9 +680,18 @@ impl<'a> WorkspaceApi<'a> {
         cli_params: &WorkParams,
         cli_config_path: Option<ConfigSource>,
         ephemeral: bool,
+        rewrite_files: bool,
     ) -> Result<EnterSpec, AnyError> {
+        self.api.volume.require_ssh_key().await?;
         match self
-            .new_inner(workspace_key, cli_params, cli_config_path, ephemeral, None)
+            .new_inner(
+                workspace_key,
+                cli_params,
+                cli_config_path,
+                ephemeral,
+                rewrite_files,
+                None,
+            )
             .await?
         {
             NewOutcome::Created(spec) => Ok(spec),
@@ -705,6 +716,7 @@ impl<'a> WorkspaceApi<'a> {
                 cli_params,
                 cli_config_path,
                 false,
+                false,
                 Some(mode),
             )
             .await?
@@ -720,6 +732,7 @@ impl<'a> WorkspaceApi<'a> {
         cli_params: &WorkParams,
         cli_config_path: Option<ConfigSource>,
         ephemeral: bool,
+        rewrite_files: bool,
         plan: Option<PlanMode>,
     ) -> Result<NewOutcome, AnyError> {
         let orig_uid = cli_params
@@ -829,6 +842,7 @@ impl<'a> WorkspaceApi<'a> {
                 false,
                 stored_config,
                 operator_authored,
+                rewrite_files,
             )
             .await?;
 
@@ -845,7 +859,7 @@ impl<'a> WorkspaceApi<'a> {
             config,
             ..
         } = self
-            .new(&id::random_suffix("tmp"), spec, None, true)
+            .new(&id::random_suffix("tmp"), spec, None, true, false)
             .await?;
 
         let working_dir = git_spec

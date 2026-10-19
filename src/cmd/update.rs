@@ -62,6 +62,8 @@ impl<'a> WorkspaceApi<'a> {
             return Ok(());
         }
 
+        self.api.volume.require_ssh_key().await?;
+
         // pull before anything is removed: a failed pull must leave the workspace as it was. Only
         // an image named by the config or the environment is known here; one that comes from
         // 'bases' is still pulled by 'new'.
@@ -93,6 +95,7 @@ impl<'a> WorkspaceApi<'a> {
             },
             config_source,
             false,
+            true,
         )
         .await?;
 

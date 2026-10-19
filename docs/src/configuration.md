@@ -249,8 +249,8 @@ they share it, e.g. a cluster's admin config written by a sidecar and read by th
 ### Lifecycle
 
 * Volumes (`{}`) keep their data across `rooz update`. `rooz rm` and `rooz update --purge` delete them.
-* Files follow the config: `rooz new` and `rooz update` write every file again, overwriting changes
-  made in the container. `generate:` scripts run again too.
+* Files follow the config: `rooz update` writes every file again, overwriting changes made in the
+  container, and runs `generate:` scripts again. Moving or renaming a workspace keeps them as they are.
 * A `once` file is written only when nothing is at its path, then belongs to the containers: history,
   a generated key, a file a sidecar fills in. Its content is only the initial value; later config
   changes don't reach it.

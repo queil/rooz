@@ -5,8 +5,8 @@ use crate::model::types::{
     ContentGenerator, DataEntryKey, DataEntryVolumeSpec, FileName, FileSpec, OneShotResult,
     TargetDir, TargetPath, UserFile, VolumeFilesSpec, VolumeName, VolumeSpec,
 };
-use crate::util::labels::{self, DATA_ROLE, WORK_ROLE};
-use crate::util::{id, sh};
+use crate::util::labels::{self, DATA_ROLE, SSH_KEY_ROLE, WORK_ROLE};
+use crate::util::{id, sh, ssh};
 use crate::{
     api::VolumeApi,
     constants,
@@ -239,6 +239,34 @@ impl<'a> VolumeApi<'a> {
             Err(DockerResponseServerError {
                 status_code: 404, ..
             }) => Ok(false),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    // Every container mounting the key needs 'rooz system init' to have run first: a mount
+    // naming a missing volume makes the engine create it empty and unlabelled, and init then
+    // refuses to reuse it.
+    pub async fn require_ssh_key(&self) -> Result<(), AnyError> {
+        let spec = VolumeSpec {
+            name: ssh::VOLUME_NAME.to_string(),
+            labels: Some(Labels::from(&[Labels::role(SSH_KEY_ROLE)])),
+        };
+        match self.client.inspect_volume(&spec.name).await {
+            Ok(volume) => validate_reuse(&spec, &volume.labels).map_err(|e| {
+                format!(
+                    "{}. If a rooz run before 'rooz system init' left it behind, it is empty: \
+                     remove it with 'docker volume rm {}' and run 'rooz system init'.",
+                    e, spec.name
+                )
+                .into()
+            }),
+            Err(DockerResponseServerError {
+                status_code: 404, ..
+            }) => Err(
+                "This engine has no rooz ssh key. Run 'rooz system init' against it first \
+                       and register the printed public key with your git hosts."
+                    .into(),
+            ),
             Err(e) => Err(e.into()),
         }
     }

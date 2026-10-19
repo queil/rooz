@@ -239,6 +239,7 @@ fn scratch_mount(target: &str) -> Mount {
 
 impl<'a> GitApi<'a> {
     async fn clone_from_spec(&self, spec: &CloneEnv, urls: &CloneUrls) -> Result<String, AnyError> {
+        self.api.volume.require_ssh_key().await?;
         let mut clone_script = ssh::ensure_config_script("/tmp/.ssh");
         let all_urls: Vec<String> = match &urls {
             CloneUrls::Root { url } => vec![url.to_string()],

@@ -34,6 +34,7 @@ impl<'a> WorkspaceApi<'a> {
             .ensure_mounts(&volumes, Some(&home_dir))
             .await?;
 
+        self.api.volume.require_ssh_key().await?;
         mounts.push(ssh::mount(
             Path::new(&home_dir).join(".ssh").to_string_lossy().as_ref(),
             true,

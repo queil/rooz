@@ -213,6 +213,48 @@ async fn rm_ignores_decoy_volume() {
     env.remove_decoy_volume(&decoy).await;
 }
 
+// Without 'system init', 'new' must refuse before mounting the key: the mount alone would make the
+// engine create an empty, unlabelled key volume that init then refuses to reuse.
+#[tokio::test]
+async fn new_without_ssh_key_refuses_and_creates_nothing() {
+    let Some(env) = TestEnv::from_env() else {
+        return;
+    };
+    let key = unique_key("no-key");
+    let ssh_vol = "rooz_ssh-key";
+
+    env.rooz().args(["system", "prune"]).assert().success();
+    if env.volume_exists(ssh_vol).await {
+        env.remove_decoy_volume(ssh_vol).await;
+    }
+
+    env.rooz()
+        .args(["new", &key, "--image", "alpine:latest"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("rooz system init"));
+    assert!(
+        !env.volume_exists(ssh_vol).await,
+        "a refused 'new' must not leave a key volume behind"
+    );
+
+    // a key volume left by an older rooz: refused, with the way out
+    env.create_decoy_volume(ssh_vol).await;
+    env.rooz()
+        .args(["new", &key, "--image", "alpine:latest"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("remove it with"));
+    env.remove_decoy_volume(ssh_vol).await;
+
+    env.rooz().args(["system", "init"]).assert().success();
+    env.rooz()
+        .args(["new", &key, "--image", "alpine:latest"])
+        .assert()
+        .success();
+    env.rooz().args(["rm", &key, "--force"]).assert().success();
+}
+
 // ── dry run ──────────────────────────────────────────────────────────────────
 
 #[tokio::test]
