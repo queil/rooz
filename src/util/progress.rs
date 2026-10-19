@@ -73,12 +73,26 @@ mod tests {
         assert_eq!(host_tag("dkr").to_string(), host_tag("dkr").to_string());
     }
 
+    // colour codes stripped rather than switched off: the override is process-wide and
+    // other tests turn it on
+    fn plain(s: String) -> String {
+        let mut out = String::new();
+        let mut chars = s.chars();
+        while let Some(c) = chars.next() {
+            if c == '\x1b' {
+                chars.by_ref().find(|c| *c == 'm');
+            } else {
+                out.push(c);
+            }
+        }
+        out
+    }
+
     #[test]
     fn install_tag_plain_text() {
-        colored::control::set_override(false);
-        assert_eq!(install_tag("claude", None), "[install:claude]");
+        assert_eq!(plain(install_tag("claude", None)), "[install:claude]");
         assert_eq!(
-            install_tag("claude", Some("proxy-cert")),
+            plain(install_tag("claude", Some("proxy-cert"))),
             "[install:claude:proxy-cert]"
         );
     }
