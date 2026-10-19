@@ -367,9 +367,8 @@ impl<'a> ExecApi<'a> {
             .collect::<Vec<_>>()
             .join(", ");
         println!(
-            "{} {} steps: {}",
-            progress::tag("install"),
-            container_name,
+            "{} steps: {}",
+            progress::install_tag(container_name, None),
             step_names
         );
         for (idx, step) in steps.iter().enumerate() {
@@ -386,23 +385,17 @@ impl<'a> ExecApi<'a> {
                     == 0
                 {
                     println!(
-                        "{} {}: {} skipped",
-                        progress::tag("install"),
-                        container_name,
-                        step.name
+                        "{} skipped",
+                        progress::install_tag(container_name, Some(&step.name))
                     );
                     continue;
                 }
             }
-            let cmd = format!(
-                r#"#!/bin/sh
-set -e
-echo '[install] {}: {}'
-{}"#,
-                container_name,
-                step.name,
-                script_body(&step.run)
+            println!(
+                "{}",
+                progress::install_tag(container_name, Some(&step.name))
             );
+            let cmd = format!("#!/bin/sh\nset -e\n{}", script_body(&step.run));
             let install_cmd = inject(cmd.as_str(), &format!("install-{}.sh", idx));
             let v = install_cmd.iter().map(|x| x.as_str()).collect::<Vec<_>>();
             self.run("install", container_id, user, Some(v))

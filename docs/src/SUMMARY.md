@@ -7,6 +7,7 @@
 - [Install](install.md)
 - [Getting started](getting-started.md)
 - [Usage](usage.md)
+- [VS Code](vscode.md)
 - [Configuration](configuration.md)
 - [Variables and templating](templating.md)
 - [Secrets](secrets.md)

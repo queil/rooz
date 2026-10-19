@@ -25,6 +25,21 @@ pub fn tag(label: &str) -> String {
     format!("[{}]", label).color(phase_color(label)).to_string()
 }
 
+/// `[install:{container}]` or `[install:{container}:{step}]`; the container keeps a stable colour.
+pub fn install_tag(container: &str, step: Option<&str>) -> String {
+    let green = |s: &str| s.color(phase_color("install")).to_string();
+    let mut out = format!(
+        "{}{}",
+        green("[install:"),
+        container.color(host_color(container)).bold()
+    );
+    if let Some(step) = step {
+        out.push_str(&format!("{}{}", green(":"), step.bold()));
+    }
+    out.push_str(&green("]"));
+    out
+}
+
 fn host_color(name: &str) -> Color {
     let h = name
         .bytes()
@@ -56,5 +71,15 @@ mod tests {
         colored::control::set_override(true);
         assert!(host_tag("dkr").to_string().contains("[dkr]"));
         assert_eq!(host_tag("dkr").to_string(), host_tag("dkr").to_string());
+    }
+
+    #[test]
+    fn install_tag_plain_text() {
+        colored::control::set_override(false);
+        assert_eq!(install_tag("claude", None), "[install:claude]");
+        assert_eq!(
+            install_tag("claude", Some("proxy-cert")),
+            "[install:claude:proxy-cert]"
+        );
     }
 }

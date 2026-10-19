@@ -63,9 +63,4 @@ locally, or forwarded for another host, is skipped with a warning.
 
 ## VS Code
 
-`rooz code` starts `code` with `DOCKER_HOST` set to the host's socket. A VS Code that is already running
-may ignore it and use its `docker.host` setting instead:
-
-```json
-"docker.host": "unix:///run/user/1000/rooz/box1.sock"
-```
+See [VS Code: remote hosts](vscode.md#remote-hosts).

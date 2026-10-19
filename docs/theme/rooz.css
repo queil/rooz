@@ -819,6 +819,41 @@ html.rooz-home .menu-title {
     line-height: 1.55;
 }
 
+.content a.rooz-band {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 0 0 16px;
+    padding: 20px 24px;
+    border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--surface-border));
+    border-radius: 14px;
+    background: linear-gradient(
+        120deg,
+        color-mix(in srgb, var(--accent) 12%, var(--surface)),
+        color-mix(in srgb, var(--accent-2) 8%, var(--surface))
+    );
+    color: var(--fg);
+    text-decoration: none;
+    transition: transform 0.18s, border-color 0.18s;
+}
+
+.content a.rooz-band:hover {
+    transform: translateY(-2px);
+    border-color: color-mix(in srgb, var(--accent) 70%, var(--surface-border));
+}
+
+.rooz-band b {
+    font-family: var(--display-font);
+    font-size: 1.15em;
+    letter-spacing: -0.01em;
+}
+
+.rooz-band span {
+    color: var(--muted);
+    font-size: 0.92em;
+    line-height: 1.55;
+}
+
 @media (max-width: 1100px) {
     .rooz-features {
         grid-template-columns: repeat(2, 1fr);

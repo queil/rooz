@@ -182,7 +182,7 @@ impl<'a> WorkspaceApi<'a> {
                     self.api.container.start(&container_id).await?;
                     self.api
                         .exec
-                        .install(&container_name, &container_id, install_steps)
+                        .install(name, &container_id, install_steps)
                         .await?;
                     let committed = self
                         .api

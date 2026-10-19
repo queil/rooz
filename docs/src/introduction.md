@@ -14,6 +14,7 @@
 <pre><span class="t-p">$</span> rooz system init                                   <span class="t-c"># SSH and age keys</span>
 <span class="t-p">$</span> rooz new -g git@github.com:your/repo myworkspace   <span class="t-c"># create a workspace from a repo</span>
 <span class="t-p">$</span> rooz enter myworkspace                             <span class="t-c"># open a shell in it</span>
+<span class="t-p">$</span> rooz code myworkspace                              <span class="t-c"># or open it in VS Code</span>
 <span class="t-p">$</span> <span class="t-cursor"></span></pre>
 </div>
 
@@ -25,6 +26,8 @@
 <a class="rooz-card" href="sidecars.html"><b>Sidecars</b><span>Databases and services next to your workspace - a minimal compose.</span></a>
 <a class="rooz-card" href="remote-hosts.html"><b>Remote hosts</b><span>Shares as little as possible with the host, so workspaces run on remote engines too.</span></a>
 </div>
+
+<a class="rooz-band" href="vscode.html"><b>VS Code, inside the container</b><span><code>rooz code myworkspace</code> attaches VS Code to the workspace. Extensions, terminals and debuggers run in the container; a volume keeps them across rebuilds.</span></a>
 
 ## Requirements
 
