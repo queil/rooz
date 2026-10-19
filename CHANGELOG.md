@@ -8,6 +8,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases before 0.159.0 predate this
 file - see the git history.
 
+## [0.168.4] - 2026-10-19
+
+### Fixed
+
+- Moving a workspace kept edits made in the work container's data files, but rewrote its sidecars'
+  files from the config. Sidecars now keep them too; only `rooz update` rewrites files.
+
 ## [0.168.3] - 2026-10-19
 
 ### Added
