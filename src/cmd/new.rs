@@ -549,25 +549,8 @@ impl<'a> WorkspaceApi<'a> {
                 .await?;
         }
 
-        let cfg2 = self
-            .ensure_sidecars(
-                &cfg2,
-                workspace_key,
-                force,
-                cli_params.pull_image || rebuild.is_some_and(|r| r.pull_sidecar_images),
-                rebuild.is_some(),
-                rebuild.map(|r| &r.sidecar_images),
-            )
-            .await?;
-
+        let sidecars_input = cfg2.clone();
         labels.extend(&[Labels::container(constants::DEFAULT_CONTAINER_NAME)]);
-
-        self.config
-            .store_runtime(
-                workspace_key,
-                &cfg2.mask_secrets(&decrypted_secrets).to_string()?,
-            )
-            .await?;
 
         let work_spec = WorkSpec {
             image: &cfg2.image,
@@ -608,7 +591,26 @@ impl<'a> WorkspaceApi<'a> {
         };
 
         progress::phase("container", work_spec.container_name);
-        let ws = self.create(&work_spec).await?;
+        // the sidecars and the work container are independent until they start: their images
+        // build and their install steps run side by side
+        let (sidecars_cfg, ws) = futures::try_join!(
+            self.ensure_sidecars(
+                &sidecars_input,
+                workspace_key,
+                force,
+                cli_params.pull_image || rebuild.is_some_and(|r| r.pull_sidecar_images),
+                rebuild.is_some(),
+                rebuild.map(|r| &r.sidecar_images),
+            ),
+            self.create(&work_spec),
+        )?;
+
+        self.config
+            .store_runtime(
+                workspace_key,
+                &sidecars_cfg.mask_secrets(&decrypted_secrets).to_string()?,
+            )
+            .await?;
         if !cfg2.extra_repos.is_empty() {
             progress::phase("clone", format!("{} extra repo(s)", cfg2.extra_repos.len()));
             self.git

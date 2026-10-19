@@ -367,6 +367,49 @@ async fn update_pulls_the_sidecar_base_image() {
     let _ = fs::remove_file(&cfg_path);
 }
 
+// Sidecar images build alongside the work container's install, so their output interleaves: every
+// line carries the tag of the container and step it came from.
+#[tokio::test]
+async fn install_output_is_tagged_per_container_and_step() {
+    let Some(env) = TestEnv::from_env() else {
+        return;
+    };
+    let key = unique_key("sc-tags");
+    let cfg_path = format!("/tmp/rooz-test-sidecar-tags-{}.yaml", key);
+    fs::write(
+        &cfg_path,
+        "image: alpine:latest\ninstall:\n  10-work: echo from-work\nsidecars:\n  svc:\n    image: alpine:latest\n    command:\n      - sleep\n    args:\n      - infinity\n    install:\n      10-svc: printf 'one\\ntwo'\n",
+    )
+    .expect("write sidecar config");
+
+    env.rooz()
+        .args(["system", "init", "--force"])
+        .assert()
+        .success();
+    let out = env
+        .rooz()
+        .args(["new", &key, "--config", &cfg_path])
+        .assert()
+        .success();
+    let stdout = String::from_utf8_lossy(&out.get_output().stdout).to_string();
+    for line in [
+        format!("[install:{}:10-work] from-work", key),
+        "[install:svc:10-svc] one".to_string(),
+        // a last line without a newline still comes out whole and tagged
+        "[install:svc:10-svc] two".to_string(),
+    ] {
+        assert!(
+            stdout.lines().any(|l| l == line),
+            "missing '{}' in:\n{}",
+            line,
+            stdout
+        );
+    }
+
+    env.rooz().args(["rm", &key, "--force"]).assert().success();
+    let _ = fs::remove_file(&cfg_path);
+}
+
 // ── vpn ───────────────────────────────────────────────────────────────────────
 
 fn vpn_sidecar_cfg(key: &str) -> String {

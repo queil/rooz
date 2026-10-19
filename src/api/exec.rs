@@ -59,23 +59,42 @@ async fn collect(stream: impl Stream<Item = Result<LogOutput, Error>>) -> Result
     Ok(String::from_utf8(out)?)
 }
 
-async fn log(stream: impl Stream<Item = Result<LogOutput, Error>>) -> Result<(), AnyError> {
+// With a tag, output goes out line by line, each line tagged: install steps of several
+// containers run at once, and their output interleaves.
+async fn log(
+    stream: impl Stream<Item = Result<LogOutput, Error>>,
+    tag: Option<&str>,
+) -> Result<(), AnyError> {
     use futures::stream::StreamExt;
     use std::io::Write;
 
     let mut stream = std::pin::pin!(stream);
-    let mut stdout = std::io::stdout();
+    let mut pending = Vec::<u8>::new();
+    let write_line = |line: &[u8]| -> Result<(), AnyError> {
+        let mut stdout = std::io::stdout().lock();
+        if let Some(tag) = tag {
+            write!(stdout, "{} ", tag)?;
+        }
+        stdout.write_all(line)?;
+        stdout.flush()?;
+        Ok(())
+    };
 
     while let Some(item) = stream.next().await {
-        match item {
-            Ok(output) => {
-                let bytes = output.into_bytes();
-                let text = std::str::from_utf8(bytes.as_ref())?;
-                stdout.write_all(text.as_bytes())?;
-                stdout.flush()?;
-            }
-            Err(err) => return Err(err.into()),
+        let bytes = item?.into_bytes();
+        if tag.is_none() {
+            write_line(std::str::from_utf8(bytes.as_ref())?.as_bytes())?;
+            continue;
         }
+        pending.extend_from_slice(&bytes);
+        while let Some(end) = pending.iter().position(|b| *b == b'\n') {
+            let line = pending.drain(..=end).collect::<Vec<_>>();
+            write_line(&line)?;
+        }
+    }
+    if !pending.is_empty() {
+        pending.push(b'\n');
+        write_line(&pending)?;
     }
 
     Ok(())
@@ -319,13 +338,25 @@ impl<'a> ExecApi<'a> {
         user: Option<&str>,
         cmd: Option<Vec<&str>>,
     ) -> Result<i64, AnyError> {
+        self.status_tagged(reason, container_id, user, cmd, None)
+            .await
+    }
+
+    async fn status_tagged(
+        &self,
+        reason: &str,
+        container_id: &str,
+        user: Option<&str>,
+        cmd: Option<Vec<&str>>,
+        tag: Option<&str>,
+    ) -> Result<i64, AnyError> {
         let exec_id = self
             .create_exec(reason, container_id, None, user, cmd, false)
             .await?;
         if let StartExecResults::Attached { output, .. } =
             self.client.start_exec(&exec_id, None).await?
         {
-            log(output).await?;
+            log(output, tag).await?;
         } else {
             return Err("Could not start exec: the engine returned no attached stream. Check that the container is running.".into());
         }
@@ -379,8 +410,9 @@ impl<'a> ExecApi<'a> {
                     &format!("skip-{}.sh", idx),
                 );
                 let v = check_cmd.iter().map(|x| x.as_str()).collect::<Vec<_>>();
+                let tag = progress::install_tag(container_name, Some(&step.name));
                 if self
-                    .status("install-check", container_id, user, Some(v))
+                    .status_tagged("install-check", container_id, user, Some(v), Some(&tag))
                     .await?
                     == 0
                 {
@@ -398,11 +430,20 @@ impl<'a> ExecApi<'a> {
             let cmd = format!("#!/bin/sh\nset -e\n{}", script_body(&step.run));
             let install_cmd = inject(cmd.as_str(), &format!("install-{}.sh", idx));
             let v = install_cmd.iter().map(|x| x.as_str()).collect::<Vec<_>>();
-            self.run("install", container_id, user, Some(v))
-                .await
-                .map_err(|e| -> AnyError {
-                    format!("install step '{}' failed: {}", step.name, e).into()
-                })?;
+            let tag = progress::install_tag(container_name, Some(&step.name));
+            match self
+                .status_tagged("install", container_id, user, Some(v), Some(&tag))
+                .await?
+            {
+                0 => (),
+                code => {
+                    return Err(format!(
+                        "install step '{}' failed: exec failed with exit code {}",
+                        step.name, code
+                    )
+                    .into());
+                }
+            }
         }
         Ok(())
     }

@@ -17,6 +17,9 @@ file - see the git history.
   config declaring a `dkr`, e.g. an untrusted `bases` layer with its own image, which then ran as host
   root. The refusal prints the value to set; it changes with the container's image, command, env,
   mounts or install steps. `=true` and `--privileged true` work as before.
+- Sidecar images build, and their install steps run, alongside the work container's install instead
+  of one after another. Install output is tagged per line with its container and step, as it
+  interleaves.
 - Install progress says why a step was skipped (`skipped: skip_if succeeded`), and `rooz update` prints a
   line when it reuses a sidecar's built image instead of running its steps.
 
