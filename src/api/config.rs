@@ -157,11 +157,19 @@ impl<'a> ConfigApi<'a> {
             .await
     }
 
-    fn edit_error(&self, message: &str) {
+    fn edit_error(&self, message: &str) -> Result<(), AnyError> {
         eprintln!("{}", "Error: Invalid configuration".bold().red());
         eprintln!("{}", message.red());
         eprintln!("Press any key to continue editing...");
-        io::stdin().read_line(&mut String::new()).unwrap();
+        // EOF (no terminal to edit in) would otherwise relaunch the editor forever
+        if io::stdin().read_line(&mut String::new())? == 0 {
+            return Err(format!(
+                "Invalid configuration, and no input to retry with: {}",
+                message
+            )
+            .into());
+        }
+        Ok(())
     }
 
     pub async fn edit_string(
@@ -176,14 +184,14 @@ impl<'a> ConfigApi<'a> {
             edited_body = match edit::edit(edited_body.clone()) {
                 Ok(b) => b,
                 Err(err) => {
-                    self.edit_error(&err.to_string());
+                    self.edit_error(&err.to_string())?;
                     continue;
                 }
             };
             edited_config = match RoozCfg::from_string(&edited_body, format) {
                 Ok(c) => c,
                 Err(err) => {
-                    self.edit_error(&err.to_string());
+                    self.edit_error(&err.to_string())?;
                     continue;
                 }
             };
@@ -195,7 +203,7 @@ impl<'a> ConfigApi<'a> {
                 self.edit_error(&format!(
                     "The key: '{}' can be only defined in either vars or secrets.",
                     duplicate_key
-                ));
+                ))?;
                 continue;
             };
             break;
@@ -214,14 +222,14 @@ impl<'a> ConfigApi<'a> {
             edited_body = match edit::edit(edited_body.clone()) {
                 Ok(b) => b,
                 Err(err) => {
-                    self.edit_error(&err.to_string());
+                    self.edit_error(&err.to_string())?;
                     continue;
                 }
             };
             edited_config = match SystemConfig::from_string(&edited_body) {
                 Ok(c) => c,
                 Err(err) => {
-                    self.edit_error(&err.to_string());
+                    self.edit_error(&err.to_string())?;
                     continue;
                 }
             };
@@ -271,8 +279,8 @@ impl<'a> ConfigApi<'a> {
             }
 
             let base_fmt = FileFormat::from_path(base_path)?;
-            let mut base = RoozCfg::deserialize_config(&base_body, base_fmt)?
-                .ok_or_else(|| format!("Failed to parse base '{}': invalid config", base_path))?;
+            let mut base = RoozCfg::deserialize_config(&base_body, base_fmt)
+                .map_err(|e| format!("Failed to parse base '{}': {}", base_path, e))?;
             resolve_data_files(reader, &abs_path, &mut base).await?;
 
             let (resolved, _) =
@@ -315,31 +323,24 @@ impl<'a> ConfigApi<'a> {
             return Err(format!("Config file '{}' not found or empty", path).into());
         }
 
-        if let Some(mut cfg) = RoozCfg::deserialize_config(&body, file_format)? {
-            let reader = ContainerReader {
-                api: self.api,
-                container_id,
-            };
-            resolve_data_files(&reader, &file_path, &mut cfg).await?;
-            let (merged, bases) = if cfg.bases.is_none() {
-                (cfg, None)
-            } else {
-                let (merged, individual_bases) = self
-                    .resolve_extends_chain(&reader, &file_path, cfg, 0)
-                    .await?;
-                (merged, render_bases(&individual_bases, file_format)?)
-            };
-            return Ok(Some(ConfigBody {
-                body,
-                bases,
-                merged: Some(merged),
-            }));
-        }
-
+        let mut cfg = RoozCfg::deserialize_config(&body, file_format)?;
+        let reader = ContainerReader {
+            api: self.api,
+            container_id,
+        };
+        resolve_data_files(&reader, &file_path, &mut cfg).await?;
+        let (merged, bases) = if cfg.bases.is_none() {
+            (cfg, None)
+        } else {
+            let (merged, individual_bases) = self
+                .resolve_extends_chain(&reader, &file_path, cfg, 0)
+                .await?;
+            (merged, render_bases(&individual_bases, file_format)?)
+        };
         Ok(Some(ConfigBody {
             body,
-            bases: None,
-            merged: None,
+            bases,
+            merged: Some(merged),
         }))
     }
 }

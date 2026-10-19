@@ -712,21 +712,18 @@ impl<'a> WorkspaceApi<'a> {
                         let absolute_path =
                             std::path::absolute(path)?.to_string_lossy().into_owned();
                         let fmt = FileFormat::from_path(path)?;
-                        let mut cfg = RoozCfg::deserialize_config(&body, fmt)?;
+                        let mut c = RoozCfg::deserialize_config(&body, fmt)?;
                         let reader = LocalReader::default();
-                        if let Some(c) = cfg.as_mut() {
-                            resolve_data_files(&reader, path, c).await?;
-                        }
+                        resolve_data_files(&reader, path, &mut c).await?;
 
-                        let (cfg, base_body) = match cfg {
-                            Some(c) if c.bases.is_some() => {
-                                let (merged, individual_bases) = self
-                                    .config
-                                    .resolve_extends_chain(&reader, path.as_str(), c, 0)
-                                    .await?;
-                                (Some(merged), render_bases(&individual_bases, fmt)?)
-                            }
-                            other => (other, None),
+                        let (cfg, base_body) = if c.bases.is_some() {
+                            let (merged, individual_bases) = self
+                                .config
+                                .resolve_extends_chain(&reader, path.as_str(), c, 0)
+                                .await?;
+                            (Some(merged), render_bases(&individual_bases, fmt)?)
+                        } else {
+                            (Some(c), None)
                         };
                         trusted = trusted_configs.trusts_files(
                             std::iter::once(path.as_str())
@@ -748,9 +745,10 @@ impl<'a> WorkspaceApi<'a> {
                                 merged,
                             }) => {
                                 let fmt = FileFormat::from_path(file_path)?;
-                                let cfg = merged.map(Ok).unwrap_or_else(|| {
-                                    RoozCfg::deserialize_config(&body, fmt).map(|o| o.unwrap())
-                                })?;
+                                let cfg = match merged {
+                                    Some(merged) => merged,
+                                    None => RoozCfg::deserialize_config(&body, fmt)?,
+                                };
                                 (Some(cfg), Some(body), bases)
                             }
                             None => (None, None, None),
@@ -987,7 +985,7 @@ impl<'a> WorkspaceApi<'a> {
             ..config
         })?;
 
-        let container_id = self
+        let entered = self
             .enter(
                 &workspace.workspace_key,
                 working_dir.as_deref(),
@@ -996,7 +994,21 @@ impl<'a> WorkspaceApi<'a> {
                 root,
                 false,
             )
-            .await?;
+            .await;
+
+        // the workspace is throw-away: it goes away even when the shell could not be entered
+        let container_id = match entered {
+            Ok(id) => id,
+            Err(e) => {
+                if let Err(cleanup) = self.remove(&workspace.workspace_key, false, true).await {
+                    eprintln!(
+                        "WARN: could not remove the throw-away workspace '{}': {}",
+                        workspace.workspace_key, cleanup
+                    );
+                }
+                return Err(e);
+            }
+        };
 
         let killed = self.api.container.kill(&container_id, true);
         let volumes = self

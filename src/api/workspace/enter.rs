@@ -1,9 +1,10 @@
 use std::{
     io::stdout,
     process::{Command, Stdio},
-    thread::sleep,
     time::Duration,
 };
+
+use tokio::time::sleep;
 
 use crossterm::{
     execute,
@@ -139,7 +140,7 @@ impl<'a> WorkspaceApi<'a> {
                 Err(e) => {
                     log::debug!("{}", e);
                     eprintln!("Rooz is reconnecting to {}", workspace_key);
-                    sleep(Duration::from_millis(2_000));
+                    sleep(Duration::from_millis(2_000)).await;
                     continue;
                 }
             };
@@ -154,13 +155,17 @@ impl<'a> WorkspaceApi<'a> {
                     let real_mounts = if is_work_container {
                         &config.real_mounts
                     } else {
-                        &config.sidecars[container_name].real_mounts
+                        &config
+                            .sidecars
+                            .get(container_name)
+                            .ok_or(format!("Container '{}' is not configured", container_name))?
+                            .real_mounts
                     };
 
                     let chown_uid = if is_work_container {
                         config.uid
                     } else {
-                        match config.sidecars[container_name].uid {
+                        match config.sidecars.get(container_name).and_then(|s| s.uid) {
                             Some(uid) => uid,
                             None => self.api.exec.default_uid(container_id).await?,
                         }
@@ -195,6 +200,7 @@ impl<'a> WorkspaceApi<'a> {
                 Err(e) if e.downcast_ref::<ExecExit>().is_some() => return Err(e),
                 Err(e) => {
                     log::debug!("{}", e);
+                    sleep(Duration::from_millis(2_000)).await;
                 }
             };
         }

@@ -10,7 +10,7 @@ impl<'a> ConfigApi<'a> {
     pub async fn edit(&self, config_path: &str) -> Result<(), AnyError> {
         let format = FileFormat::from_path(config_path)?;
         let body = fs::read_to_string(config_path)?;
-        let mut config = RoozCfg::deserialize_config(&body, format)?.unwrap();
+        let mut config = RoozCfg::deserialize_config(&body, format)?;
         let identity = self.api.get_system_config().await?.age_identity()?;
         self.decrypt(&mut config, &identity).await?;
         let decrypted_string = config.to_string(format)?;

@@ -25,6 +25,24 @@ file - see the git history.
 - `rooz cache rm` given the same cache twice removes it once instead of failing midway.
 - `rooz enter`, `start`, `stop` and `restart` no longer panic on a container missing from the
   stored config or with an unexpected name list.
+- Image references with a registry port (`images:5000/alpine:3`) or a digest (`img@sha256:...`)
+  are pulled as written; they were split on every `:`.
+- A command run in a container fails when the engine does not report its exit code, instead of
+  counting as a success. Output split mid-character across chunks no longer fails the command.
+- A container whose extra network cannot be connected is removed instead of being adopted
+  half-networked by the next run. `kill` no longer spins and panics on podman.
+- Creating the container user matches the uid exactly: uid 100 no longer deletes the `passwd`
+  entry of uid 1000.
+- A config that does not parse is an error for `new`, `update` and `config edit`; before, a local
+  one was ignored with a warning (creating the workspace with defaults) and a git one panicked.
+  `config edit` without a terminal to retry in stops instead of reopening the editor forever.
+- Non-adjacent duplicate `caches` are dropped. A secret that is part of another one no longer
+  leaves the rest of it readable in the stored runtime config.
+- `rooz tmp` removes its workspace when the shell cannot be entered. `rooz enter` waits between
+  reconnect attempts and no longer panics on a container missing from the stored config.
+- `rooz remote` keeps the leading `/` of a `unix:///...` `DOCKER_HOST`; the forward pointed at a
+  relative path.
+- Stack detection skips a project file it cannot read instead of failing.
 
 ## [0.169.1] - 2026-10-19
 

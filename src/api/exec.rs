@@ -92,7 +92,7 @@ async fn log(
         let bytes = item?.into_bytes();
         let Some((container, step)) = install else {
             let mut stdout = std::io::stdout().lock();
-            stdout.write_all(std::str::from_utf8(bytes.as_ref())?.as_bytes())?;
+            stdout.write_all(bytes.as_ref())?;
             stdout.flush()?;
             continue;
         };
@@ -320,11 +320,7 @@ impl<'a> ExecApi<'a> {
                 }
             }
         }
-        self.client
-            .inspect_exec(&exec_id)
-            .await?
-            .exit_code
-            .ok_or_else(|| "The engine did not report an exit code for the command.".into())
+        self.exit_code(&exec_id).await
     }
 
     pub async fn output(
@@ -376,12 +372,22 @@ impl<'a> ExecApi<'a> {
             return Err("Could not start exec: the engine returned no attached stream. Check that the container is running.".into());
         }
 
-        Ok(self
-            .client
-            .inspect_exec(&exec_id)
-            .await?
-            .exit_code
-            .unwrap_or(0))
+        self.exit_code(&exec_id).await
+    }
+
+    // The engine can report the stream closed a moment before it records the exit code; a
+    // missing one is not a success.
+    async fn exit_code(&self, exec_id: &str) -> Result<i64, AnyError> {
+        for _ in 0..50 {
+            let inspect = self.client.inspect_exec(exec_id).await?;
+            if inspect.running != Some(true)
+                && let Some(code) = inspect.exit_code
+            {
+                return Ok(code);
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        Err("The engine did not report an exit code for the command.".into())
     }
 
     pub async fn run(
@@ -509,8 +515,8 @@ impl<'a> ExecApi<'a> {
 
     pub async fn ensure_user(&self, container_id: &str) -> Result<(), AnyError> {
         let ensure_user_cmd = inject(
-            r#"grep -q "^$ROOZ_META_USER:x:$ROOZ_META_UID" /etc/passwd && exit 0
-                       sed -i "/:x:${ROOZ_META_UID}/d" /etc/passwd && \
+            r#"grep -q "^$ROOZ_META_USER:x:$ROOZ_META_UID:" /etc/passwd && exit 0
+                       sed -i "/:x:${ROOZ_META_UID}:/d" /etc/passwd && \
                        echo "$ROOZ_META_USER:x:$ROOZ_META_UID:$ROOZ_META_UID:$ROOZ_META_USER:$ROOZ_META_HOME:/bin/sh" >> /etc/passwd"#.to_string()
             .as_ref(),
             "make_user.sh",

@@ -93,7 +93,7 @@ impl PullProgress {
                 (layer.current, layer.total)
             {
                 let pct = if tot > 0 {
-                    (cur * 100 / tot) as usize
+                    (cur * 100 / tot).clamp(0, 100) as usize
                 } else {
                     0
                 };
@@ -151,20 +151,26 @@ pub fn human_bytes(b: i64) -> String {
     )
 }
 
+// A ':' only separates a tag when it follows the last '/' (otherwise it is a registry port);
+// a digest reference goes to the engine whole, in the tag slot.
+fn split_image_ref(image: &str) -> (&str, &str) {
+    if let Some((repo, digest)) = image.split_once('@') {
+        return (repo, digest);
+    }
+    match image.rfind(':') {
+        Some(i) if !image[i..].contains('/') => (&image[..i], &image[i + 1..]),
+        _ => (image, "latest"),
+    }
+}
+
 impl<'a> ImageApi<'a> {
     async fn pull(&self, image: &str) -> Result<ImageInfo, AnyError> {
         let mut progress = PullProgress::new(image);
-        let img_chunks = &image.split(':').collect::<Vec<&str>>();
+        let (repo, tag) = split_image_ref(image);
         let mut image_info = self.client.create_image(
             Some(CreateImageOptions {
-                from_image: Some(img_chunks[0].to_string()),
-                tag: Some(
-                    match img_chunks.len() {
-                        2 => img_chunks[1],
-                        _ => "latest",
-                    }
-                    .to_string(),
-                ),
+                from_image: Some(repo.to_string()),
+                tag: Some(tag.to_string()),
                 platform: self.backend.platform.to_string(),
                 ..Default::default()
             }),
@@ -369,6 +375,21 @@ fn digest_eq(a: &str, b: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use super::split_image_ref;
+
+    #[test]
+    fn image_refs_split_on_the_tag_colon_only() {
+        for (image, want) in [
+            ("alpine", ("alpine", "latest")),
+            ("alpine:3", ("alpine", "3")),
+            ("images:5000/alpine", ("images:5000/alpine", "latest")),
+            ("images:5000/alpine:3", ("images:5000/alpine", "3")),
+            ("img@sha256:abc", ("img", "sha256:abc")),
+        ] {
+            assert_eq!(split_image_ref(image), want, "{}", image);
+        }
+    }
+
     use super::*;
     use crate::util::labels;
 

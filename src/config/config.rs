@@ -2,7 +2,6 @@ use crate::model::types::ContentGenerator::{Inline, Script};
 use crate::model::types::{AnyError, ContentGenerator, DataEntryKey};
 use crate::util::id;
 use crate::{cli::WorkParams, constants};
-use colored::Colorize;
 use handlebars::{Handlebars, no_escape};
 use indexmap::IndexMap;
 use schemars::JsonSchema;
@@ -720,23 +719,9 @@ impl RoozCfg {
         Ok(())
     }
 
-    pub fn deserialize_config(
-        config: &str,
-        file_format: FileFormat,
-    ) -> Result<Option<RoozCfg>, AnyError> {
-        match RoozCfg::from_string(config, file_format) {
-            Ok(cfg) => Ok(Some(cfg)),
-            Err(e) => {
-                eprintln!(
-                    "{}\n{}",
-                    format!("WARNING: Could not read config ({})", file_format)
-                        .bold()
-                        .yellow(),
-                    e.to_string().yellow()
-                );
-                Ok(None)
-            }
-        }
+    pub fn deserialize_config(config: &str, file_format: FileFormat) -> Result<RoozCfg, AnyError> {
+        RoozCfg::from_string(config, file_format)
+            .map_err(|e| format!("Could not read config ({}): {}", file_format, e).into())
     }
 }
 // Config paths sourced from a config file (bases) or from a `--config <url>//<path>`

@@ -65,7 +65,9 @@ fn dotnet_version(dir: &Path) -> Result<Option<String>, AnyError> {
 
     let mut best: Option<(u32, u32)> = None;
     for project in projects {
-        let text = std::fs::read_to_string(&project)?;
+        let Ok(text) = std::fs::read_to_string(&project) else {
+            continue;
+        };
         let Ok(doc) = roxmltree::Document::parse(&text) else {
             continue;
         };

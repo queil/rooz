@@ -262,8 +262,9 @@ impl<'a> ContainerApi<'a> {
                                     if message.starts_with("unknown variant `stopped`") {
                                         // hack: https://github.com/containers/podman/issues/17728
                                         // nothing to kill as the container is already stopped
+                                        return Ok(());
                                     } else {
-                                        panic!("{}", message)
+                                        return Err(message.into());
                                     }
                                 }
                                 //Podman backend
@@ -275,7 +276,7 @@ impl<'a> ContainerApi<'a> {
                                 Err(DockerResponseServerError {
                                     status_code: 404, ..
                                 }) => return Ok(()),
-                                Err(e) => panic!("{}", e),
+                                Err(e) => return Err(e.into()),
                             }
                         }
                     })
@@ -475,7 +476,8 @@ impl<'a> ContainerApi<'a> {
 
         if let Some(networks) = &spec.additional_networks {
             for n in networks {
-                self.client
+                if let Err(e) = self
+                    .client
                     .connect_network(
                         n,
                         NetworkConnectRequest {
@@ -486,7 +488,25 @@ impl<'a> ContainerApi<'a> {
                             }),
                         },
                     )
-                    .await?;
+                    .await
+                {
+                    // a half-networked container would be adopted as-is by the next run
+                    self.client
+                        .remove_container(
+                            &response.id,
+                            Some(RemoveContainerOptions {
+                                force: true,
+                                ..Default::default()
+                            }),
+                        )
+                        .await
+                        .ok();
+                    return Err(format!(
+                        "Could not connect container '{}' to network '{}': {}",
+                        spec.container_name, n, e
+                    )
+                    .into());
+                }
             }
         }
         log::debug!(

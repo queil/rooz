@@ -199,7 +199,7 @@ impl<'a> WorkspaceApi<'a> {
 
                 let mut original_config = match pre_merged {
                     Some(merged) => merged,
-                    None => RoozCfg::deserialize_config(&original_body, format)?.unwrap(),
+                    None => RoozCfg::deserialize_config(&original_body, format)?,
                 };
 
                 let config_to_apply = if interactive {
