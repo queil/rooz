@@ -8,6 +8,19 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases before 0.159.0 predate this
 file - see the git history.
 
+## [0.168.2] - 2026-10-19
+
+### Added
+
+- A VS Code page in the docs: `rooz code`, keeping extensions across rebuilds, per-workspace editor
+  setup and remote hosts. The landing page links to it.
+
+### Changed
+
+- Install progress reads `[install:{container}:{step}]`, with the container in a stable colour.
+  Sidecars show their short name (`claude`, not `rooz-dev-claude`). The step line is printed by rooz,
+  so it is uncoloured when output isn't a terminal.
+
 ## [0.168.1] - 2026-10-17
 
 ### Added
