@@ -37,6 +37,34 @@ pub fn validate_workspace_name(name: &str) -> Result<(), AnyError> {
     Ok(())
 }
 
+// Sidecar names end up in container and network names next to the workspace name, so they keep
+// to the same alphabet; 'work' is how the work container is addressed.
+pub fn validate_sidecar_name(name: &str) -> Result<(), AnyError> {
+    let shaped = name
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+        && name
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
+    if !shaped {
+        return Err(format!(
+            "invalid sidecar name '{}': only lowercase letters, digits and '-' are allowed, \
+             starting with a letter or digit",
+            name
+        )
+        .into());
+    }
+    if name == crate::constants::DEFAULT_CONTAINER_NAME {
+        return Err(format!(
+            "sidecar name '{}' is reserved: it addresses the work container",
+            name
+        )
+        .into());
+    }
+    Ok(())
+}
+
 pub fn sanitize(dirty: &str) -> String {
     ID_REGEX
         .replace_all(dirty, "-")

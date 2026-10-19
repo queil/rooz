@@ -363,7 +363,7 @@ impl<'a> VolumeApi<'a> {
     ) -> Result<HashMap<DataEntryKey, DataEntryVolumeSpec>, AnyError> {
         let data = &mounts
             .iter()
-            .map(|((_, target_path), v)| match v {
+            .map(|((container, target_path), v)| match v {
                 MountSource::DataEntryReference(data_key) => match data.get(data_key.as_str()) {
                     Some(value) => Ok((data_key.as_str().to_string(), value.clone())),
                     None => Err(unknown_data_key(
@@ -373,7 +373,7 @@ impl<'a> VolumeApi<'a> {
                     )),
                 },
                 MountSource::InlineDataValue(data_value) => {
-                    Ok((id::sanitize(target_path), data_value.to_owned()))
+                    Ok((v.resolve_key(container, target_path), data_value.to_owned()))
                 }
             })
             .collect::<Result<HashMap<String, DataValue>, AnyError>>()?;

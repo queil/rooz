@@ -12,6 +12,20 @@ file - see the git history.
 
 ### Changed
 
+- **Breaking:** sidecar containers and workspace networks are named with `_`: `<workspace>_<sidecar>`,
+  `<workspace>_egress`, `<workspace>_net_<sidecar>`, `<workspace>_peer_<a>_<b>`. With `-`, workspace
+  `a` with sidecar `x` and workspace `a-x` shared a container name, and peer pairs `(a, b-c)` and
+  `(a-b, c)` a network. The first `rooz update` after upgrading moves a workspace to the new names;
+  until then it keeps working under the old ones. `ROOZ_META_CONTAINER_NAME` in sidecars changes
+  accordingly.
+- **Breaking:** sidecar names are lowercase letters, digits and `-`, starting with a letter or digit;
+  `work` is reserved.
+- **Breaking:** data keys that would share a volume (`a.b` and `a-b`), a data key named `inline`, and
+  keys not starting with a letter or digit are refused, as are two inline mounts of one container whose
+  paths would share a file.
+- A sidecar's inline mount files are kept apart from the work container's: the same path inline in
+  both is two files. A sidecar's `once` inline file is written afresh once after upgrading.
+
 - **Breaking:** privileged and vpn consent is pinned to the container's definition:
   `ROOZ_ALLOW_PRIVILEGED=dkr@<fingerprint>` instead of `=dkr`. A bare name also covered any other
   config declaring a `dkr`, e.g. an untrusted `bases` layer with its own image, which then ran as host
@@ -26,6 +40,10 @@ file - see the git history.
 
 ### Fixed
 
+- A container or network found under a workspace's name is reused only if its labels say it belongs to
+  that workspace (and container); anything else is refused instead of adopted or replaced.
+- An invalid sidecar name panicked halfway through `rooz new`; container creation errors are now
+  reported as errors.
 - Caches from a `bases` layer not in `ROOZ_TRUSTED_CONFIGS` were shared without consent when the
   top-level config was a local file. They now need `ROOZ_CACHES`, like a repository's.
 - Secret values were rendered as templates: a `{{` in a secret corrupted it, let the result escape

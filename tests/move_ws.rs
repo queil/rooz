@@ -133,7 +133,7 @@ async fn move_keeps_sidecar_files_edited_in_the_container() {
 
     let inline_vol = format!("rooz_{}_inline", to);
     assert_eq!(
-        env.volume_file(&inline_vol, "-etc-svc-conf").await,
+        env.volume_file(&inline_vol, "_svc_-etc-svc-conf").await,
         "edited\n"
     );
 

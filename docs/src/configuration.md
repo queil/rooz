@@ -99,8 +99,8 @@ $ rooz new demo --config demo.rooz.yaml --dry-run
 pull     image     docker.io/alpine:latest
 create   volume    rooz_demo_work
 reuse    cache     rooz_cache_uid-1000_---nuget  ~/.nuget
-create   network   demo-egress
-create   network   demo-net-db
+create   network   demo_egress
+create   network   demo_net_db
 create   sidecar   db  image=docker.io/postgres:17 install: 00-x[root]
 create   work      demo  image=docker.io/alpine:latest user=rooz_user uid=1000 env=PGHOST
 run      install   00-tools  root,skip_if
@@ -256,6 +256,12 @@ of the container that mounts them, and writable.
 
 A mount maps a path to a `data` key, or holds the same kinds inline. `~/` expands to the home directory
 in the work container only. The `/work` volume is implicit.
+
+A data key names its volume, `rooz_<workspace>_<key>`, with characters other than letters, digits and
+`-` turned into `-`. Keys that end up alike (`a.b` and `a-b`), a key named `inline` and keys not
+starting with a letter or digit are refused. Inline mounts are files in one shared volume, one per
+container and path: the same path inline in the work container and a sidecar gives two files, and two
+paths of one container that end up alike (`a.conf` and `a-conf`) are refused.
 
 Sidecars use the same syntax. A key mounted in the work container and in a sidecar is one volume, so
 they share it, e.g. a cluster's admin config written by a sidecar and read by the work container.

@@ -1101,10 +1101,17 @@ pub enum MountSource {
 }
 
 impl MountSource {
-    pub fn resolve_key(&self, target: &str) -> String {
+    // An inline file lives in the inline volume under a name derived from its path - and, in a
+    // sidecar, from the sidecar's name too, so the same path in two containers stays two files.
+    pub fn resolve_key(&self, container: &str, target: &str) -> String {
         match self {
             MountSource::DataEntryReference(data_key) => data_key.as_str().to_string(),
-            MountSource::InlineDataValue(_) => id::sanitize(target),
+            MountSource::InlineDataValue(_)
+                if container == crate::constants::DEFAULT_CONTAINER_NAME =>
+            {
+                id::sanitize(target)
+            }
+            MountSource::InlineDataValue(_) => format!("_{}_{}", container, id::sanitize(target)),
         }
     }
 

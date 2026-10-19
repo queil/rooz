@@ -410,6 +410,98 @@ async fn install_output_is_tagged_per_container_and_step() {
     let _ = fs::remove_file(&cfg_path);
 }
 
+// Workspace 'a' with sidecar 'x' and workspace 'a-x' used to share the container name 'a-x', and
+// the second workspace silently adopted the first one's container.
+#[tokio::test]
+async fn workspaces_whose_names_overlap_keep_their_own_containers() {
+    let Some(env) = TestEnv::from_env() else {
+        return;
+    };
+    let a = unique_key("sc-ovl");
+    let a_x = format!("{}-x", a);
+    let cfg_path = format!("/tmp/rooz-test-sidecar-ovl-{}.yaml", a);
+    fs::write(
+        &cfg_path,
+        "image: alpine:latest\nsidecars:\n  x:\n    image: alpine:latest\n    command:\n      - sleep\n    args:\n      - infinity\n",
+    )
+    .expect("write sidecar config");
+
+    env.rooz()
+        .args(["system", "init", "--force"])
+        .assert()
+        .success();
+    env.rooz()
+        .args(["new", &a_x, "--image", "alpine:latest"])
+        .assert()
+        .success();
+    env.rooz()
+        .args(["new", &a, "--config", &cfg_path])
+        .assert()
+        .success();
+
+    let role = |c: &bollard_stubs::models::ContainerSummary| {
+        c.labels
+            .as_ref()
+            .and_then(|l| l.get("dev.rooz.role"))
+            .cloned()
+            .unwrap_or_default()
+    };
+    let roles = |cs: Vec<bollard_stubs::models::ContainerSummary>| {
+        let mut r = cs.iter().map(role).collect::<Vec<_>>();
+        r.sort();
+        r
+    };
+    assert_eq!(
+        roles(env.containers_by_workspace(&a).await),
+        vec!["sidecar", "work"]
+    );
+    assert_eq!(roles(env.containers_by_workspace(&a_x).await), vec!["work"]);
+
+    // removing one leaves the other whole
+    env.rooz().args(["rm", &a, "--force"]).assert().success();
+    assert_eq!(roles(env.containers_by_workspace(&a_x).await), vec!["work"]);
+
+    env.rooz().args(["rm", &a_x, "--force"]).assert().success();
+    let _ = fs::remove_file(&cfg_path);
+}
+
+// A container rooz did not create for this workspace is never adopted under its name.
+#[tokio::test]
+async fn a_foreign_container_under_a_sidecar_name_is_refused() {
+    let Some(env) = TestEnv::from_env() else {
+        return;
+    };
+    let key = unique_key("sc-foreign");
+    let cfg_path = format!("/tmp/rooz-test-sidecar-foreign-{}.yaml", key);
+    fs::write(
+        &cfg_path,
+        "image: alpine:latest\nsidecars:\n  svc:\n    image: alpine:latest\n    command:\n      - sleep\n    args:\n      - infinity\n",
+    )
+    .expect("write sidecar config");
+    let decoy = format!("{}_svc", key);
+    env.create_decoy_container(&decoy).await;
+
+    env.rooz()
+        .args(["system", "init", "--force"])
+        .assert()
+        .success();
+    let out = env
+        .rooz()
+        .args(["new", &key, "--config", &cfg_path])
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&out.get_output().stderr).to_string();
+    assert!(stderr.contains("is not this workspace's"), "{}", stderr);
+    assert!(
+        env.container_exists(&decoy).await,
+        "the foreign container was removed"
+    );
+
+    env.remove_decoy_container(&decoy).await;
+    let _ = env.rooz().args(["rm", &key, "--force"]).output();
+    let _ = fs::remove_file(&cfg_path);
+}
+
 // ── vpn ───────────────────────────────────────────────────────────────────────
 
 fn vpn_sidecar_cfg(key: &str) -> String {
@@ -508,8 +600,8 @@ async fn vpn_sidecar_gets_net_admin_and_tun() {
         .assert()
         .success();
 
-    let wg = format!("{}-wg", key);
-    let plain = format!("{}-plain", key);
+    let wg = format!("{}_wg", key);
+    let plain = format!("{}_plain", key);
     let net_admin = vec!["ip", "link", "add", "t0", "type", "dummy"];
     let tun = vec!["test", "-c", "/dev/net/tun"];
     let src_valid_mark = vec![

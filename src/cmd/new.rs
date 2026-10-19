@@ -21,6 +21,7 @@ use crate::{
 };
 use bollard::errors::Error;
 use bollard_stubs::models::NetworkCreateRequest;
+use bollard_stubs::query_parameters::InspectNetworkOptions;
 use std::collections::HashMap;
 use std::fs;
 use std::str::FromStr;
@@ -334,6 +335,21 @@ impl<'a> WorkspaceApi<'a> {
             Err(Error::DockerResponseServerError {
                 status_code: 409, ..
             }) => {
+                let found = self
+                    .api
+                    .client
+                    .inspect_network(name, None::<InspectNetworkOptions>)
+                    .await?
+                    .labels
+                    .unwrap_or_default();
+                if !crate::api::container::same_owner(labels, &found) {
+                    return Err(format!(
+                        "A network named '{}' already exists and is not this workspace's: \
+                         refusing to join it.",
+                        name
+                    )
+                    .into());
+                }
                 log::debug!("Network already exists: {}. Skipping", name);
                 Ok(())
             }
@@ -483,7 +499,12 @@ impl<'a> WorkspaceApi<'a> {
         let mounts_all = &cfg
             .mounts
             .iter()
-            .map(|(target, source)| (target.to_string(), source.resolve_key(target)))
+            .map(|(target, source)| {
+                (
+                    target.to_string(),
+                    source.resolve_key(constants::DEFAULT_CONTAINER_NAME, target),
+                )
+            })
             .collect::<HashMap<String, String>>();
 
         let volume_results = self.api.volume.ensure_volumes(&volume_specs).await?;

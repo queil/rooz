@@ -55,7 +55,7 @@ impl<'a> WorkspaceApi<'a> {
 
             let mounts_all = mounts
                 .iter()
-                .map(|(target, source)| (target.to_string(), source.resolve_key(target)))
+                .map(|(target, source)| (target.to_string(), source.resolve_key(name, target)))
                 .collect::<HashMap<String, String>>();
 
             let mounts_config =
@@ -83,7 +83,7 @@ impl<'a> WorkspaceApi<'a> {
         let labels = &labels;
         let peer_relations = &peer_relations;
         let sidecars = cfg.sidecars.iter().map(|(name, s)| async move {
-            let container_name = format!("{}-{}", workspace_key, name);
+            let container_name = constants::sidecar_container(workspace_key, name);
             let mut labels = labels.clone();
             labels.extend(&[Labels::container(name), Labels::role(labels::SIDECAR_ROLE)]);
             let mut ports = HashMap::<String, Option<String>>::new();
