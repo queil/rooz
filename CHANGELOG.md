@@ -8,6 +8,28 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases before 0.159.0 predate this
 file - see the git history.
 
+## [0.168.3] - 2026-10-19
+
+### Added
+
+- `once: true` on a `data` file (`content:`, `file:` or `generate:`): written only when nothing is at
+  its path, then left to the containers. For history files, generated keys, or a file a sidecar fills
+  in and the work container reads.
+- A "Data and mounts" section in the configuration docs.
+
+### Changed
+
+- `rooz update` writes every non-`once` data file from the config, overwriting changes made in the
+  container, and re-runs `generate:` scripts. Mark files that containers own `once: true`.
+
+### Fixed
+
+- `rooz update` ignored edited data files in the work container, and failed on a newly added one,
+  leaving the workspace without a container.
+- `rooz new` without `rooz system init` refuses with a hint. It used to make the engine create an empty,
+  unlabelled `rooz_ssh-key` volume, which `rooz system init` then refused to reuse.
+- `tests/interactive.rs` builds on macOS.
+
 ## [0.168.2] - 2026-10-19
 
 ### Added
