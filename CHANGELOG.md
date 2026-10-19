@@ -8,6 +8,16 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases before 0.159.0 predate this
 file - see the git history.
 
+## [0.168.3] - 2026-10-19
+
+### Fixed
+
+- `rooz update` rebuilt every sidecar with `install` steps from scratch, so the steps ran again and
+  `skip_if` could never skip them. It now reuses the built image while the base image, `uid`,
+  `command`, `args` and steps are unchanged.
+- `rooz update` did not pull sidecar base images when the workspace's image was set in the config,
+  so a floating tag such as `alpine:3` never moved. It now pulls them unless `--no-pull` is given.
+
 ## [0.168.2] - 2026-10-19
 
 ### Added
@@ -31,9 +41,6 @@ file - see the git history.
 
 ### Fixed
 
-- `rooz update` rebuilt every sidecar with `install` steps from scratch, so the steps ran again and
-  `skip_if` could never skip them. It now reuses the built image while the base image, `uid`,
-  `command`, `args` and steps are unchanged.
 - `rooz update` ignored edited data files in the work container, and failed on a newly added one,
   leaving the workspace without a container.
 - `rooz new` without `rooz system init` refuses with a hint. It used to make the engine create an empty,
