@@ -323,6 +323,12 @@ async fn update_reuses_the_sidecar_image_until_the_install_steps_change() {
         "a changed step did not build the image again"
     );
 
+    env.rooz()
+        .args(["update", &key, "--no-pull", "--rebuild"])
+        .assert()
+        .success();
+    assert_eq!(runs().await, 3, "--rebuild did not build the image again");
+
     env.rooz().args(["rm", &key, "--force"]).assert().success();
     let _ = fs::remove_file(&cfg_path);
 }
@@ -498,6 +504,59 @@ async fn a_foreign_container_under_a_sidecar_name_is_refused() {
     );
 
     env.remove_decoy_container(&decoy).await;
+    let _ = env.rooz().args(["rm", &key, "--force"]).output();
+    let _ = fs::remove_file(&cfg_path);
+}
+
+// One container's failure must not cut the others short: a sidecar build stopped midway left its
+// install container behind - base image, no env, none of the steps' work - posing as the sidecar.
+#[tokio::test]
+async fn a_failed_install_cuts_no_other_container_short() {
+    let Some(env) = TestEnv::from_env() else {
+        return;
+    };
+    let key = unique_key("sc-nocut");
+    let cfg_path = format!("/tmp/rooz-test-sidecar-nocut-{}.yaml", key);
+    fs::write(
+        &cfg_path,
+        "image: alpine:latest\ninstall:\n  10-fail: exit 3\nsidecars:\n  ok:\n    image: alpine:latest\n    command:\n      - sleep\n    args:\n      - infinity\n    install:\n      10-slow: sleep 3; touch /built\n  bad:\n    image: alpine:latest\n    command:\n      - sleep\n    args:\n      - infinity\n    install:\n      10-slow-fail: sleep 1; exit 4\n",
+    )
+    .expect("write sidecar config");
+
+    env.rooz()
+        .args(["system", "init", "--force"])
+        .assert()
+        .success();
+    let out = env
+        .rooz()
+        .args(["new", &key, "--config", &cfg_path])
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&out.get_output().stderr).to_string();
+    assert!(stderr.contains("sidecar 'bad'"), "{}", stderr);
+    assert!(stderr.contains("'10-fail'"), "{}", stderr);
+
+    let containers = env.containers_by_workspace(&key).await;
+    let named = |n: &str| {
+        containers.iter().find(|c| {
+            c.names
+                .as_ref()
+                .is_some_and(|ns| ns.iter().any(|x| x == &format!("/{}_{}", key, n)))
+        })
+    };
+    assert!(
+        named("bad").is_none(),
+        "the failed sidecar's install container was left behind"
+    );
+    let ok = named("ok").expect("the sidecar that built fine was not created");
+    assert!(
+        ok.image
+            .as_deref()
+            .is_some_and(|i| i.starts_with("sha256:")),
+        "the sidecar does not run its built image: {:?}",
+        ok.image
+    );
+
     let _ = env.rooz().args(["rm", &key, "--force"]).output();
     let _ = fs::remove_file(&cfg_path);
 }

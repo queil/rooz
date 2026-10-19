@@ -142,7 +142,8 @@ install:
 * `skip_if` sees the container's env: put cached tools on `PATH` (via `env`) or use absolute paths.
 * Containers install side by side: sidecar images build while the work container's steps run. On a
   terminal each gets a pane with its current step and last output lines; a finished one collapses to a
-  summary, a failed one leaves its step's whole output. Elsewhere, or with `ROOZ_PROGRESS=plain`, every
+  summary of its steps (`✓` ran, `○` skipped, `↺` a sidecar image reused), a failed one leaves its
+  step's whole output. Elsewhere, or with `ROOZ_PROGRESS=plain`, every
   output line is printed tagged `[install:<container>:<step>]`.
 * `bases` layers add steps by key, replace whole steps, or remove them with `null`.
 * `root: true` is refused from untrusted config (a `--config <url>//<path>` source or `bases` layer not
@@ -156,7 +157,9 @@ A sidecar with `install` steps is built once: rooz runs the steps, commits
 * The sidecar runs the committed image by **id**, not by name, since tags and labels can be forged. The
   id is recorded on the sidecar container (`dev.rooz.runtime-image`).
 * `rooz update` pulls the base image (unless `--no-pull`) and reuses the built image while the base
-  image id, `uid`, `command`, `args` and install steps are unchanged, skipping the install. A change to any of them, or `--purge`, builds it again from the
+  image id, `uid`, `command`, `args` and install steps are unchanged, skipping the install.
+  `rooz update --rebuild` builds it again anyway, e.g. when an install step that exits 0 left it
+  broken; volumes are kept. A change to any of them, or `--purge`, builds it again from the
   base image.
 * A rebuild starts from the base image, so `skip_if` sees nothing earlier builds installed. It only
   skips steps whose output is on a volume or cache.

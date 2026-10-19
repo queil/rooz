@@ -615,7 +615,8 @@ impl<'a> WorkspaceApi<'a> {
         // the sidecars and the work container are independent until they start: their images
         // build and their install steps run side by side
         live::begin();
-        let installed = futures::try_join!(
+        // both run to the end even when the other fails, so neither leaves half-done work behind
+        let (sidecars_result, work_result) = futures::join!(
             self.ensure_sidecars(
                 &sidecars_input,
                 workspace_key,
@@ -627,7 +628,15 @@ impl<'a> WorkspaceApi<'a> {
             self.create(&work_spec),
         );
         live::end();
-        let (sidecars_cfg, ws) = installed?;
+        let (sidecars_cfg, ws) = match (sidecars_result, work_result) {
+            (Ok(sidecars_cfg), Ok(ws)) => (sidecars_cfg, ws),
+            (sidecars, work) => {
+                return Err(
+                    crate::api::sidecar::all_ok([sidecars.map(|_| ()), work.map(|_| ())])
+                        .unwrap_err(),
+                );
+            }
+        };
 
         self.config
             .store_runtime(

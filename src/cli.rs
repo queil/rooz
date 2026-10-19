@@ -471,6 +471,11 @@ pub struct UpdateParams {
     pub no_pull: bool,
     #[arg(
         long,
+        help = "Builds sidecar images again even when their install steps are unchanged; volumes are kept"
+    )]
+    pub rebuild: bool,
+    #[arg(
+        long,
         conflicts_with = "tweak",
         help = "Prints what the update would remove and create, without changing anything"
     )]

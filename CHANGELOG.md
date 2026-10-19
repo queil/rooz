@@ -8,6 +8,25 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases before 0.159.0 predate this
 file - see the git history.
 
+## [0.169.1] - 2026-10-19
+
+### Changed
+
+- A finished container's install summary lists its steps: `✓` ran (with its time), `○` skipped by
+  `skip_if`; a sidecar whose image is reused shows `↺`.
+
+### Added
+
+- `rooz update --rebuild` builds sidecar images again even when their install steps are unchanged,
+  without touching volumes. Before, a broken image was reused until a step changed or `--purge`.
+
+### Fixed
+
+- When one container's install failed, the others were cut short, and a sidecar's half-built
+  install container stayed behind under the sidecar's name: base image, no env, none of the steps'
+  work. Every container's install now runs to the end, all failures are reported, and a sidecar
+  install container is always removed.
+
 ## [0.169.0] - 2026-10-19
 
 ### Changed
