@@ -10,6 +10,11 @@ file - see the git history.
 
 ## [0.169.1] - 2026-10-19
 
+### Changed
+
+- A finished container's install summary lists its steps: `✓` ran (with its time), `○` skipped by
+  `skip_if`; a sidecar whose image is reused shows `↺`.
+
 ### Added
 
 - `rooz update --rebuild` builds sidecar images again even when their install steps are unchanged,

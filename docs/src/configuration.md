@@ -142,7 +142,8 @@ install:
 * `skip_if` sees the container's env: put cached tools on `PATH` (via `env`) or use absolute paths.
 * Containers install side by side: sidecar images build while the work container's steps run. On a
   terminal each gets a pane with its current step and last output lines; a finished one collapses to a
-  summary, a failed one leaves its step's whole output. Elsewhere, or with `ROOZ_PROGRESS=plain`, every
+  summary of its steps (`✓` ran, `○` skipped, `↺` a sidecar image reused), a failed one leaves its
+  step's whole output. Elsewhere, or with `ROOZ_PROGRESS=plain`, every
   output line is printed tagged `[install:<container>:<step>]`.
 * `bases` layers add steps by key, replace whole steps, or remove them with `null`.
 * `root: true` is refused from untrusted config (a `--config <url>//<path>` source or `bases` layer not

@@ -20,12 +20,37 @@ const MAX_PANE_LINES: usize = 5;
 const MAX_STEP_LINES: usize = 1000;
 const REDRAW_EVERY: Duration = Duration::from_millis(80);
 
+enum Outcome {
+    Ran(Duration),
+    Skipped,
+}
+
 struct Pane {
     step: Option<String>,
     started: Instant,
-    steps_done: usize,
+    step_started: Instant,
+    steps: Vec<(String, Outcome)>,
     tail: VecDeque<String>,
     step_output: Vec<String>,
+}
+
+impl Pane {
+    fn new() -> Self {
+        Self {
+            step: None,
+            started: Instant::now(),
+            step_started: Instant::now(),
+            steps: Vec::new(),
+            tail: VecDeque::new(),
+            step_output: Vec::new(),
+        }
+    }
+
+    fn start_step(&mut self, step: &str) {
+        self.step = Some(step.to_string());
+        self.step_started = Instant::now();
+        self.step_output.clear();
+    }
 }
 
 struct View {
@@ -95,16 +120,7 @@ pub fn println(line: impl std::fmt::Display) {
 pub fn install_begin(container: &str, steps: &[&str]) {
     match VIEW.lock().unwrap().as_mut() {
         Some(view) => {
-            view.panes.insert(
-                container.to_string(),
-                Pane {
-                    step: None,
-                    started: Instant::now(),
-                    steps_done: 0,
-                    tail: VecDeque::new(),
-                    step_output: Vec::new(),
-                },
-            );
+            view.panes.insert(container.to_string(), Pane::new());
             view.draw();
         }
         None => println!(
@@ -117,23 +133,13 @@ pub fn install_begin(container: &str, steps: &[&str]) {
 
 // the step whose skip_if check runs: shown in its pane, while plain output waits for the outcome
 pub fn install_checking(container: &str, step: &str) {
-    with_pane(
-        container,
-        |pane| {
-            pane.step = Some(step.to_string());
-            pane.step_output.clear();
-        },
-        || (),
-    );
+    with_pane(container, |pane| pane.start_step(step), || ());
 }
 
 pub fn install_step(container: &str, step: &str) {
     with_pane(
         container,
-        |pane| {
-            pane.step = Some(step.to_string());
-            pane.step_output.clear();
-        },
+        |pane| pane.start_step(step),
         || println!("{}", progress::install_tag(container, Some(step))),
     );
 }
@@ -142,7 +148,7 @@ pub fn install_skipped(container: &str, step: &str) {
     with_pane(
         container,
         |pane| {
-            pane.steps_done += 1;
+            pane.steps.push((step.to_string(), Outcome::Skipped));
             pane.push(format!("{}: skipped, skip_if succeeded", step));
         },
         || {
@@ -155,7 +161,31 @@ pub fn install_skipped(container: &str, step: &str) {
 }
 
 pub fn install_step_done(container: &str) {
-    with_pane(container, |pane| pane.steps_done += 1, || ());
+    with_pane(
+        container,
+        |pane| {
+            let step = pane.step.clone().unwrap_or_default();
+            pane.steps
+                .push((step, Outcome::Ran(pane.step_started.elapsed())));
+        },
+        || (),
+    );
+}
+
+/// A sidecar whose built image is reused: none of its steps run.
+pub fn install_reused(container: &str) {
+    match VIEW.lock().unwrap().as_mut() {
+        Some(view) => view.print_above(&[format!(
+            "{} {} {}",
+            "↺".dimmed(),
+            progress::host(container),
+            "· steps unchanged, image reused".dimmed()
+        )]),
+        None => println!(
+            "{} steps unchanged: reusing the image built before",
+            progress::install_tag(container, None)
+        ),
+    }
 }
 
 pub fn install_output(container: &str, step: &str, line: &str) {
@@ -170,15 +200,22 @@ pub fn install_done(container: &str) {
     if let Some(view) = VIEW.lock().unwrap().as_mut()
         && let Some(pane) = view.panes.shift_remove(container)
     {
-        let line = format!(
-            "{} {} · {} step{} · {}",
+        let mut lines = vec![format!(
+            "{} {} {}",
             "✓".green(),
             progress::host(container),
-            pane.steps_done,
-            if pane.steps_done == 1 { "" } else { "s" },
-            elapsed(pane.started)
-        );
-        view.print_above(&[line]);
+            format!("· {}", elapsed(pane.started)).dimmed()
+        )];
+        lines.extend(pane.steps.iter().map(|(name, outcome)| match outcome {
+            Outcome::Ran(took) => format!(
+                "  {} {} {}",
+                "✓".green(),
+                name,
+                format!("{}s", took.as_secs()).dimmed()
+            ),
+            Outcome::Skipped => format!("  ○ {} skipped", name).dimmed().to_string(),
+        }));
+        view.print_above(&lines);
     }
 }
 
@@ -373,13 +410,7 @@ mod tests {
 
     #[test]
     fn a_step_keeps_a_bounded_amount_of_output() {
-        let mut pane = Pane {
-            step: None,
-            started: Instant::now(),
-            steps_done: 0,
-            tail: VecDeque::new(),
-            step_output: Vec::new(),
-        };
+        let mut pane = Pane::new();
         for i in 0..MAX_STEP_LINES * 10 {
             pane.push(format!("line {}", i));
         }
