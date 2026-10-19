@@ -7,7 +7,10 @@ use crate::{
     config::config::RoozCfg,
     constants,
     model::types::{AnyError, RunMode, RunSpec},
-    util::labels::{self, Labels},
+    util::{
+        labels::{self, Labels},
+        progress,
+    },
 };
 
 use bollard_stubs::models::ContainerConfig;
@@ -176,6 +179,12 @@ impl<'a> WorkspaceApi<'a> {
                     && !self.api.image.is_pinned(id, &runtime_image_labels).await?
                 {
                     image_id = None;
+                }
+                if image_id.is_some() {
+                    println!(
+                        "{} steps unchanged: reusing the image built before",
+                        progress::install_tag(name, None)
+                    );
                 }
 
                 if image_id.is_none()

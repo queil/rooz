@@ -385,7 +385,7 @@ impl<'a> ExecApi<'a> {
                     == 0
                 {
                     println!(
-                        "{} skipped",
+                        "{} skipped: skip_if succeeded",
                         progress::install_tag(container_name, Some(&step.name))
                     );
                     continue;
