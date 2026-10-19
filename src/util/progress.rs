@@ -59,7 +59,11 @@ pub fn host_tag(name: &str) -> ColoredString {
 
 /// One terse progress line per phase, on stderr so stdout stays clean for callers.
 pub fn phase(label: &str, msg: impl std::fmt::Display) {
-    eprintln!("{} {}", tag(label), msg);
+    if crate::util::live::is_live() {
+        crate::util::live::println(format!("{} {}", tag(label), msg));
+    } else {
+        eprintln!("{} {}", tag(label), msg);
+    }
 }
 
 #[cfg(test)]

@@ -3,6 +3,7 @@ pub mod git;
 pub mod id;
 pub mod identity;
 pub mod labels;
+pub mod live;
 pub mod progress;
 pub mod report;
 pub mod sh;

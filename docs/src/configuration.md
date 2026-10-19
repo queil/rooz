@@ -139,6 +139,10 @@ install:
 * `skip_if` runs first, as the same user; exit 0 skips the step. Pair it with a [cache](#caches) to
   avoid repeat downloads. `run` and `skip_if` are templated.
 * `skip_if` sees the container's env: put cached tools on `PATH` (via `env`) or use absolute paths.
+* Containers install side by side: sidecar images build while the work container's steps run. On a
+  terminal each gets a pane with its current step and last output lines; a finished one collapses to a
+  summary, a failed one leaves its step's whole output. Elsewhere, or with `ROOZ_PROGRESS=plain`, every
+  output line is printed tagged `[install:<container>:<step>]`.
 * `bases` layers add steps by key, replace whole steps, or remove them with `null`.
 * `root: true` is refused from untrusted config (a `--config <url>//<path>` source or `bases` layer not
   in `ROOZ_TRUSTED_CONFIGS`). Trust the source or use a local config.

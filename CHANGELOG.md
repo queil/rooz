@@ -18,8 +18,9 @@ file - see the git history.
   root. The refusal prints the value to set; it changes with the container's image, command, env,
   mounts or install steps. `=true` and `--privileged true` work as before.
 - Sidecar images build, and their install steps run, alongside the work container's install instead
-  of one after another. Install output is tagged per line with its container and step, as it
-  interleaves.
+  of one after another. On a terminal each container gets a live pane with its current step and last
+  output lines; elsewhere, or with `ROOZ_PROGRESS=plain`, output lines are tagged with their container
+  and step.
 - Install progress says why a step was skipped (`skipped: skip_if succeeded`), and `rooz update` prints a
   line when it reuses a sidecar's built image instead of running its steps.
 

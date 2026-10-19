@@ -9,7 +9,7 @@ use crate::{
     model::types::{AnyError, RunMode, RunSpec},
     util::{
         labels::{self, Labels},
-        progress,
+        live, progress,
     },
 };
 
@@ -185,10 +185,10 @@ impl<'a> WorkspaceApi<'a> {
                     image_id = None;
                 }
                 if image_id.is_some() {
-                    println!(
+                    live::println(format!(
                         "{} steps unchanged: reusing the image built before",
                         progress::install_tag(name, None)
-                    );
+                    ));
                 }
 
                 if image_id.is_none()

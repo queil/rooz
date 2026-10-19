@@ -16,7 +16,7 @@ use crate::{
         git::{CloneEnv, RootRepoCloneResult},
         id,
         labels::{self, Labels},
-        progress,
+        live, progress,
     },
 };
 use bollard::errors::Error;
@@ -593,7 +593,8 @@ impl<'a> WorkspaceApi<'a> {
         progress::phase("container", work_spec.container_name);
         // the sidecars and the work container are independent until they start: their images
         // build and their install steps run side by side
-        let (sidecars_cfg, ws) = futures::try_join!(
+        live::begin();
+        let installed = futures::try_join!(
             self.ensure_sidecars(
                 &sidecars_input,
                 workspace_key,
@@ -603,7 +604,9 @@ impl<'a> WorkspaceApi<'a> {
                 rebuild.map(|r| &r.sidecar_images),
             ),
             self.create(&work_spec),
-        )?;
+        );
+        live::end();
+        let (sidecars_cfg, ws) = installed?;
 
         self.config
             .store_runtime(

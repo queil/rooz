@@ -3,7 +3,7 @@ use crate::{
     config::config::ResolvedStep,
     constants,
     model::types::AnyError,
-    util::{progress, sh},
+    util::{live, sh},
 };
 use bollard::{
     container::LogOutput,
@@ -59,42 +59,40 @@ async fn collect(stream: impl Stream<Item = Result<LogOutput, Error>>) -> Result
     Ok(String::from_utf8(out)?)
 }
 
-// With a tag, output goes out line by line, each line tagged: install steps of several
-// containers run at once, and their output interleaves.
+// With an install (container, step), output goes out line by line through the live view:
+// install steps of several containers run at once, and their output interleaves.
 async fn log(
     stream: impl Stream<Item = Result<LogOutput, Error>>,
-    tag: Option<&str>,
+    install: Option<(&str, &str)>,
 ) -> Result<(), AnyError> {
     use futures::stream::StreamExt;
     use std::io::Write;
 
     let mut stream = std::pin::pin!(stream);
     let mut pending = Vec::<u8>::new();
-    let write_line = |line: &[u8]| -> Result<(), AnyError> {
-        let mut stdout = std::io::stdout().lock();
-        if let Some(tag) = tag {
-            write!(stdout, "{} ", tag)?;
-        }
-        stdout.write_all(line)?;
-        stdout.flush()?;
-        Ok(())
-    };
 
     while let Some(item) = stream.next().await {
         let bytes = item?.into_bytes();
-        if tag.is_none() {
-            write_line(std::str::from_utf8(bytes.as_ref())?.as_bytes())?;
+        let Some((container, step)) = install else {
+            let mut stdout = std::io::stdout().lock();
+            stdout.write_all(std::str::from_utf8(bytes.as_ref())?.as_bytes())?;
+            stdout.flush()?;
             continue;
-        }
+        };
         pending.extend_from_slice(&bytes);
         while let Some(end) = pending.iter().position(|b| *b == b'\n') {
             let line = pending.drain(..=end).collect::<Vec<_>>();
-            write_line(&line)?;
+            live::install_output(
+                container,
+                step,
+                String::from_utf8_lossy(&line[..line.len() - 1]).as_ref(),
+            );
         }
     }
-    if !pending.is_empty() {
-        pending.push(b'\n');
-        write_line(&pending)?;
+    if let Some((container, step)) = install
+        && !pending.is_empty()
+    {
+        live::install_output(container, step, String::from_utf8_lossy(&pending).as_ref());
     }
 
     Ok(())
@@ -348,7 +346,7 @@ impl<'a> ExecApi<'a> {
         container_id: &str,
         user: Option<&str>,
         cmd: Option<Vec<&str>>,
-        tag: Option<&str>,
+        install: Option<(&str, &str)>,
     ) -> Result<i64, AnyError> {
         let exec_id = self
             .create_exec(reason, container_id, None, user, cmd, false)
@@ -356,7 +354,7 @@ impl<'a> ExecApi<'a> {
         if let StartExecResults::Attached { output, .. } =
             self.client.start_exec(&exec_id, None).await?
         {
-            log(output, tag).await?;
+            log(output, install).await?;
         } else {
             return Err("Could not start exec: the engine returned no attached stream. Check that the container is running.".into());
         }
@@ -392,50 +390,57 @@ impl<'a> ExecApi<'a> {
         container_id: &str,
         steps: Vec<ResolvedStep>,
     ) -> Result<(), AnyError> {
-        let step_names = steps
-            .iter()
-            .map(|step| step.name.as_str())
-            .collect::<Vec<_>>()
-            .join(", ");
-        println!(
-            "{} steps: {}",
-            progress::install_tag(container_name, None),
-            step_names
-        );
+        let names = steps.iter().map(|s| s.name.as_str()).collect::<Vec<_>>();
+        live::install_begin(container_name, &names);
+        match self
+            .install_steps(container_name, container_id, &steps)
+            .await
+        {
+            Ok(()) => {
+                live::install_done(container_name);
+                Ok(())
+            }
+            Err(e) => {
+                live::install_failed(container_name);
+                Err(e)
+            }
+        }
+    }
+
+    async fn install_steps(
+        &self,
+        container_name: &str,
+        container_id: &str,
+        steps: &[ResolvedStep],
+    ) -> Result<(), AnyError> {
         for (idx, step) in steps.iter().enumerate() {
             let user = step.root.then_some(constants::ROOT_UID);
+            let tag = (container_name, step.name.as_str());
             if let Some(check) = &step.skip_if {
+                live::install_checking(container_name, &step.name);
                 let check_cmd = inject(
                     &format!("#!/bin/sh\n{}", script_body(check)),
                     &format!("skip-{}.sh", idx),
                 );
                 let v = check_cmd.iter().map(|x| x.as_str()).collect::<Vec<_>>();
-                let tag = progress::install_tag(container_name, Some(&step.name));
                 if self
-                    .status_tagged("install-check", container_id, user, Some(v), Some(&tag))
+                    .status_tagged("install-check", container_id, user, Some(v), Some(tag))
                     .await?
                     == 0
                 {
-                    println!(
-                        "{} skipped: skip_if succeeded",
-                        progress::install_tag(container_name, Some(&step.name))
-                    );
+                    live::install_skipped(container_name, &step.name);
                     continue;
                 }
             }
-            println!(
-                "{}",
-                progress::install_tag(container_name, Some(&step.name))
-            );
+            live::install_step(container_name, &step.name);
             let cmd = format!("#!/bin/sh\nset -e\n{}", script_body(&step.run));
             let install_cmd = inject(cmd.as_str(), &format!("install-{}.sh", idx));
             let v = install_cmd.iter().map(|x| x.as_str()).collect::<Vec<_>>();
-            let tag = progress::install_tag(container_name, Some(&step.name));
             match self
-                .status_tagged("install", container_id, user, Some(v), Some(&tag))
+                .status_tagged("install", container_id, user, Some(v), Some(tag))
                 .await?
             {
-                0 => (),
+                0 => live::install_step_done(container_name),
                 code => {
                     return Err(format!(
                         "install step '{}' failed: exec failed with exit code {}",
