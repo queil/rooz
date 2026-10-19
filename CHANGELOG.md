@@ -8,6 +8,24 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases before 0.159.0 predate this
 file - see the git history.
 
+## [0.169.2] - 2026-10-19
+
+### Fixed
+
+- A clone directory is named after the repository: only a trailing `.git` is dropped
+  (`my.github.io` was cloned as `myhub.io`), and `git@host:repo.git` no longer lands in a
+  directory with `@` and `:` in its name.
+- `url.<base>.insteadOf` rewrites use the longest matching alias and every `insteadOf` value in a
+  section, as git does.
+- `rooz exec` exits non-zero when the engine reports no exit code or a negative one. Before, both
+  looked like success.
+- A failed `rooz move` restarts the source workspace it had stopped, and no longer leaves the
+  destination's volumes behind when the copy container is still being removed. Removing a volume
+  waits briefly for a container that is going away.
+- `rooz cache rm` given the same cache twice removes it once instead of failing midway.
+- `rooz enter`, `start`, `stop` and `restart` no longer panic on a container missing from the
+  stored config or with an unexpected name list.
+
 ## [0.169.1] - 2026-10-19
 
 ### Changed
