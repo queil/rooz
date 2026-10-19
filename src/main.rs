@@ -281,7 +281,7 @@ async fn run() -> Result<(), AnyError> {
                     cmd.iter().map(String::as_str).collect(),
                 )
                 .await?;
-            std::process::exit(code.clamp(0, 255) as i32);
+            std::process::exit(if code < 0 { 1 } else { code.min(255) as i32 });
         }
 
         Cli {

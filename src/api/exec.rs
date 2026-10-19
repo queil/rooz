@@ -320,12 +320,11 @@ impl<'a> ExecApi<'a> {
                 }
             }
         }
-        Ok(self
-            .client
+        self.client
             .inspect_exec(&exec_id)
             .await?
             .exit_code
-            .unwrap_or(0))
+            .ok_or_else(|| "The engine did not report an exit code for the command.".into())
     }
 
     pub async fn output(

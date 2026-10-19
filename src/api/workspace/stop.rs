@@ -14,7 +14,10 @@ impl<'a> WorkspaceApi<'a> {
 
     async fn stop_matching(&self, labels: &Labels) -> Result<(), AnyError> {
         for c in self.api.container.get_running(labels).await? {
-            print!("Stopping container: {} ... ", c.names.unwrap().join(", "));
+            print!(
+                "Stopping container: {} ... ",
+                c.names.unwrap_or_default().join(", ")
+            );
             self.api.container.stop(&c.id.unwrap()).await?;
             println!("{}", "OK".to_string().green())
         }

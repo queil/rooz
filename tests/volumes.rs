@@ -97,6 +97,37 @@ async fn cache_volume_survives_workspace_rm() {
 }
 
 #[tokio::test]
+async fn cache_rm_accepts_the_same_cache_twice() {
+    let Some(env) = TestEnv::from_env() else {
+        return;
+    };
+    let key = unique_key("vol-cache-dup");
+    env.rooz()
+        .args(["system", "init", "--force"])
+        .assert()
+        .success();
+    env.rooz()
+        .args([
+            "new",
+            &key,
+            "--image",
+            "alpine:latest",
+            "--caches",
+            "~/.cargo",
+        ])
+        .assert()
+        .success();
+    env.rooz().args(["rm", &key, "--force"]).assert().success();
+    assert!(env.volume_exists(cargo_cache_vol().as_str()).await);
+
+    env.rooz()
+        .args(["cache", "rm", "~/.cargo", "~/.cargo"])
+        .assert()
+        .success();
+    assert!(!env.volume_exists(cargo_cache_vol().as_str()).await);
+}
+
+#[tokio::test]
 async fn cache_volume_shared_across_workspaces() {
     let Some(env) = TestEnv::from_env() else {
         return;

@@ -213,18 +213,31 @@ impl<'a> VolumeApi<'a> {
 
     pub async fn remove_volume(&self, name: &str, force: bool) -> Result<(), AnyError> {
         let options = RemoveVolumeOptions { force };
-        match &self.client.remove_volume(name, Some(options)).await {
-            Ok(_) => {
-                let force_display = if force { " (force)" } else { "" };
-                log::debug!("Volume removed: {} {}", name, force_display);
-                Ok(())
+        // a one-shot container that has just exited is auto-removed asynchronously and still
+        // holds its volumes for a moment; a 409 in that window passes on its own
+        let mut attempt = 0;
+        loop {
+            match self.client.remove_volume(name, Some(options.clone())).await {
+                Ok(_) => {
+                    let force_display = if force { " (force)" } else { "" };
+                    log::debug!("Volume removed: {} {}", name, force_display);
+                    return Ok(());
+                }
+                Err(DockerResponseServerError {
+                    status_code: 409, ..
+                }) if attempt < 10 => {
+                    attempt += 1;
+                    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+                }
+                Err(e) => {
+                    return Err(format!(
+                        "Could not remove volume '{}': {}. If a container still uses it, remove that first.",
+                        name,
+                        engine_msg(&e)
+                    )
+                    .into());
+                }
             }
-            Err(e) => Err(format!(
-                "Could not remove volume '{}': {}. If a container still uses it, remove that first.",
-                name,
-                engine_msg(e)
-            )
-            .into()),
         }
     }
 

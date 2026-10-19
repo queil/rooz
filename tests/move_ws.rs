@@ -326,3 +326,62 @@ async fn move_to_a_host_can_remove_the_source() {
 
     cleanup(&env, &to, &cfg_path);
 }
+
+#[tokio::test]
+async fn failed_move_leaves_the_source_running() {
+    let Some(env) = TestEnv::from_env() else {
+        return;
+    };
+    let (from, to) = (unique_key("mv-f"), unique_key("mv-g"));
+    init(&env);
+    env.rooz()
+        .args(["new", &from, "--image", "alpine:latest"])
+        .assert()
+        .success();
+    exec_out(&env, &from, "echo kept > /work/marker");
+
+    // an unlabelled container squatting on the destination's work container name makes the
+    // rebuild fail after the source has been stopped
+    env.create_decoy_container(&to).await;
+    env.rooz().args(["move", &from, &to]).assert().failure();
+    env.remove_decoy_container(&to).await;
+
+    assert!(
+        env.workspace_container_states(&from)
+            .await
+            .iter()
+            .all(|s| *s == bollard::models::ContainerSummaryStateEnum::RUNNING),
+        "source not restarted after a failed move"
+    );
+    assert_eq!(exec_out(&env, &from, "cat /work/marker").trim(), "kept");
+    assert!(
+        env.volumes_by_workspace(&to).await.is_empty(),
+        "failed move left volumes behind"
+    );
+
+    env.rooz().args(["rm", &from, "--force"]).assert().success();
+}
+
+#[tokio::test]
+async fn exec_exits_with_the_command_exit_code() {
+    let Some(env) = TestEnv::from_env() else {
+        return;
+    };
+    let key = unique_key("ex-code");
+    init(&env);
+    env.rooz()
+        .args(["new", &key, "--image", "alpine:latest"])
+        .assert()
+        .success();
+
+    env.rooz()
+        .args(["exec", "--root", &key, "--", "sh", "-c", "exit 7"])
+        .assert()
+        .code(7);
+    env.rooz()
+        .args(["exec", "--root", &key, "--", "true"])
+        .assert()
+        .success();
+
+    env.rooz().args(["rm", &key, "--force"]).assert().success();
+}

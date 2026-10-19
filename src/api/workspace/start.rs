@@ -6,11 +6,7 @@ impl<'a> WorkspaceApi<'a> {
         let labels = Labels::from(&[Labels::workspace(workspace_key)]);
 
         for c in self.api.container.get_all(&labels).await? {
-            let names = c.names.clone().unwrap();
-            let container_name = match names.as_slice() {
-                [name] => name,
-                name => panic!("Unexpected container name(s): {:?}", name),
-            };
+            let container_name = c.names.clone().unwrap_or_default().join(", ");
 
             print!("Starting container: {} ... ", container_name);
             let container_id = c.id.unwrap();

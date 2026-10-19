@@ -202,6 +202,9 @@ impl<'a> WorkspaceApi<'a> {
                     to, cleanup, to
                 );
             }
+            if let Err(restart) = self.start(from).await {
+                eprintln!("WARN: could not restart '{}': {}", from, restart);
+            }
             return Err(format!("Move failed; '{}' is untouched. {}", from, e).into());
         }
 
