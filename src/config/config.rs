@@ -358,13 +358,13 @@ pub struct RoozCfg {
 pub fn operator_only_fields(cfg: &RoozCfg) -> Vec<&'static str> {
     let RoozCfg {
         // operator-only - reach beyond this workspace's container
-        secrets, // the operator's plaintext
-        caches,  // volumes shared with every other workspace of the same operator
+        secrets,     // the operator's plaintext
+        caches,      // volumes shared with every other workspace of the same operator
+        extra_repos, // cloned by a container that mounts the operator's ssh key
         // repo-authorable - contained to the workspace the repository already controls
         bases,
         vars,
         git_ssh_url,
-        extra_repos,
         image,
         shell,
         user,
@@ -384,7 +384,6 @@ pub fn operator_only_fields(cfg: &RoozCfg) -> Vec<&'static str> {
         bases,
         vars,
         git_ssh_url,
-        extra_repos,
         image,
         shell,
         user,
@@ -406,6 +405,9 @@ pub fn operator_only_fields(cfg: &RoozCfg) -> Vec<&'static str> {
     }
     if caches.as_ref().is_some_and(|c| !c.is_empty()) {
         fields.push("caches");
+    }
+    if extra_repos.as_ref().is_some_and(|r| !r.is_empty()) {
+        fields.push("extra_repos");
     }
     fields
 }
@@ -668,15 +670,21 @@ impl RoozCfg {
 
         let mut reg = Handlebars::new();
         reg.register_escape_fn(no_escape);
+        // a variable nothing defines is a typo, not an empty string
+        reg.set_strict_mode(true);
         // a secret is a value, never a template: rendering it would let a '{{' in the plaintext
         // corrupt it, escape masking, or quote it in a template error
         let mut built_vars = secrets;
+        let mut rendered_vars = IndexMap::new();
         for (k, v) in vars {
             let rendered = reg.render_template(&v, &built_vars)?;
+            rendered_vars.insert(k.clone(), rendered.clone());
             built_vars.insert(k, rendered);
         }
 
-        self.vars = render_map(&reg, &self.vars, &built_vars)?;
+        // rendered once, in order: a variable can use the ones before it, and its value is
+        // never run through the template engine a second time
+        self.vars = self.vars.as_ref().map(|_| rendered_vars);
         self.git_ssh_url = render_opt(&reg, &self.git_ssh_url, &built_vars)?;
         self.image = render_opt(&reg, &self.image, &built_vars)?;
         self.user = render_opt(&reg, &self.user, &built_vars)?;
@@ -1332,6 +1340,39 @@ mod tests {
         };
         cfg.expand_vars(false).unwrap();
         assert_eq!(cfg.image.unwrap(), "alpine:1.2.3");
+    }
+
+    #[test]
+    fn an_undefined_variable_is_an_error_naming_it() {
+        let mut cfg = RoozCfg {
+            image: Some("alpine:{{ tga }}".to_string()),
+            ..RoozCfg::none()
+        };
+        let err = cfg.expand_vars(false).unwrap_err().to_string();
+        assert!(err.contains("tga"), "{}", err);
+    }
+
+    #[test]
+    fn vars_expand_in_order_and_once() {
+        let vars = |pairs: &[(&str, &str)]| {
+            Some(IndexMap::from_iter(
+                pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())),
+            ))
+        };
+        let mut cfg = RoozCfg {
+            vars: vars(&[("a", "x"), ("b", "{{a}}-y")]),
+            image: Some("{{ b }}".to_string()),
+            ..RoozCfg::none()
+        };
+        cfg.expand_vars(false).unwrap();
+        assert_eq!(cfg.vars, vars(&[("a", "x"), ("b", "x-y")]));
+        assert_eq!(cfg.image.unwrap(), "x-y");
+
+        let mut forward = RoozCfg {
+            vars: vars(&[("a", "{{b}}"), ("b", "x")]),
+            ..RoozCfg::none()
+        };
+        assert!(forward.expand_vars(false).is_err());
     }
 
     #[test]

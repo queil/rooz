@@ -48,24 +48,6 @@ impl<'a> InitApi<'a> {
             .await
     }
 
-    // Volumes created before the ssh client config existed get it here, without touching the key
-    async fn ensure_ssh_config(&self, image_id: &str, uid: &str) -> Result<(), AnyError> {
-        let script = format!(
-            "{}chown {} /tmp/.ssh/config\n",
-            ssh::ensure_config_script("/tmp/.ssh"),
-            uid
-        );
-        self.container
-            .one_shot(
-                "init",
-                script,
-                Some(vec![ssh::mount("/tmp/.ssh", false)]),
-                None,
-                Some(image_id),
-            )
-            .await
-    }
-
     // The identity is written to the operator's machine, never to the engine: every user of
     // a container engine can read its volumes, and this key decrypts every secret the
     // operator has ever encrypted with rooz - including ciphertext committed to repositories.
@@ -161,7 +143,9 @@ impl<'a> InitApi<'a> {
                 self.init_ssh(&image_id, uid, false).await?
             }
             VolumeResult::AlreadyExists => {
-                self.ensure_ssh_config(&image_id, uid).await?;
+                // generates a key only when there is none, so an init that was interrupted
+                // before the key was written is completed; an existing key is left alone
+                self.init_ssh(&image_id, uid, false).await?;
                 println!(
                     "The rooz ssh key is already initialized. Use --rotate-ssh-key to replace it."
                 )

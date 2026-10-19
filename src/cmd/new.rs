@@ -209,6 +209,12 @@ fn check_vpn(containers: &[(String, String)], consent: &Consent) -> Result<(), A
     .into())
 }
 
+pub const EXTRA_REPOS_NOT_ALLOWED: &str = "This configuration lists 'extra_repos', but it is not \
+     wholly yours: it is the repository's own, or merges a 'bases' layer not in \
+     ROOZ_TRUSTED_CONFIGS. Extra repositories are cloned with your ssh key, so a repository \
+     must not be able to name which of your private repositories land in its workspace. List \
+     the source in ROOZ_TRUSTED_CONFIGS, or use a local '--config' file.";
+
 pub const CACHES_NOT_ALLOWED: &str = "This configuration declares shared caches, but it is not \
      wholly yours: it is the repository's own, or merges a 'bases' layer not in \
      ROOZ_TRUSTED_CONFIGS. A cache volume is shared with every other \
@@ -266,6 +272,7 @@ fn check_repo_authored(cfg: &RoozCfg, consented_caches: &[String]) -> Result<(),
             "caches" => check_caches(cfg.caches.as_deref().unwrap_or_default(), consented_caches)?,
             // secrets from a repo-authored config are never expanded, consent or not
             "secrets" => return Err(crate::config::config::SECRETS_NOT_ALLOWED.into()),
+            "extra_repos" => return Err(EXTRA_REPOS_NOT_ALLOWED.into()),
             other => {
                 return Err(format!(
                     "Refusing '{}': this configuration is the repository's own, or merges a \
@@ -428,7 +435,11 @@ impl<'a> WorkspaceApi<'a> {
 
         cfg_builder.expand_vars(operator_authored)?;
 
-        let cfg = RuntimeConfig::try_from(&*cfg_builder)?;
+        let mut cfg = RuntimeConfig::try_from(&*cfg_builder)?;
+        // not a config field: the work container's uid is whatever the workspace was made with
+        if let Some(uid) = cli_params.uid {
+            cfg.uid = uid as i32;
+        }
 
         // gate before any image, volume, network or container work happens
         let masked = cfg.mask_secrets(&decrypted_secrets);
@@ -1098,12 +1109,23 @@ mod tests {
         let cfg: RoozCfg = serde_yaml::from_str(
             "image: alpine\nshell: [sh]\nuser: someone\nports: ['8080:8080']\n\
              env: {A: b}\ninstall: 'echo hi'\ncommand: [sh]\nargs: [-c]\n\
-             extra_repos: ['git@h:a/b.git']\nvars: {v: '1'}\ninit: true\n\
+             vars: {v: '1'}\ninit: true\n\
              sidecars:\n  s:\n    image: alpine\n",
         )
         .unwrap();
         assert!(crate::config::config::operator_only_fields(&cfg).is_empty());
         assert!(check_repo_authored(&cfg, &[]).is_ok());
+    }
+
+    #[test]
+    fn repo_authored_extra_repos_are_refused() {
+        let cfg: RoozCfg = serde_yaml::from_str("extra_repos: ['git@h:a/b.git']\n").unwrap();
+        assert_eq!(
+            crate::config::config::operator_only_fields(&cfg),
+            vec!["extra_repos"]
+        );
+        let err = check_repo_authored(&cfg, &[]).unwrap_err().to_string();
+        assert!(err.contains("ROOZ_TRUSTED_CONFIGS"), "{}", err);
     }
 
     #[test]

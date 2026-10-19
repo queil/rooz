@@ -43,6 +43,23 @@ file - see the git history.
 - `rooz remote` keeps the leading `/` of a `unix:///...` `DOCKER_HOST`; the forward pointed at a
   relative path.
 - Stack detection skips a project file it cannot read instead of failing.
+- `rooz update` resolves and gates the new configuration before removing anything: a refused
+  consent or an invalid value no longer leaves the workspace (or, with `--purge`, its volumes)
+  gone. A workspace made from flags alone keeps its image, user, caches, privileged flag and
+  `--uid` across `update`; before, it was rebuilt with the defaults.
+- `--uid` is stored with the workspace, so `move`, `enter --chown` and `plan` see it.
+- An undefined template variable (`{{ tga }}`) is an error naming it instead of an empty string,
+  and `vars` are rendered once, in order, so a forward reference is an error too.
+- `extra_repos` in a repository's own config (or one merging an untrusted `bases` layer) is
+  refused unless the source is in `ROOZ_TRUSTED_CONFIGS`: the clone uses your ssh key.
+- An interrupted `system init` that left an empty ssh-key volume is completed by running it
+  again.
+- `rooz remote`: one failed Docker API call no longer closes every forwarded port, and a service
+  that accepts the tunnel probe but never answers cannot stall the poll loop.
+- `update --purge --dry-run` no longer lists the config volume, which a purge keeps.
+- The terminal is restored when an `enter` session ends with an error, a failed container-user
+  creation is reported instead of ignored, and a failed `chown` is warned about.
+- `rooz move --to` hints no longer print a stray `\`.
 
 ## [0.169.1] - 2026-10-19
 

@@ -155,7 +155,7 @@ impl<'a> ContainerApi<'a> {
                         // hack: https://github.com/containers/podman/issues/17728
                         // nothing to kill as the container is already stopped
                     } else {
-                        panic!("{}", message)
+                        return Err(message.into());
                     }
                 }
                 Err(DockerResponseServerError {
@@ -164,7 +164,7 @@ impl<'a> ContainerApi<'a> {
                 }) => {
                     log::debug!("Container no longer exists: {}", message);
                 }
-                Err(e) => panic!("{}", e),
+                Err(e) => return Err(e.into()),
             }
         }
 
@@ -214,7 +214,7 @@ impl<'a> ContainerApi<'a> {
                 status_code
             )
             .into()),
-            Err(e) => panic!("{}", e),
+            Err(e) => Err(e.into()),
         }
     }
 
@@ -662,7 +662,7 @@ exit $EXEC_EXIT_CODE"#;
                                     .to_string()
                                     .trim_end()
                             ),
-                            Err(err) => panic!("{}", err),
+                            Err(err) => log::debug!("{} | log stream ended: {}", s_name, err),
                         };
                         future::ready(())
                     })

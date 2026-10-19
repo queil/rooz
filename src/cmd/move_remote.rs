@@ -74,7 +74,7 @@ impl<'a> WorkspaceApi<'a> {
                     && !std::path::Path::new(&path).is_file()
                 {
                     return Err(format!(
-                        "The workspace was made from '{}', which is not on this machine any \\
+                        "The workspace was made from '{}', which is not on this machine any \
                              more. The target is rebuilt from the config file.",
                         path
                     )
@@ -191,7 +191,7 @@ impl<'a> WorkspaceApi<'a> {
         let platform = captured(host, &["internal", "preflight", to]).await?;
         if platform != self.api.container.backend.platform {
             eprintln!(
-                "WARN: the target runs {} and this engine {}: compiled artifacts in the work \\
+                "WARN: the target runs {} and this engine {}: compiled artifacts in the work \
                  volume will not run there.",
                 platform, self.api.container.backend.platform
             );
@@ -245,7 +245,7 @@ impl<'a> WorkspaceApi<'a> {
             if let Err(cleanup) = inherited(host, &["rm".into(), to.into(), "--force".into()]).await
             {
                 eprintln!(
-                    "WARN: could not remove the partial workspace '{}' on '{}': {}. Remove it with \\
+                    "WARN: could not remove the partial workspace '{}' on '{}': {}. Remove it with \
                      'rooz -H {} rm {} --force'.",
                     to, host, cleanup, host, to
                 );

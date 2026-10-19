@@ -76,6 +76,22 @@ fn trim_unterminated(pending: &mut Vec<u8>) {
     }
 }
 
+// Puts the terminal back however the session ends: an early `?` must not leave it raw.
+struct RawMode;
+
+impl RawMode {
+    fn enable() -> std::io::Result<Self> {
+        enable_raw_mode()?;
+        Ok(Self)
+    }
+}
+
+impl Drop for RawMode {
+    fn drop(&mut self) {
+        disable_raw_mode().ok();
+    }
+}
+
 // With an install (container, step), output goes out line by line through the live view:
 // install steps of several containers run at once, and their output interleaves.
 async fn log(
@@ -147,7 +163,7 @@ impl<'a> ExecApi<'a> {
                     running: Some(true),
                     ..
                 } => {
-                    enable_raw_mode()?;
+                    let raw_mode = RawMode::enable()?;
 
                     let stdin_reader = std::io::stdin();
                     let async_stdin = AsyncFd::new(stdin_reader)?;
@@ -207,7 +223,7 @@ impl<'a> ExecApi<'a> {
 
                     handle.await??;
                     resize_handle.await.ok();
-                    disable_raw_mode()?;
+                    drop(raw_mode);
                     // try ping to see if the connection was lost
                     // if this fails the calling code loops retrying to connect to the session
                     self.client.ping().await?;
@@ -340,6 +356,26 @@ impl<'a> ExecApi<'a> {
         } else {
             Err("Could not start exec: the engine returned no attached stream. Check that the container is running.".into())
         }
+    }
+
+    // `output` plus the exit code, for commands whose failure matters
+    async fn output_with_code(
+        &self,
+        reason: &str,
+        container_id: &str,
+        user: Option<&str>,
+        cmd: Option<Vec<&str>>,
+    ) -> Result<(String, i64), AnyError> {
+        let exec_id = self
+            .create_exec(reason, container_id, None, user, cmd, false)
+            .await?;
+        let StartExecResults::Attached { output, .. } =
+            self.client.start_exec(&exec_id, None).await?
+        else {
+            return Err("Could not start exec: the engine returned no attached stream. Check that the container is running.".into());
+        };
+        let data = collect(output).await?;
+        Ok((data, self.exit_code(&exec_id).await?))
     }
 
     pub async fn status(
@@ -489,8 +525,8 @@ impl<'a> ExecApi<'a> {
         log::debug!("Changing ownership... ({} {})", uid, dir);
 
         let uid_format = format!("{}:{}", uid, uid);
-        let chown_response = self
-            .output(
+        let (chown_response, chown_code) = self
+            .output_with_code(
                 "chown",
                 container_id,
                 Some(constants::ROOT_USER),
@@ -503,6 +539,15 @@ impl<'a> ExecApi<'a> {
             .await?;
 
         log::debug!("{}", chown_response);
+        if chown_code != 0 {
+            eprintln!(
+                "WARN: could not change ownership of {} to {} (exit {}): {}",
+                dir,
+                uid_format,
+                chown_code,
+                chown_response.trim()
+            );
+        }
         Ok(())
     }
 
@@ -522,8 +567,8 @@ impl<'a> ExecApi<'a> {
             "make_user.sh",
         );
 
-        let ensure_user_output = self
-            .output(
+        let (ensure_user_output, ensure_user_code) = self
+            .output_with_code(
                 "ensure-user",
                 container_id,
                 Some(constants::ROOT_UID),
@@ -531,6 +576,14 @@ impl<'a> ExecApi<'a> {
             )
             .await?;
         log::debug!("{}", ensure_user_output);
+        if ensure_user_code != 0 {
+            return Err(format!(
+                "Could not create the container user (exit {}): {}",
+                ensure_user_code,
+                ensure_user_output.trim()
+            )
+            .into());
+        }
         Ok(())
     }
 }

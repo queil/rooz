@@ -18,7 +18,7 @@ rooz new ws -g <url> --config <url>//.rooz.yaml
 
 Config from a repository (a `--config <url>//<path>` source, e.g. its `.rooz.yaml`), and any config
 that merges a `bases` layer not in `ROOZ_TRUSTED_CONFIGS`, may set the fields scoped to the workspace: `bases`, `git_ssh_url`, `image`, `shell`, `command`, `args`, `env`, `install`,
-`ports`, `data`, `mounts`, `sidecars`, `extra_repos`, `vars`, `user`, `init`.
+`ports`, `data`, `mounts`, `sidecars`, `vars`, `user`, `init`.
 
 These are refused unless you allow them:
 
@@ -26,6 +26,7 @@ These are refused unless you allow them:
 | --- | --- | --- |
 | `secrets` | plaintext lands in a repo-controlled container | list the source in `ROOZ_TRUSTED_CONFIGS` ([Trusted config sources](secrets.md#trusted-config-sources)), or use a local `--config` file |
 | `caches` | shared with your other workspaces | the same paths in `ROOZ_CACHES` (or `--caches`, which covers `rooz new` only, not `rooz update`), or the source in `ROOZ_TRUSTED_CONFIGS` |
+| `extra_repos` | cloned with your ssh key into the workspace | the source in `ROOZ_TRUSTED_CONFIGS`, or a local `--config` file |
 | `install` step with `root: true` | runs as root in the workspace | the source in `ROOZ_TRUSTED_CONFIGS`, or a local `--config` file ([Install steps](#install-steps)) |
 | `privileged` | full host access | `ROOZ_ALLOW_PRIVILEGED=<name>@<fingerprint>`, required for *any* config file |
 | sidecar `vpn` | kernel netfilter access as root on a rootful engine | `ROOZ_ALLOW_VPN=<name>@<fingerprint>`, required for *any* config file |

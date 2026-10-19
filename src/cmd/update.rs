@@ -43,16 +43,35 @@ impl<'a> WorkspaceApi<'a> {
             _ => self.stored_git_ssh_url(workspace_key).await?,
         };
 
+        // A workspace made from flags alone has no config to rebuild from, and the uid is not part
+        // of any config: both come from the stored runtime config, or a rebuild would silently
+        // return to the defaults. What the environment sets for this run still wins.
+        let stored = RuntimeConfig::from_string(
+            self.config
+                .read(workspace_key, &ConfigType::Runtime)
+                .await?,
+        )?;
+        let mut params = WorkParams {
+            git_ssh_url,
+            env: spec.clone(),
+            allow_secrets,
+            uid: Some(stored.uid as u32),
+            ..Default::default()
+        };
+        if config_source.is_none() {
+            params.image = spec.image.is_none().then(|| stored.image.clone());
+            params.user = spec.user.is_none().then(|| stored.user.clone());
+            params.caches = Some(stored.caches.clone()).filter(|c| !c.is_empty());
+            params.privileged = Some(stored.privileged);
+        }
+
         if dry_run {
             let plan = self
                 .plan_new(
                     workspace_key,
                     &WorkParams {
-                        git_ssh_url,
-                        env: spec.clone(),
                         pull_image: !no_pull,
-                        allow_secrets,
-                        ..Default::default()
+                        ..params
                     },
                     config_source,
                     PlanMode::Update {
@@ -66,16 +85,35 @@ impl<'a> WorkspaceApi<'a> {
 
         self.api.volume.require_ssh_key().await?;
 
+        // resolve and gate the configuration exactly as the rebuild will, before anything is
+        // removed: a refusal or a validation error must leave the workspace as it was
+        self.plan_new(
+            workspace_key,
+            &WorkParams {
+                pull_image: !no_pull,
+                ..params.clone()
+            },
+            config_source.clone(),
+            PlanMode::Update {
+                purge: matches!(mode, UpdateMode::Purge),
+            },
+        )
+        .await?;
+
         // pull before anything is removed: a failed pull must leave the workspace as it was. Only
         // an image named by the config or the environment is known here; one that comes from
         // 'bases' is still pulled by 'new'.
         let pull_requested = !(no_pull || interactive);
         let mut pull_image = pull_requested;
         if pull_image {
-            let image = spec.image.clone().or_else(|| match &config_source {
-                Some(ConfigSource::Update { value, .. }) => value.image.clone(),
-                _ => None,
-            });
+            let image =
+                spec.image
+                    .clone()
+                    .or(params.image.clone())
+                    .or_else(|| match &config_source {
+                        Some(ConfigSource::Update { value, .. }) => value.image.clone(),
+                        _ => None,
+                    });
             if let Some(image) = image {
                 self.api.image.ensure(&image, true).await?;
                 pull_image = false;
@@ -111,11 +149,8 @@ impl<'a> WorkspaceApi<'a> {
         self.new(
             workspace_key,
             &WorkParams {
-                git_ssh_url,
-                env: spec.clone(),
                 pull_image,
-                allow_secrets,
-                ..Default::default()
+                ..params
             },
             config_source,
             false,
