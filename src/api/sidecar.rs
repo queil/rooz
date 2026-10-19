@@ -75,7 +75,7 @@ impl<'a> WorkspaceApi<'a> {
                 s.real_mounts.insert(t.clone(), m.clone());
                 // The volume might already be created by the workspace-level volume creation
                 // but still may need files in the paths not covered by that process
-                self.api.volume.populate_volume(m, uid).await?;
+                self.api.volume.populate_volume(m, uid, true).await?;
             }
 
             let cmd = &s.command.iter().map(|x| x.as_str()).collect::<Vec<_>>();

@@ -205,7 +205,58 @@ sidecars:
 * The tunnel belongs to the sidecar alone. Share it through a proxy in the sidecar, e.g.
   `HTTP_PROXY=http://vpn:3128` for the work container, or through `peers:`.
 
-## Files next to the config
+## Data and mounts
+
+`data` declares volumes and files; `mounts` maps container paths to them:
+
+```yaml
+data:
+  notes: {}                    # empty read-write volume
+  gitconfig:
+    content: |
+      [url "git@github.com:"]
+        insteadOf = gh:
+  tls-key:
+    generate: openssl genrsa 2048
+    image: docker.io/alpine/openssl
+    once: true
+mounts:
+  ~/notes: notes
+  ~/.gitconfig: gitconfig
+  ~/tls.key: tls-key
+  ~/.bash_history:             # inline: no data key needed
+    content: ""
+    once: true
+```
+
+A `data` entry is one of:
+
+* `{}`: an empty volume, `rooz_<workspace>_<key>`.
+* `content:`: a file with this text.
+* `file:`: a file loaded from next to the config. See [Files next to the config](#files-next-to-the-config).
+* `generate:`: a file holding the stdout of a `sh` script, run in a one-shot container. `image:` picks
+  the image (default `docker.io/chainguard/git:latest-dev`).
+
+Files also take `executable: true` (mode `755`, else `644`) and `once: true`. They are owned by the user
+of the container that mounts them, and writable.
+
+A mount maps a path to a `data` key, or holds the same kinds inline. `~/` expands to the home directory
+in the work container only. The `/work` volume is implicit.
+
+Sidecars use the same syntax. A key mounted in the work container and in a sidecar is one volume, so
+they share it, e.g. a cluster's admin config written by a sidecar and read by the work container.
+
+### Lifecycle
+
+* Volumes (`{}`) keep their data across `rooz update`. `rooz rm` and `rooz update --purge` delete them.
+* Files follow the config: `rooz new` and `rooz update` write every file again, overwriting changes
+  made in the container. `generate:` scripts run again too.
+* A `once` file is written only when nothing is at its path, then belongs to the containers: history,
+  a generated key, a file a sidecar fills in. Its content is only the initial value; later config
+  changes don't reach it.
+* `content:` and `generate:` are [templated](templating.md); `file:` is not.
+
+### Files next to the config
 
 `file:` loads content from a file, like a Kustomize config map generator. It works wherever `content:`
 does: `data`, inline `mounts` and sidecar `mounts`.

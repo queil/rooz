@@ -14,6 +14,7 @@ data:
       openssl genrsa -out cert.key 2048
       cat cert.key
     image: docker.io/alpine/openssl
+    once: true
 
 
   # files included from paths are non-trivial at the moment for config originating from git
@@ -28,6 +29,7 @@ mounts:
   ~/.gitconfig: git-config
   ~/.bash_history:
     content: ""
+    once: true
   # TODO: KNOWN ISSUE - backing different mount paths by the same data entry crashes when trying to cat/edit such
   # a file
 

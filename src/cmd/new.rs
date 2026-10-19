@@ -445,12 +445,11 @@ impl<'a> WorkspaceApi<'a> {
 
         let container_mounts = self.api.volume.mounts(&real_mounts).await?;
         for (_, m) in real_mounts.clone() {
-            //TODO: when initializing volumes both here in sidecars we should verify
-            // if each file exists and if not create them
-            if let VolumeResult::Created = volume_results[&m.volume_name] {
+            let created = matches!(volume_results[&m.volume_name], VolumeResult::Created);
+            if created || !m.files.is_empty() {
                 self.api
                     .volume
-                    .populate_volume(m, Some(work_spec.uid.to_string().parse::<i32>()?))
+                    .populate_volume(m, Some(work_spec.uid.to_string().parse::<i32>()?), created)
                     .await?;
             }
         }

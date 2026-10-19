@@ -65,8 +65,9 @@ sidecars:
 * `env`: environment variables.
 * `command`: overrides the entrypoint (`ENTRYPOINT`).
 * `args`: overrides the entrypoint's arguments (`CMD`).
-* `mounts`: container paths mapped to a `data` key or to inline `content:`/`file:`, as in the work
-  container's `mounts`. Volumes survive container restarts and removal:
+* `mounts`: container paths mapped to a `data` key or an inline value, as in the work container's
+  `mounts`. See [Data and mounts](configuration.md#data-and-mounts). Volumes survive container restarts
+  and removal:
 
   ```yaml
   data:

@@ -279,6 +279,7 @@ pub struct FileSpec {
     pub user_file: UserFile,
     pub generator: ContentGenerator,
     pub executable: bool,
+    pub once: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

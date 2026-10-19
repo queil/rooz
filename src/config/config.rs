@@ -988,6 +988,8 @@ pub enum DataValue {
         content: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         executable: Option<bool>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        once: Option<bool>,
     },
     GeneratedContent {
         generate: String,
@@ -995,6 +997,8 @@ pub enum DataValue {
         image: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         executable: Option<bool>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        once: Option<bool>,
     },
     FileContent {
         file: String,
@@ -1002,6 +1006,8 @@ pub enum DataValue {
         content: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         executable: Option<bool>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        once: Option<bool>,
     },
 }
 
@@ -1011,15 +1017,18 @@ impl DataValue {
             DataValue::InlineContent {
                 content,
                 executable,
+                once,
             } => DataEntry::File {
                 name,
                 generator: Inline(content),
                 executable: executable.unwrap_or_default(),
+                once: once.unwrap_or_default(),
             },
             DataValue::GeneratedContent {
                 generate,
                 image,
                 executable,
+                once,
             } => DataEntry::File {
                 name,
                 generator: Script {
@@ -1027,15 +1036,18 @@ impl DataValue {
                     image,
                 },
                 executable: executable.unwrap_or_default(),
+                once: once.unwrap_or_default(),
             },
             DataValue::FileContent {
                 content,
                 executable,
+                once,
                 ..
             } => DataEntry::File {
                 name,
                 generator: Inline(content.unwrap_or_default()),
                 executable: executable.unwrap_or_default(),
+                once: once.unwrap_or_default(),
             },
             DataValue::Dir {} => DataEntry::Dir { name },
         }
@@ -1051,23 +1063,28 @@ impl DataValue {
             DataValue::InlineContent {
                 content,
                 executable,
+                once,
             } => DataValue::InlineContent {
                 content: render_str(reg, content, vars)?,
                 executable: *executable,
+                once: *once,
             },
             DataValue::GeneratedContent {
                 generate,
                 image,
                 executable,
+                once,
             } => DataValue::GeneratedContent {
                 generate: render_str(reg, generate, vars)?,
                 image: render_opt(reg, image, vars)?,
                 executable: *executable,
+                once: *once,
             },
             DataValue::FileContent {
                 file,
                 content,
                 executable,
+                once,
             } => DataValue::InlineContent {
                 content: content.clone().ok_or_else(|| {
                     format!(
@@ -1076,6 +1093,7 @@ impl DataValue {
                     )
                 })?,
                 executable: *executable,
+                once: *once,
             },
         })
     }
@@ -1120,6 +1138,7 @@ pub enum DataEntry {
         name: String,
         generator: ContentGenerator,
         executable: bool,
+        once: bool,
     },
 }
 

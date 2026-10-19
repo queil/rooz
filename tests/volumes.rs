@@ -372,6 +372,53 @@ async fn sidecar_mount_populates_data_volume() {
     cleanup(&env, &key, &cfg_path);
 }
 
+// `update` rewrites data files from the config, including ones added since `new`, but leaves a
+// `once` file to whatever the containers wrote into it.
+#[tokio::test]
+async fn update_rewrites_data_files_but_keeps_once_files() {
+    let Some(env) = TestEnv::from_env() else {
+        return;
+    };
+    let key = unique_key("vol-upd");
+    let cfg_path = write_cfg(
+        &key,
+        "data:\n  cfg:\n    content: \"v1\\n\"\nmounts:\n  ~/cfg: cfg\n  ~/a:\n    content: \"a1\\n\"\n  ~/hist:\n    content: \"\"\n    once: true\n",
+    );
+
+    new_workspace(&env, &key, &cfg_path);
+    env.rooz()
+        .args([
+            "exec",
+            &key,
+            "--",
+            "sh",
+            "-c",
+            "echo mine > ~/hist; echo edited > ~/a",
+        ])
+        .assert()
+        .success();
+
+    write_cfg(
+        &key,
+        "data:\n  cfg:\n    content: \"v2\\n\"\nmounts:\n  ~/cfg: cfg\n  ~/a:\n    content: \"a2\\n\"\n  ~/b:\n    content: \"b\\n\"\n  ~/hist:\n    content: \"seed\\n\"\n    once: true\n",
+    );
+    env.rooz()
+        .args(["update", &key, "--no-pull"])
+        .assert()
+        .success();
+
+    let inline_vol = format!("rooz_{}_inline", key);
+    assert_eq!(
+        env.volume_file(&format!("rooz_{}_cfg", key), "cfg").await,
+        "v2\n"
+    );
+    assert_eq!(env.volume_file(&inline_vol, "--a").await, "a2\n");
+    assert_eq!(env.volume_file(&inline_vol, "--b").await, "b\n");
+    assert_eq!(env.volume_file(&inline_vol, "--hist").await, "mine\n");
+
+    cleanup(&env, &key, &cfg_path);
+}
+
 // Content beyond the kernel argv-size limit (128KiB MAX_ARG_STRLEN) must
 // round-trip; the generator keeps the config body itself small so this
 // exercises only the v2 populate path.

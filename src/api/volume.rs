@@ -27,6 +27,36 @@ use bollard_stubs::models::VolumeCreateRequest;
 
 // where the volume gets mounted inside the populate one-shot container
 const POPULATE_DIR: &str = "/var/lib/rooz";
+// outside the volume, so a file lands in it only through copy_files_script
+const STAGE_DIR: &str = "rooz-stage";
+
+// A path a container left behind - a file, a symlink or a directory - is replaced, never written
+// through, unless the file is `once` and something is already there.
+fn copy_files_script(
+    root_dir: &str,
+    stage_dir: &str,
+    files: &[(&str, bool)],
+    chown_uid: Option<i32>,
+) -> String {
+    let mut lines = vec!["set -e".to_string()];
+    if let Some(uid) = chown_uid {
+        lines.push(format!("chown -R {}:{} {}", uid, uid, sh::quote(root_dir)));
+    }
+    for (name, once) in files {
+        let src = sh::quote(&format!("{}/{}", stage_dir, name));
+        let dest = sh::quote(&format!("{}/{}", root_dir, name));
+        lines.push(if *once {
+            format!(
+                "[ -e {d} ] || [ -L {d} ] || cp -p {s} {d}",
+                d = dest,
+                s = src
+            )
+        } else {
+            format!("rm -rf {d}\ncp -p {s} {d}", d = dest, s = src)
+        });
+    }
+    lines.join("\n")
+}
 
 // A mount naming a 'data:' entry that does not exist is a configuration mistake - and the
 // configuration can come from the repository being opened, so it must read as a refusal, not
@@ -391,6 +421,7 @@ impl<'a> VolumeApi<'a> {
                     DataEntry::File {
                         generator,
                         executable,
+                        once,
                         ..
                     } => (
                         expanded_target.clone(),
@@ -399,6 +430,7 @@ impl<'a> VolumeApi<'a> {
                             user_file: UserFile(expanded_target),
                             generator,
                             executable,
+                            once,
                         }),
                     ),
                     _ => (expanded_target, None),
@@ -439,10 +471,14 @@ impl<'a> VolumeApi<'a> {
         Ok(result)
     }
 
+    // Writes the volume's files from the config. A `once` file is written only when nothing is at
+    // its path yet; every other file replaces what is there. `chown_root` hands the whole volume
+    // to `uid`, for a volume that was just created.
     pub async fn populate_volume(
         &self,
         volume_file: VolumeFilesSpec,
         uid: Option<i32>,
+        chown_root: bool,
     ) -> Result<(), AnyError> {
         let populate_target = TargetDir(POPULATE_DIR.to_string());
         self.ensure_files(
@@ -450,6 +486,7 @@ impl<'a> VolumeApi<'a> {
             &volume_file.clone(),
             Self::populate_mount(&populate_target, &volume_file),
             uid,
+            chown_root,
         )
         .await
     }
@@ -599,6 +636,7 @@ impl<'a> VolumeApi<'a> {
         spec: &VolumeFilesSpec,
         mount: Mount,
         uid: Option<i32>,
+        chown_root: bool,
     ) -> Result<(), AnyError> {
         let mut tar_files = Vec::new();
         for f in &spec.files {
@@ -631,7 +669,7 @@ impl<'a> VolumeApi<'a> {
 
             tar_files.push(VolumeFile {
                 private: false,
-                path: f.file_name.as_str().to_string(),
+                path: format!("{}/{}", STAGE_DIR, f.file_name.as_str()),
                 // IMPORTANT: never trim content so YAML multi-line strings are respected and can
                 // control whitespace and most importantly EOLs
                 content,
@@ -639,7 +677,37 @@ impl<'a> VolumeApi<'a> {
             });
         }
 
-        self.populate(spec.volume_name.as_str(), root_dir, &tar_files, mount, uid)
+        let chown_uid = match uid {
+            Some(uid) if chown_root && uid != constants::ROOT_UID_INT => Some(uid),
+            _ => None,
+        };
+        if tar_files.is_empty() && chown_uid.is_none() {
+            return Ok(());
+        }
+        let files = spec
+            .files
+            .iter()
+            .map(|f| (f.file_name.as_str(), f.once))
+            .collect::<Vec<_>>();
+        let tar = if tar_files.is_empty() {
+            None
+        } else {
+            Some(Self::files_tar(&tar_files, uid)?)
+        };
+
+        self.container
+            .one_shot_upload(
+                &format!("populate volume: {}", spec.volume_name.as_str()),
+                vec![mount],
+                "/",
+                tar,
+                Some(copy_files_script(
+                    root_dir,
+                    &format!("/{}", STAGE_DIR),
+                    &files,
+                    chown_uid,
+                )),
+            )
             .await
     }
 }
@@ -780,6 +848,7 @@ mod tests {
         DataValue::InlineContent {
             content: content.to_string(),
             executable: None,
+            once: None,
         }
     }
 
@@ -897,6 +966,7 @@ mod tests {
                     name: "myconfig".to_string(),
                     generator: ContentGenerator::Inline("content".to_string()),
                     executable: false,
+                    once: false,
                 },
                 volume: VolumeSpec {
                     name: "rooz_ws_inline".to_string(),
@@ -926,6 +996,7 @@ mod tests {
                     name: "myconfig".to_string(),
                     generator: ContentGenerator::Inline("content".to_string()),
                     executable: false,
+                    once: false,
                 },
                 volume: VolumeSpec {
                     name: "rooz_ws_inline".to_string(),
@@ -948,6 +1019,7 @@ mod tests {
                 name: name.to_string(),
                 generator: ContentGenerator::Inline("content".to_string()),
                 executable: false,
+                once: false,
             },
             volume: VolumeSpec {
                 name: "rooz_ws_inline".to_string(),
@@ -975,6 +1047,7 @@ mod tests {
                 generate: "echo hi".to_string(),
                 image: Some("alpine:latest".to_string()),
                 executable: Some(true),
+                once: None,
             },
         );
 
@@ -1001,6 +1074,75 @@ mod tests {
     }
 
     #[test]
+    fn once_is_parsed_and_defaults_to_false() {
+        for (yaml, once) in [
+            ("content: ''\nonce: true", true),
+            ("generate: echo hi\nonce: true", true),
+            ("content: x", false),
+        ] {
+            let value: DataValue = serde_yaml::from_str(yaml).unwrap();
+            match value.into_entry("f".to_string()) {
+                DataEntry::File { once: parsed, .. } => assert_eq!(parsed, once, "{}", yaml),
+                other => panic!("expected a file entry, got {:?}", other),
+            }
+        }
+    }
+
+    #[test]
+    fn copy_script_replaces_files_but_keeps_once_files() {
+        let base = std::env::temp_dir().join(format!("rooz-copy-{}", std::process::id()));
+        let (stage, root) = (base.join("stage"), base.join("root"));
+        std::fs::create_dir_all(&stage).unwrap();
+        std::fs::create_dir_all(&root).unwrap();
+        for name in ["cfg", "link", "kept", "fresh"] {
+            std::fs::write(stage.join(name), "from-config").unwrap();
+        }
+        std::fs::write(root.join("cfg"), "old").unwrap();
+        std::fs::write(base.join("outside"), "untouched").unwrap();
+        std::os::unix::fs::symlink(base.join("outside"), root.join("link")).unwrap();
+        std::fs::write(root.join("kept"), "written-by-container").unwrap();
+
+        let script = super::copy_files_script(
+            root.to_str().unwrap(),
+            stage.to_str().unwrap(),
+            &[
+                ("cfg", false),
+                ("link", false),
+                ("kept", true),
+                ("fresh", true),
+            ],
+            None,
+        );
+        let status = std::process::Command::new("sh")
+            .args(["-c", &script])
+            .status()
+            .unwrap();
+        let read = |p: &std::path::Path| std::fs::read_to_string(p).unwrap();
+        let results = (
+            read(&root.join("cfg")),
+            read(&root.join("link")),
+            root.join("link").is_symlink(),
+            read(&base.join("outside")),
+            read(&root.join("kept")),
+            read(&root.join("fresh")),
+        );
+        std::fs::remove_dir_all(&base).unwrap();
+
+        assert!(status.success());
+        assert_eq!(
+            results,
+            (
+                "from-config".to_string(),
+                "from-config".to_string(),
+                false,
+                "untouched".to_string(),
+                "written-by-container".to_string(),
+                "from-config".to_string(),
+            )
+        );
+    }
+
+    #[test]
     fn mount_with_file_sets_subpath() {
         let spec = VolumeFilesSpec {
             volume_name: VolumeName("rooz_ws_inline".to_string()),
@@ -1009,6 +1151,7 @@ mod tests {
                 user_file: UserFile("/home/user/.myconfig".to_string()),
                 generator: ContentGenerator::Inline("x".to_string()),
                 executable: false,
+                once: false,
             }],
         };
         let target = TargetDir("/home/user/.myconfig".to_string());
@@ -1119,6 +1262,7 @@ mod tests {
                 user_file: UserFile("/home/user/.myconfig".to_string()),
                 generator: ContentGenerator::Inline("x".to_string()),
                 executable: false,
+                once: false,
             }],
         };
         let target = TargetDir("/var/lib/rooz".to_string());
