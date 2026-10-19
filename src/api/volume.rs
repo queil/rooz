@@ -31,7 +31,7 @@ const POPULATE_DIR: &str = "/var/lib/rooz";
 const STAGE_DIR: &str = "rooz-stage";
 
 // A path a container left behind - a file, a symlink or a directory - is replaced, never written
-// through, unless the file is `once` and something is already there.
+// through, unless the file is to be kept and something is already there.
 fn copy_files_script(
     root_dir: &str,
     stage_dir: &str,
@@ -42,10 +42,10 @@ fn copy_files_script(
     if let Some(uid) = chown_uid {
         lines.push(format!("chown -R {}:{} {}", uid, uid, sh::quote(root_dir)));
     }
-    for (name, once) in files {
+    for (name, keep_existing) in files {
         let src = sh::quote(&format!("{}/{}", stage_dir, name));
         let dest = sh::quote(&format!("{}/{}", root_dir, name));
-        lines.push(if *once {
+        lines.push(if *keep_existing {
             format!(
                 "[ -e {d} ] || [ -L {d} ] || cp -p {s} {d}",
                 d = dest,
@@ -499,14 +499,15 @@ impl<'a> VolumeApi<'a> {
         Ok(result)
     }
 
-    // Writes the volume's files from the config. A `once` file is written only when nothing is at
-    // its path yet; every other file replaces what is there. `chown_root` hands the whole volume
-    // to `uid`, for a volume that was just created.
+    // Writes the volume's files from the config. A missing file is always written; with `rewrite`
+    // (an update) every file but a `once` one replaces what is there. `chown_root` hands the whole
+    // volume to `uid`, for a volume that was just created.
     pub async fn populate_volume(
         &self,
         volume_file: VolumeFilesSpec,
         uid: Option<i32>,
         chown_root: bool,
+        rewrite: bool,
     ) -> Result<(), AnyError> {
         let populate_target = TargetDir(POPULATE_DIR.to_string());
         self.ensure_files(
@@ -515,6 +516,7 @@ impl<'a> VolumeApi<'a> {
             Self::populate_mount(&populate_target, &volume_file),
             uid,
             chown_root,
+            rewrite,
         )
         .await
     }
@@ -665,6 +667,7 @@ impl<'a> VolumeApi<'a> {
         mount: Mount,
         uid: Option<i32>,
         chown_root: bool,
+        rewrite: bool,
     ) -> Result<(), AnyError> {
         let mut tar_files = Vec::new();
         for f in &spec.files {
@@ -715,7 +718,7 @@ impl<'a> VolumeApi<'a> {
         let files = spec
             .files
             .iter()
-            .map(|f| (f.file_name.as_str(), f.once))
+            .map(|f| (f.file_name.as_str(), f.once || !rewrite))
             .collect::<Vec<_>>();
         let tar = if tar_files.is_empty() {
             None

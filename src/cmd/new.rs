@@ -447,11 +447,15 @@ impl<'a> WorkspaceApi<'a> {
         let container_mounts = self.api.volume.mounts(&real_mounts).await?;
         for (_, m) in real_mounts.clone() {
             let created = matches!(volume_results[&m.volume_name], VolumeResult::Created);
-            // on 'new' an existing volume was copied here by a move, so it keeps what it holds
-            if created || (rewrite_files && !m.files.is_empty()) {
+            if created || !m.files.is_empty() {
                 self.api
                     .volume
-                    .populate_volume(m, Some(work_spec.uid.to_string().parse::<i32>()?), created)
+                    .populate_volume(
+                        m,
+                        Some(work_spec.uid.to_string().parse::<i32>()?),
+                        created,
+                        rewrite_files,
+                    )
                     .await?;
             }
         }
@@ -476,7 +480,13 @@ impl<'a> WorkspaceApi<'a> {
         }
 
         let cfg2 = self
-            .ensure_sidecars(&cfg2, workspace_key, force, cli_params.pull_image)
+            .ensure_sidecars(
+                &cfg2,
+                workspace_key,
+                force,
+                cli_params.pull_image,
+                rewrite_files,
+            )
             .await?;
 
         labels.extend(&[Labels::container(constants::DEFAULT_CONTAINER_NAME)]);

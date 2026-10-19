@@ -97,6 +97,49 @@ async fn move_carries_config_data_volumes_and_the_stored_config() {
     cleanup(&env, &to, &cfg_path);
 }
 
+// A move carries the workspace as it is: a sidecar's config file edited in the container keeps the
+// edit, like the work container's do. Only 'update' rewrites files from the config.
+#[tokio::test]
+async fn move_keeps_sidecar_files_edited_in_the_container() {
+    let Some(env) = TestEnv::from_env() else {
+        return;
+    };
+    let (from, to) = (unique_key("mv-s"), unique_key("mv-t"));
+    let cfg_path = write_cfg(
+        &from,
+        "image: alpine:latest\nsidecars:\n  svc:\n    image: alpine:latest\n    command:\n      - sleep\n    args:\n      - infinity\n    mounts:\n      /etc/svc.conf:\n        content: \"v1\\n\"\n",
+    );
+    init(&env);
+    env.rooz()
+        .args(["new", &from, "--config", &cfg_path])
+        .assert()
+        .success();
+    env.rooz()
+        .args([
+            "exec",
+            "--root",
+            "--container",
+            "svc",
+            &from,
+            "--",
+            "sh",
+            "-c",
+            "echo edited > /etc/svc.conf",
+        ])
+        .assert()
+        .success();
+
+    env.rooz().args(["move", &from, &to]).assert().success();
+
+    let inline_vol = format!("rooz_{}_inline", to);
+    assert_eq!(
+        env.volume_file(&inline_vol, "-etc-svc-conf").await,
+        "edited\n"
+    );
+
+    cleanup(&env, &to, &cfg_path);
+}
+
 #[tokio::test]
 async fn move_refuses_before_touching_anything() {
     let Some(env) = TestEnv::from_env() else {
