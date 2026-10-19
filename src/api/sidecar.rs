@@ -1,5 +1,5 @@
 use crate::api::VolumeApi;
-use crate::config::config::MountSource;
+use crate::config::config::{MountSource, ResolvedStep};
 use crate::config::runtime::RuntimeConfig;
 use crate::model::types::ContainerResult;
 use crate::{
@@ -12,6 +12,7 @@ use crate::{
 
 use bollard_stubs::models::ContainerConfig;
 use bollard_stubs::query_parameters::CommitContainerOptions;
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 
 impl<'a> WorkspaceApi<'a> {
@@ -22,6 +23,7 @@ impl<'a> WorkspaceApi<'a> {
         force: bool,
         pull_image: bool,
         rewrite_files: bool,
+        recorded_images: Option<&HashMap<String, String>>,
     ) -> Result<RuntimeConfig, AnyError> {
         let mut cfg = config.clone();
         let labels = Labels::from(&[Labels::workspace(workspace_key)]);
@@ -138,10 +140,19 @@ impl<'a> WorkspaceApi<'a> {
             let install_steps = s.install.as_ref().map(|i| i.resolved()).unwrap_or_default();
             if !install_steps.is_empty() {
                 let runtime_image = format!("localhost/rooz/{}/{}", workspace_key, name);
+                let base_image = self.api.image.ensure(&s.image, pull_image).await?;
+                let key = build_key(
+                    &base_image.id,
+                    &uid_string,
+                    &install_steps,
+                    &s.command,
+                    &s.args,
+                );
                 let runtime_image_labels = Labels::from(&[
                     Labels::workspace(workspace_key),
                     Labels::role(labels::SIDECAR_RUNTIME_ROLE),
                     Labels::container(name),
+                    Labels::build_key(&key),
                 ]);
 
                 // The tag is predictable and the image namespace is shared with every user of the
@@ -150,13 +161,16 @@ impl<'a> WorkspaceApi<'a> {
                 // id it recorded on this sidecar's container when it created it: an id is the
                 // image's content and cannot be pointed elsewhere. No recorded id (a new
                 // workspace, a removed container, a workspace from an older rooz) means the
-                // install stage runs again and the tag is rebuilt over.
+                // install stage runs again and the tag is rebuilt over. 'update' removes the
+                // containers first, so it passes on the ids it read from them. The build key
+                // label then decides whether that image still matches the config.
                 let mut image_id = match self.api.container.labels_of(&container_name).await? {
                     Some(found) if labels.is_subset_of(&found) => {
                         found.get(labels::RUNTIME_IMAGE).cloned()
                     }
                     _ => None,
-                };
+                }
+                .or_else(|| recorded_images.and_then(|r| r.get(name.as_str()).cloned()));
 
                 if let Some(id) = &image_id
                     && !self.api.image.is_pinned(id, &runtime_image_labels).await?
@@ -179,6 +193,8 @@ impl<'a> WorkspaceApi<'a> {
                             env: None,
                             command: Some(vec!["sleep"]),
                             args: Some(vec!["infinity"]),
+                            // pulled above already, and the build key holds that image's id
+                            force_pull: false,
                             ..run_spec.clone()
                         })
                         .await?
@@ -245,4 +261,17 @@ impl<'a> WorkspaceApi<'a> {
 
         Ok(RuntimeConfig { ..cfg.clone() })
     }
+}
+
+// What a built sidecar image depends on: a change to any of these builds it again.
+fn build_key(
+    base_image_id: &str,
+    uid: &str,
+    steps: &[ResolvedStep],
+    command: &[String],
+    args: &[String],
+) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(format!("{:?}", (base_image_id, uid, steps, command, args)));
+    format!("{:x}", hasher.finalize())
 }

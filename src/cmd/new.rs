@@ -107,6 +107,13 @@ fn check_secrets(
 // A privileged container has full access to the host, so the request has to come
 // from the operator - config files (local or git --config) are authored by whoever
 // owns the repository, which is not the same trust level as the operator's machine.
+// What 'update' carries into the rebuild: data files are written again from the config, and the
+// sidecar images rooz recorded on the containers it removed (by sidecar name) may be reused.
+#[derive(Debug, Default)]
+pub struct Rebuild {
+    pub sidecar_images: HashMap<String, String>,
+}
+
 fn check_privileged(containers: &[String], consent: &Consent) -> Result<(), AnyError> {
     let refused = consent.refused(containers);
 
@@ -382,7 +389,7 @@ impl<'a> WorkspaceApi<'a> {
         force: bool,
         stored_config: Option<StoredConfig>,
         operator_authored: bool,
-        rewrite_files: bool,
+        rebuild: Option<&Rebuild>,
     ) -> Result<EnterSpec, AnyError> {
         let (cfg, decrypted_secrets) = self
             .resolve_runtime(cfg_builder, &cli_config, cli_params, operator_authored)
@@ -454,7 +461,7 @@ impl<'a> WorkspaceApi<'a> {
                         m,
                         Some(work_spec.uid.to_string().parse::<i32>()?),
                         created,
-                        rewrite_files,
+                        rebuild.is_some(),
                     )
                     .await?;
             }
@@ -485,7 +492,8 @@ impl<'a> WorkspaceApi<'a> {
                 workspace_key,
                 force,
                 cli_params.pull_image,
-                rewrite_files,
+                rebuild.is_some(),
+                rebuild.map(|r| &r.sidecar_images),
             )
             .await?;
 
@@ -690,7 +698,7 @@ impl<'a> WorkspaceApi<'a> {
         cli_params: &WorkParams,
         cli_config_path: Option<ConfigSource>,
         ephemeral: bool,
-        rewrite_files: bool,
+        rebuild: Option<Rebuild>,
     ) -> Result<EnterSpec, AnyError> {
         self.api.volume.require_ssh_key().await?;
         match self
@@ -699,7 +707,7 @@ impl<'a> WorkspaceApi<'a> {
                 cli_params,
                 cli_config_path,
                 ephemeral,
-                rewrite_files,
+                rebuild.as_ref(),
                 None,
             )
             .await?
@@ -726,7 +734,7 @@ impl<'a> WorkspaceApi<'a> {
                 cli_params,
                 cli_config_path,
                 false,
-                false,
+                None,
                 Some(mode),
             )
             .await?
@@ -742,7 +750,7 @@ impl<'a> WorkspaceApi<'a> {
         cli_params: &WorkParams,
         cli_config_path: Option<ConfigSource>,
         ephemeral: bool,
-        rewrite_files: bool,
+        rebuild: Option<&Rebuild>,
         plan: Option<PlanMode>,
     ) -> Result<NewOutcome, AnyError> {
         let orig_uid = cli_params
@@ -852,7 +860,7 @@ impl<'a> WorkspaceApi<'a> {
                 false,
                 stored_config,
                 operator_authored,
-                rewrite_files,
+                rebuild,
             )
             .await?;
 
@@ -869,7 +877,7 @@ impl<'a> WorkspaceApi<'a> {
             config,
             ..
         } = self
-            .new(&id::random_suffix("tmp"), spec, None, true, false)
+            .new(&id::random_suffix("tmp"), spec, None, true, None)
             .await?;
 
         let working_dir = git_spec

@@ -1,10 +1,11 @@
+use std::collections::HashMap;
 use std::str::FromStr;
 use std::{fs, process::exit};
 
 use crate::{
     api::WorkspaceApi,
     cli::{WorkEnvParams, WorkParams},
-    cmd::plan::PlanMode,
+    cmd::{new::Rebuild, plan::PlanMode},
     config::{
         config::{ConfigPath, ConfigSource, ConfigType, FileFormat, RoozCfg},
         runtime::{RuntimeConfig, SECRET_MASK},
@@ -79,8 +80,25 @@ impl<'a> WorkspaceApi<'a> {
             }
         }
 
+        // read before the containers go: the image id rooz recorded on a sidecar container is the
+        // only record of the image it built for it
+        let rebuild = Rebuild {
+            sidecar_images: match mode {
+                UpdateMode::Apply => self.recorded_sidecar_images(workspace_key).await?,
+                UpdateMode::Purge => HashMap::new(),
+            },
+        };
+
         match mode {
-            UpdateMode::Apply => self.remove_containers_only(workspace_key, true).await?,
+            UpdateMode::Apply => {
+                let keep = rebuild
+                    .sidecar_images
+                    .values()
+                    .map(String::as_str)
+                    .collect::<Vec<_>>();
+                self.remove_containers_only(workspace_key, true, &keep)
+                    .await?
+            }
             UpdateMode::Purge => self.remove(workspace_key, true, true).await?,
         };
 
@@ -95,11 +113,35 @@ impl<'a> WorkspaceApi<'a> {
             },
             config_source,
             false,
-            true,
+            Some(rebuild),
         )
         .await?;
 
         Ok(())
+    }
+
+    async fn recorded_sidecar_images(
+        &self,
+        workspace_key: &str,
+    ) -> Result<HashMap<String, String>, AnyError> {
+        let sidecars = self
+            .api
+            .container
+            .get_all(&Labels::from(&[
+                Labels::workspace(workspace_key),
+                Labels::role(labels::SIDECAR_ROLE),
+            ]))
+            .await?;
+        Ok(sidecars
+            .into_iter()
+            .filter_map(|c| {
+                let labels = c.labels?;
+                Some((
+                    labels.get(labels::CONTAINER)?.clone(),
+                    labels.get(labels::RUNTIME_IMAGE)?.clone(),
+                ))
+            })
+            .collect())
     }
 
     // The configuration a workspace is rebuilt from. `from_origin` re-reads it from where it came

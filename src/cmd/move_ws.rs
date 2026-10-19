@@ -189,7 +189,7 @@ impl<'a> WorkspaceApi<'a> {
                     .await?;
                 self.api.volume.copy_volume(&m.from, &m.to).await?;
             }
-            self.new(to, &params, config_source, false, false).await?;
+            self.new(to, &params, config_source, false, None).await?;
             Ok(())
         }
         .await;

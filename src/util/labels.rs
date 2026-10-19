@@ -8,6 +8,7 @@ pub const CONFIG_ORIGIN: &str = "dev.rooz.config.origin";
 pub const CONFIG_BODY: &str = "dev.rooz.config.body";
 pub const FORWARD_PORTS: &str = "dev.rooz.forward-ports";
 pub const RUNTIME_IMAGE: &str = "dev.rooz.runtime-image";
+pub const BUILD_KEY: &str = "dev.rooz.build-key";
 pub const ROOZ: &str = "dev.rooz";
 pub const LABEL_KEY: &str = "label";
 const TRUE: &str = "true";
@@ -117,6 +118,10 @@ impl Labels {
 
     pub fn runtime_image(image_id: &str) -> (&str, &str) {
         (RUNTIME_IMAGE, image_id)
+    }
+
+    pub fn build_key(key: &str) -> (&str, &str) {
+        (BUILD_KEY, key)
     }
 
     // Every label expected has to be present with the same value; extra labels on the object

@@ -270,6 +270,63 @@ async fn a_squatted_runtime_image_is_never_run() {
     let _ = fs::remove_file(&cfg_path);
 }
 
+// 'update' removes the sidecar container, the only record of the image rooz built for it. It must
+// carry that record over and reuse the image while the install steps are unchanged; a changed
+// step builds it again. The install container mounts the sidecar's volumes, so the step counts
+// its own runs there.
+#[tokio::test]
+async fn update_reuses_the_sidecar_image_until_the_install_steps_change() {
+    let Some(env) = TestEnv::from_env() else {
+        return;
+    };
+    let key = unique_key("sc-reuse");
+    let cfg_path = format!("/tmp/rooz-test-sidecar-reuse-{}.yaml", key);
+    let cfg = |step: &str| {
+        format!(
+            "image: alpine:latest\ndata:\n  runs: {{}}\nsidecars:\n  svc:\n    image: alpine:latest\n    command:\n      - sleep\n    args:\n      - infinity\n    mounts:\n      /runs: runs\n    install:\n      01-count: {}\n",
+            step
+        )
+    };
+    let write = |yaml: String| fs::write(&cfg_path, yaml).expect("write sidecar config");
+    let runs_vol = format!("rooz_{}_runs", key);
+    let runs = || async { env.volume_file(&runs_vol, "runs").await.lines().count() };
+
+    write(cfg("echo run >> /runs/runs"));
+    env.rooz()
+        .args(["system", "init", "--force"])
+        .assert()
+        .success();
+    env.rooz()
+        .args(["new", &key, "--config", &cfg_path])
+        .assert()
+        .success();
+    assert_eq!(runs().await, 1);
+
+    env.rooz()
+        .args(["update", &key, "--no-pull"])
+        .assert()
+        .success();
+    assert_eq!(
+        runs().await,
+        1,
+        "an update with unchanged steps ran them again"
+    );
+
+    write(cfg("echo run >> /runs/runs && true"));
+    env.rooz()
+        .args(["update", &key, "--no-pull"])
+        .assert()
+        .success();
+    assert_eq!(
+        runs().await,
+        2,
+        "a changed step did not build the image again"
+    );
+
+    env.rooz().args(["rm", &key, "--force"]).assert().success();
+    let _ = fs::remove_file(&cfg_path);
+}
+
 // ── vpn ───────────────────────────────────────────────────────────────────────
 
 fn vpn_sidecar_cfg(key: &str) -> String {

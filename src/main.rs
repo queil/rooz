@@ -229,7 +229,7 @@ async fn run() -> Result<(), AnyError> {
             }
 
             workspace
-                .new(&name, &work, config_source, false, false)
+                .new(&name, &work, config_source, false, None)
                 .await?;
             println!(
                 "\nThe workspace is ready. Run 'rooz enter {}' to enter.",

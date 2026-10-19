@@ -31,6 +31,9 @@ file - see the git history.
 
 ### Fixed
 
+- `rooz update` rebuilt every sidecar with `install` steps from scratch, so the steps ran again and
+  `skip_if` could never skip them. It now reuses the built image while the base image, `uid`,
+  `command`, `args` and steps are unchanged.
 - `rooz update` ignored edited data files in the work container, and failed on a newly added one,
   leaving the workspace without a container.
 - `rooz new` without `rooz system init` refuses with a hint. It used to make the engine create an empty,

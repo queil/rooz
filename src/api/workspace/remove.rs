@@ -9,7 +9,12 @@ use bollard::{
 };
 
 impl<'a> WorkspaceApi<'a> {
-    async fn remove_containers(&self, labels: &Labels, force: bool) -> Result<(), AnyError> {
+    async fn remove_containers(
+        &self,
+        labels: &Labels,
+        force: bool,
+        keep_images: &[&str],
+    ) -> Result<(), AnyError> {
         let containers = self.api.container.get_all(labels).await?;
         let container_api = self.api.container;
 
@@ -22,16 +27,24 @@ impl<'a> WorkspaceApi<'a> {
         });
 
         futures::future::try_join_all(futures).await?;
-        self.remove_images(labels, force).await?;
+        self.remove_images(labels, force, keep_images).await?;
         Ok(())
     }
 
-    async fn remove_images(&self, labels: &Labels, force: bool) -> Result<(), AnyError> {
+    async fn remove_images(
+        &self,
+        labels: &Labels,
+        force: bool,
+        keep: &[&str],
+    ) -> Result<(), AnyError> {
         let images = self.api.image.get_all(labels).await?;
         let image_api = self.api.image;
+        let bare = |id: &str| id.trim_start_matches("sha256:").to_string();
+        let keep = keep.iter().map(|id| bare(id)).collect::<Vec<_>>();
 
         let futures = images
             .into_iter()
+            .filter(|img| !keep.contains(&bare(&img.id)))
             .map(|img| async move { image_api.remove_local(&img.id, force).await });
 
         futures::future::try_join_all(futures).await?;
@@ -42,7 +55,7 @@ impl<'a> WorkspaceApi<'a> {
     where
         F: FnMut(&&Volume) -> bool,
     {
-        self.remove_containers(labels, force).await?;
+        self.remove_containers(labels, force, &[]).await?;
         let ls_vol_options = ListVolumesOptions {
             filters: Some(labels.clone().into()),
         };
@@ -101,13 +114,15 @@ impl<'a> WorkspaceApi<'a> {
         Ok(())
     }
 
+    // `keep_images` are images still to be reused, e.g. the sidecar images 'update' carries over
     pub async fn remove_containers_only(
         &self,
         workspace_key: &str,
         force: bool,
+        keep_images: &[&str],
     ) -> Result<(), AnyError> {
         let labels = Labels::from(&[Labels::workspace(workspace_key)]);
-        self.remove_containers(&labels, force).await?;
+        self.remove_containers(&labels, force, keep_images).await?;
         Ok(())
     }
 
