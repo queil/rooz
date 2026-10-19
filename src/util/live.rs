@@ -15,6 +15,9 @@ use std::time::{Duration, Instant};
 
 pub const PROGRESS_ENV: &str = "ROOZ_PROGRESS";
 const MAX_PANE_LINES: usize = 5;
+// a step's output is kept for its failure report, but not without limit: a verbose or runaway
+// step must not grow the process's memory with everything it printed
+const MAX_STEP_LINES: usize = 1000;
 const REDRAW_EVERY: Duration = Duration::from_millis(80);
 
 struct Pane {
@@ -191,6 +194,12 @@ pub fn install_failed(container: &str) {
             step,
             elapsed(pane.started)
         )];
+        if pane.step_output.len() >= MAX_STEP_LINES {
+            lines.push(format!(
+                "{} … earlier output omitted",
+                progress::install_tag(container, Some(&step))
+            ));
+        }
         lines.extend(
             pane.step_output
                 .iter()
@@ -215,6 +224,11 @@ fn with_pane(container: &str, live: impl FnOnce(&mut Pane), plain: impl FnOnce()
 impl Pane {
     fn push(&mut self, line: String) {
         self.step_output.push(line.clone());
+        // trimmed in batches, so the cost stays amortised over the lines pushed
+        if self.step_output.len() >= MAX_STEP_LINES * 2 {
+            let excess = self.step_output.len() - MAX_STEP_LINES;
+            self.step_output.drain(..excess);
+        }
         self.tail.push_back(line);
         while self.tail.len() > MAX_PANE_LINES {
             self.tail.pop_front();
@@ -355,6 +369,25 @@ mod tests {
         assert_eq!(clean("10%\r50%\r100% done\n"), "100% done");
         assert_eq!(clean("\x1b[32mok\x1b[0m"), "ok");
         assert_eq!(clean("a\tb\x07"), "a    b");
+    }
+
+    #[test]
+    fn a_step_keeps_a_bounded_amount_of_output() {
+        let mut pane = Pane {
+            step: None,
+            started: Instant::now(),
+            steps_done: 0,
+            tail: VecDeque::new(),
+            step_output: Vec::new(),
+        };
+        for i in 0..MAX_STEP_LINES * 10 {
+            pane.push(format!("line {}", i));
+        }
+        assert!(pane.step_output.len() < MAX_STEP_LINES * 2);
+        assert!(pane.step_output.len() >= MAX_STEP_LINES);
+        let last = format!("line {}", MAX_STEP_LINES * 10 - 1);
+        assert_eq!(pane.step_output.last(), Some(&last));
+        assert_eq!(pane.tail.len(), MAX_PANE_LINES);
     }
 
     #[test]

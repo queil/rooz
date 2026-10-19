@@ -59,6 +59,23 @@ async fn collect(stream: impl Stream<Item = Result<LogOutput, Error>>) -> Result
     Ok(String::from_utf8(out)?)
 }
 
+// An unterminated run by one step - a progress bar, or a step that never prints a newline -
+// must not grow the buffer with everything it printed.
+const MAX_PENDING: usize = 64 * 1024;
+
+fn trim_unterminated(pending: &mut Vec<u8>) {
+    if pending.len() > MAX_PENDING {
+        // what a terminal shows of an unterminated line is the text after its last carriage
+        // return; drop what precedes it, then cap what is left
+        let from = pending
+            .iter()
+            .rposition(|b| *b == b'\r')
+            .map_or(0, |cr| cr + 1);
+        let keep_from = from.max(pending.len() - MAX_PENDING);
+        pending.drain(..keep_from);
+    }
+}
+
 // With an install (container, step), output goes out line by line through the live view:
 // install steps of several containers run at once, and their output interleaves.
 async fn log(
@@ -88,6 +105,7 @@ async fn log(
                 String::from_utf8_lossy(&line[..line.len() - 1]).as_ref(),
             );
         }
+        trim_unterminated(&mut pending);
     }
     if let Some((container, step)) = install
         && !pending.is_empty()
@@ -534,6 +552,22 @@ fn chown_target(dir: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::chown_target;
+
+    #[test]
+    fn an_unterminated_run_is_kept_bounded() {
+        use super::{MAX_PENDING, trim_unterminated};
+        // a progress meter: only what follows the last carriage return is kept
+        let mut pending = Vec::new();
+        for i in 0..100_000 {
+            pending.extend_from_slice(format!("\r{}%", i).as_bytes());
+            trim_unterminated(&mut pending);
+        }
+        assert!(pending.len() <= MAX_PENDING + 16);
+        // a run with no carriage return at all: capped to the last MAX_PENDING bytes
+        let mut pending = vec![b'x'; MAX_PENDING * 4];
+        trim_unterminated(&mut pending);
+        assert_eq!(pending.len(), MAX_PENDING);
+    }
 
     #[test]
     fn plain_paths_are_single_quoted() {
