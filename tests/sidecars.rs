@@ -1,6 +1,6 @@
 mod harness;
 
-use harness::{TestEnv, unique_key};
+use harness::{TestEnv, pinned_consent, unique_key};
 use std::{fs, io::Write};
 
 fn sidecar_cfg(key: &str) -> (String, String) {
@@ -414,7 +414,7 @@ async fn vpn_sidecar_is_refused_without_consent() {
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(!out.status.success(), "vpn sidecar created without consent");
     assert!(
-        stderr.contains("ROOZ_ALLOW_VPN=wg"),
+        stderr.contains("ROOZ_ALLOW_VPN=wg@"),
         "refusal does not name the remedy: {}",
         stderr
     );
@@ -427,10 +427,18 @@ async fn vpn_sidecar_is_refused_without_consent() {
         "refused workspace left volumes behind"
     );
 
-    // the same command goes through once the operator consents
+    // a bare name is not enough: consent is pinned to the sidecar's definition
     env.rooz()
         .args(["new", &key, "--config", &cfg_path])
         .env("ROOZ_ALLOW_VPN", "wg")
+        .assert()
+        .failure();
+
+    // the same command goes through with the pinned consent the refusal names
+    let allow = pinned_consent(&env, &key, &cfg_path, "ROOZ_ALLOW_VPN");
+    env.rooz()
+        .args(["new", &key, "--config", &cfg_path])
+        .env("ROOZ_ALLOW_VPN", &allow)
         .assert()
         .success();
 
@@ -450,9 +458,10 @@ async fn vpn_sidecar_gets_net_admin_and_tun() {
         .args(["system", "init", "--force"])
         .assert()
         .success();
+    let allow = pinned_consent(&env, &key, &cfg_path, "ROOZ_ALLOW_VPN");
     env.rooz()
         .args(["new", &key, "--config", &cfg_path])
-        .env("ROOZ_ALLOW_VPN", "wg")
+        .env("ROOZ_ALLOW_VPN", &allow)
         .assert()
         .success();
 

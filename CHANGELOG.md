@@ -8,6 +8,26 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases before 0.159.0 predate this
 file - see the git history.
 
+## [Unreleased]
+
+### Changed
+
+- **Breaking:** privileged and vpn consent is pinned to the container's definition:
+  `ROOZ_ALLOW_PRIVILEGED=dkr@<fingerprint>` instead of `=dkr`. A bare name also covered any other
+  config declaring a `dkr`, e.g. an untrusted `bases` layer with its own image, which then ran as host
+  root. The refusal prints the value to set; it changes with the container's image, command, env,
+  mounts or install steps. `=true` and `--privileged true` work as before.
+
+### Fixed
+
+- Caches from a `bases` layer not in `ROOZ_TRUSTED_CONFIGS` were shared without consent when the
+  top-level config was a local file. They now need `ROOZ_CACHES`, like a repository's.
+- Secret values were rendered as templates: a `{{` in a secret corrupted it, let the result escape
+  masking, or printed the plaintext in a template error. They are now inserted verbatim.
+- A key in both `vars` and `secrets` panicked; it is now an error.
+- Relative directories in `ROOZ_TRUSTED_CONFIGS` resolved against the current directory, which inside a
+  cloned repository could trust its own files. They are now ignored with a warning.
+
 ## [0.168.3] - 2026-10-19
 
 ### Fixed

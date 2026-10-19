@@ -27,8 +27,8 @@ These are refused unless you allow them:
 | `secrets` | plaintext lands in a repo-controlled container | list the source in `ROOZ_TRUSTED_CONFIGS` ([Trusted config sources](secrets.md#trusted-config-sources)), or use a local `--config` file |
 | `caches` | shared with your other workspaces | the same paths in `ROOZ_CACHES` (or `--caches`, which covers `rooz new` only, not `rooz update`), or the source in `ROOZ_TRUSTED_CONFIGS` |
 | `install` step with `root: true` | runs as root in the workspace | the source in `ROOZ_TRUSTED_CONFIGS`, or a local `--config` file ([Install steps](#install-steps)) |
-| `privileged` | full host access | `ROOZ_ALLOW_PRIVILEGED=<names>`, required for *any* config file |
-| sidecar `vpn` | kernel netfilter access as root on a rootful engine | `ROOZ_ALLOW_VPN=<names>`, required for *any* config file |
+| `privileged` | full host access | `ROOZ_ALLOW_PRIVILEGED=<name>@<fingerprint>`, required for *any* config file |
+| sidecar `vpn` | kernel netfilter access as root on a rootful engine | `ROOZ_ALLOW_VPN=<name>@<fingerprint>`, required for *any* config file |
 
 ## Clone transports
 
@@ -164,14 +164,18 @@ A sidecar with `install` steps is built once: rooz runs the steps, commits
 `privileged: true` in any config file (local or git, sidecars included) stops workspace creation and
 names the containers. To allow it:
 
-* `ROOZ_ALLOW_PRIVILEGED=<names>` allows the listed containers (comma-separated), e.g.
-  `ROOZ_ALLOW_PRIVILEGED=dkr`. Others are still refused.
+* `ROOZ_ALLOW_PRIVILEGED=<name>@<fingerprint>` allows exactly that definition of the container
+  (comma-separated for several), e.g. `ROOZ_ALLOW_PRIVILEGED=dkr@7f3fa966d667faa1`. The refusal prints
+  the value to set. Others are still refused.
+* The fingerprint covers the container's image, command, args, env, uid, install steps, mounts and the
+  data behind them (secrets masked). Change any of them, or let another config declare its own `dkr`,
+  and consent is needed again. A bare name (`dkr`) no longer consents.
 * `ROOZ_ALLOW_PRIVILEGED=true` allows any. Meant for CI.
 * `--privileged true` allows it *and* makes the work container privileged, whatever the config says.
 
-Prefer names over `true`: name the docker-in-docker sidecar, not the workspace that uses it through
-`DOCKER_HOST`. Names are safe to keep in your shell profile; a standing `=true` also lets repository
-config add privileged containers.
+Prefer pinned names over `true`: pin the docker-in-docker sidecar, not the workspace that uses it
+through `DOCKER_HOST`. Pinned names are safe to keep in your shell profile, as they cover only the
+definition you reviewed; a standing `=true` also lets repository config add privileged containers.
 
 > [!WARNING]
 > Only for configs you trust. For repositories you do not control, prefer rootless Podman, which
@@ -184,7 +188,8 @@ like need: `NET_ADMIN`, `/dev/net/tun` and `net.ipv4.conf.all.src_valid_mark=1`.
 the sidecar's network namespace; unlike `privileged`, it gives no host devices or host network.
 
 It does expose kernel netfilter and netlink, an escape surface on rootful engines, so it requires
-`ROOZ_ALLOW_VPN=<names>` (or `=true` for any). This is separate from `ROOZ_ALLOW_PRIVILEGED`.
+`ROOZ_ALLOW_VPN=<name>@<fingerprint>` (or `=true` for any), pinned like
+[privileged consent](#privileged-containers). This is separate from `ROOZ_ALLOW_PRIVILEGED`.
 
 ```yaml
 sidecars:

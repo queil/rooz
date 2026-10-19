@@ -5,6 +5,7 @@ use crate::model::types::ContentGenerator;
 use crate::model::types::{TargetDir, VolumeFilesSpec};
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -337,6 +338,42 @@ impl RuntimeConfig {
         );
         names.sort();
         names
+    }
+
+    /// A fingerprint of everything that decides what the named container runs and reaches: its
+    /// image, command, env, uid, install steps, mounts and the data behind them. Consent to a
+    /// privileged or vpn container is pinned to it, so a config that redefines a consented name
+    /// is refused until the operator consents to the new definition. Call it on a copy with the
+    /// secrets masked: a rotated secret keeps the fingerprint, and no plaintext gets hashed.
+    pub fn fingerprint(&self, container: &str) -> String {
+        let definition = match self.sidecars.get(container) {
+            Some(sidecar) if container != constants::DEFAULT_CONTAINER_NAME => {
+                let mut sidecar = sidecar.clone();
+                sidecar.real_mounts.clear();
+                let data = sidecar
+                    .mounts
+                    .values()
+                    .filter_map(|m| match m {
+                        MountSource::DataEntryReference(key) => self
+                            .data
+                            .get(key.as_str())
+                            .map(|v| (key.as_str().to_string(), v.clone())),
+                        MountSource::InlineDataValue(_) => None,
+                    })
+                    .collect::<std::collections::BTreeMap<_, _>>();
+                serde_json::to_value((sidecar, data))
+            }
+            _ => {
+                let mut work = self.clone();
+                work.sidecars.clear();
+                work.real_mounts.clear();
+                serde_json::to_value(work)
+            }
+        }
+        .expect("a runtime config serializes");
+        // serde_json's maps are sorted, so the text is the same for the same definition
+        let digest = Sha256::digest(definition.to_string());
+        format!("{:x}", digest)[..16].to_string()
     }
 
     pub fn vpn_containers(&self) -> Vec<String> {

@@ -43,7 +43,8 @@ sidecars:
       - --tls=false
       - --host=tcp://0.0.0.0:2375
     # a dind daemon needs a privileged container: rooz will not grant that from a config
-    # file alone, so create this workspace with ROOZ_ALLOW_PRIVILEGED=dkr
+    # file alone, so create this workspace with ROOZ_ALLOW_PRIVILEGED=dkr@<fingerprint>,
+    # the value rooz prints when it refuses
     privileged: true
     init: false
     mounts:

@@ -68,6 +68,51 @@ impl Consent {
     fn refused(&self, names: &[String]) -> Vec<String> {
         names.iter().filter(|n| !self.allows(n)).cloned().collect()
     }
+
+    // Consent to a grant on a container is pinned to its definition: 'name@fingerprint'. A bare
+    // name would also cover whatever another config declares under that name.
+    fn allows_pinned(&self, name: &str, fingerprint: &str) -> bool {
+        match self {
+            Self::None => false,
+            Self::All => true,
+            Self::Named(entries) => entries.iter().any(|e| {
+                e.split_once('@')
+                    .is_some_and(|(n, f)| n == name && f.eq_ignore_ascii_case(fingerprint))
+            }),
+        }
+    }
+
+    // the refused containers as 'name@fingerprint', and the ones consented to by bare name only
+    fn refused_pinned(&self, pins: &[(String, String)]) -> (Vec<String>, Vec<String>) {
+        let refused = pins
+            .iter()
+            .filter(|(n, f)| !self.allows_pinned(n, f))
+            .collect::<Vec<_>>();
+        let unpinned = refused
+            .iter()
+            .filter(|(n, _)| self.allows(n))
+            .map(|(n, _)| n.clone())
+            .collect();
+        (
+            refused
+                .iter()
+                .map(|(n, f)| format!("{}@{}", n, f))
+                .collect(),
+            unpinned,
+        )
+    }
+}
+
+fn unpinned_hint(unpinned: &[String]) -> String {
+    if unpinned.is_empty() {
+        String::new()
+    } else {
+        format!(
+            " A bare name no longer consents ({}): consent is pinned to the container's \
+             definition, so a config cannot reuse the name for something else.",
+            unpinned.join(", ")
+        )
+    }
 }
 
 // Which of the operator's secrets may be expanded into this workspace. A local '--config'
@@ -116,8 +161,8 @@ pub struct Rebuild {
     pub pull_sidecar_images: bool,
 }
 
-fn check_privileged(containers: &[String], consent: &Consent) -> Result<(), AnyError> {
-    let refused = consent.refused(containers);
+fn check_privileged(containers: &[(String, String)], consent: &Consent) -> Result<(), AnyError> {
+    let (refused, unpinned) = consent.refused_pinned(containers);
 
     if refused.is_empty() {
         return Ok(());
@@ -126,19 +171,22 @@ fn check_privileged(containers: &[String], consent: &Consent) -> Result<(), AnyE
     Err(format!(
         "This configuration requests privileged containers: {}. A privileged container has \
          full access to the host running the container engine. Rooz does not grant that on a \
-         config file's say-so. If you trust these specific containers, name them: {}={}. \
-         ('{}=true' allows any container the configuration privileges, and '--privileged true' \
-         additionally makes the work container privileged - prefer naming them.)",
+         config file's say-so. If you trust these exact definitions, allow them: {}={}. Any \
+         change to a container's image, command, env, mounts or install steps changes its \
+         fingerprint and needs consent again.{} ('{}=true' allows any container the \
+         configuration privileges, and '--privileged true' additionally makes the work \
+         container privileged - prefer pinning them.)",
         refused.join(", "),
         ALLOW_PRIVILEGED_ENV,
         refused.join(","),
+        unpinned_hint(&unpinned),
         ALLOW_PRIVILEGED_ENV
     )
     .into())
 }
 
-fn check_vpn(containers: &[String], consent: &Consent) -> Result<(), AnyError> {
-    let refused = consent.refused(containers);
+fn check_vpn(containers: &[(String, String)], consent: &Consent) -> Result<(), AnyError> {
+    let (refused, unpinned) = consent.refused_pinned(containers);
 
     if refused.is_empty() {
         return Ok(());
@@ -148,18 +196,21 @@ fn check_vpn(containers: &[String], consent: &Consent) -> Result<(), AnyError> {
         "This configuration requests vpn sidecars: {}. A vpn sidecar gets NET_ADMIN, \
          /dev/net/tun and the kernel's netfilter and netlink interfaces - on a rootful engine \
          that is real root's reach into code with a history of container escapes. Rooz does \
-         not grant that on a config file's say-so. If you trust these specific sidecars, name \
-         them: {}={}. ('{}=true' allows any sidecar the configuration asks it for.)",
+         not grant that on a config file's say-so. If you trust these exact definitions, allow \
+         them: {}={}. Any change to a sidecar's definition needs consent again.{} ('{}=true' \
+         allows any sidecar the configuration asks it for.)",
         refused.join(", "),
         ALLOW_VPN_ENV,
         refused.join(","),
+        unpinned_hint(&unpinned),
         ALLOW_VPN_ENV
     )
     .into())
 }
 
-pub const CACHES_NOT_ALLOWED: &str = "This configuration declares shared caches, but it is \
-     authored by the repository being opened. A cache volume is shared with every other \
+pub const CACHES_NOT_ALLOWED: &str = "This configuration declares shared caches, but it is not \
+     wholly yours: it is the repository's own, or merges a 'bases' layer not in \
+     ROOZ_TRUSTED_CONFIGS. A cache volume is shared with every other \
      workspace of yours mounting the same path, so whatever this repository's build writes \
      into it (a cargo registry source, a linker config, a crate with a build script) would \
      later execute in those workspaces. Rooz shares only the cache paths you ask for \
@@ -216,8 +267,8 @@ fn check_repo_authored(cfg: &RoozCfg, consented_caches: &[String]) -> Result<(),
             "secrets" => return Err(crate::config::config::SECRETS_NOT_ALLOWED.into()),
             other => {
                 return Err(format!(
-                    "Refusing '{}': this configuration is authored by the repository being \
-                     opened, and '{}' is the operator's to set.",
+                    "Refusing '{}': this configuration is the repository's own, or merges a \
+                     'bases' layer not in ROOZ_TRUSTED_CONFIGS, and '{}' is the operator's to set.",
                     other, other
                 )
                 .into());
@@ -364,15 +415,25 @@ impl<'a> WorkspaceApi<'a> {
         let cfg = RuntimeConfig::try_from(&*cfg_builder)?;
 
         // gate before any image, volume, network or container work happens
+        let masked = cfg.mask_secrets(&decrypted_secrets);
+        let pins = |names: Vec<String>| {
+            names
+                .into_iter()
+                .map(|n| {
+                    let f = masked.fingerprint(&n);
+                    (n, f)
+                })
+                .collect::<Vec<_>>()
+        };
         check_privileged(
-            &cfg.privileged_containers(),
+            &pins(cfg.privileged_containers()),
             &Consent::resolve(
                 cli_params.privileged,
                 std::env::var(ALLOW_PRIVILEGED_ENV).ok(),
             ),
         )?;
         check_vpn(
-            &cfg.vpn_containers(),
+            &pins(cfg.vpn_containers()),
             &Consent::resolve(None, std::env::var(ALLOW_VPN_ENV).ok()),
         )?;
 
@@ -800,9 +861,12 @@ impl<'a> WorkspaceApi<'a> {
             .await?;
 
         let operator_local = config_is_operator_local(&cli_config_path) || trusted;
+        // base layers are merged content the operator did not write, so they carry
+        // the same weight as the repository's own config here
+        let operator_authored = operator_local && (trusted || !bases_merged);
         let consented_caches = operator_caches(
             cli_params,
-            if operator_local {
+            if operator_authored {
                 cli_cfg.as_ref()
             } else {
                 None
@@ -810,8 +874,8 @@ impl<'a> WorkspaceApi<'a> {
         );
 
         // a '--config git:...' source is the repository's configuration, wherever the
-        // operator typed its URL
-        if !operator_local && let Some(c) = &cli_cfg {
+        // operator typed its URL; a local file with untrusted bases is not wholly theirs either
+        if !operator_authored && let Some(c) = &cli_cfg {
             check_repo_authored(c, &consented_caches)?;
         }
 
@@ -825,9 +889,6 @@ impl<'a> WorkspaceApi<'a> {
             ..Default::default()
         };
         let mut cfg_builder = RoozCfg::default().from_cli_env(cli_params.clone());
-        // base layers are merged content the operator did not write, so they carry
-        // the same weight as the repository's own config here
-        let operator_authored = operator_local && (trusted || !bases_merged);
 
         if let Some(mode) = &plan {
             let (cfg, secrets) = self
@@ -950,6 +1011,35 @@ mod tests {
         Consent::resolve(None, env.map(String::from))
     }
 
+    fn pinned(c: &RuntimeConfig, names: Vec<String>) -> Vec<(String, String)> {
+        names
+            .into_iter()
+            .map(|n| {
+                let f = c.fingerprint(&n);
+                (n, f)
+            })
+            .collect()
+    }
+
+    fn privileged(c: &RuntimeConfig) -> Vec<(String, String)> {
+        pinned(c, c.privileged_containers())
+    }
+
+    fn vpn(c: &RuntimeConfig) -> Vec<(String, String)> {
+        pinned(c, c.vpn_containers())
+    }
+
+    // consent pinned to these containers' current definitions in `c`
+    fn pin(c: &RuntimeConfig, names: &[&str]) -> Consent {
+        consent(Some(
+            &names
+                .iter()
+                .map(|n| format!("{}@{}", n, c.fingerprint(n)))
+                .collect::<Vec<_>>()
+                .join(","),
+        ))
+    }
+
     fn caches(paths: &[&str]) -> Vec<String> {
         paths.iter().map(|p| p.to_string()).collect()
     }
@@ -1033,7 +1123,7 @@ mod tests {
     fn nothing_privileged_needs_no_consent() {
         let c = cfg(false, &[("db", false)]);
         assert!(c.privileged_containers().is_empty());
-        assert!(check_privileged(&c.privileged_containers(), &consent(None)).is_ok());
+        assert!(check_privileged(&privileged(&c), &consent(None)).is_ok());
     }
 
     #[test]
@@ -1045,7 +1135,7 @@ mod tests {
     #[test]
     fn config_requested_privileged_is_refused_without_consent() {
         let c = cfg(false, &[("pwn", true)]);
-        let err = check_privileged(&c.privileged_containers(), &consent(None))
+        let err = check_privileged(&privileged(&c), &consent(None))
             .unwrap_err()
             .to_string();
         assert!(err.contains("pwn"), "offender not named: {}", err);
@@ -1056,32 +1146,27 @@ mod tests {
         );
         // an explicit `--privileged false` is not consent either
         let explicit_false = Consent::resolve(Some(false), None);
-        assert!(check_privileged(&c.privileged_containers(), &explicit_false).is_err());
-        assert!(check_privileged(&c.privileged_containers(), &consent(Some("false"))).is_err());
+        assert!(check_privileged(&privileged(&c), &explicit_false).is_err());
+        assert!(check_privileged(&privileged(&c), &consent(Some("false"))).is_err());
     }
 
     #[test]
-    fn naming_a_container_consents_to_only_that_container() {
+    fn pinned_consent_covers_only_that_container() {
         // the real shape: a trusted overlay privileges `dkr`, the repo's own config must
         // not be able to smuggle in anything else under that standing consent
-        let allow_dkr = consent(Some("dkr"));
-        assert!(
-            check_privileged(
-                &cfg(false, &[("dkr", true)]).privileged_containers(),
-                &allow_dkr
-            )
-            .is_ok()
-        );
+        let ok = cfg(false, &[("dkr", true)]);
+        let allow_dkr = pin(&ok, &["dkr"]);
+        assert!(check_privileged(&privileged(&ok), &allow_dkr).is_ok());
 
         for hostile in [
             cfg(true, &[("dkr", true)]),
             cfg(false, &[("dkr", true), ("pwn", true)]),
         ] {
-            let err = check_privileged(&hostile.privileged_containers(), &allow_dkr)
+            let err = check_privileged(&privileged(&hostile), &allow_dkr)
                 .unwrap_err()
                 .to_string();
             assert!(
-                !err.contains("dkr"),
+                !err.contains("dkr@"),
                 "consented container was refused: {}",
                 err
             );
@@ -1089,14 +1174,88 @@ mod tests {
     }
 
     #[test]
+    fn a_redefined_container_needs_consent_again() {
+        // a config declaring its own `dkr` must not inherit consent given to another `dkr`
+        let reviewed = cfg(false, &[("dkr", true)]);
+        let allow_dkr = pin(&reviewed, &["dkr"]);
+        let mut hostile = reviewed.clone();
+        hostile.sidecars.get_mut("dkr").unwrap().image = "evil/root:latest".into();
+        let err = check_privileged(&privileged(&hostile), &allow_dkr)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains(&format!("dkr@{}", hostile.fingerprint("dkr"))),
+            "{}",
+            err
+        );
+    }
+
+    #[test]
+    fn a_bare_name_no_longer_consents_and_says_why() {
+        let c = cfg(false, &[("dkr", true)]);
+        let err = check_privileged(&privileged(&c), &consent(Some("dkr")))
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("A bare name no longer consents (dkr)"),
+            "{}",
+            err
+        );
+        assert!(
+            err.contains(&format!("{}=dkr@", ALLOW_PRIVILEGED_ENV)),
+            "{}",
+            err
+        );
+    }
+
+    #[test]
+    fn the_fingerprint_follows_the_definition_not_the_secrets() {
+        let mut a = cfg(false, &[("dkr", true)]);
+        a.data
+            .insert("conf".into(), serde_yaml::from_str("content: one").unwrap());
+        a.sidecars
+            .get_mut("dkr")
+            .unwrap()
+            .mounts
+            .insert("/etc/conf".into(), serde_yaml::from_str("conf").unwrap());
+        a.sidecars
+            .get_mut("dkr")
+            .unwrap()
+            .env
+            .insert("TOKEN".into(), "s3cret".into());
+        let mut rotated = a.clone();
+        rotated
+            .sidecars
+            .get_mut("dkr")
+            .unwrap()
+            .env
+            .insert("TOKEN".into(), "n3w".into());
+        assert_eq!(
+            a.mask_secrets(&["s3cret".into()]).fingerprint("dkr"),
+            rotated.mask_secrets(&["n3w".into()]).fingerprint("dkr"),
+        );
+        // the data behind a mount is part of what the container runs
+        let mut changed = a.clone();
+        changed
+            .data
+            .insert("conf".into(), serde_yaml::from_str("content: two").unwrap());
+        assert_ne!(a.fingerprint("dkr"), changed.fingerprint("dkr"));
+        assert_eq!(a.fingerprint("dkr"), a.clone().fingerprint("dkr"));
+    }
+
+    #[test]
     fn named_consent_lists_only_the_unconsented_containers() {
         let c = cfg(true, &[("dkr", true)]);
-        let err = check_privileged(&c.privileged_containers(), &consent(Some("dkr")))
+        let err = check_privileged(&privileged(&c), &pin(&c, &["dkr"]))
             .unwrap_err()
             .to_string();
         assert!(err.contains("work"), "{}", err);
         assert!(
-            err.contains(&format!("{}=work", ALLOW_PRIVILEGED_ENV)),
+            err.contains(&format!(
+                "{}=work@{}",
+                ALLOW_PRIVILEGED_ENV,
+                c.fingerprint("work")
+            )),
             "remedy should name only what was refused: {}",
             err
         );
@@ -1119,7 +1278,7 @@ mod tests {
     #[test]
     fn blanket_consent_still_works_for_non_interactive_use() {
         let c = cfg(true, &[("pwn", true)]);
-        assert!(check_privileged(&c.privileged_containers(), &consent(Some("true"))).is_ok());
+        assert!(check_privileged(&privileged(&c), &consent(Some("true"))).is_ok());
     }
 
     fn vpn_cfg(sidecars: &[(&str, bool)]) -> RuntimeConfig {
@@ -1147,40 +1306,30 @@ mod tests {
     #[test]
     fn config_requested_vpn_is_refused_without_consent() {
         let c = vpn_cfg(&[("wg", true)]);
-        let err = check_vpn(&c.vpn_containers(), &consent(None))
-            .unwrap_err()
-            .to_string();
+        let err = check_vpn(&vpn(&c), &consent(None)).unwrap_err().to_string();
         assert!(err.contains("wg"), "offender not named: {}", err);
         assert!(
             err.contains(&format!("{}=wg", ALLOW_VPN_ENV)),
             "no remedy given: {}",
             err
         );
-        assert!(check_vpn(&c.vpn_containers(), &consent(Some("false"))).is_err());
+        assert!(check_vpn(&vpn(&c), &consent(Some("false"))).is_err());
     }
 
     #[test]
-    fn naming_a_vpn_sidecar_consents_to_only_that_sidecar() {
-        let allow_wg = consent(Some("wg"));
-        assert!(check_vpn(&vpn_cfg(&[("wg", true)]).vpn_containers(), &allow_wg).is_ok());
-        let err = check_vpn(
-            &vpn_cfg(&[("wg", true), ("pwn", true)]).vpn_containers(),
-            &allow_wg,
-        )
-        .unwrap_err()
-        .to_string();
+    fn pinning_a_vpn_sidecar_consents_to_only_that_sidecar() {
+        let wg = vpn_cfg(&[("wg", true)]);
+        let allow_wg = pin(&wg, &["wg"]);
+        assert!(check_vpn(&vpn(&wg), &allow_wg).is_ok());
+        let both = vpn_cfg(&[("wg", true), ("pwn", true)]);
+        let err = check_vpn(&vpn(&both), &allow_wg).unwrap_err().to_string();
         assert!(
-            err.contains(&format!("{}=pwn", ALLOW_VPN_ENV)),
+            err.contains(&format!("{}=pwn@", ALLOW_VPN_ENV)),
             "remedy should name only what was refused: {}",
             err
         );
-        assert!(
-            check_vpn(
-                &vpn_cfg(&[("wg", true)]).vpn_containers(),
-                &consent(Some("true"))
-            )
-            .is_ok()
-        );
+        assert!(!err.contains("wg@"), "{}", err);
+        assert!(check_vpn(&vpn(&wg), &consent(Some("true"))).is_ok());
     }
 
     #[test]

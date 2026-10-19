@@ -95,7 +95,8 @@ export ROOZ_TRUSTED_CONFIGS='git@github.com:me/rooz-configs,~/rooz-configs'
   which are read from the same clone. URLs match exactly as passed to `--config`: `.../configs` and
   `.../configs.git` are different entries.
 * **A local directory** trusts a `--config` file, `bases` included, when the file and every base it pulls
-  in resolve inside it, symlinks followed.
+  in resolve inside it, symlinks followed. The path must be absolute or start with `~/`; relative entries are ignored,
+  as they would depend on the directory rooz runs in.
 
 A trusted source gets what your own local file gets: secrets (still subject to `ROOZ_ALLOW_SECRETS`) and
 shared caches. Anyone who can push to a trusted repository can read your secrets, so list only
