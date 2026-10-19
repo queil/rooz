@@ -30,6 +30,7 @@ impl<'a> WorkspaceApi<'a> {
         interactive: bool,
         mode: UpdateMode,
         no_pull: bool,
+        rebuild_images: bool,
         dry_run: bool,
         allow_secrets: Option<bool>,
     ) -> Result<(), AnyError> {
@@ -84,9 +85,12 @@ impl<'a> WorkspaceApi<'a> {
         // read before the containers go: the image id rooz recorded on a sidecar container is the
         // only record of the image it built for it
         let rebuild = Rebuild {
+            // nothing carried over is nothing reused: every sidecar image is built again
             sidecar_images: match mode {
-                UpdateMode::Apply => self.recorded_sidecar_images(workspace_key).await?,
-                UpdateMode::Purge => HashMap::new(),
+                UpdateMode::Apply if !rebuild_images => {
+                    self.recorded_sidecar_images(workspace_key).await?
+                }
+                _ => HashMap::new(),
             },
             pull_sidecar_images: pull_requested,
         };

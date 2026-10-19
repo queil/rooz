@@ -441,6 +441,7 @@ async fn run() -> Result<(), AnyError> {
                     tweak,
                     purge,
                     no_pull,
+                    rebuild,
                     dry_run,
                     allow_secrets,
                 }),
@@ -456,6 +457,7 @@ async fn run() -> Result<(), AnyError> {
                         _ => UpdateMode::Apply,
                     },
                     no_pull,
+                    rebuild,
                     dry_run,
                     allow_secrets,
                 )

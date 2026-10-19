@@ -156,7 +156,9 @@ A sidecar with `install` steps is built once: rooz runs the steps, commits
 * The sidecar runs the committed image by **id**, not by name, since tags and labels can be forged. The
   id is recorded on the sidecar container (`dev.rooz.runtime-image`).
 * `rooz update` pulls the base image (unless `--no-pull`) and reuses the built image while the base
-  image id, `uid`, `command`, `args` and install steps are unchanged, skipping the install. A change to any of them, or `--purge`, builds it again from the
+  image id, `uid`, `command`, `args` and install steps are unchanged, skipping the install.
+  `rooz update --rebuild` builds it again anyway, e.g. when an install step that exits 0 left it
+  broken; volumes are kept. A change to any of them, or `--purge`, builds it again from the
   base image.
 * A rebuild starts from the base image, so `skip_if` sees nothing earlier builds installed. It only
   skips steps whose output is on a volume or cache.
