@@ -16,8 +16,8 @@ rooz new ws -g <url> --config <url>//.rooz.yaml
 
 ## Repository config
 
-Config from a repository (a `--config <url>//<path>` source, e.g. its `.rooz.yaml`) may set the fields
-scoped to the workspace: `bases`, `git_ssh_url`, `image`, `shell`, `command`, `args`, `env`, `install`,
+Config from a repository (a `--config <url>//<path>` source, e.g. its `.rooz.yaml`), and any config
+that merges a `bases` layer not in `ROOZ_TRUSTED_CONFIGS`, may set the fields scoped to the workspace: `bases`, `git_ssh_url`, `image`, `shell`, `command`, `args`, `env`, `install`,
 `ports`, `data`, `mounts`, `sidecars`, `extra_repos`, `vars`, `user`, `init`.
 
 These are refused unless you allow them:
@@ -82,7 +82,8 @@ merged with the config) and `--caches` add more.
 > the path. So cache paths from repository config (a `--config <url>//<path>` source not in
 > `ROOZ_TRUSTED_CONFIGS`) are refused unless you also list them in `--caches` (on `rooz new`) or
 > `ROOZ_CACHES`. `rooz update` re-reads repository config on every run, so only `ROOZ_CACHES` covers it.
-> Local `--config` files are not affected.
+> Local `--config` files are not affected, unless they merge a `bases` layer not in
+> `ROOZ_TRUSTED_CONFIGS`.
 
 Cache volumes are scoped per operator, by default the uid running rooz, so operators sharing an engine
 (a remote `DOCKER_HOST`, a multi-user socket) get separate volumes: toolchain caches hold executable
