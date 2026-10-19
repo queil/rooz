@@ -657,31 +657,24 @@ impl RoozCfg {
             return Err(SECRETS_NOT_ALLOWED.into());
         }
 
-        let vars_and_secrets = match (&self.vars, &self.secrets) {
-            (None, None) => IndexMap::<String, String>::new(),
-            (None, Some(secrets)) => secrets.clone(),
-            (Some(vars), None) => vars.clone(),
-            (Some(vars), Some(secrets)) => {
-                if let Some(duplicate_key) =
-                    vars.keys().find(|k| secrets.contains_key(&k.to_string()))
-                {
-                    panic!(
-                        "The key: '{}' can be only defined in either vars or secrets.",
-                        duplicate_key
-                    )
-                }
-                let mut secrets = secrets.clone();
-                secrets.extend(vars.clone());
-                secrets
-            }
-        };
+        let secrets = self.secrets.clone().unwrap_or_default();
+        let vars = self.vars.clone().unwrap_or_default();
+        if let Some(duplicate_key) = vars.keys().find(|k| secrets.contains_key(*k)) {
+            return Err(format!(
+                "The key '{}' is defined in both 'vars' and 'secrets'; it can only be in one.",
+                duplicate_key
+            )
+            .into());
+        }
 
         let mut reg = Handlebars::new();
         reg.register_escape_fn(no_escape);
-        let mut built_vars = IndexMap::<String, String>::new();
-
-        for (k, v) in vars_and_secrets {
-            built_vars.insert(k.to_string(), reg.render_template(&v, &built_vars)?);
+        // a secret is a value, never a template: rendering it would let a '{{' in the plaintext
+        // corrupt it, escape masking, or quote it in a template error
+        let mut built_vars = secrets;
+        for (k, v) in vars {
+            let rendered = reg.render_template(&v, &built_vars)?;
+            built_vars.insert(k, rendered);
         }
 
         self.vars = render_map(&reg, &self.vars, &built_vars)?;
@@ -1108,10 +1101,17 @@ pub enum MountSource {
 }
 
 impl MountSource {
-    pub fn resolve_key(&self, target: &str) -> String {
+    // An inline file lives in the inline volume under a name derived from its path - and, in a
+    // sidecar, from the sidecar's name too, so the same path in two containers stays two files.
+    pub fn resolve_key(&self, container: &str, target: &str) -> String {
         match self {
             MountSource::DataEntryReference(data_key) => data_key.as_str().to_string(),
-            MountSource::InlineDataValue(_) => id::sanitize(target),
+            MountSource::InlineDataValue(_)
+                if container == crate::constants::DEFAULT_CONTAINER_NAME =>
+            {
+                id::sanitize(target)
+            }
+            MountSource::InlineDataValue(_) => format!("_{}_{}", container, id::sanitize(target)),
         }
     }
 
@@ -1301,6 +1301,37 @@ mod tests {
         };
         cfg.expand_vars(true).unwrap();
         assert_eq!(cfg.env.unwrap()["LEAK"], "s3cret");
+    }
+
+    #[test]
+    fn a_secret_is_a_value_not_a_template() {
+        for plaintext in ["hunter2{{oops", "tok{{b}}en"] {
+            let mut cfg = RoozCfg {
+                secrets: Some(IndexMap::from_iter([(
+                    "TOKEN".to_string(),
+                    plaintext.to_string(),
+                )])),
+                vars: Some(IndexMap::from_iter([("b".to_string(), "X".to_string())])),
+                env: Some(IndexMap::from_iter([(
+                    "TOKEN".to_string(),
+                    "{{ TOKEN }}".to_string(),
+                )])),
+                ..RoozCfg::none()
+            };
+            cfg.expand_vars(true).unwrap();
+            assert_eq!(cfg.env.unwrap()["TOKEN"], plaintext);
+        }
+    }
+
+    #[test]
+    fn a_key_in_both_vars_and_secrets_is_an_error_not_a_panic() {
+        let mut cfg = RoozCfg {
+            secrets: Some(IndexMap::from_iter([("K".to_string(), "s".to_string())])),
+            vars: Some(IndexMap::from_iter([("K".to_string(), "v".to_string())])),
+            ..RoozCfg::none()
+        };
+        let err = cfg.expand_vars(true).unwrap_err().to_string();
+        assert!(err.contains("'K'"), "{}", err);
     }
 
     #[test]

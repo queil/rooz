@@ -54,13 +54,13 @@ async fn hub_and_spoke_topology() {
     let networks = env.network_names_by_workspace(&key).await;
     let expected = {
         let mut v = vec![
-            format!("{}-egress", key),
-            format!("{}-net-claude", key),
-            format!("{}-net-dkr", key),
-            format!("{}-net-images", key),
-            format!("{}-net-proxy", key),
-            format!("{}-peer-claude-proxy", key),
-            format!("{}-peer-dkr-images", key),
+            format!("{}_egress", key),
+            format!("{}_net_claude", key),
+            format!("{}_net_dkr", key),
+            format!("{}_net_images", key),
+            format!("{}_net_proxy", key),
+            format!("{}_peer_claude_proxy", key),
+            format!("{}_peer_dkr_images", key),
         ];
         v.sort();
         v
@@ -76,8 +76,8 @@ async fn hub_and_spoke_topology() {
         );
     }
 
-    let dkr = format!("{}-dkr", key);
-    let claude = format!("{}-claude", key);
+    let dkr = format!("{}_dkr", key);
+    let claude = format!("{}_claude", key);
 
     assert_eq!(
         env.ping(&dkr, "images").await,

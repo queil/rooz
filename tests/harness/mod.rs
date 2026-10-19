@@ -24,6 +24,28 @@ pub fn write_cfg(key: &str, yaml: &str) -> String {
     path
 }
 
+/// The pinned consent value rooz asks for, e.g. `wg@0123456789abcdef`: a dry run without it is
+/// refused, and the refusal names `<var>=<value>` as the remedy.
+pub fn pinned_consent(env: &TestEnv, key: &str, cfg_path: &str, var: &str) -> String {
+    let out = env
+        .rooz()
+        .args(["new", key, "--config", cfg_path, "--dry-run"])
+        .env_remove(var)
+        .output()
+        .unwrap();
+    assert!(!out.status.success(), "no consent was asked for");
+    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+    let start = stderr
+        .find(&format!("{}=", var))
+        .unwrap_or_else(|| panic!("no {} remedy in:\n{}", var, stderr))
+        + var.len()
+        + 1;
+    stderr[start..]
+        .chars()
+        .take_while(|c| c.is_ascii_alphanumeric() || "@,-_".contains(*c))
+        .collect()
+}
+
 pub fn cleanup(env: &TestEnv, key: &str, cfg_path: &str) {
     env.rooz().args(["rm", key, "--force"]).assert().success();
     let _ = fs::remove_file(cfg_path);

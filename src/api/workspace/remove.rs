@@ -75,6 +75,13 @@ impl<'a> WorkspaceApi<'a> {
             futures::future::try_join_all(futures).await?;
         }
 
+        self.remove_networks(labels).await?;
+
+        log::debug!("Remove success");
+        Ok(())
+    }
+
+    async fn remove_networks(&self, labels: &Labels) -> Result<(), AnyError> {
         let ls_network_options = ListNetworksOptions {
             filters: Some(labels.clone().into()),
         };
@@ -85,13 +92,10 @@ impl<'a> WorkspaceApi<'a> {
             .await?
         {
             if let Some(name) = n.name {
-                let force_display = if force { " (force)" } else { "" };
-                log::debug!("Remove network: {}{}", name, force_display);
+                log::debug!("Remove network: {}", name);
                 self.api.client.remove_network(&name).await?
             }
         }
-
-        log::debug!("Remove success");
         Ok(())
     }
 
@@ -123,6 +127,8 @@ impl<'a> WorkspaceApi<'a> {
     ) -> Result<(), AnyError> {
         let labels = Labels::from(&[Labels::workspace(workspace_key)]);
         self.remove_containers(&labels, force, keep_images).await?;
+        // recreated with the containers; this also retires networks named by an older rooz
+        self.remove_networks(&labels).await?;
         Ok(())
     }
 

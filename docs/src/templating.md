@@ -5,7 +5,8 @@ Config values are [handlebars](https://handlebarsjs.com/guide/) templates. Decla
 
 * Works in most values, not in YAML keys.
 * Works inside `vars`, for variables defined earlier in the document.
-* Does not work inside `secrets`.
+* Does not work inside `secrets`: a secret's value is used verbatim, so a `{{` in it stays text.
+* A key is either a var or a secret, not both.
 
 ```yaml
 secrets:

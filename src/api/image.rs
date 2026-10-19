@@ -30,10 +30,20 @@ struct LayerState {
 pub struct PullProgress {
     layers: IndexMap<String, LayerState>,
     drawn_lines: u16,
+    // under the live install view: one line, no bars drawing over its panes
+    quiet: bool,
 }
 
 impl PullProgress {
     pub fn new(image: &str) -> Self {
+        if crate::util::live::is_live() {
+            crate::util::live::println(format!("⬇ Pulling {}", image));
+            return Self {
+                layers: IndexMap::new(),
+                drawn_lines: 0,
+                quiet: true,
+            };
+        }
         let mut out = stdout();
         out.queue(SetForegroundColor(Color::White)).unwrap();
         out.queue(Print("⬇ Pulling ")).unwrap();
@@ -49,10 +59,14 @@ impl PullProgress {
         Self {
             layers: IndexMap::new(),
             drawn_lines: 0,
+            quiet: false,
         }
     }
 
     pub fn update(&mut self, id: &str, status: &str, current: Option<i64>, total: Option<i64>) {
+        if self.quiet {
+            return;
+        }
         self.layers.insert(
             id.to_string(),
             LayerState {
@@ -183,7 +197,9 @@ impl<'a> ImageApi<'a> {
                 Err(e) => return Err(pull_failed(image, &e.to_string()).into()),
             };
         }
-        println!();
+        if !progress.quiet {
+            println!();
+        }
 
         let response = self.client.inspect_image(image).await?;
 

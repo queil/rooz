@@ -5,6 +5,7 @@ use crate::model::types::ContentGenerator;
 use crate::model::types::{TargetDir, VolumeFilesSpec};
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -339,6 +340,42 @@ impl RuntimeConfig {
         names
     }
 
+    /// A fingerprint of everything that decides what the named container runs and reaches: its
+    /// image, command, env, uid, install steps, mounts and the data behind them. Consent to a
+    /// privileged or vpn container is pinned to it, so a config that redefines a consented name
+    /// is refused until the operator consents to the new definition. Call it on a copy with the
+    /// secrets masked: a rotated secret keeps the fingerprint, and no plaintext gets hashed.
+    pub fn fingerprint(&self, container: &str) -> String {
+        let definition = match self.sidecars.get(container) {
+            Some(sidecar) if container != constants::DEFAULT_CONTAINER_NAME => {
+                let mut sidecar = sidecar.clone();
+                sidecar.real_mounts.clear();
+                let data = sidecar
+                    .mounts
+                    .values()
+                    .filter_map(|m| match m {
+                        MountSource::DataEntryReference(key) => self
+                            .data
+                            .get(key.as_str())
+                            .map(|v| (key.as_str().to_string(), v.clone())),
+                        MountSource::InlineDataValue(_) => None,
+                    })
+                    .collect::<std::collections::BTreeMap<_, _>>();
+                serde_json::to_value((sidecar, data))
+            }
+            _ => {
+                let mut work = self.clone();
+                work.sidecars.clear();
+                work.real_mounts.clear();
+                serde_json::to_value(work)
+            }
+        }
+        .expect("a runtime config serializes");
+        // serde_json's maps are sorted, so the text is the same for the same definition
+        let digest = Sha256::digest(definition.to_string());
+        format!("{:x}", digest)[..16].to_string()
+    }
+
     pub fn vpn_containers(&self) -> Vec<String> {
         let mut names = self
             .sidecars
@@ -396,6 +433,46 @@ impl RuntimeConfig {
         masked
     }
 
+    // Volumes and inline files are named after data keys and mount paths, sanitized: two that
+    // sanitize alike would share a volume or a file, and an 'inline' key the inline files' volume.
+    fn validate_data_names(&self) -> Result<(), AnyError> {
+        let mut volumes = HashMap::<String, &str>::new();
+        for key in self.data.keys() {
+            let derived = crate::util::id::sanitize(key);
+            if derived == "inline" {
+                return Err(format!(
+                    "data key '{}' is reserved: it names the volume holding inline mount files",
+                    key
+                )
+                .into());
+            }
+            if derived.starts_with('-') {
+                return Err(format!("data key '{}' must start with a letter or digit", key).into());
+            }
+            if let Some(other) = volumes.insert(derived.clone(), key) {
+                return Err(format!(
+                    "data keys '{}' and '{}' would share volume '{}': rename one",
+                    other, key, derived
+                )
+                .into());
+            }
+        }
+        let mut files = HashMap::<String, (String, String)>::new();
+        for ((container, target), source) in self.all_mounts() {
+            if let MountSource::InlineDataValue(_) = source {
+                let key = source.resolve_key(&container, &target);
+                if let Some((_, other)) = files.insert(key, (container.clone(), target.clone())) {
+                    return Err(format!(
+                        "{}: mounts '{}' and '{}' would share one inline file: rename one",
+                        container, other, target
+                    )
+                    .into());
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub fn all_mounts(&self) -> HashMap<(String, String), MountSource> {
         self.mounts
             .iter()
@@ -425,6 +502,7 @@ impl<'a> TryFrom<&'a RoozCfg> for RuntimeConfig {
 
         let sidecar_cfgs = value.sidecars.clone().unwrap_or_default();
         for (name, s) in &sidecar_cfgs {
+            crate::util::id::validate_sidecar_name(name)?;
             for peer in s.peers.iter().flatten() {
                 if peer == name {
                     return Err(
@@ -447,7 +525,7 @@ impl<'a> TryFrom<&'a RoozCfg> for RuntimeConfig {
         let user = value.user.as_deref().unwrap_or(&default.user);
         validate_user(user)?;
 
-        Ok(RuntimeConfig {
+        let cfg = RuntimeConfig {
             git_ssh_url: value.git_ssh_url.clone(),
             extra_repos: value
                 .extra_repos
@@ -494,13 +572,66 @@ impl<'a> TryFrom<&'a RoozCfg> for RuntimeConfig {
                 .collect(),
             install: value.install.clone(),
             ..default
-        })
+        };
+        cfg.validate_data_names()?;
+        Ok(cfg)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn try_runtime(yaml: &str) -> Result<RuntimeConfig, AnyError> {
+        let cfg: RoozCfg = serde_yaml::from_str(yaml).unwrap();
+        RuntimeConfig::try_from(&cfg)
+    }
+
+    #[test]
+    fn sidecar_names_keep_to_the_workspace_alphabet() {
+        assert!(try_runtime("sidecars:\n  db-1:\n    image: a\n").is_ok());
+        for bad in ["work", "\"my db\"", "My", "db_1", "-db"] {
+            let err = try_runtime(&format!("sidecars:\n  {}:\n    image: a\n", bad))
+                .unwrap_err()
+                .to_string();
+            assert!(err.contains("sidecar name"), "{}: {}", bad, err);
+        }
+    }
+
+    #[test]
+    fn data_keys_that_would_share_a_volume_are_refused() {
+        for (yaml, needle) in [
+            ("data:\n  Notes: {}\n  notes: {}\n", "would share volume"),
+            ("data:\n  a.b: {}\n  a-b: {}\n", "would share volume"),
+            ("data:\n  inline: {}\n", "reserved"),
+            ("data:\n  ~x: {}\n", "letter or digit"),
+        ] {
+            let err = try_runtime(yaml).unwrap_err().to_string();
+            assert!(err.contains(needle), "{}: {}", yaml, err);
+        }
+        assert!(try_runtime("data:\n  install-dotnet.weir: {}\n  git-config: {}\n").is_ok());
+    }
+
+    #[test]
+    fn inline_files_are_one_per_container_and_path() {
+        // the same path in the work container and a sidecar: two files
+        let cfg = try_runtime(
+            "mounts:\n  /etc/x:\n    content: work\nsidecars:\n  db:\n    image: a\n    mounts:\n      /etc/x:\n        content: db\n",
+        )
+        .unwrap();
+        let specs =
+            crate::api::VolumeApi::create_volume_specs("ws", &cfg.data, &cfg.all_mounts(), true)
+                .unwrap();
+        assert!(specs.contains_key(&crate::model::types::DataEntryKey("-etc-x".into())));
+        assert!(specs.contains_key(&crate::model::types::DataEntryKey("_db_-etc-x".into())));
+        // paths that sanitize alike in one container: refused
+        let err = try_runtime(
+            "mounts:\n  /etc/a.conf:\n    content: a\n  /etc/a-conf:\n    content: b\n",
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("would share one inline file"), "{}", err);
+    }
 
     #[test]
     fn vpn_sidecar_must_run_as_root() {

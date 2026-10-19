@@ -844,6 +844,56 @@ async fn root_install_steps_through_bases_need_a_trusted_dir() {
     let _ = fs::remove_dir_all(&dir);
 }
 
+// A local config is the operator's only without untrusted 'bases': a base layer must not get a
+// cache shared with every other workspace on the local file's say-so.
+#[tokio::test]
+async fn caches_through_bases_need_consent_or_a_trusted_dir() {
+    let Some(env) = TestEnv::from_env() else {
+        return;
+    };
+    let key = unique_key("vol-base-cache");
+
+    let dir = std::env::temp_dir().join(format!("rooz-test-{}", key));
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(
+        dir.join("base.yaml"),
+        "image: alpine:latest\ncaches:\n  - /home/rooz_user/.base-cache\n",
+    )
+    .unwrap();
+    let cfg_path = dir.join("ws.yaml");
+    fs::write(&cfg_path, "bases: [base.yaml]\n").unwrap();
+    let cfg_path = cfg_path.to_string_lossy().into_owned();
+
+    env.rooz()
+        .args(["system", "init", "--force"])
+        .assert()
+        .success();
+
+    let dry_run = |extra: &[(&str, &str)]| {
+        let mut cmd = env.rooz();
+        cmd.args(["new", &key, "--config", &cfg_path, "--dry-run"])
+            .env_remove("ROOZ_TRUSTED_CONFIGS")
+            .env_remove("ROOZ_CACHES");
+        for (k, v) in extra {
+            cmd.env(k, v);
+        }
+        cmd.assert()
+    };
+
+    let refused = dry_run(&[]).failure();
+    let stderr = String::from_utf8_lossy(&refused.get_output().stderr).to_string();
+    assert!(
+        stderr.contains("shared caches") && stderr.contains("ROOZ_CACHES"),
+        "expected the refusal and its remedy:\n{}",
+        stderr
+    );
+
+    dry_run(&[("ROOZ_CACHES", "/home/rooz_user/.base-cache")]).success();
+    dry_run(&[("ROOZ_TRUSTED_CONFIGS", dir.to_str().unwrap())]).success();
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
 #[tokio::test]
 async fn dry_run_masks_secrets_wherever_they_land() {
     use age::secrecy::ExposeSecret;

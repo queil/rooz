@@ -16,8 +16,8 @@ rooz new ws -g <url> --config <url>//.rooz.yaml
 
 ## Repository config
 
-Config from a repository (a `--config <url>//<path>` source, e.g. its `.rooz.yaml`) may set the fields
-scoped to the workspace: `bases`, `git_ssh_url`, `image`, `shell`, `command`, `args`, `env`, `install`,
+Config from a repository (a `--config <url>//<path>` source, e.g. its `.rooz.yaml`), and any config
+that merges a `bases` layer not in `ROOZ_TRUSTED_CONFIGS`, may set the fields scoped to the workspace: `bases`, `git_ssh_url`, `image`, `shell`, `command`, `args`, `env`, `install`,
 `ports`, `data`, `mounts`, `sidecars`, `extra_repos`, `vars`, `user`, `init`.
 
 These are refused unless you allow them:
@@ -27,8 +27,8 @@ These are refused unless you allow them:
 | `secrets` | plaintext lands in a repo-controlled container | list the source in `ROOZ_TRUSTED_CONFIGS` ([Trusted config sources](secrets.md#trusted-config-sources)), or use a local `--config` file |
 | `caches` | shared with your other workspaces | the same paths in `ROOZ_CACHES` (or `--caches`, which covers `rooz new` only, not `rooz update`), or the source in `ROOZ_TRUSTED_CONFIGS` |
 | `install` step with `root: true` | runs as root in the workspace | the source in `ROOZ_TRUSTED_CONFIGS`, or a local `--config` file ([Install steps](#install-steps)) |
-| `privileged` | full host access | `ROOZ_ALLOW_PRIVILEGED=<names>`, required for *any* config file |
-| sidecar `vpn` | kernel netfilter access as root on a rootful engine | `ROOZ_ALLOW_VPN=<names>`, required for *any* config file |
+| `privileged` | full host access | `ROOZ_ALLOW_PRIVILEGED=<name>@<fingerprint>`, required for *any* config file |
+| sidecar `vpn` | kernel netfilter access as root on a rootful engine | `ROOZ_ALLOW_VPN=<name>@<fingerprint>`, required for *any* config file |
 
 ## Clone transports
 
@@ -82,7 +82,8 @@ merged with the config) and `--caches` add more.
 > the path. So cache paths from repository config (a `--config <url>//<path>` source not in
 > `ROOZ_TRUSTED_CONFIGS`) are refused unless you also list them in `--caches` (on `rooz new`) or
 > `ROOZ_CACHES`. `rooz update` re-reads repository config on every run, so only `ROOZ_CACHES` covers it.
-> Local `--config` files are not affected.
+> Local `--config` files are not affected, unless they merge a `bases` layer not in
+> `ROOZ_TRUSTED_CONFIGS`.
 
 Cache volumes are scoped per operator, by default the uid running rooz, so operators sharing an engine
 (a remote `DOCKER_HOST`, a multi-user socket) get separate volumes: toolchain caches hold executable
@@ -99,8 +100,8 @@ $ rooz new demo --config demo.rooz.yaml --dry-run
 pull     image     docker.io/alpine:latest
 create   volume    rooz_demo_work
 reuse    cache     rooz_cache_uid-1000_---nuget  ~/.nuget
-create   network   demo-egress
-create   network   demo-net-db
+create   network   demo_egress
+create   network   demo_net_db
 create   sidecar   db  image=docker.io/postgres:17 install: 00-x[root]
 create   work      demo  image=docker.io/alpine:latest user=rooz_user uid=1000 env=PGHOST
 run      install   00-tools  root,skip_if
@@ -139,6 +140,10 @@ install:
 * `skip_if` runs first, as the same user; exit 0 skips the step. Pair it with a [cache](#caches) to
   avoid repeat downloads. `run` and `skip_if` are templated.
 * `skip_if` sees the container's env: put cached tools on `PATH` (via `env`) or use absolute paths.
+* Containers install side by side: sidecar images build while the work container's steps run. On a
+  terminal each gets a pane with its current step and last output lines; a finished one collapses to a
+  summary, a failed one leaves its step's whole output. Elsewhere, or with `ROOZ_PROGRESS=plain`, every
+  output line is printed tagged `[install:<container>:<step>]`.
 * `bases` layers add steps by key, replace whole steps, or remove them with `null`.
 * `root: true` is refused from untrusted config (a `--config <url>//<path>` source or `bases` layer not
   in `ROOZ_TRUSTED_CONFIGS`). Trust the source or use a local config.
@@ -164,14 +169,18 @@ A sidecar with `install` steps is built once: rooz runs the steps, commits
 `privileged: true` in any config file (local or git, sidecars included) stops workspace creation and
 names the containers. To allow it:
 
-* `ROOZ_ALLOW_PRIVILEGED=<names>` allows the listed containers (comma-separated), e.g.
-  `ROOZ_ALLOW_PRIVILEGED=dkr`. Others are still refused.
+* `ROOZ_ALLOW_PRIVILEGED=<name>@<fingerprint>` allows exactly that definition of the container
+  (comma-separated for several), e.g. `ROOZ_ALLOW_PRIVILEGED=dkr@7f3fa966d667faa1`. The refusal prints
+  the value to set. Others are still refused.
+* The fingerprint covers the container's image, command, args, env, uid, install steps, mounts and the
+  data behind them (secrets masked). Change any of them, or let another config declare its own `dkr`,
+  and consent is needed again. A bare name (`dkr`) no longer consents.
 * `ROOZ_ALLOW_PRIVILEGED=true` allows any. Meant for CI.
 * `--privileged true` allows it *and* makes the work container privileged, whatever the config says.
 
-Prefer names over `true`: name the docker-in-docker sidecar, not the workspace that uses it through
-`DOCKER_HOST`. Names are safe to keep in your shell profile; a standing `=true` also lets repository
-config add privileged containers.
+Prefer pinned names over `true`: pin the docker-in-docker sidecar, not the workspace that uses it
+through `DOCKER_HOST`. Pinned names are safe to keep in your shell profile, as they cover only the
+definition you reviewed; a standing `=true` also lets repository config add privileged containers.
 
 > [!WARNING]
 > Only for configs you trust. For repositories you do not control, prefer rootless Podman, which
@@ -184,7 +193,8 @@ like need: `NET_ADMIN`, `/dev/net/tun` and `net.ipv4.conf.all.src_valid_mark=1`.
 the sidecar's network namespace; unlike `privileged`, it gives no host devices or host network.
 
 It does expose kernel netfilter and netlink, an escape surface on rootful engines, so it requires
-`ROOZ_ALLOW_VPN=<names>` (or `=true` for any). This is separate from `ROOZ_ALLOW_PRIVILEGED`.
+`ROOZ_ALLOW_VPN=<name>@<fingerprint>` (or `=true` for any), pinned like
+[privileged consent](#privileged-containers). This is separate from `ROOZ_ALLOW_PRIVILEGED`.
 
 ```yaml
 sidecars:
@@ -247,6 +257,12 @@ of the container that mounts them, and writable.
 
 A mount maps a path to a `data` key, or holds the same kinds inline. `~/` expands to the home directory
 in the work container only. The `/work` volume is implicit.
+
+A data key names its volume, `rooz_<workspace>_<key>`, with characters other than letters, digits and
+`-` turned into `-`. Keys that end up alike (`a.b` and `a-b`), a key named `inline` and keys not
+starting with a letter or digit are refused. Inline mounts are files in one shared volume, one per
+container and path: the same path inline in the work container and a sidecar gives two files, and two
+paths of one container that end up alike (`a.conf` and `a-conf`) are refused.
 
 Sidecars use the same syntax. A key mounted in the work container and in a sidecar is one volume, so
 they share it, e.g. a cluster's admin config written by a sidecar and read by the work container.

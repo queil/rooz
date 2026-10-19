@@ -3,7 +3,7 @@ use crate::{
     config::config::ResolvedStep,
     constants,
     model::types::AnyError,
-    util::{progress, sh},
+    util::{live, sh},
 };
 use bollard::{
     container::LogOutput,
@@ -59,23 +59,58 @@ async fn collect(stream: impl Stream<Item = Result<LogOutput, Error>>) -> Result
     Ok(String::from_utf8(out)?)
 }
 
-async fn log(stream: impl Stream<Item = Result<LogOutput, Error>>) -> Result<(), AnyError> {
+// An unterminated run by one step - a progress bar, or a step that never prints a newline -
+// must not grow the buffer with everything it printed.
+const MAX_PENDING: usize = 64 * 1024;
+
+fn trim_unterminated(pending: &mut Vec<u8>) {
+    if pending.len() > MAX_PENDING {
+        // what a terminal shows of an unterminated line is the text after its last carriage
+        // return; drop what precedes it, then cap what is left
+        let from = pending
+            .iter()
+            .rposition(|b| *b == b'\r')
+            .map_or(0, |cr| cr + 1);
+        let keep_from = from.max(pending.len() - MAX_PENDING);
+        pending.drain(..keep_from);
+    }
+}
+
+// With an install (container, step), output goes out line by line through the live view:
+// install steps of several containers run at once, and their output interleaves.
+async fn log(
+    stream: impl Stream<Item = Result<LogOutput, Error>>,
+    install: Option<(&str, &str)>,
+) -> Result<(), AnyError> {
     use futures::stream::StreamExt;
     use std::io::Write;
 
     let mut stream = std::pin::pin!(stream);
-    let mut stdout = std::io::stdout();
+    let mut pending = Vec::<u8>::new();
 
     while let Some(item) = stream.next().await {
-        match item {
-            Ok(output) => {
-                let bytes = output.into_bytes();
-                let text = std::str::from_utf8(bytes.as_ref())?;
-                stdout.write_all(text.as_bytes())?;
-                stdout.flush()?;
-            }
-            Err(err) => return Err(err.into()),
+        let bytes = item?.into_bytes();
+        let Some((container, step)) = install else {
+            let mut stdout = std::io::stdout().lock();
+            stdout.write_all(std::str::from_utf8(bytes.as_ref())?.as_bytes())?;
+            stdout.flush()?;
+            continue;
+        };
+        pending.extend_from_slice(&bytes);
+        while let Some(end) = pending.iter().position(|b| *b == b'\n') {
+            let line = pending.drain(..=end).collect::<Vec<_>>();
+            live::install_output(
+                container,
+                step,
+                String::from_utf8_lossy(&line[..line.len() - 1]).as_ref(),
+            );
         }
+        trim_unterminated(&mut pending);
+    }
+    if let Some((container, step)) = install
+        && !pending.is_empty()
+    {
+        live::install_output(container, step, String::from_utf8_lossy(&pending).as_ref());
     }
 
     Ok(())
@@ -319,13 +354,25 @@ impl<'a> ExecApi<'a> {
         user: Option<&str>,
         cmd: Option<Vec<&str>>,
     ) -> Result<i64, AnyError> {
+        self.status_tagged(reason, container_id, user, cmd, None)
+            .await
+    }
+
+    async fn status_tagged(
+        &self,
+        reason: &str,
+        container_id: &str,
+        user: Option<&str>,
+        cmd: Option<Vec<&str>>,
+        install: Option<(&str, &str)>,
+    ) -> Result<i64, AnyError> {
         let exec_id = self
             .create_exec(reason, container_id, None, user, cmd, false)
             .await?;
         if let StartExecResults::Attached { output, .. } =
             self.client.start_exec(&exec_id, None).await?
         {
-            log(output).await?;
+            log(output, install).await?;
         } else {
             return Err("Could not start exec: the engine returned no attached stream. Check that the container is running.".into());
         }
@@ -361,48 +408,65 @@ impl<'a> ExecApi<'a> {
         container_id: &str,
         steps: Vec<ResolvedStep>,
     ) -> Result<(), AnyError> {
-        let step_names = steps
-            .iter()
-            .map(|step| step.name.as_str())
-            .collect::<Vec<_>>()
-            .join(", ");
-        println!(
-            "{} steps: {}",
-            progress::install_tag(container_name, None),
-            step_names
-        );
+        let names = steps.iter().map(|s| s.name.as_str()).collect::<Vec<_>>();
+        live::install_begin(container_name, &names);
+        match self
+            .install_steps(container_name, container_id, &steps)
+            .await
+        {
+            Ok(()) => {
+                live::install_done(container_name);
+                Ok(())
+            }
+            Err(e) => {
+                live::install_failed(container_name);
+                Err(e)
+            }
+        }
+    }
+
+    async fn install_steps(
+        &self,
+        container_name: &str,
+        container_id: &str,
+        steps: &[ResolvedStep],
+    ) -> Result<(), AnyError> {
         for (idx, step) in steps.iter().enumerate() {
             let user = step.root.then_some(constants::ROOT_UID);
+            let tag = (container_name, step.name.as_str());
             if let Some(check) = &step.skip_if {
+                live::install_checking(container_name, &step.name);
                 let check_cmd = inject(
                     &format!("#!/bin/sh\n{}", script_body(check)),
                     &format!("skip-{}.sh", idx),
                 );
                 let v = check_cmd.iter().map(|x| x.as_str()).collect::<Vec<_>>();
                 if self
-                    .status("install-check", container_id, user, Some(v))
+                    .status_tagged("install-check", container_id, user, Some(v), Some(tag))
                     .await?
                     == 0
                 {
-                    println!(
-                        "{} skipped",
-                        progress::install_tag(container_name, Some(&step.name))
-                    );
+                    live::install_skipped(container_name, &step.name);
                     continue;
                 }
             }
-            println!(
-                "{}",
-                progress::install_tag(container_name, Some(&step.name))
-            );
+            live::install_step(container_name, &step.name);
             let cmd = format!("#!/bin/sh\nset -e\n{}", script_body(&step.run));
             let install_cmd = inject(cmd.as_str(), &format!("install-{}.sh", idx));
             let v = install_cmd.iter().map(|x| x.as_str()).collect::<Vec<_>>();
-            self.run("install", container_id, user, Some(v))
-                .await
-                .map_err(|e| -> AnyError {
-                    format!("install step '{}' failed: {}", step.name, e).into()
-                })?;
+            match self
+                .status_tagged("install", container_id, user, Some(v), Some(tag))
+                .await?
+            {
+                0 => live::install_step_done(container_name),
+                code => {
+                    return Err(format!(
+                        "install step '{}' failed: exec failed with exit code {}",
+                        step.name, code
+                    )
+                    .into());
+                }
+            }
         }
         Ok(())
     }
@@ -488,6 +552,22 @@ fn chown_target(dir: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::chown_target;
+
+    #[test]
+    fn an_unterminated_run_is_kept_bounded() {
+        use super::{MAX_PENDING, trim_unterminated};
+        // a progress meter: only what follows the last carriage return is kept
+        let mut pending = Vec::new();
+        for i in 0..100_000 {
+            pending.extend_from_slice(format!("\r{}%", i).as_bytes());
+            trim_unterminated(&mut pending);
+        }
+        assert!(pending.len() <= MAX_PENDING + 16);
+        // a run with no carriage return at all: capped to the last MAX_PENDING bytes
+        let mut pending = vec![b'x'; MAX_PENDING * 4];
+        trim_unterminated(&mut pending);
+        assert_eq!(pending.len(), MAX_PENDING);
+    }
 
     #[test]
     fn plain_paths_are_single_quoted() {

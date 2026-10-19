@@ -7,7 +7,10 @@ use crate::{
     config::config::RoozCfg,
     constants,
     model::types::{AnyError, RunMode, RunSpec},
-    util::labels::{self, Labels},
+    util::{
+        labels::{self, Labels},
+        live, progress,
+    },
 };
 
 use bollard_stubs::models::ContainerConfig;
@@ -44,22 +47,15 @@ impl<'a> WorkspaceApi<'a> {
 
         for (name, s) in &mut cfg.sidecars {
             log::debug!("Process sidecar: {}", name);
-            let container_name = format!("{}-{}", workspace_key, name);
-            let mut labels = labels.clone();
-            labels.extend(&[Labels::container(name), Labels::role(labels::SIDECAR_ROLE)]);
-            let mut ports = HashMap::<String, Option<String>>::new();
-            RoozCfg::parse_ports(&mut ports, s.ports.clone())?;
 
             //TODO: read the uid from the sidecar image if not overridden by the user
             let uid = s.uid;
 
             let mounts: HashMap<String, MountSource> = s.mounts.clone();
 
-            let mut container_mounts = Vec::new();
-
             let mounts_all = mounts
                 .iter()
-                .map(|(target, source)| (target.to_string(), source.resolve_key(target)))
+                .map(|(target, source)| (target.to_string(), source.resolve_key(name, target)))
                 .collect::<HashMap<String, String>>();
 
             let mounts_config =
@@ -71,9 +67,6 @@ impl<'a> WorkspaceApi<'a> {
             // exist so it hard to make it work predictably. Consider marking as not supported by design
             let real_mounts = VolumeApi::real_mounts(mounts_config.clone(), None);
 
-            container_mounts
-                .extend_from_slice(self.api.volume.mounts(&real_mounts).await?.as_slice());
-
             for (t, m) in real_mounts.clone() {
                 s.real_mounts.insert(t.clone(), m.clone());
                 // The volume might already be created by the workspace-level volume creation
@@ -83,6 +76,20 @@ impl<'a> WorkspaceApi<'a> {
                     .populate_volume(m, uid, true, rewrite_files)
                     .await?;
             }
+        }
+
+        // Volumes are populated above one sidecar at a time, as sidecars share the inline volume.
+        // The rest, building a sidecar's image above all, is independent of the other sidecars.
+        let labels = &labels;
+        let peer_relations = &peer_relations;
+        let sidecars = cfg.sidecars.iter().map(|(name, s)| async move {
+            let container_name = constants::sidecar_container(workspace_key, name);
+            let mut labels = labels.clone();
+            labels.extend(&[Labels::container(name), Labels::role(labels::SIDECAR_ROLE)]);
+            let mut ports = HashMap::<String, Option<String>>::new();
+            RoozCfg::parse_ports(&mut ports, s.ports.clone())?;
+            let uid = s.uid;
+            let container_mounts = self.api.volume.mounts(&s.real_mounts).await?;
 
             let cmd = &s.command.iter().map(|x| x.as_str()).collect::<Vec<_>>();
             let args = &s.args.iter().map(|k| k.as_str()).collect::<Vec<_>>();
@@ -177,6 +184,12 @@ impl<'a> WorkspaceApi<'a> {
                 {
                     image_id = None;
                 }
+                if image_id.is_some() {
+                    live::println(format!(
+                        "{} steps unchanged: reusing the image built before",
+                        progress::install_tag(name, None)
+                    ));
+                }
 
                 if image_id.is_none()
                     && let ContainerResult::Created { id: container_id } = self
@@ -257,7 +270,9 @@ impl<'a> WorkspaceApi<'a> {
             } else {
                 self.api.container.create(run_spec).await?;
             }
-        }
+            Ok::<(), AnyError>(())
+        });
+        futures::future::try_join_all(sidecars).await?;
 
         Ok(RuntimeConfig { ..cfg.clone() })
     }

@@ -462,14 +462,16 @@ impl<'a> ContainerApi<'a> {
             ..Default::default()
         };
 
-        let response = match self
+        let response = self
             .client
             .create_container(Some(options.clone()), config.clone())
             .await
-        {
-            Ok(r) => r,
-            Err(err) => panic!("ERROR: {:?}", err),
-        };
+            .map_err(|e| {
+                format!(
+                    "Could not create container '{}': {}",
+                    spec.container_name, e
+                )
+            })?;
 
         if let Some(networks) = &spec.additional_networks {
             for n in networks {
@@ -507,11 +509,26 @@ impl<'a> ContainerApi<'a> {
             spec.command.clone().unwrap_or(vec![]).join(" ")
         );
 
-        let container_id = match self
+        let existing = self
             .client
             .inspect_container(spec.container_name, None::<InspectContainerOptions>)
-            .await
-        {
+            .await;
+        if let Ok(found) = &existing {
+            let found = found
+                .config
+                .as_ref()
+                .and_then(|c| c.labels.clone())
+                .unwrap_or_default();
+            if !same_owner(&spec.labels, &found) {
+                return Err(format!(
+                    "A container named '{}' already exists and is not this workspace's: refusing to \
+                     reuse or replace it. Remove or rename it if it is a leftover.",
+                    spec.container_name
+                )
+                .into());
+            }
+        }
+        let container_id = match existing {
             Ok(ContainerInspectResponse { id: Some(id), .. }) if !spec.force_recreate => {
                 ContainerResult::AlreadyExists { id }
             }
@@ -536,7 +553,13 @@ impl<'a> ContainerApi<'a> {
 
                 ContainerResult::Created { id: response.id }
             }
-            Err(err) => panic!("ERROR: {:?}", err),
+            Err(err) => {
+                return Err(format!(
+                    "Could not inspect container '{}': {}",
+                    spec.container_name, err
+                )
+                .into());
+            }
         };
         Ok(container_id.clone())
     }
@@ -822,8 +845,36 @@ echo start > /tmp/exec_start
     }
 }
 
+// The workspace and container a name was created for, read back from its labels: a name alone
+// says nothing about whose it is.
+pub fn same_owner(expected: &Labels, found: &HashMap<String, String>) -> bool {
+    let expected: HashMap<String, String> = expected.clone().into();
+    [labels::WORKSPACE_KEY, labels::CONTAINER]
+        .iter()
+        .all(|k| expected.get(*k).is_none_or(|v| found.get(*k) == Some(v)))
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_name_is_reused_only_for_its_own_workspace_and_container() {
+        use super::same_owner;
+        use crate::util::labels::{self, Labels};
+        use std::collections::HashMap;
+        let expected = Labels::from(&[Labels::workspace("a"), Labels::container("x")]);
+        let found = |ws: &str, c: &str| {
+            HashMap::from([
+                (labels::WORKSPACE_KEY.to_string(), ws.to_string()),
+                (labels::CONTAINER.to_string(), c.to_string()),
+            ])
+        };
+        assert!(same_owner(&expected, &found("a", "x")));
+        assert!(!same_owner(&expected, &found("a-x", "work")));
+        assert!(!same_owner(&expected, &HashMap::new()));
+        // a name without expectations (a one-shot helper) is not checked
+        assert!(same_owner(&Labels::default(), &found("b", "y")));
+    }
+
     use super::{inject, redact_injected};
 
     #[test]

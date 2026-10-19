@@ -31,7 +31,16 @@ impl TrustedConfigs {
             let dir = match (entry.strip_prefix("~/"), home) {
                 (Some(rest), Some(home)) => home.join(rest),
                 (Some(_), None) => continue,
-                (None, _) => PathBuf::from(entry),
+                (None, _) if Path::new(entry).is_absolute() => PathBuf::from(entry),
+                // relative to wherever rooz runs - inside a cloned repository that would trust
+                // the repository's own files
+                (None, _) => {
+                    eprintln!(
+                        "WARN: ignoring '{}' in {}: use an absolute path or one starting with '~/'",
+                        entry, TRUSTED_CONFIGS_ENV
+                    );
+                    continue;
+                }
             };
             if let Ok(dir) = dir.canonicalize() {
                 trusted.dirs.push(dir);
@@ -69,6 +78,22 @@ mod tests {
         let p = dir.join(name);
         fs::write(&p, "image: alpine\n").unwrap();
         p.to_string_lossy().into_owned()
+    }
+
+    #[test]
+    fn a_relative_dir_is_not_trusted() {
+        let dir = scratch("relative");
+        let cwd = std::env::current_dir().unwrap();
+        let rel = pathdiff(&dir, &cwd);
+        let t = TrustedConfigs::parse(Some(&rel), None);
+        assert!(!t.trusts_files([file(&dir, "a.yaml").as_str()]));
+    }
+
+    fn pathdiff(target: &Path, base: &Path) -> String {
+        let ups = base.components().count() - 1;
+        let mut rel = "../".repeat(ups);
+        rel.push_str(target.to_str().unwrap().trim_start_matches('/'));
+        rel
     }
 
     #[test]
