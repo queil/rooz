@@ -34,6 +34,5 @@
 One of:
 * Docker >= 29.5.0
 * Podman >= 6
-* Rancher Desktop - untested
 
 The engine must be yours: a rootless daemon on your machine, or a remote one only you use. Rooz protects your host, other workspaces and secrets from the repositories you open, but not from other users of the same engine - anyone with engine API access can read every volume, run containers on your networks and spoof image/volume names. Don't share an engine with untrusted users.
