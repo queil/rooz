@@ -109,9 +109,11 @@ fn check_secrets(
 // owns the repository, which is not the same trust level as the operator's machine.
 // What 'update' carries into the rebuild: data files are written again from the config, and the
 // sidecar images rooz recorded on the containers it removed (by sidecar name) may be reused.
+// `pull_sidecar_images` stands apart from the work image's pull, which 'update' does up front.
 #[derive(Debug, Default)]
 pub struct Rebuild {
     pub sidecar_images: HashMap<String, String>,
+    pub pull_sidecar_images: bool,
 }
 
 fn check_privileged(containers: &[String], consent: &Consent) -> Result<(), AnyError> {
@@ -491,7 +493,7 @@ impl<'a> WorkspaceApi<'a> {
                 &cfg2,
                 workspace_key,
                 force,
-                cli_params.pull_image,
+                cli_params.pull_image || rebuild.is_some_and(|r| r.pull_sidecar_images),
                 rebuild.is_some(),
                 rebuild.map(|r| &r.sidecar_images),
             )

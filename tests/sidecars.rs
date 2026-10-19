@@ -327,6 +327,46 @@ async fn update_reuses_the_sidecar_image_until_the_install_steps_change() {
     let _ = fs::remove_file(&cfg_path);
 }
 
+// 'update' pulls the work image up front; the sidecar's base image must be pulled too, or a
+// floating tag never moves. Here the tag is moved locally: the pull puts it back, so the base id
+// and with it the build key are unchanged and the built image is reused, not rebuilt.
+#[tokio::test]
+async fn update_pulls_the_sidecar_base_image() {
+    let Some(env) = TestEnv::from_env() else {
+        return;
+    };
+    let key = unique_key("sc-pull");
+    let cfg_path = format!("/tmp/rooz-test-sidecar-pull-{}.yaml", key);
+    fs::write(
+        &cfg_path,
+        "image: alpine:latest\ndata:\n  runs: {}\nsidecars:\n  svc:\n    image: alpine:3\n    command:\n      - sleep\n    args:\n      - infinity\n    mounts:\n      /runs: runs\n    install:\n      01-count: echo run >> /runs/runs\n",
+    )
+    .expect("write sidecar config");
+    let runs_vol = format!("rooz_{}_runs", key);
+
+    env.rooz()
+        .args(["system", "init", "--force"])
+        .assert()
+        .success();
+    env.rooz()
+        .args(["new", &key, "--config", &cfg_path, "--pull-image"])
+        .assert()
+        .success();
+    assert_eq!(env.volume_file(&runs_vol, "runs").await.lines().count(), 1);
+
+    env.tag_image("docker.io/chainguard/git:latest-dev", "alpine", "3")
+        .await;
+    env.rooz().args(["update", &key]).assert().success();
+    assert_eq!(
+        env.volume_file(&runs_vol, "runs").await.lines().count(),
+        1,
+        "update did not pull the sidecar's base image back"
+    );
+
+    env.rooz().args(["rm", &key, "--force"]).assert().success();
+    let _ = fs::remove_file(&cfg_path);
+}
+
 // ── vpn ───────────────────────────────────────────────────────────────────────
 
 fn vpn_sidecar_cfg(key: &str) -> String {

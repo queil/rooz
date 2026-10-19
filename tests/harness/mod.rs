@@ -323,6 +323,20 @@ impl TestEnv {
 
     // Plays the co-tenant: builds an image carrying whatever labels it likes and tags it
     // under a name rooz derives from the workspace. Returns the squatted image's id.
+    /// Points `repo:tag` at `source`, as a pull or a local build of the same name would.
+    pub async fn tag_image(&self, source: &str, repo: &str, tag: &str) {
+        self.docker
+            .tag_image(
+                source,
+                Some(bollard_stubs::query_parameters::TagImageOptions {
+                    repo: Some(repo.to_string()),
+                    tag: Some(tag.to_string()),
+                }),
+            )
+            .await
+            .unwrap();
+    }
+
     pub async fn squat_image(&self, repo: &str, labels: &[(&str, &str)], marker: &str) -> String {
         let name = format!("squat-{}", repo.replace(['/', ':', '.'], "-"));
         let body = ContainerCreateBody {

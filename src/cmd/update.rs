@@ -68,7 +68,8 @@ impl<'a> WorkspaceApi<'a> {
         // pull before anything is removed: a failed pull must leave the workspace as it was. Only
         // an image named by the config or the environment is known here; one that comes from
         // 'bases' is still pulled by 'new'.
-        let mut pull_image = !(no_pull || interactive);
+        let pull_requested = !(no_pull || interactive);
+        let mut pull_image = pull_requested;
         if pull_image {
             let image = spec.image.clone().or_else(|| match &config_source {
                 Some(ConfigSource::Update { value, .. }) => value.image.clone(),
@@ -87,6 +88,7 @@ impl<'a> WorkspaceApi<'a> {
                 UpdateMode::Apply => self.recorded_sidecar_images(workspace_key).await?,
                 UpdateMode::Purge => HashMap::new(),
             },
+            pull_sidecar_images: pull_requested,
         };
 
         match mode {
