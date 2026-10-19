@@ -715,7 +715,17 @@ mod tests {
         assert!(lock_socket("a", &socket).is_err());
         assert!(lock_socket("b", &dir.join("b.sock")).is_ok());
         drop(first);
-        assert!(lock_socket("a", &socket).is_ok());
+        // a process another test forks while `first` is open shares its lock until it execs, so
+        // the release can lag by a moment
+        let mut relocked = false;
+        for _ in 0..100 {
+            if lock_socket("a", &socket).is_ok() {
+                relocked = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(relocked);
         let _ = fs::remove_dir_all(&dir);
     }
 
