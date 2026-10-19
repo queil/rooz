@@ -18,7 +18,7 @@ impl<'a> WorkspaceApi<'a> {
             let labels = Labels::from(&[Labels::workspace(workspace_key), Labels::role(WORK_ROLE)]);
             if let Some(c) = self.api.container.get_single(&labels).await? {
                 let cid = &c.id.unwrap();
-                let cname = &c.names.unwrap().join(", ");
+                let cname = &c.names.unwrap_or_default().join(", ");
                 print!("Stopping container: {} ... ", cname);
                 self.api.container.stop(cid).await?;
                 println!("{}", "OK".green());

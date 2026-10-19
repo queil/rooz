@@ -118,9 +118,10 @@ impl<'a> WorkspaceApi<'a> {
         let mut shell_value = if is_work_container {
             config.shell.clone()
         } else {
-            config.sidecars[container_name]
-                .shell
-                .clone()
+            config
+                .sidecars
+                .get(container_name)
+                .and_then(|s| s.shell.clone())
                 .unwrap_or(vec!["sh".to_string()])
         };
 

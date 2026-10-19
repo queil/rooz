@@ -174,7 +174,9 @@ impl<'a> Api<'a> {
                 )
                 .into());
             }
-            targets.push(c.name.clone());
+            if !targets.contains(&c.name) {
+                targets.push(c.name.clone());
+            }
         }
         for name in targets {
             self.remove_cache(&name).await?;

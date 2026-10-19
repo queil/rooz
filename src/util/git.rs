@@ -170,29 +170,37 @@ fn get_clone_dir(
     log::debug!("Original URL: {}", git_url);
     if let Some(git_config) = git_config {
         let config = File::try_from(git_config.as_str())?;
-        let url_lookup = config.sections_by_name("url").map(|f| {
-            f.map(|s| (s.body().value("insteadOf"), s.header().subsection_name()))
-                .filter_map(|(key, value)| Some((key?.to_string(), value?.to_string())))
-                .collect::<Vec<(_, _)>>()
-        });
-        if let Some(lookup) = url_lookup
-            && let Some((alias, url)) = lookup
-                .into_iter()
-                .find(|(alias, _)| git_ssh_url.starts_with(alias))
-        {
-            git_url = git_ssh_url
-                .strip_prefix(&alias)
-                .map(|rest| format!("{}{}", url, rest))
-                .unwrap();
+        let rewrite = config
+            .sections_by_name("url")
+            .into_iter()
+            .flatten()
+            .filter_map(|s| {
+                let base = s.header().subsection_name()?.to_string();
+                Some(
+                    s.body()
+                        .values("insteadOf")
+                        .into_iter()
+                        .map(|alias| (alias.to_string(), base.clone()))
+                        .collect::<Vec<_>>(),
+                )
+            })
+            .flatten()
+            .filter(|(alias, _)| !alias.is_empty() && git_ssh_url.starts_with(alias.as_str()))
+            .max_by_key(|(alias, _)| alias.len());
+        if let Some((alias, base)) = rewrite {
+            git_url = format!("{}{}", base, &git_ssh_url[alias.len()..]);
             log::debug!("Expanded URL: {}", git_url);
         }
     }
 
     let clone_work_dir = git_url
-        .split(&['/'])
-        .next_back()
+        .rsplit(['/', ':'])
+        .next()
         .unwrap_or("repo")
-        .replace(".git", "")
+        .to_string();
+    let clone_work_dir = clone_work_dir
+        .strip_suffix(".git")
+        .unwrap_or(&clone_work_dir)
         .to_string();
 
     if clone_work_dir.is_empty() || clone_work_dir == "." || clone_work_dir == ".." {
@@ -254,13 +262,11 @@ impl<'a> GitApi<'a> {
             "".to_string()
         };
 
+        let gitconfig = self.api.get_system_config().await?.gitconfig;
+
         for url in all_urls {
             validate_clone_url(&url)?;
-            let clone_dir = get_clone_dir(
-                &spec.working_dir,
-                &url,
-                &self.api.get_system_config().await?.gitconfig,
-            )?;
+            let clone_dir = get_clone_dir(&spec.working_dir, &url, &gitconfig)?;
             clone_script.push_str(&clone_line(&clone_dir, &depth, &url));
         }
 
@@ -272,7 +278,7 @@ impl<'a> GitApi<'a> {
 
         let mut volumes: Vec<RoozVolume> = vec![];
 
-        if let Some(gitconfig) = &self.api.get_system_config().await?.gitconfig {
+        if let Some(gitconfig) = &gitconfig {
             let git_config_vol =
                 RoozVolume::config_data(&spec.workspace_key, "/tmp/rooz/", None, None);
             self.api
@@ -538,6 +544,28 @@ mod tests {
             "url did not survive as one argument: {}",
             stdout
         );
+    }
+
+    #[test]
+    fn clone_dir_only_drops_a_trailing_git_suffix() {
+        for (url, dir) in [
+            ("https://h/u/my.github.io", "/w/my.github.io"),
+            ("https://h/u/foo.gitops.git", "/w/foo.gitops"),
+            ("git@h:repo.git", "/w/repo"),
+            ("git@h:u/repo.git", "/w/repo"),
+        ] {
+            assert_eq!(get_clone_dir("/w", url, &None).unwrap(), dir, "{}", url);
+        }
+    }
+
+    #[test]
+    fn insteadof_prefers_the_longest_alias_and_reads_every_value() {
+        let cfg = Some(
+            "[url \"https://a/\"]\n\tinsteadOf = x:\n\tinsteadOf = y:\n[url \"https://b/\"]\n\tinsteadOf = x:long/\n"
+                .to_string(),
+        );
+        assert_eq!(get_clone_dir("/w", "y:r.git", &cfg).unwrap(), "/w/r");
+        assert_eq!(get_clone_dir("/w", "x:long/r.git", &cfg).unwrap(), "/w/r");
     }
 
     #[test]
