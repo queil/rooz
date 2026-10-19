@@ -483,9 +483,7 @@ pub struct UpdateParams {
 }
 
 #[derive(Parser, Debug)]
-#[command(
-    about = "Attaches VS Code to a workspace (requires 'code' in $PATH)"
-)]
+#[command(about = "Attaches VS Code to a workspace (requires 'code' in $PATH)")]
 pub struct CodeParams {
     #[arg()]
     pub name: String,
