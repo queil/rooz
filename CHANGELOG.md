@@ -8,26 +8,26 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases before 0.159.0 predate this
 file - see the git history.
 
-## [0.168.4] - 2026-10-19
-
-### Fixed
-
-- Moving a workspace kept edits made in the work container's data files, but rewrote its sidecars'
-  files from the config. Sidecars now keep them too; only `rooz update` rewrites files.
-
-## [0.168.3] - 2026-10-19
+## [0.168.2] - 2026-10-19
 
 ### Added
 
 - `once: true` on a `data` file (`content:`, `file:` or `generate:`): written only when nothing is at
   its path, then left to the containers. For history files, generated keys, or a file a sidecar fills
   in and the work container reads.
+- A VS Code page in the docs: `rooz code`, keeping extensions across rebuilds, per-workspace editor
+  setup and remote hosts. The landing page links to it.
 - A "Data and mounts" section in the configuration docs.
 
 ### Changed
 
 - `rooz update` writes every non-`once` data file from the config, overwriting changes made in the
   container, and re-runs `generate:` scripts. Mark files that containers own `once: true`.
+- Moving a workspace keeps edits made in its sidecars' data files; they used to be rewritten from the
+  config on every run. Only `rooz update` rewrites files.
+- Install progress reads `[install:{container}:{step}]`, with the container in a stable colour.
+  Sidecars show their short name (`claude`, not `rooz-dev-claude`). The step line is printed by rooz,
+  so it is uncoloured when output isn't a terminal.
 
 ### Fixed
 
@@ -36,19 +36,6 @@ file - see the git history.
 - `rooz new` without `rooz system init` refuses with a hint. It used to make the engine create an empty,
   unlabelled `rooz_ssh-key` volume, which `rooz system init` then refused to reuse.
 - `tests/interactive.rs` builds on macOS.
-
-## [0.168.2] - 2026-10-19
-
-### Added
-
-- A VS Code page in the docs: `rooz code`, keeping extensions across rebuilds, per-workspace editor
-  setup and remote hosts. The landing page links to it.
-
-### Changed
-
-- Install progress reads `[install:{container}:{step}]`, with the container in a stable colour.
-  Sidecars show their short name (`claude`, not `rooz-dev-claude`). The step line is printed by rooz,
-  so it is uncoloured when output isn't a terminal.
 
 ## [0.168.1] - 2026-10-17
 
