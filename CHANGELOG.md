@@ -8,10 +8,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases before 0.159.0 predate this
 file - see the git history.
 
-## [Unreleased]
+## [0.169.0] - 2026-10-19
 
 ### Changed
 
+- **Breaking:** privileged and vpn consent is pinned to the container's definition:
+  `ROOZ_ALLOW_PRIVILEGED=dkr@<fingerprint>` instead of `=dkr`. A bare name also covered any other
+  config declaring a `dkr`, e.g. an untrusted `bases` layer with its own image, which then ran as host
+  root. The refusal prints the value to set; it changes with the container's image, command, env,
+  mounts or install steps. `=true` and `--privileged true` work as before.
 - **Breaking:** sidecar containers and workspace networks are named with `_`: `<workspace>_<sidecar>`,
   `<workspace>_egress`, `<workspace>_net_<sidecar>`, `<workspace>_peer_<a>_<b>`. With `-`, workspace
   `a` with sidecar `x` and workspace `a-x` shared a container name, and peer pairs `(a, b-c)` and
@@ -25,12 +30,6 @@ file - see the git history.
   paths would share a file.
 - A sidecar's inline mount files are kept apart from the work container's: the same path inline in
   both is two files. A sidecar's `once` inline file is written afresh once after upgrading.
-
-- **Breaking:** privileged and vpn consent is pinned to the container's definition:
-  `ROOZ_ALLOW_PRIVILEGED=dkr@<fingerprint>` instead of `=dkr`. A bare name also covered any other
-  config declaring a `dkr`, e.g. an untrusted `bases` layer with its own image, which then ran as host
-  root. The refusal prints the value to set; it changes with the container's image, command, env,
-  mounts or install steps. `=true` and `--privileged true` work as before.
 - Sidecar images build, and their install steps run, alongside the work container's install instead
   of one after another. On a terminal each container gets a live pane with its current step and last
   output lines; elsewhere, or with `ROOZ_PROGRESS=plain`, output lines are tagged with their container
