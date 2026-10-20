@@ -2,3 +2,20 @@
 <script>
     try { if (localStorage.getItem("mdbook-sidebar") === null) localStorage.setItem("mdbook-sidebar", "hidden"); } catch (e) { }
 </script>
+<!-- Three themes only: Auto (follows the OS), Light and Dark. A stored choice from the stock list is dropped. -->
+<script>
+    try {
+        var stored = localStorage.getItem("mdbook-theme");
+        if (stored !== null && ["default_theme", "light", "navy"].indexOf(stored.replace(/"/g, "")) === -1) {
+            localStorage.removeItem("mdbook-theme");
+        }
+    } catch (e) { }
+    document.addEventListener("DOMContentLoaded", function () {
+        ["rust", "coal", "ayu"].forEach(function (name) {
+            var item = document.getElementById("mdbook-theme-" + name);
+            if (item && item.parentElement) item.parentElement.remove();
+        });
+        var dark = document.getElementById("mdbook-theme-navy");
+        if (dark) dark.textContent = "Dark";
+    });
+</script>
