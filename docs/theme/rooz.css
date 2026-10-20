@@ -332,7 +332,7 @@ table tbody tr:last-child td {
     align-items: center;
     height: var(--menu-bar-height);
     margin: 0 -12px 14px;
-    padding-left: 54px;
+    padding-left: 66px;
     border-bottom: 1px solid var(--sidebar-spacer);
     background: var(--sidebar-bg);
     font-family: var(--display-font);
@@ -342,18 +342,18 @@ table tbody tr:last-child td {
     color: var(--fg);
 }
 
-/* the logo sits on the fixed sidebar (pseudo-element backgrounds cannot be rounded) */
+/* the logo sits on the fixed sidebar, in the theme's accent: a mask lets one SVG serve both themes */
 .sidebar::before {
     content: "";
     position: absolute;
     z-index: 2;
-    top: calc((var(--menu-bar-height) - 26px) / 2);
+    top: calc((var(--menu-bar-height) - 27px) / 2);
     left: 18px;
-    width: 26px;
-    height: 26px;
-    border-radius: 5px;
-    background: url("../assets/logo.svg") center / cover;
-    box-shadow: 0 0 0 1px color-mix(in srgb, var(--fg) 12%, transparent);
+    width: 41px;
+    height: 27px;
+    background: var(--accent);
+    -webkit-mask: url("../assets/logo.svg") center / contain no-repeat;
+    mask: url("../assets/logo.svg") center / contain no-repeat;
 }
 
 .chapter {
