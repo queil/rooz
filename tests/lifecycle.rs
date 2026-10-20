@@ -1,7 +1,7 @@
 mod harness;
 
 use bollard_stubs::models::ContainerSummaryStateEnum;
-use harness::{TestEnv, unique_key};
+use harness::{TestEnv, cleanup, unique_key, write_cfg};
 
 // ── lifecycle ────────────────────────────────────────────────────────────────
 
@@ -502,4 +502,94 @@ async fn config_show_resolved_names_the_layer_of_each_setting() {
 
     env.rooz().args(["rm", &key, "--force"]).assert().success();
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn update_that_cannot_resolve_leaves_the_workspace_untouched() {
+    let Some(env) = TestEnv::from_env() else {
+        return;
+    };
+    let key = unique_key("up-gate");
+    let cfg_path = write_cfg(&key, "image: alpine:latest\n");
+    env.rooz()
+        .args(["system", "init", "--force"])
+        .assert()
+        .success();
+    env.rooz()
+        .args(["new", &key, "--config", &cfg_path])
+        .assert()
+        .success();
+    let before = env.volumes_by_workspace(&key).await.len();
+
+    // an undefined variable fails while the configuration is resolved - before, that happened
+    // only after the containers (and with --purge the volumes) were gone
+    std::fs::write(&cfg_path, "image: \"alpine:{{ nope }}\"\n").unwrap();
+    env.rooz()
+        .args(["update", &key, "--purge"])
+        .assert()
+        .failure();
+
+    assert!(!env.containers_by_workspace(&key).await.is_empty());
+    assert_eq!(env.volumes_by_workspace(&key).await.len(), before);
+
+    cleanup(&env, &key, &cfg_path);
+}
+
+#[tokio::test]
+async fn update_keeps_the_uid_and_image_a_flags_only_workspace_was_made_with() {
+    let Some(env) = TestEnv::from_env() else {
+        return;
+    };
+    let key = unique_key("up-uid");
+    env.rooz()
+        .args(["system", "init", "--force"])
+        .assert()
+        .success();
+    env.rooz()
+        .args(["new", &key, "--image", "alpine:latest", "--uid", "2000"])
+        .assert()
+        .success();
+    env.rooz()
+        .args(["update", &key, "--no-pull"])
+        .assert()
+        .success();
+
+    let out = env
+        .rooz()
+        .args(["exec", &key, "--", "id", "-u"])
+        .assert()
+        .success();
+    assert_eq!(
+        String::from_utf8_lossy(&out.get_output().stdout).trim(),
+        "2000"
+    );
+    // flags are all such a workspace has: the image must not fall back to the default
+    env.rooz()
+        .args(["exec", &key, "--", "cat", "/etc/alpine-release"])
+        .assert()
+        .success();
+
+    env.rooz().args(["rm", &key, "--force"]).assert().success();
+}
+
+#[tokio::test]
+async fn a_config_that_does_not_parse_creates_nothing() {
+    let Some(env) = TestEnv::from_env() else {
+        return;
+    };
+    let key = unique_key("bad-cfg");
+    let cfg_path = write_cfg(&key, "image: alpine:latest\nimge: typo\n");
+    env.rooz()
+        .args(["system", "init", "--force"])
+        .assert()
+        .success();
+
+    env.rooz()
+        .args(["new", &key, "--config", &cfg_path])
+        .assert()
+        .failure();
+
+    assert!(env.containers_by_workspace(&key).await.is_empty());
+    assert!(env.volumes_by_workspace(&key).await.is_empty());
+    cleanup(&env, &key, &cfg_path);
 }

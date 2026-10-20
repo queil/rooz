@@ -126,6 +126,12 @@ impl<'a> WorkspaceApi<'a> {
             }
             if *purge {
                 for v in self.api.volume.get_all(&ws_labels).await? {
+                    // the stored config is kept: the rebuild reads it
+                    if v.labels.get(crate::util::labels::ROLE).map(String::as_str)
+                        == Some(crate::util::labels::WORKSPACE_CONFIG_ROLE)
+                    {
+                        continue;
+                    }
                     plan.push("remove", "volume", &v.name, "purge".into());
                     purged.push(v.name);
                 }

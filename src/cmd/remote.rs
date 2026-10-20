@@ -107,10 +107,8 @@ async fn connect(
 
     log::debug!("[{}] Remote socket: {}", name, socket_url);
 
-    let remote_socket_path = Path::new(&socket_url);
-    let remote_socket = remote_socket_path
-        .strip_prefix("unix://")
-        .unwrap_or(remote_socket_path);
+    // a string prefix: stripping it as a path would eat the leading '/' of 'unix:///run/...'
+    let remote_socket = Path::new(socket_url.strip_prefix("unix://").unwrap_or(&socket_url));
 
     session
         .request_port_forward(ForwardType::Local, local_socket_path, remote_socket)
@@ -157,10 +155,23 @@ async fn test_tunnel(host: &str, port: u16) -> Result<bool, AnyError> {
     }
 
     let request = "HEAD / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
-    stream.write_all(request.as_bytes()).await?;
-
     let mut response = Vec::new();
-    stream.read_to_end(&mut response).await?;
+    // a service that never answers or closes must not stall the whole poll loop
+    let exchange = async {
+        stream.write_all(request.as_bytes()).await?;
+        stream.read_to_end(&mut response).await
+    };
+    match tokio::time::timeout(Duration::from_secs(3), exchange).await {
+        Ok(Ok(_)) => {}
+        Ok(Err(e)) => {
+            log::debug!("Tunnel: {}", e);
+            return Ok(false);
+        }
+        Err(_) => {
+            log::debug!("Tunnel: no answer");
+            return Ok(false);
+        }
+    }
 
     let response_str = String::from_utf8_lossy(&response);
     let is_success = response_str.starts_with("HTTP/");
@@ -245,19 +256,13 @@ fn is_available(port: &u16) -> bool {
 }
 
 async fn get_docker_ports(docker: &Docker) -> Result<HashMap<u16, Tunnel>, AnyError> {
-    let containers = match docker
+    // an error is not "no containers": the caller would close every open tunnel as stale
+    let containers = docker
         .list_containers(Some(ListContainersOptions {
             filters: Some(Labels::default().into()),
             ..Default::default()
         }))
-        .await
-    {
-        Ok(data) => data,
-        Err(e) => {
-            log::debug!("Failed reading ports from Docker API: {}", e);
-            vec![]
-        }
-    };
+        .await?;
 
     Ok(containers
         .iter()

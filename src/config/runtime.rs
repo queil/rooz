@@ -35,7 +35,7 @@ pub struct RoozSidecarRuntime {
 pub const ROOZ_META_PREFIX: &str = "ROOZ_META_";
 
 // Env entries reach the engine as verbatim "KEY=value" strings, and the config declaring them
-// can be authored by the repository being opened. A key carrying '=' or a newline would add
+// can come from a remote config. A key carrying '=' or a newline would add
 // assignments of its own, and one spelling a ROOZ_META_* name would displace the metadata rooz
 // injects and the operator's tooling reads back.
 pub fn validate_env_key(key: &str, origin: &str) -> Result<(), AnyError> {
@@ -65,8 +65,8 @@ pub fn validate_env_key(key: &str, origin: &str) -> Result<(), AnyError> {
 }
 
 // The workspace user is interpolated into '/home/{user}', which decides where the global
-// ssh key volume lands and how '~/' mount targets expand. The config declaring it can be
-// authored by the repository being opened, so only a plain account name is acceptable:
+// ssh key volume lands and how '~/' mount targets expand. The config declaring it can come
+// from a remote config, so only a plain account name is acceptable:
 // anything carrying path separators or '..' relocates those mounts elsewhere in the container.
 pub fn validate_user(user: &str) -> Result<(), AnyError> {
     let shaped = !user.is_empty()
@@ -198,6 +198,9 @@ impl Default for RuntimeConfig {
 pub const SECRET_MASK: &str = "***";
 
 fn mask_in(value: &mut String, secrets: &[&String]) {
+    // longest first: masking a secret that is a part of another would leave the rest readable
+    let mut secrets = secrets.to_vec();
+    secrets.sort_by_key(|s| std::cmp::Reverse(s.len()));
     for secret in secrets {
         if value.contains(secret.as_str()) {
             *value = value.replace(secret.as_str(), SECRET_MASK);
@@ -536,8 +539,9 @@ impl<'a> TryFrom<&'a RoozCfg> for RuntimeConfig {
             image: value.image.as_deref().unwrap_or(&default.image).into(),
             user: user.to_string(),
             caches: {
+                let mut seen = std::collections::HashSet::new();
                 let mut val = value.caches.as_deref().unwrap_or(&default.caches).to_vec();
-                val.dedup();
+                val.retain(|c| seen.insert(c.clone()));
                 val
             },
             sidecars: sidecar_cfgs
@@ -580,6 +584,16 @@ impl<'a> TryFrom<&'a RoozCfg> for RuntimeConfig {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn masking_a_secret_inside_another_leaves_nothing_readable() {
+        let (short, long) = ("abc".to_string(), "abcdef".to_string());
+        for secrets in [[&short, &long], [&long, &short]] {
+            let mut value = "token=abcdef".to_string();
+            super::mask_in(&mut value, &secrets);
+            assert_eq!(value, "token=***");
+        }
+    }
+
     use super::*;
 
     fn try_runtime(yaml: &str) -> Result<RuntimeConfig, AnyError> {

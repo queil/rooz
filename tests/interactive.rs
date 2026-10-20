@@ -306,12 +306,14 @@ async fn enter_follows_terminal_resize() {
         libc::write(master, s.as_ptr().cast(), s.len());
     };
     // the marker is computed in the shell so the echoed command line does not match it.
-    // Input typed before the session attaches is lost, so retry until the shell answers
+    // Input typed before the session attaches is lost, and one typed while the shell is still
+    // setting its terminal up can run before the size is known, so retry until the shell has
+    // answered with the size
     let mut before = String::new();
     for _ in 0..30 {
         write("stty size; echo winsz-$((40+2))\n");
         before.push_str(&read_pty_until(master, "winsz-42", 2));
-        if before.contains("winsz-42") {
+        if before.contains("winsz-42") && before.contains("24 80") {
             break;
         }
     }

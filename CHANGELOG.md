@@ -25,6 +25,41 @@ file - see the git history.
 - `rooz cache rm` given the same cache twice removes it once instead of failing midway.
 - `rooz enter`, `start`, `stop` and `restart` no longer panic on a container missing from the
   stored config or with an unexpected name list.
+- Image references with a registry port (`images:5000/alpine:3`) or a digest (`img@sha256:...`)
+  are pulled as written; they were split on every `:`.
+- A command run in a container fails when the engine does not report its exit code, instead of
+  counting as a success. Output split mid-character across chunks no longer fails the command.
+- A container whose extra network cannot be connected is removed instead of being adopted
+  half-networked by the next run. `kill` no longer spins and panics on podman.
+- Creating the container user matches the uid exactly: uid 100 no longer deletes the `passwd`
+  entry of uid 1000.
+- A config that does not parse is an error for `new`, `update` and `config edit`; before, a local
+  one was ignored with a warning (creating the workspace with defaults) and a git one panicked.
+  `config edit` without a terminal to retry in stops instead of reopening the editor forever.
+- Non-adjacent duplicate `caches` are dropped. A secret that is part of another one no longer
+  leaves the rest of it readable in the stored runtime config.
+- `rooz tmp` removes its workspace when the shell cannot be entered. `rooz enter` waits between
+  reconnect attempts and no longer panics on a container missing from the stored config.
+- `rooz remote` keeps the leading `/` of a `unix:///...` `DOCKER_HOST`; the forward pointed at a
+  relative path.
+- Stack detection skips a project file it cannot read instead of failing.
+- `rooz update` resolves and gates the new configuration before removing anything: a refused
+  consent or an invalid value no longer leaves the workspace (or, with `--purge`, its volumes)
+  gone. A workspace made from flags alone keeps its image, user, caches, privileged flag and
+  `--uid` across `update`; before, it was rebuilt with the defaults.
+- `--uid` is stored with the workspace, so `move`, `enter --chown` and `plan` see it.
+- An undefined template variable (`{{ tga }}`) is an error naming it instead of an empty string,
+  and `vars` are rendered once, in order, so a forward reference is an error too.
+- `extra_repos` in a remote `--config <url>//<path>` source (or a config merging an untrusted
+  `bases` layer) is refused unless the source is in `ROOZ_TRUSTED_CONFIGS`: the clone uses your ssh key.
+- An interrupted `system init` that left an empty ssh-key volume is completed by running it
+  again.
+- `rooz remote`: one failed Docker API call no longer closes every forwarded port, and a service
+  that accepts the tunnel probe but never answers cannot stall the poll loop.
+- `update --purge --dry-run` no longer lists the config volume, which a purge keeps.
+- The terminal is restored when an `enter` session ends with an error, a failed container-user
+  creation is reported instead of ignored, and a failed `chown` is warned about.
+- `rooz move --to` hints no longer print a stray `\`.
 
 ## [0.169.1] - 2026-10-19
 

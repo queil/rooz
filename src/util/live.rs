@@ -60,6 +60,9 @@ struct View {
 }
 
 static VIEW: Mutex<Option<View>> = Mutex::new(None);
+// Which `begin` the redraw loop belongs to: a loop whose view was ended and replaced within its
+// sleep would otherwise live on next to the new one.
+static GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 fn wanted() -> bool {
     stdout().is_terminal() && std::env::var(PROGRESS_ENV).map_or(true, |v| v.trim() != "plain")
@@ -75,9 +78,14 @@ pub fn begin() {
         drawn: 0,
         last_draw: None,
     });
-    tokio::spawn(async {
+    use std::sync::atomic::Ordering;
+    let generation = GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+    tokio::spawn(async move {
         loop {
             tokio::time::sleep(Duration::from_secs(1)).await;
+            if GENERATION.load(Ordering::SeqCst) != generation {
+                break;
+            }
             match VIEW.lock().unwrap().as_mut() {
                 Some(view) => view.draw(),
                 None => break,

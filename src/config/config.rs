@@ -2,7 +2,6 @@ use crate::model::types::ContentGenerator::{Inline, Script};
 use crate::model::types::{AnyError, ContentGenerator, DataEntryKey};
 use crate::util::id;
 use crate::{cli::WorkParams, constants};
-use colored::Colorize;
 use handlebars::{Handlebars, no_escape};
 use indexmap::IndexMap;
 use schemars::JsonSchema;
@@ -23,7 +22,7 @@ pub const SECRETS_NOT_ALLOWED: &str = "Refusing to expand 'secrets': this worksp
      author, which could reference any of your secrets and read the plaintext from inside a \
      container it also controls. Secrets are only expanded when the whole configuration is yours: \
      a local '--config' file without 'bases', or a source listed in ROOZ_TRUSTED_CONFIGS - not an \
-     unlisted '--config <url>//<path>' source, which may be the repository's own, and not an unlisted \
+     unlisted '--config <url>//<path>' source, which is not yours, and not an unlisted \
      'bases' layer, which is a separate file that may have come from anywhere. List the source in \
      ROOZ_TRUSTED_CONFIGS (the repository URL exactly as passed to '--config', or a local \
      directory holding the config and all its bases), move the settings you need into your own \
@@ -346,26 +345,25 @@ pub struct RoozCfg {
 }
 
 // Rooz can defend three things for an operator: their host, their other workspaces, and
-// their secrets. A field the repository being opened may author is one that reaches none of
-// them - it only shapes a container that already runs that repository's code, so letting the
-// repository pick the image, the shell or the install steps grants it nothing it does not
-// already have. Everything else is the operator's call and is listed here.
+// their secrets. A field an untrusted config may set is one that reaches none of
+// them - it only shapes the workspace's own container, so letting it pick the image, the shell
+// or the install steps grants it nothing it does not already have. Everything else is the operator's call and is listed here.
 //
 // Exhaustive by construction: adding a field to RoozCfg stops this compiling until the new
-// field is classified. Without that, every new feature silently becomes repo-controllable.
+// field is classified. Without that, every new feature silently becomes settable by an untrusted config.
 //
 // ('privileged' is absent on purpose: rooz refuses it on any config file's say-so, including
 // the operator's own, so it is gated in check_privileged rather than by provenance.)
 pub fn operator_only_fields(cfg: &RoozCfg) -> Vec<&'static str> {
     let RoozCfg {
         // operator-only - reach beyond this workspace's container
-        secrets, // the operator's plaintext
-        caches,  // volumes shared with every other workspace of the same operator
-        // repo-authorable - contained to the workspace the repository already controls
+        secrets,     // the operator's plaintext
+        caches,      // volumes shared with every other workspace of the same operator
+        extra_repos, // cloned by a container that mounts the operator's ssh key
+        // settable by any config - contained to the workspace
         bases,
         vars,
         git_ssh_url,
-        extra_repos,
         image,
         shell,
         user,
@@ -385,7 +383,6 @@ pub fn operator_only_fields(cfg: &RoozCfg) -> Vec<&'static str> {
         bases,
         vars,
         git_ssh_url,
-        extra_repos,
         image,
         shell,
         user,
@@ -407,6 +404,9 @@ pub fn operator_only_fields(cfg: &RoozCfg) -> Vec<&'static str> {
     }
     if caches.as_ref().is_some_and(|c| !c.is_empty()) {
         fields.push("caches");
+    }
+    if extra_repos.as_ref().is_some_and(|r| !r.is_empty()) {
+        fields.push("extra_repos");
     }
     fields
 }
@@ -627,7 +627,7 @@ impl RoozCfg {
         Ok(map)
     }
 
-    // 'ports' is a list of free-form strings the repository being opened can author, so a
+    // 'ports' is a list of free-form strings a remote config can author, so a
     // malformed mapping is a configuration error - it must not abort a run that has already
     // created volumes and containers.
     fn parse_port(port_mapping: &String) -> Result<(u16, Option<u16>), AnyError> {
@@ -649,9 +649,9 @@ impl RoozCfg {
     }
 
     /// `allow_secrets` gates whether decrypted secrets join the render context. Every
-    /// field here can be authored by the repository being opened, so a repo-provided
-    /// `env: {LEAK: "{{ MY_SECRET }}"}` would otherwise hand the operator's plaintext
-    /// secret to a container the repo also controls.
+    /// field here can come from a remote config, so a `env: {LEAK: "{{ MY_SECRET }}"}` in
+    /// one would otherwise hand the operator's plaintext secret to a container the config
+    /// also controls.
     pub fn expand_vars(&mut self, allow_secrets: bool) -> Result<(), AnyError> {
         if !allow_secrets && self.secrets.as_ref().is_some_and(|s| !s.is_empty()) {
             return Err(SECRETS_NOT_ALLOWED.into());
@@ -669,15 +669,21 @@ impl RoozCfg {
 
         let mut reg = Handlebars::new();
         reg.register_escape_fn(no_escape);
+        // a variable nothing defines is a typo, not an empty string
+        reg.set_strict_mode(true);
         // a secret is a value, never a template: rendering it would let a '{{' in the plaintext
         // corrupt it, escape masking, or quote it in a template error
         let mut built_vars = secrets;
+        let mut rendered_vars = IndexMap::new();
         for (k, v) in vars {
             let rendered = reg.render_template(&v, &built_vars)?;
+            rendered_vars.insert(k.clone(), rendered.clone());
             built_vars.insert(k, rendered);
         }
 
-        self.vars = render_map(&reg, &self.vars, &built_vars)?;
+        // rendered once, in order: a variable can use the ones before it, and its value is
+        // never run through the template engine a second time
+        self.vars = self.vars.as_ref().map(|_| rendered_vars);
         self.git_ssh_url = render_opt(&reg, &self.git_ssh_url, &built_vars)?;
         self.image = render_opt(&reg, &self.image, &built_vars)?;
         self.user = render_opt(&reg, &self.user, &built_vars)?;
@@ -720,23 +726,9 @@ impl RoozCfg {
         Ok(())
     }
 
-    pub fn deserialize_config(
-        config: &str,
-        file_format: FileFormat,
-    ) -> Result<Option<RoozCfg>, AnyError> {
-        match RoozCfg::from_string(config, file_format) {
-            Ok(cfg) => Ok(Some(cfg)),
-            Err(e) => {
-                eprintln!(
-                    "{}\n{}",
-                    format!("WARNING: Could not read config ({})", file_format)
-                        .bold()
-                        .yellow(),
-                    e.to_string().yellow()
-                );
-                Ok(None)
-            }
-        }
+    pub fn deserialize_config(config: &str, file_format: FileFormat) -> Result<RoozCfg, AnyError> {
+        RoozCfg::from_string(config, file_format)
+            .map_err(|e| format!("Could not read config ({}): {}", file_format, e).into())
     }
 }
 // Config paths sourced from a config file (bases) or from a `--config <url>//<path>`
@@ -1268,8 +1260,8 @@ mod tests {
     }
 
     #[test]
-    fn repo_authored_config_cannot_expand_secrets() {
-        // the reported payload: a repo .rooz.yaml referencing an operator secret
+    fn untrusted_config_cannot_expand_secrets() {
+        // the reported payload: a remote config referencing an operator secret
         let mut cfg = RoozCfg {
             secrets: Some(IndexMap::from_iter([(
                 "MY_SECRET".to_string(),
@@ -1335,8 +1327,8 @@ mod tests {
     }
 
     #[test]
-    fn vars_still_expand_for_repo_authored_config() {
-        // vars are not sensitive, so repo templating keeps working
+    fn vars_still_expand_for_untrusted_config() {
+        // vars are not sensitive, so templating keeps working for untrusted config
         let mut cfg = RoozCfg {
             vars: Some(IndexMap::from_iter([(
                 "tag".to_string(),
@@ -1347,6 +1339,39 @@ mod tests {
         };
         cfg.expand_vars(false).unwrap();
         assert_eq!(cfg.image.unwrap(), "alpine:1.2.3");
+    }
+
+    #[test]
+    fn an_undefined_variable_is_an_error_naming_it() {
+        let mut cfg = RoozCfg {
+            image: Some("alpine:{{ tga }}".to_string()),
+            ..RoozCfg::none()
+        };
+        let err = cfg.expand_vars(false).unwrap_err().to_string();
+        assert!(err.contains("tga"), "{}", err);
+    }
+
+    #[test]
+    fn vars_expand_in_order_and_once() {
+        let vars = |pairs: &[(&str, &str)]| {
+            Some(IndexMap::from_iter(
+                pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())),
+            ))
+        };
+        let mut cfg = RoozCfg {
+            vars: vars(&[("a", "x"), ("b", "{{a}}-y")]),
+            image: Some("{{ b }}".to_string()),
+            ..RoozCfg::none()
+        };
+        cfg.expand_vars(false).unwrap();
+        assert_eq!(cfg.vars, vars(&[("a", "x"), ("b", "x-y")]));
+        assert_eq!(cfg.image.unwrap(), "x-y");
+
+        let mut forward = RoozCfg {
+            vars: vars(&[("a", "{{b}}"), ("b", "x")]),
+            ..RoozCfg::none()
+        };
+        assert!(forward.expand_vars(false).is_err());
     }
 
     #[test]

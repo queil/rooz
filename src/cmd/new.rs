@@ -32,7 +32,7 @@ pub const ALLOW_VPN_ENV: &str = "ROOZ_ALLOW_VPN";
 
 // What the operator has agreed to. Naming the containers (or secrets) keeps the gate useful
 // for operators who legitimately need one privileged sidecar: a standing blanket consent
-// would wave through a hostile repo config privileging anything else.
+// would wave through a hostile config privileging anything else.
 #[derive(Debug, PartialEq)]
 pub enum Consent {
     None,
@@ -117,8 +117,8 @@ fn unpinned_hint(unpinned: &[String]) -> String {
 }
 
 // Which of the operator's secrets may be expanded into this workspace. A local '--config'
-// path is not proof of authorship: a repository can ship the file and its README can tell the
-// operator to pass it ('rooz new ws --config ./setup.yaml'), and that file then picks the
+// path is not proof of authorship: a file copied from elsewhere can come with instructions to
+// pass it ('rooz new ws --config ./setup.yaml'), and that file then picks the
 // image, entrypoint and environment the plaintext lands in. So the operator names the secrets,
 // the same way they name the containers they allow to run privileged.
 fn check_secrets(
@@ -151,8 +151,8 @@ fn check_secrets(
 }
 
 // A privileged container has full access to the host, so the request has to come
-// from the operator - config files (local or git --config) are authored by whoever
-// owns the repository, which is not the same trust level as the operator's machine.
+// from the operator - config files (local or git --config) may come from anywhere,
+// which is not the same trust level as the operator's machine.
 // What 'update' carries into the rebuild: data files are written again from the config, and the
 // sidecar images rooz recorded on the containers it removed (by sidecar name) may be reused.
 // `pull_sidecar_images` stands apart from the work image's pull, which 'update' does up front.
@@ -209,9 +209,15 @@ fn check_vpn(containers: &[(String, String)], consent: &Consent) -> Result<(), A
     .into())
 }
 
+pub const EXTRA_REPOS_NOT_ALLOWED: &str = "This configuration lists 'extra_repos', but it is not \
+     wholly yours: it comes from a remote '--config <url>//<path>' source, or merges a \
+     'bases' layer, not in ROOZ_TRUSTED_CONFIGS. Extra repositories are cloned with your ssh key, so a remote config \
+     must not be able to name which of your private repositories land in its workspace. List \
+     the source in ROOZ_TRUSTED_CONFIGS, or use a local '--config' file.";
+
 pub const CACHES_NOT_ALLOWED: &str = "This configuration declares shared caches, but it is not \
-     wholly yours: it is the repository's own, or merges a 'bases' layer not in \
-     ROOZ_TRUSTED_CONFIGS. A cache volume is shared with every other \
+     wholly yours: it comes from a remote '--config <url>//<path>' source, or merges a \
+     'bases' layer, not in ROOZ_TRUSTED_CONFIGS. A cache volume is shared with every other \
      workspace of yours mounting the same path, so whatever this repository's build writes \
      into it (a cargo registry source, a linker config, a crate with a build script) would \
      later execute in those workspaces. Rooz shares only the cache paths you ask for \
@@ -219,7 +225,7 @@ pub const CACHES_NOT_ALLOWED: &str = "This configuration declares shared caches,
      'rooz update'), or pass '--caches' to 'rooz new'.";
 
 // Cache volumes are shared by path across all of an operator's workspaces - that is what
-// they are for, and why the repository being opened must not be able to opt one of its own
+// they are for, and why an untrusted config must not be able to opt one of its own
 // build paths into that sharing. Only paths the operator named on their own machine (the
 // '--caches' flag, the ROOZ_CACHES variable, or a local '--config' file) are shared.
 fn operator_caches(cli: &WorkParams, operator_config: Option<&RoozCfg>) -> Vec<String> {
@@ -258,18 +264,19 @@ fn check_caches(caches: &[String], consented: &[String]) -> Result<(), AnyError>
 
 // The single gate on configuration the operator did not author. Which fields those may set
 // is decided in one place (RoozCfg's operator_only_fields), so a field added to the config
-// does not become repo-controllable by default; this function only applies each refused
+// does not become settable by an untrusted config by default; this function only applies each refused
 // field's consent rule.
-fn check_repo_authored(cfg: &RoozCfg, consented_caches: &[String]) -> Result<(), AnyError> {
+fn check_untrusted_config(cfg: &RoozCfg, consented_caches: &[String]) -> Result<(), AnyError> {
     for field in crate::config::config::operator_only_fields(cfg) {
         match field {
             "caches" => check_caches(cfg.caches.as_deref().unwrap_or_default(), consented_caches)?,
-            // secrets from a repo-authored config are never expanded, consent or not
+            // secrets from an untrusted config are never expanded, consent or not
             "secrets" => return Err(crate::config::config::SECRETS_NOT_ALLOWED.into()),
+            "extra_repos" => return Err(EXTRA_REPOS_NOT_ALLOWED.into()),
             other => {
                 return Err(format!(
-                    "Refusing '{}': this configuration is the repository's own, or merges a \
-                     'bases' layer not in ROOZ_TRUSTED_CONFIGS, and '{}' is the operator's to set.",
+                    "Refusing '{}': this configuration comes from a remote source, or merges a \
+                     'bases' layer, not in ROOZ_TRUSTED_CONFIGS, and '{}' is the operator's to set.",
                     other, other
                 )
                 .into());
@@ -280,7 +287,7 @@ fn check_repo_authored(cfg: &RoozCfg, consented_caches: &[String]) -> Result<(),
 }
 
 // A resolved '--config' source. A 'bases' layer is a separate file the operator pointed at -
-// a team overlay, something copied out of a repository - not content they wrote, and the merge
+// a team overlay, something copied from elsewhere - not content they wrote, and the merge
 // drops the 'bases' field, so the fact has to travel with the result.
 enum NewOutcome {
     Created(EnterSpec),
@@ -301,8 +308,8 @@ struct StoredConfig {
 }
 
 // Configuration the operator wrote on their own machine is trusted with secrets;
-// anything the repository being opened supplies is not. A remote `--config git:...`
-// source is repository-authored too, even though the operator typed the URL.
+// a remote `--config git:...` source is not, even though the operator typed the URL,
+// unless it is listed in ROOZ_TRUSTED_CONFIGS.
 fn config_is_operator_local(source: &Option<ConfigSource>) -> bool {
     match source {
         Some(ConfigSource::Path { value }) => matches!(value, ConfigPath::File { .. }),
@@ -428,7 +435,11 @@ impl<'a> WorkspaceApi<'a> {
 
         cfg_builder.expand_vars(operator_authored)?;
 
-        let cfg = RuntimeConfig::try_from(&*cfg_builder)?;
+        let mut cfg = RuntimeConfig::try_from(&*cfg_builder)?;
+        // not a config field: the work container's uid is whatever the workspace was made with
+        if let Some(uid) = cli_params.uid {
+            cfg.uid = uid as i32;
+        }
 
         // gate before any image, volume, network or container work happens
         let masked = cfg.mask_secrets(&decrypted_secrets);
@@ -712,21 +723,18 @@ impl<'a> WorkspaceApi<'a> {
                         let absolute_path =
                             std::path::absolute(path)?.to_string_lossy().into_owned();
                         let fmt = FileFormat::from_path(path)?;
-                        let mut cfg = RoozCfg::deserialize_config(&body, fmt)?;
+                        let mut c = RoozCfg::deserialize_config(&body, fmt)?;
                         let reader = LocalReader::default();
-                        if let Some(c) = cfg.as_mut() {
-                            resolve_data_files(&reader, path, c).await?;
-                        }
+                        resolve_data_files(&reader, path, &mut c).await?;
 
-                        let (cfg, base_body) = match cfg {
-                            Some(c) if c.bases.is_some() => {
-                                let (merged, individual_bases) = self
-                                    .config
-                                    .resolve_extends_chain(&reader, path.as_str(), c, 0)
-                                    .await?;
-                                (Some(merged), render_bases(&individual_bases, fmt)?)
-                            }
-                            other => (other, None),
+                        let (cfg, base_body) = if c.bases.is_some() {
+                            let (merged, individual_bases) = self
+                                .config
+                                .resolve_extends_chain(&reader, path.as_str(), c, 0)
+                                .await?;
+                            (Some(merged), render_bases(&individual_bases, fmt)?)
+                        } else {
+                            (Some(c), None)
                         };
                         trusted = trusted_configs.trusts_files(
                             std::iter::once(path.as_str())
@@ -748,9 +756,10 @@ impl<'a> WorkspaceApi<'a> {
                                 merged,
                             }) => {
                                 let fmt = FileFormat::from_path(file_path)?;
-                                let cfg = merged.map(Ok).unwrap_or_else(|| {
-                                    RoozCfg::deserialize_config(&body, fmt).map(|o| o.unwrap())
-                                })?;
+                                let cfg = match merged {
+                                    Some(merged) => merged,
+                                    None => RoozCfg::deserialize_config(&body, fmt)?,
+                                };
                                 (Some(cfg), Some(body), bases)
                             }
                             None => (None, None, None),
@@ -897,7 +906,7 @@ impl<'a> WorkspaceApi<'a> {
 
         let operator_local = config_is_operator_local(&cli_config_path) || trusted;
         // base layers are merged content the operator did not write, so they carry
-        // the same weight as the repository's own config here
+        // the same weight as a remote config here
         let operator_authored = operator_local && (trusted || !bases_merged);
         let consented_caches = operator_caches(
             cli_params,
@@ -908,10 +917,10 @@ impl<'a> WorkspaceApi<'a> {
             },
         );
 
-        // a '--config git:...' source is the repository's configuration, wherever the
-        // operator typed its URL; a local file with untrusted bases is not wholly theirs either
+        // a '--config git:...' source is remote configuration, however the operator
+        // typed its URL; a local file with untrusted bases is not wholly theirs either
         if !operator_authored && let Some(c) = &cli_cfg {
-            check_repo_authored(c, &consented_caches)?;
+            check_untrusted_config(c, &consented_caches)?;
         }
 
         let work_spec = WorkSpec {
@@ -987,7 +996,7 @@ impl<'a> WorkspaceApi<'a> {
             ..config
         })?;
 
-        let container_id = self
+        let entered = self
             .enter(
                 &workspace.workspace_key,
                 working_dir.as_deref(),
@@ -996,7 +1005,21 @@ impl<'a> WorkspaceApi<'a> {
                 root,
                 false,
             )
-            .await?;
+            .await;
+
+        // the workspace is throw-away: it goes away even when the shell could not be entered
+        let container_id = match entered {
+            Ok(id) => id,
+            Err(e) => {
+                if let Err(cleanup) = self.remove(&workspace.workspace_key, false, true).await {
+                    eprintln!(
+                        "WARN: could not remove the throw-away workspace '{}': {}",
+                        workspace.workspace_key, cleanup
+                    );
+                }
+                return Err(e);
+            }
+        };
 
         let killed = self.api.container.kill(&container_id, true);
         let volumes = self
@@ -1080,43 +1103,54 @@ mod tests {
     }
 
     #[test]
-    fn contained_fields_are_repo_authorable() {
-        // everything a repository may set: it only shapes the container that already runs
-        // that repository's code
+    fn contained_fields_are_settable_by_untrusted_config() {
+        // everything an untrusted config may set: it only shapes the workspace's own
+        // container
         let cfg: RoozCfg = serde_yaml::from_str(
             "image: alpine\nshell: [sh]\nuser: someone\nports: ['8080:8080']\n\
              env: {A: b}\ninstall: 'echo hi'\ncommand: [sh]\nargs: [-c]\n\
-             extra_repos: ['git@h:a/b.git']\nvars: {v: '1'}\ninit: true\n\
+             vars: {v: '1'}\ninit: true\n\
              sidecars:\n  s:\n    image: alpine\n",
         )
         .unwrap();
         assert!(crate::config::config::operator_only_fields(&cfg).is_empty());
-        assert!(check_repo_authored(&cfg, &[]).is_ok());
+        assert!(check_untrusted_config(&cfg, &[]).is_ok());
     }
 
     #[test]
-    fn repo_authored_secrets_are_refused() {
+    fn untrusted_extra_repos_are_refused() {
+        let cfg: RoozCfg = serde_yaml::from_str("extra_repos: ['git@h:a/b.git']\n").unwrap();
+        assert_eq!(
+            crate::config::config::operator_only_fields(&cfg),
+            vec!["extra_repos"]
+        );
+        let err = check_untrusted_config(&cfg, &[]).unwrap_err().to_string();
+        assert!(err.contains("ROOZ_TRUSTED_CONFIGS"), "{}", err);
+    }
+
+    #[test]
+    fn untrusted_secrets_are_refused() {
         let cfg: RoozCfg = serde_yaml::from_str("secrets:\n  token: age-encrypted\n").unwrap();
         assert_eq!(
             crate::config::config::operator_only_fields(&cfg),
             vec!["secrets"]
         );
-        assert!(check_repo_authored(&cfg, &[]).is_err());
+        assert!(check_untrusted_config(&cfg, &[]).is_err());
     }
 
     #[test]
-    fn repo_authored_caches_follow_the_consent_rule() {
+    fn untrusted_caches_follow_the_consent_rule() {
         let cfg: RoozCfg = serde_yaml::from_str("caches:\n  - ~/.cargo\n").unwrap();
         assert_eq!(
             crate::config::config::operator_only_fields(&cfg),
             vec!["caches"]
         );
-        assert!(check_repo_authored(&cfg, &[]).is_err());
-        assert!(check_repo_authored(&cfg, &caches(&["~/.cargo"])).is_ok());
+        assert!(check_untrusted_config(&cfg, &[]).is_err());
+        assert!(check_untrusted_config(&cfg, &caches(&["~/.cargo"])).is_ok());
     }
 
     #[test]
-    fn repo_declared_caches_are_refused_without_consent() {
+    fn untrusted_caches_are_refused_without_consent() {
         let err = check_caches(&caches(&["~/.cargo"]), &[])
             .unwrap_err()
             .to_string();
@@ -1149,7 +1183,7 @@ mod tests {
         };
         let consented = operator_caches(&cli, Some(&local_config));
         assert!(check_caches(&caches(&["~/.cargo", "~/.nuget", "~/.npm"]), &consented).is_ok());
-        // the same config coming from the repository (not passed as operator-local) is not consent
+        // the same config coming from a remote source (not passed as operator-local) is not consent
         let without = operator_caches(&cli, None);
         assert!(check_caches(&caches(&["~/.npm"]), &without).is_err());
     }
@@ -1187,7 +1221,7 @@ mod tests {
 
     #[test]
     fn pinned_consent_covers_only_that_container() {
-        // the real shape: a trusted overlay privileges `dkr`, the repo's own config must
+        // the real shape: a trusted overlay privileges `dkr`, a remote config must
         // not be able to smuggle in anything else under that standing consent
         let ok = cfg(false, &[("dkr", true)]);
         let allow_dkr = pin(&ok, &["dkr"]);
@@ -1394,7 +1428,7 @@ mod tests {
 
     #[test]
     fn a_local_config_file_is_not_consent_on_its_own() {
-        // the bypass: a repository ships the file and its README says to pass it with --config
+        // the bypass: a file copied from elsewhere comes with instructions to pass it with --config
         let err = check_secrets(Some(&secrets(&["opSecret"])), &secrets_consent(None))
             .unwrap_err()
             .to_string();
