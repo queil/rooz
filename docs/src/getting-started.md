@@ -34,8 +34,8 @@ This replaces the key pair in place and prints the new public key. Register it w
 registered, then remove the old one. Running workspaces pick up the new key on their next start.
 
 > [!WARNING]
-> The SSH key is the engine's only git identity, and every workspace can read it. A repository's config
-> chooses the workspace image and user, so any repository you open can take the key. Rotation limits
+> The SSH key is the engine's only git identity, and every workspace can read it. A config
+> chooses the workspace image and user, so a config from a source you do not control can take the key. Rotation limits
 > the damage afterwards; it does not prevent it. Only open repositories you would trust with this key.
 
 ## Configure

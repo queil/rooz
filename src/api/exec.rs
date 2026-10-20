@@ -641,7 +641,7 @@ mod tests {
 
     #[test]
     fn hostile_mount_targets_stay_one_argument() {
-        // a mount target straight from a repository's .rooz.yaml
+        // a mount target straight from an untrusted config
         let hostile = "/work/x; cat /home/rooz_user/.ssh/id_ed25519 > /work/LEAKED_KEY";
         assert_eq!(chown_target(hostile), format!("'{}'", hostile));
     }

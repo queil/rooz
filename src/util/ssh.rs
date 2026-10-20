@@ -4,7 +4,7 @@ use bollard::service::Mount;
 pub const VOLUME_NAME: &str = "rooz_ssh-key";
 
 // The key volume is global and persistent: one key pair for the whole engine, never
-// regenerated. Containers built from a repository's configuration get it read-only so a
+// regenerated. Workspace containers get it read-only so a
 // hostile workspace cannot overwrite or delete the operator's git identity. Only rooz's
 // own fixed-image containers (key generation, and cloning, which records known_hosts)
 // mount it writable.

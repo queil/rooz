@@ -14,9 +14,9 @@ Rooz never reads config from a repository it clones. Pass it explicitly:
 rooz new ws -g <url> --config <url>//.rooz.yaml
 ```
 
-## Repository config
+## Remote config
 
-Config from a repository (a `--config <url>//<path>` source, e.g. its `.rooz.yaml`), and any config
+Config from a remote source (a `--config <url>//<path>`), and any config
 that merges a `bases` layer not in `ROOZ_TRUSTED_CONFIGS`, may set the fields scoped to the workspace: `bases`, `git_ssh_url`, `image`, `shell`, `command`, `args`, `env`, `install`,
 `ports`, `data`, `mounts`, `sidecars`, `vars`, `user`, `init`.
 
@@ -24,7 +24,7 @@ These are refused unless you allow them:
 
 | Field | Why | To allow |
 | --- | --- | --- |
-| `secrets` | plaintext lands in a repo-controlled container | list the source in `ROOZ_TRUSTED_CONFIGS` ([Trusted config sources](secrets.md#trusted-config-sources)), or use a local `--config` file |
+| `secrets` | plaintext lands in a container the config controls | list the source in `ROOZ_TRUSTED_CONFIGS` ([Trusted config sources](secrets.md#trusted-config-sources)), or use a local `--config` file |
 | `caches` | shared with your other workspaces | the same paths in `ROOZ_CACHES` (or `--caches`, which covers `rooz new` only, not `rooz update`), or the source in `ROOZ_TRUSTED_CONFIGS` |
 | `extra_repos` | cloned with your ssh key into the workspace | the source in `ROOZ_TRUSTED_CONFIGS`, or a local `--config` file |
 | `install` step with `root: true` | runs as root in the workspace | the source in `ROOZ_TRUSTED_CONFIGS`, or a local `--config` file ([Install steps](#install-steps)) |
@@ -80,9 +80,9 @@ merged with the config) and `--caches` add more.
 
 > [!WARNING]
 > Cache contents (cargo sources, linker config, build scripts) execute in every workspace that mounts
-> the path. So cache paths from repository config (a `--config <url>//<path>` source not in
+> the path. So cache paths from remote config (a `--config <url>//<path>` source not in
 > `ROOZ_TRUSTED_CONFIGS`) are refused unless you also list them in `--caches` (on `rooz new`) or
-> `ROOZ_CACHES`. `rooz update` re-reads repository config on every run, so only `ROOZ_CACHES` covers it.
+> `ROOZ_CACHES`. `rooz update` re-reads remote config on every run, so only `ROOZ_CACHES` covers it.
 > Local `--config` files are not affected, unless they merge a `bases` layer not in
 > `ROOZ_TRUSTED_CONFIGS`.
 
@@ -184,7 +184,7 @@ names the containers. To allow it:
 
 Prefer pinned names over `true`: pin the docker-in-docker sidecar, not the workspace that uses it
 through `DOCKER_HOST`. Pinned names are safe to keep in your shell profile, as they cover only the
-definition you reviewed; a standing `=true` also lets repository config add privileged containers.
+definition you reviewed; a standing `=true` also lets remote config add privileged containers.
 
 > [!WARNING]
 > Only for configs you trust. For repositories you do not control, prefer rootless Podman, which

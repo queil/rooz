@@ -79,8 +79,8 @@ Any templated field (`env`, `install`, `command`, `shell`, `data` content, sidec
 a secret, so whoever writes a merged layer could leak it, e.g. `env: {LEAK: "{{ MY_SECRET }}"}`.
 
 > [!WARNING]
-> Rooz cannot tell your own `--config` file from one copied out of a repository. Never point `--config`
-> at a file from the repository you are opening, and read every base layer before including it.
+> Rooz cannot tell your own `--config` file from one copied from elsewhere. Never point `--config`
+> at a file you did not write, and read every base layer before including it.
 
 ### Trusted config sources
 

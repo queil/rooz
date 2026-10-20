@@ -345,13 +345,12 @@ pub struct RoozCfg {
 }
 
 // Rooz can defend three things for an operator: their host, their other workspaces, and
-// their secrets. A field the repository being opened may author is one that reaches none of
-// them - it only shapes a container that already runs that repository's code, so letting the
-// repository pick the image, the shell or the install steps grants it nothing it does not
-// already have. Everything else is the operator's call and is listed here.
+// their secrets. A field an untrusted config may set is one that reaches none of
+// them - it only shapes the workspace's own container, so letting it pick the image, the shell
+// or the install steps grants it nothing it does not already have. Everything else is the operator's call and is listed here.
 //
 // Exhaustive by construction: adding a field to RoozCfg stops this compiling until the new
-// field is classified. Without that, every new feature silently becomes repo-controllable.
+// field is classified. Without that, every new feature silently becomes settable by an untrusted config.
 //
 // ('privileged' is absent on purpose: rooz refuses it on any config file's say-so, including
 // the operator's own, so it is gated in check_privileged rather than by provenance.)
@@ -361,7 +360,7 @@ pub fn operator_only_fields(cfg: &RoozCfg) -> Vec<&'static str> {
         secrets,     // the operator's plaintext
         caches,      // volumes shared with every other workspace of the same operator
         extra_repos, // cloned by a container that mounts the operator's ssh key
-        // repo-authorable - contained to the workspace the repository already controls
+        // settable by any config - contained to the workspace
         bases,
         vars,
         git_ssh_url,
@@ -628,7 +627,7 @@ impl RoozCfg {
         Ok(map)
     }
 
-    // 'ports' is a list of free-form strings the repository being opened can author, so a
+    // 'ports' is a list of free-form strings a remote config can author, so a
     // malformed mapping is a configuration error - it must not abort a run that has already
     // created volumes and containers.
     fn parse_port(port_mapping: &String) -> Result<(u16, Option<u16>), AnyError> {
@@ -650,9 +649,9 @@ impl RoozCfg {
     }
 
     /// `allow_secrets` gates whether decrypted secrets join the render context. Every
-    /// field here can be authored by the repository being opened, so a repo-provided
-    /// `env: {LEAK: "{{ MY_SECRET }}"}` would otherwise hand the operator's plaintext
-    /// secret to a container the repo also controls.
+    /// field here can come from a remote config, so a `env: {LEAK: "{{ MY_SECRET }}"}` in
+    /// one would otherwise hand the operator's plaintext secret to a container the config
+    /// also controls.
     pub fn expand_vars(&mut self, allow_secrets: bool) -> Result<(), AnyError> {
         if !allow_secrets && self.secrets.as_ref().is_some_and(|s| !s.is_empty()) {
             return Err(SECRETS_NOT_ALLOWED.into());
@@ -1261,8 +1260,8 @@ mod tests {
     }
 
     #[test]
-    fn repo_authored_config_cannot_expand_secrets() {
-        // the reported payload: a repo .rooz.yaml referencing an operator secret
+    fn untrusted_config_cannot_expand_secrets() {
+        // the reported payload: a remote config referencing an operator secret
         let mut cfg = RoozCfg {
             secrets: Some(IndexMap::from_iter([(
                 "MY_SECRET".to_string(),
@@ -1328,8 +1327,8 @@ mod tests {
     }
 
     #[test]
-    fn vars_still_expand_for_repo_authored_config() {
-        // vars are not sensitive, so repo templating keeps working
+    fn vars_still_expand_for_untrusted_config() {
+        // vars are not sensitive, so templating keeps working for untrusted config
         let mut cfg = RoozCfg {
             vars: Some(IndexMap::from_iter([(
                 "tag".to_string(),

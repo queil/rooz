@@ -35,7 +35,7 @@ pub struct RoozSidecarRuntime {
 pub const ROOZ_META_PREFIX: &str = "ROOZ_META_";
 
 // Env entries reach the engine as verbatim "KEY=value" strings, and the config declaring them
-// can be authored by the repository being opened. A key carrying '=' or a newline would add
+// can come from a remote config. A key carrying '=' or a newline would add
 // assignments of its own, and one spelling a ROOZ_META_* name would displace the metadata rooz
 // injects and the operator's tooling reads back.
 pub fn validate_env_key(key: &str, origin: &str) -> Result<(), AnyError> {
@@ -65,8 +65,8 @@ pub fn validate_env_key(key: &str, origin: &str) -> Result<(), AnyError> {
 }
 
 // The workspace user is interpolated into '/home/{user}', which decides where the global
-// ssh key volume lands and how '~/' mount targets expand. The config declaring it can be
-// authored by the repository being opened, so only a plain account name is acceptable:
+// ssh key volume lands and how '~/' mount targets expand. The config declaring it can come
+// from a remote config, so only a plain account name is acceptable:
 // anything carrying path separators or '..' relocates those mounts elsewhere in the container.
 pub fn validate_user(user: &str) -> Result<(), AnyError> {
     let shaped = !user.is_empty()

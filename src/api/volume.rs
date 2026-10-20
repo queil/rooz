@@ -59,7 +59,7 @@ fn copy_files_script(
 }
 
 // A mount naming a 'data:' entry that does not exist is a configuration mistake - and the
-// configuration can come from the repository being opened, so it must read as a refusal, not
+// configuration can come from a remote source, so it must read as a refusal, not
 // abort the process half way through creating the workspace.
 fn unknown_data_key<'a>(
     key: &str,
