@@ -8,6 +8,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases before 0.159.0 predate this
 file - see the git history.
 
+## [0.169.4] - 2026-10-20
+
+### Fixed
+
+- With `-H`, the hint printed after `rooz new` (and the "already exists" one) names the host:
+  `rooz -H prod enter ws`, not `rooz enter ws`, which would look on the default engine.
+
 ## [0.169.3] - 2026-10-20
 
 ### Fixed

@@ -190,6 +190,9 @@ async fn run() -> Result<(), AnyError> {
         config: &config_api,
     };
 
+    // the command to tell the user to run next: it has to reach the same engine
+    let rooz_cmd = rooz_command(args.host.as_deref());
+
     match args {
         Cli {
             command:
@@ -214,8 +217,8 @@ async fn run() -> Result<(), AnyError> {
 
             match workspace.api.volume.get_single(&labels).await? {
                 Some(_) => Err(format!(
-                    "Workspace already exists. Did you mean: rooz enter {}? Otherwise, use rooz update to modify the workspace.",
-                    name.clone()
+                    "Workspace already exists. Did you mean: {} enter {}? Otherwise, use {} update to modify the workspace.",
+                    rooz_cmd, name, rooz_cmd
                 )),
                 None => Ok(()),
             }?;
@@ -232,8 +235,8 @@ async fn run() -> Result<(), AnyError> {
                 .new(&name, &work, config_source, false, None)
                 .await?;
             println!(
-                "\nThe workspace is ready. Run 'rooz enter {}' to enter.",
-                name
+                "\nThe workspace is ready. Run '{} enter {}' to enter.",
+                rooz_cmd, name
             );
         }
 
@@ -605,4 +608,22 @@ async fn run() -> Result<(), AnyError> {
         }
     };
     Ok(())
+}
+
+fn rooz_command(host: Option<&str>) -> String {
+    match host {
+        Some(host) => format!("rooz -H {}", host),
+        None => "rooz".to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::rooz_command;
+
+    #[test]
+    fn next_step_hints_name_the_host_they_must_run_against() {
+        assert_eq!(rooz_command(None), "rooz");
+        assert_eq!(rooz_command(Some("prod")), "rooz -H prod");
+    }
 }
