@@ -332,7 +332,7 @@ table tbody tr:last-child td {
     align-items: center;
     height: var(--menu-bar-height);
     margin: 0 -12px 14px;
-    padding-left: 66px;
+    padding-left: 61px;
     border-bottom: 1px solid var(--sidebar-spacer);
     background: var(--sidebar-bg);
     font-family: var(--display-font);
@@ -348,10 +348,10 @@ table tbody tr:last-child td {
     content: "";
     position: absolute;
     z-index: 2;
-    top: calc((var(--menu-bar-height) - 27px) / 2);
+    top: calc((var(--menu-bar-height) - 24px) / 2);
     left: 18px;
-    width: 41px;
-    height: 27px;
+    width: 36px;
+    height: 24px;
     background: url("../assets/logo-light.svg") center / contain no-repeat;
 }
 
