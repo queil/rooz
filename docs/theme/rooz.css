@@ -351,8 +351,8 @@ table tbody tr:last-child td {
     left: 18px;
     width: 26px;
     height: 26px;
-    border-radius: 7px;
-    background: url("../rooz512.webp") center / cover;
+    border-radius: 5px;
+    background: url("../assets/logo.svg") center / cover;
     box-shadow: 0 0 0 1px color-mix(in srgb, var(--fg) 12%, transparent);
 }
 
