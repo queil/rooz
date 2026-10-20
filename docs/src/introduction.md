@@ -13,8 +13,8 @@
 <div class="rooz-terminal-bar"><i></i><i></i><i></i><span>quick start</span></div>
 <pre><span class="t-p">$</span> rooz system init                                   <span class="t-c"># SSH and age keys</span>
 <span class="t-p">$</span> rooz new -g git@github.com:your/repo myworkspace   <span class="t-c"># create a workspace from a repo</span>
-<span class="t-p">$</span> rooz enter myworkspace                             <span class="t-c"># open a shell in it</span>
-<span class="t-p">$</span> rooz code myworkspace                              <span class="t-c"># or open it in VS Code</span>
+<span class="t-p">$</span> rooz code myworkspace                              <span class="t-c"># open it in VS Code</span>
+<span class="t-p">$</span> rooz enter myworkspace                             <span class="t-c"># or open a shell in it</span>
 <span class="t-p">$</span> <span class="t-cursor"></span></pre>
 </div>
 

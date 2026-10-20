@@ -342,7 +342,8 @@ table tbody tr:last-child td {
     color: var(--fg);
 }
 
-/* the logo sits on the fixed sidebar, in the theme's accent: a mask lets one SVG serve both themes */
+/* the logo sits on the fixed sidebar, in the theme's accent (plain background images, so it also
+   shows when the built site is opened from disk, where a CSS mask would be blocked) */
 .sidebar::before {
     content: "";
     position: absolute;
@@ -351,9 +352,11 @@ table tbody tr:last-child td {
     left: 18px;
     width: 41px;
     height: 27px;
-    background: var(--accent);
-    -webkit-mask: url("../assets/logo.svg") center / contain no-repeat;
-    mask: url("../assets/logo.svg") center / contain no-repeat;
+    background: url("../assets/logo-light.svg") center / contain no-repeat;
+}
+
+.navy .sidebar::before {
+    background-image: url("../assets/logo-dark.svg");
 }
 
 .chapter {
