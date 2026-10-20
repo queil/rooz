@@ -210,14 +210,14 @@ fn check_vpn(containers: &[(String, String)], consent: &Consent) -> Result<(), A
 }
 
 pub const EXTRA_REPOS_NOT_ALLOWED: &str = "This configuration lists 'extra_repos', but it is not \
-     wholly yours: it is the repository's own, or merges a 'bases' layer not in \
-     ROOZ_TRUSTED_CONFIGS. Extra repositories are cloned with your ssh key, so a repository \
+     wholly yours: it comes from a remote '--config <url>//<path>' source, or merges a \
+     'bases' layer, not in ROOZ_TRUSTED_CONFIGS. Extra repositories are cloned with your ssh key, so a remote config \
      must not be able to name which of your private repositories land in its workspace. List \
      the source in ROOZ_TRUSTED_CONFIGS, or use a local '--config' file.";
 
 pub const CACHES_NOT_ALLOWED: &str = "This configuration declares shared caches, but it is not \
-     wholly yours: it is the repository's own, or merges a 'bases' layer not in \
-     ROOZ_TRUSTED_CONFIGS. A cache volume is shared with every other \
+     wholly yours: it comes from a remote '--config <url>//<path>' source, or merges a \
+     'bases' layer, not in ROOZ_TRUSTED_CONFIGS. A cache volume is shared with every other \
      workspace of yours mounting the same path, so whatever this repository's build writes \
      into it (a cargo registry source, a linker config, a crate with a build script) would \
      later execute in those workspaces. Rooz shares only the cache paths you ask for \
@@ -275,8 +275,8 @@ fn check_repo_authored(cfg: &RoozCfg, consented_caches: &[String]) -> Result<(),
             "extra_repos" => return Err(EXTRA_REPOS_NOT_ALLOWED.into()),
             other => {
                 return Err(format!(
-                    "Refusing '{}': this configuration is the repository's own, or merges a \
-                     'bases' layer not in ROOZ_TRUSTED_CONFIGS, and '{}' is the operator's to set.",
+                    "Refusing '{}': this configuration comes from a remote source, or merges a \
+                     'bases' layer, not in ROOZ_TRUSTED_CONFIGS, and '{}' is the operator's to set.",
                     other, other
                 )
                 .into());
@@ -906,7 +906,7 @@ impl<'a> WorkspaceApi<'a> {
 
         let operator_local = config_is_operator_local(&cli_config_path) || trusted;
         // base layers are merged content the operator did not write, so they carry
-        // the same weight as the repository's own config here
+        // the same weight as a remote config here
         let operator_authored = operator_local && (trusted || !bases_merged);
         let consented_caches = operator_caches(
             cli_params,
@@ -1221,7 +1221,7 @@ mod tests {
 
     #[test]
     fn pinned_consent_covers_only_that_container() {
-        // the real shape: a trusted overlay privileges `dkr`, the repo's own config must
+        // the real shape: a trusted overlay privileges `dkr`, a remote config must
         // not be able to smuggle in anything else under that standing consent
         let ok = cfg(false, &[("dkr", true)]);
         let allow_dkr = pin(&ok, &["dkr"]);

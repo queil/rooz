@@ -50,8 +50,8 @@ file - see the git history.
 - `--uid` is stored with the workspace, so `move`, `enter --chown` and `plan` see it.
 - An undefined template variable (`{{ tga }}`) is an error naming it instead of an empty string,
   and `vars` are rendered once, in order, so a forward reference is an error too.
-- `extra_repos` in a repository's own config (or one merging an untrusted `bases` layer) is
-  refused unless the source is in `ROOZ_TRUSTED_CONFIGS`: the clone uses your ssh key.
+- `extra_repos` in a remote `--config <url>//<path>` source (or a config merging an untrusted
+  `bases` layer) is refused unless the source is in `ROOZ_TRUSTED_CONFIGS`: the clone uses your ssh key.
 - An interrupted `system init` that left an empty ssh-key volume is completed by running it
   again.
 - `rooz remote`: one failed Docker API call no longer closes every forwarded port, and a service

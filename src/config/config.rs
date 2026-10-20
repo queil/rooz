@@ -22,7 +22,7 @@ pub const SECRETS_NOT_ALLOWED: &str = "Refusing to expand 'secrets': this worksp
      author, which could reference any of your secrets and read the plaintext from inside a \
      container it also controls. Secrets are only expanded when the whole configuration is yours: \
      a local '--config' file without 'bases', or a source listed in ROOZ_TRUSTED_CONFIGS - not an \
-     unlisted '--config <url>//<path>' source, which may be the repository's own, and not an unlisted \
+     unlisted '--config <url>//<path>' source, which is not yours, and not an unlisted \
      'bases' layer, which is a separate file that may have come from anywhere. List the source in \
      ROOZ_TRUSTED_CONFIGS (the repository URL exactly as passed to '--config', or a local \
      directory holding the config and all its bases), move the settings you need into your own \
