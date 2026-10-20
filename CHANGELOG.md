@@ -8,6 +8,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases before 0.159.0 predate this
 file - see the git history.
 
+## [0.169.3] - 2026-10-20
+
+### Fixed
+
+- `rooz exec` and `rooz enter` work again in images without a writable `/etc/passwd`
+  (distroless, scratch-based). 0.169.2 made a failed container-user creation fatal; it is a
+  warning that names the cause again.
+
 ## [0.169.2] - 2026-10-19
 
 ### Fixed

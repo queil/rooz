@@ -560,7 +560,8 @@ impl<'a> ExecApi<'a> {
 
     pub async fn ensure_user(&self, container_id: &str) -> Result<(), AnyError> {
         let ensure_user_cmd = inject(
-            r#"grep -q "^$ROOZ_META_USER:x:$ROOZ_META_UID:" /etc/passwd && exit 0
+            r#"exec 2>&1
+                       grep -q "^$ROOZ_META_USER:x:$ROOZ_META_UID:" /etc/passwd && exit 0
                        sed -i "/:x:${ROOZ_META_UID}:/d" /etc/passwd && \
                        echo "$ROOZ_META_USER:x:$ROOZ_META_UID:$ROOZ_META_UID:$ROOZ_META_USER:$ROOZ_META_HOME:/bin/sh" >> /etc/passwd"#.to_string()
             .as_ref(),
@@ -576,13 +577,14 @@ impl<'a> ExecApi<'a> {
             )
             .await?;
         log::debug!("{}", ensure_user_output);
+        // images without a writable /etc/passwd (distroless, scratch-based) have no account to
+        // manage, and everything but the user's name works without one
         if ensure_user_code != 0 {
-            return Err(format!(
-                "Could not create the container user (exit {}): {}",
+            eprintln!(
+                "WARN: could not create the container user (exit {}): {}",
                 ensure_user_code,
                 ensure_user_output.trim()
-            )
-            .into());
+            );
         }
         Ok(())
     }
