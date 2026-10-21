@@ -8,7 +8,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases before 0.159.0 predate this
 file - see the git history.
 
-## [Unreleased]
+## [0.169.5] - 2026-10-21
 
 ### Changed
 
@@ -16,6 +16,9 @@ file - see the git history.
   (`⬇ grafana/grafana ████░░░░ 25% 50 MB / 200 MB`) instead of a static "Pulling" line, so
   several pulls side by side each show how far along they are. A finished pull leaves
   `✓ Pulled <image> · <size>`.
+- The privileged and vpn consent refusals are two lines: what was refused, the value to set, and a
+  link to the docs. The explanation (pinning, fingerprints, `=true`) lives on the configuration
+  page.
 
 ## [0.169.4] - 2026-10-20
 
