@@ -4,6 +4,7 @@
 // leaves its failing step's whole output behind. Anywhere else, and with ROOZ_PROGRESS=plain,
 // every line is printed as it comes, tagged with its container and step.
 
+use crate::api::image::human_bytes;
 use crate::util::progress;
 use colored::Colorize;
 use crossterm::{QueueableCommand, cursor, terminal};
@@ -53,7 +54,16 @@ impl Pane {
     }
 }
 
+// An image being pulled: the bytes of all its layers together, so one line says how far along
+// the whole image is. `refs` counts pulls of the same image running at once.
+struct PullRow {
+    refs: usize,
+    current: i64,
+    total: i64,
+}
+
 struct View {
+    pulls: IndexMap<String, PullRow>,
     panes: IndexMap<String, Pane>,
     drawn: u16,
     last_draw: Option<Instant>,
@@ -74,6 +84,7 @@ pub fn begin() {
         return;
     }
     *VIEW.lock().unwrap() = Some(View {
+        pulls: IndexMap::new(),
         panes: IndexMap::new(),
         drawn: 0,
         last_draw: None,
@@ -122,6 +133,55 @@ pub fn println(line: impl std::fmt::Display) {
     match VIEW.lock().unwrap().as_mut() {
         Some(view) => view.print_above(&[line.to_string()]),
         None => println!("{}", line),
+    }
+}
+
+pub fn pull_begin(image: &str) {
+    if let Some(view) = VIEW.lock().unwrap().as_mut() {
+        view.pulls
+            .entry(image.to_string())
+            .or_insert(PullRow {
+                refs: 0,
+                current: 0,
+                total: 0,
+            })
+            .refs += 1;
+        view.draw();
+    }
+}
+
+pub fn pull_progress(image: &str, current: i64, total: i64) {
+    if let Some(view) = VIEW.lock().unwrap().as_mut() {
+        if let Some(row) = view.pulls.get_mut(image) {
+            row.current = current;
+            row.total = total;
+        }
+        view.draw_throttled();
+    }
+}
+
+/// The pull is over: the row gives way to a line above the panes. A failed pull leaves none, its
+/// error is reported by the caller.
+pub fn pull_end(image: &str, ok: bool) {
+    if let Some(view) = VIEW.lock().unwrap().as_mut() {
+        let Some(row) = view.pulls.get_mut(image) else {
+            return;
+        };
+        row.refs -= 1;
+        if row.refs > 0 {
+            return;
+        }
+        let row = view.pulls.shift_remove(image).unwrap();
+        if ok {
+            let size = if row.total > 0 {
+                format!(" · {}", human_bytes(row.total))
+            } else {
+                String::new()
+            };
+            view.print_above(&[format!("{} Pulled {}{}", "✓".green(), image, size.dimmed())]);
+        } else {
+            view.draw();
+        }
     }
 }
 
@@ -293,6 +353,9 @@ impl View {
             .unwrap_or(0)
             .min(MAX_PANE_LINES);
         let mut lines = Vec::new();
+        for (image, row) in &self.pulls {
+            lines.push(pull_line(image, row, width));
+        }
         for (name, pane) in &self.panes {
             let left = format!(
                 "── {} · {} ",
@@ -361,6 +424,31 @@ impl View {
     }
 }
 
+fn pull_line(image: &str, row: &PullRow, width: usize) -> String {
+    const BAR: usize = 20;
+    let progress = if row.total > 0 {
+        let pct = (row.current * 100 / row.total).clamp(0, 100) as usize;
+        let filled = BAR * pct / 100;
+        format!(
+            " {}{} {:>3}% {} / {}",
+            "█".repeat(filled),
+            "░".repeat(BAR - filled),
+            pct,
+            human_bytes(row.current),
+            human_bytes(row.total)
+        )
+    } else {
+        String::new()
+    };
+    let room = width.saturating_sub(2 + progress.chars().count());
+    format!(
+        "{} {}{}",
+        "⬇".cyan(),
+        truncate(image, room).bold(),
+        progress.dimmed()
+    )
+}
+
 fn elapsed(since: Instant) -> String {
     format!("{}s", since.elapsed().as_secs())
 }
@@ -408,6 +496,33 @@ fn truncate(line: &str, width: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_pull_line_shows_the_whole_images_progress() {
+        let row = PullRow {
+            refs: 1,
+            current: 50_000_000,
+            total: 200_000_000,
+        };
+        let line = clean(&pull_line("grafana/grafana", &row, 100));
+        assert!(line.starts_with("⬇ grafana/grafana"), "{}", line);
+        assert!(line.contains(" 25% 50 MB / 200 MB"), "{}", line);
+        assert!(line.contains("█████░░░░░░░░░░░░░░░"), "{}", line);
+        // unknown size: no bar, just the name
+        let unknown = clean(&pull_line(
+            "img",
+            &PullRow {
+                refs: 1,
+                current: 0,
+                total: 0,
+            },
+            100,
+        ));
+        assert_eq!(unknown, "⬇ img");
+        // the name gives way before the progress does
+        let narrow = clean(&pull_line("a/very/long/image/name:tag", &row, 60));
+        assert!(narrow.contains("25%") && narrow.contains('…'), "{}", narrow);
+    }
 
     #[test]
     fn output_is_cleaned_to_what_a_terminal_shows() {

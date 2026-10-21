@@ -8,6 +8,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases before 0.159.0 predate this
 file - see the git history.
 
+## [Unreleased]
+
+### Changed
+
+- On a terminal, an image pull is one live line with the whole image's progress
+  (`⬇ grafana/grafana ████░░░░ 25% 50 MB / 200 MB`) instead of a static "Pulling" line, so
+  several pulls side by side each show how far along they are. A finished pull leaves
+  `✓ Pulled <image> · <size>`.
+
 ## [0.169.4] - 2026-10-20
 
 ### Fixed
