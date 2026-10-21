@@ -29,6 +29,7 @@ use std::str::FromStr;
 pub const ALLOW_PRIVILEGED_ENV: &str = "ROOZ_ALLOW_PRIVILEGED";
 pub const ALLOW_SECRETS_ENV: &str = "ROOZ_ALLOW_SECRETS";
 pub const ALLOW_VPN_ENV: &str = "ROOZ_ALLOW_VPN";
+const CONFIG_DOCS: &str = "https://rooz.dev/configuration.html";
 
 // What the operator has agreed to. Naming the containers (or secrets) keeps the gate useful
 // for operators who legitimately need one privileged sidecar: a standing blanket consent
@@ -108,11 +109,7 @@ fn unpinned_hint(unpinned: &[String]) -> String {
     if unpinned.is_empty() {
         String::new()
     } else {
-        format!(
-            " A bare name no longer consents ({}): consent is pinned to the container's \
-             definition, so a config cannot reuse the name for something else.",
-            unpinned.join(", ")
-        )
+        format!(" (a bare name no longer consents: {})", unpinned.join(", "))
     }
 }
 
@@ -170,18 +167,13 @@ fn check_privileged(containers: &[(String, String)], consent: &Consent) -> Resul
     }
 
     Err(format!(
-        "This configuration requests privileged containers: {}. A privileged container has \
-         full access to the host running the container engine. Rooz does not grant that on a \
-         config file's say-so. If you trust these exact definitions, allow them: {}={}. Any \
-         change to a container's image, command, env, mounts or install steps changes its \
-         fingerprint and needs consent again.{} ('{}=true' allows any container the \
-         configuration privileges, and '--privileged true' additionally makes the work \
-         container privileged - prefer pinning them.)",
+        "This configuration requests privileged containers: {}. Allow with {}={}{} - see \
+         {}#privileged-containers",
         refused.join(", "),
         ALLOW_PRIVILEGED_ENV,
         refused.join(","),
         unpinned_hint(&unpinned),
-        ALLOW_PRIVILEGED_ENV
+        CONFIG_DOCS
     )
     .into())
 }
@@ -194,17 +186,12 @@ fn check_vpn(containers: &[(String, String)], consent: &Consent) -> Result<(), A
     }
 
     Err(format!(
-        "This configuration requests vpn sidecars: {}. A vpn sidecar gets NET_ADMIN, \
-         /dev/net/tun and the kernel's netfilter and netlink interfaces - on a rootful engine \
-         that is real root's reach into code with a history of container escapes. Rooz does \
-         not grant that on a config file's say-so. If you trust these exact definitions, allow \
-         them: {}={}. Any change to a sidecar's definition needs consent again.{} ('{}=true' \
-         allows any sidecar the configuration asks it for.)",
+        "This configuration requests vpn sidecars: {}. Allow with {}={}{} - see {}#vpn-sidecars",
         refused.join(", "),
         ALLOW_VPN_ENV,
         refused.join(","),
         unpinned_hint(&unpinned),
-        ALLOW_VPN_ENV
+        CONFIG_DOCS
     )
     .into())
 }
@@ -1266,7 +1253,7 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(
-            err.contains("A bare name no longer consents (dkr)"),
+            err.contains("a bare name no longer consents: dkr"),
             "{}",
             err
         );

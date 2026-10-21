@@ -21,6 +21,34 @@ pub struct ImageInfo {
 
 const BAR_WIDTH: usize = 20;
 
+// Bytes of one layer as its download reports them: all layers summed make the image's progress.
+fn add_layer_bytes(
+    bytes: &mut IndexMap<String, (i64, i64)>,
+    id: &str,
+    status: &str,
+    current: Option<i64>,
+    total: Option<i64>,
+) -> (i64, i64) {
+    let entry = bytes.entry(id.to_string()).or_insert((0, 0));
+    if status.starts_with("Downloading") {
+        if let Some(total) = total {
+            entry.1 = entry.1.max(total);
+        }
+        if let Some(current) = current {
+            entry.0 = current.min(entry.1.max(current));
+        }
+    } else if status.starts_with("Extracting")
+        || status.starts_with("Verifying")
+        || status.contains("complete")
+        || status.contains("exists")
+    {
+        entry.0 = entry.1;
+    }
+    bytes
+        .values()
+        .fold((0, 0), |(c, t), (lc, lt)| (c + lc, t + lt))
+}
+
 struct LayerState {
     status: String,
     current: Option<i64>,
@@ -28,17 +56,31 @@ struct LayerState {
 }
 
 pub struct PullProgress {
+    image: String,
     layers: IndexMap<String, LayerState>,
+    layer_bytes: IndexMap<String, (i64, i64)>,
+    finished: bool,
     drawn_lines: u16,
     // under the live install view: one line, no bars drawing over its panes
     quiet: bool,
 }
 
+impl Drop for PullProgress {
+    fn drop(&mut self) {
+        if self.quiet {
+            crate::util::live::pull_end(&self.image, self.finished);
+        }
+    }
+}
+
 impl PullProgress {
     pub fn new(image: &str) -> Self {
         if crate::util::live::is_live() {
-            crate::util::live::println(format!("⬇ Pulling {}", image));
+            crate::util::live::pull_begin(image);
             return Self {
+                image: image.to_string(),
+                layer_bytes: IndexMap::new(),
+                finished: false,
                 layers: IndexMap::new(),
                 drawn_lines: 0,
                 quiet: true,
@@ -57,6 +99,9 @@ impl PullProgress {
         out.queue(Print("\n")).unwrap();
         out.flush().unwrap();
         Self {
+            image: image.to_string(),
+            layer_bytes: IndexMap::new(),
+            finished: false,
             layers: IndexMap::new(),
             drawn_lines: 0,
             quiet: false,
@@ -65,6 +110,9 @@ impl PullProgress {
 
     pub fn update(&mut self, id: &str, status: &str, current: Option<i64>, total: Option<i64>) {
         if self.quiet {
+            let (current, total) =
+                add_layer_bytes(&mut self.layer_bytes, id, status, current, total);
+            crate::util::live::pull_progress(&self.image, current, total);
             return;
         }
         self.layers.insert(
@@ -203,6 +251,7 @@ impl<'a> ImageApi<'a> {
                 Err(e) => return Err(pull_failed(image, &e.to_string()).into()),
             };
         }
+        progress.finished = true;
         if !progress.quiet {
             println!();
         }
@@ -375,6 +424,26 @@ fn digest_eq(a: &str, b: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use super::add_layer_bytes;
+    use indexmap::IndexMap;
+
+    #[test]
+    fn layer_bytes_add_up_to_the_images_progress() {
+        let mut bytes = IndexMap::new();
+        add_layer_bytes(&mut bytes, "a", "Downloading", Some(10), Some(100));
+        let (cur, tot) = add_layer_bytes(&mut bytes, "b", "Downloading", Some(40), Some(200));
+        assert_eq!((cur, tot), (50, 300));
+        // a finished layer counts whole, an unrelated status changes nothing
+        add_layer_bytes(&mut bytes, "a", "Download complete", None, None);
+        let (cur, tot) = add_layer_bytes(&mut bytes, "b", "Waiting", None, None);
+        assert_eq!((cur, tot), (140, 300));
+        let (cur, tot) = add_layer_bytes(&mut bytes, "b", "Pull complete", None, None);
+        assert_eq!((cur, tot), (300, 300));
+        // layers already there have no size and add nothing
+        let (cur, tot) = add_layer_bytes(&mut bytes, "c", "Already exists", None, None);
+        assert_eq!((cur, tot), (300, 300));
+    }
+
     use super::split_image_ref;
 
     #[test]
