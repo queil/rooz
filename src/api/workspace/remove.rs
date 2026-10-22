@@ -1,5 +1,5 @@
 use crate::{
-    api::WorkspaceApi,
+    api::{WorkspaceApi, checkpoint},
     model::types::AnyError,
     util::labels::{Labels, ROLE, WORKSPACE_CONFIG_ROLE},
 };
@@ -14,6 +14,7 @@ impl<'a> WorkspaceApi<'a> {
         labels: &Labels,
         force: bool,
         keep_images: &[&str],
+        keep_checkpoints: bool,
     ) -> Result<(), AnyError> {
         let containers = self.api.container.get_all(labels).await?;
         let container_api = self.api.container;
@@ -27,7 +28,8 @@ impl<'a> WorkspaceApi<'a> {
         });
 
         futures::future::try_join_all(futures).await?;
-        self.remove_images(labels, force, keep_images).await?;
+        self.remove_images(labels, force, keep_images, keep_checkpoints)
+            .await?;
         Ok(())
     }
 
@@ -36,8 +38,15 @@ impl<'a> WorkspaceApi<'a> {
         labels: &Labels,
         force: bool,
         keep: &[&str],
+        keep_checkpoints: bool,
     ) -> Result<(), AnyError> {
-        let images = self.api.image.get_all(labels).await?;
+        let (checkpoints, images): (Vec<_>, Vec<_>) = self
+            .api
+            .image
+            .get_all(labels)
+            .await?
+            .into_iter()
+            .partition(checkpoint::is_checkpoint);
         let image_api = self.api.image;
         let bare = |id: &str| id.trim_start_matches("sha256:").to_string();
         let keep = keep.iter().map(|id| bare(id)).collect::<Vec<_>>();
@@ -48,6 +57,10 @@ impl<'a> WorkspaceApi<'a> {
             .map(|img| async move { image_api.remove_local(&img.id, force).await });
 
         futures::future::try_join_all(futures).await?;
+        // after the images built from them
+        if !keep_checkpoints {
+            checkpoint::remove(self.api.client, &checkpoints).await;
+        }
         Ok(())
     }
 
@@ -55,7 +68,7 @@ impl<'a> WorkspaceApi<'a> {
     where
         F: FnMut(&&Volume) -> bool,
     {
-        self.remove_containers(labels, force, &[]).await?;
+        self.remove_containers(labels, force, &[], false).await?;
         let ls_vol_options = ListVolumesOptions {
             filters: Some(labels.clone().into()),
         };
@@ -118,15 +131,18 @@ impl<'a> WorkspaceApi<'a> {
         Ok(())
     }
 
-    // `keep_images` are images still to be reused, e.g. the sidecar images 'update' carries over
+    // `keep_images` are images still to be reused, e.g. the sidecar images 'update' carries over;
+    // `keep_checkpoints` keeps the install progress of a workspace whose creation did not finish
     pub async fn remove_containers_only(
         &self,
         workspace_key: &str,
         force: bool,
         keep_images: &[&str],
+        keep_checkpoints: bool,
     ) -> Result<(), AnyError> {
         let labels = Labels::from(&[Labels::workspace(workspace_key)]);
-        self.remove_containers(&labels, force, keep_images).await?;
+        self.remove_containers(&labels, force, keep_images, keep_checkpoints)
+            .await?;
         // recreated with the containers; this also retires networks named by an older rooz
         self.remove_networks(&labels).await?;
         Ok(())

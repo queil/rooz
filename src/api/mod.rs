@@ -2,6 +2,7 @@ use bollard::Docker;
 
 use crate::util::backend::ContainerBackend;
 
+pub mod checkpoint;
 pub mod config;
 pub mod container;
 pub mod crypt;

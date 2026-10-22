@@ -1,5 +1,5 @@
 use crate::{
-    api::WorkspaceApi,
+    api::{WorkspaceApi, checkpoint::Checkpoints, exec::InstallCheckpoints},
     model::{
         types::{AnyError, ContainerResult, RunMode, RunSpec, WorkSpec, WorkspaceResult},
         volume::RoozVolume,
@@ -48,9 +48,44 @@ impl<'a> WorkspaceApi<'a> {
             .filter_map(|m| m.target.clone())
             .collect::<Vec<_>>();
 
+        let install_steps = spec
+            .install
+            .as_ref()
+            .map(|i| i.resolved())
+            .unwrap_or_default();
+        // An ephemeral workspace is not rebuilt, so there is nothing to resume it from.
+        // The environment is hashed with the rest: the steps run with it.
+        let checkpoints = if install_steps.is_empty() || spec.ephemeral {
+            None
+        } else {
+            let base = self.api.image.ensure(spec.image, false).await?;
+            let env = spec
+                .env_vars
+                .iter()
+                .flatten()
+                .collect::<std::collections::BTreeMap<_, _>>();
+            Some(Checkpoints::new(
+                spec.workspace_key,
+                spec.container_name,
+                &(
+                    &base.id,
+                    spec.uid,
+                    spec.user,
+                    &spec.command,
+                    &spec.args,
+                    env,
+                ),
+            ))
+        };
+        let resume = match &checkpoints {
+            Some(c) => c.find(self.api.client, &install_steps).await,
+            None => None,
+        };
+
         let run_spec = RunSpec {
             reason: "work",
-            image: spec.image,
+            // the steps an earlier attempt finished are in this image
+            image: resume.as_ref().map_or(spec.image, |(_, id)| id),
             uid: spec.uid,
             user: spec.user,
             work_dir: Some(spec.container_working_dir),
@@ -78,11 +113,6 @@ impl<'a> WorkspaceApi<'a> {
 
         match self.api.container.create(run_spec).await? {
             ContainerResult::Created { id: container_id } => {
-                let install_steps = spec
-                    .install
-                    .as_ref()
-                    .map(|i| i.resolved())
-                    .unwrap_or_default();
                 if !install_steps.is_empty() {
                     self.api.container.start(&container_id).await?;
                     if install_steps.iter().any(|step| !step.root) {
@@ -96,8 +126,19 @@ impl<'a> WorkspaceApi<'a> {
                     }
                     self.api
                         .exec
-                        .install(spec.container_name, &container_id, install_steps)
+                        .install(
+                            spec.container_name,
+                            &container_id,
+                            install_steps,
+                            checkpoints.as_ref().map(|c| InstallCheckpoints {
+                                checkpoints: c,
+                                done: resume.as_ref().map_or(0, |(done, _)| *done),
+                            }),
+                        )
                         .await?;
+                    if let Some(c) = &checkpoints {
+                        c.clear(self.api.client).await;
+                    }
                 }
 
                 Ok(WorkspaceResult {

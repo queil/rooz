@@ -8,6 +8,24 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases before 0.159.0 predate this
 file - see the git history.
 
+## [0.170.0] - 2026-10-22
+
+### Added
+
+- Install progress survives a failed step. After each step that runs, the container is saved as a
+  checkpoint image (`localhost/rooz/<workspace>/<container>-checkpoint`), for the work container
+  and for sidecars. The next attempt starts from the latest checkpoint that still matches the base
+  image, the user, the environment and the steps up to it, and runs only the steps after it:
+  a failed `emacs` step no longer throws away what the earlier ones downloaded. Resumed steps show
+  as `↺`. Checkpoints are removed once the install succeeds, on `rooz rm`, and by a normal
+  `rooz update`; `rooz update` of a workspace whose creation failed keeps them (`--rebuild` and
+  `--purge` start over).
+
+### Fixed
+
+- `rooz update` finishes a workspace whose creation failed before its runtime config was stored,
+  instead of failing with `missing field extra_repos`; `rooz enter` names the unfinished creation.
+
 ## [0.169.6] - 2026-10-22
 
 ### Changed
@@ -15,11 +33,6 @@ file - see the git history.
 - `rooz new` populates the volumes of different sidecars concurrently. Populations that target the
   same volume (the shared inline volume) stay sequential, as they rewrite the same tree.
   The helper image they run in is ensured once beforehand, so concurrent runs don't each pull it.
-
-### Fixed
-
-- `rooz update` and `rooz enter` on a workspace whose creation failed before its runtime config was
-  stored said `missing field extra_repos`; they now say the creation did not finish.
 
 ## [0.169.5] - 2026-10-21
 

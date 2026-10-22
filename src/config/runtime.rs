@@ -295,7 +295,7 @@ impl RuntimeConfig {
         if config.trim().is_empty() {
             return Err(
                 "The workspace has no stored runtime config: its creation did not finish. \
-                Remove it and run 'rooz new' again."
+                Run 'rooz update' to finish it, or remove it and run 'rooz new' again."
                     .into(),
             );
         }

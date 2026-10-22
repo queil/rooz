@@ -24,6 +24,7 @@ const REDRAW_EVERY: Duration = Duration::from_millis(80);
 enum Outcome {
     Ran(Duration),
     Skipped,
+    Resumed,
 }
 
 struct Pane {
@@ -228,6 +229,25 @@ pub fn install_skipped(container: &str, step: &str) {
     );
 }
 
+pub fn install_resumed(container: &str, step: &str) {
+    with_pane(
+        container,
+        |pane| {
+            pane.steps.push((step.to_string(), Outcome::Resumed));
+            pane.push(format!(
+                "{}: done before, resumed from its checkpoint",
+                step
+            ));
+        },
+        || {
+            println!(
+                "{} done before: resumed from its checkpoint",
+                progress::install_tag(container, Some(step))
+            )
+        },
+    );
+}
+
 pub fn install_step_done(container: &str) {
     with_pane(
         container,
@@ -282,6 +302,7 @@ pub fn install_done(container: &str) {
                 format!("{}s", took.as_secs()).dimmed()
             ),
             Outcome::Skipped => format!("  ○ {} skipped", name).dimmed().to_string(),
+            Outcome::Resumed => format!("  ↺ {} resumed", name).dimmed().to_string(),
         }));
         view.print_above(&lines);
     }

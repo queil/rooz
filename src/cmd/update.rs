@@ -46,19 +46,26 @@ impl<'a> WorkspaceApi<'a> {
         // A workspace made from flags alone has no config to rebuild from, and the uid is not part
         // of any config: both come from the stored runtime config, or a rebuild would silently
         // return to the defaults. What the environment sets for this run still wins.
-        let stored = RuntimeConfig::from_string(
-            self.config
-                .read(workspace_key, &ConfigType::Runtime)
-                .await?,
-        )?;
+        let stored_body = self
+            .config
+            .read(workspace_key, &ConfigType::Runtime)
+            .await?;
+        // a creation that failed before storing it leaves none: with a config to rebuild from,
+        // that is what 'update' finishes
+        let unfinished = stored_body.trim().is_empty() && config_source.is_some();
+        let stored = if unfinished {
+            None
+        } else {
+            Some(RuntimeConfig::from_string(stored_body)?)
+        };
         let mut params = WorkParams {
             git_ssh_url,
             env: spec.clone(),
             allow_secrets,
-            uid: Some(stored.uid as u32),
+            uid: stored.as_ref().map(|s| s.uid as u32),
             ..Default::default()
         };
-        if config_source.is_none() {
+        if let (None, Some(stored)) = (&config_source, &stored) {
             params.image = spec.image.is_none().then(|| stored.image.clone());
             params.user = spec.user.is_none().then(|| stored.user.clone());
             params.caches = Some(stored.caches.clone()).filter(|c| !c.is_empty());
@@ -140,8 +147,14 @@ impl<'a> WorkspaceApi<'a> {
                     .values()
                     .map(String::as_str)
                     .collect::<Vec<_>>();
-                self.remove_containers_only(workspace_key, true, &keep)
-                    .await?
+                // the install progress of an unfinished workspace is what the rebuild resumes from
+                self.remove_containers_only(
+                    workspace_key,
+                    true,
+                    &keep,
+                    unfinished && !rebuild_images,
+                )
+                .await?
             }
             UpdateMode::Purge => self.remove(workspace_key, true, true).await?,
         };
