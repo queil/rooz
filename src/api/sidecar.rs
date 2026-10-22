@@ -1,7 +1,7 @@
 use crate::api::VolumeApi;
 use crate::config::config::{MountSource, ResolvedStep};
 use crate::config::runtime::RuntimeConfig;
-use crate::model::types::ContainerResult;
+use crate::model::types::{ContainerResult, VolumeFilesSpec};
 use crate::{
     api::WorkspaceApi,
     config::config::RoozCfg,
@@ -17,6 +17,12 @@ use bollard_stubs::models::ContainerConfig;
 use bollard_stubs::query_parameters::CommitContainerOptions;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
+
+// A volume's files to write, owned by the sidecar's `uid` when it sets one
+struct Population {
+    files: VolumeFilesSpec,
+    uid: Option<i32>,
+}
 
 impl<'a> WorkspaceApi<'a> {
     pub async fn ensure_sidecars(
@@ -45,6 +51,10 @@ impl<'a> WorkspaceApi<'a> {
         self.api.volume.ensure_volumes(&volume_specs).await?;
         let egress_network = &constants::egress_network(workspace_key);
 
+        // populations targeting the same volume (e.g. the shared inline volume) must stay
+        // sequential, as they chown/rewrite the same tree; distinct volumes are independent
+        let mut by_volume: HashMap<String, Vec<Population>> = HashMap::new();
+
         for (name, s) in &mut cfg.sidecars {
             log::debug!("Process sidecar: {}", name);
 
@@ -71,15 +81,34 @@ impl<'a> WorkspaceApi<'a> {
                 s.real_mounts.insert(t.clone(), m.clone());
                 // The volume might already be created by the workspace-level volume creation
                 // but still may need files in the paths not covered by that process
-                self.api
-                    .volume
-                    .populate_volume(m, uid, true, rewrite_files)
-                    .await?;
+                by_volume
+                    .entry(m.volume_name.as_str().to_string())
+                    .or_default()
+                    .push(Population { files: m, uid });
             }
         }
 
-        // Volumes are populated above one sidecar at a time, as sidecars share the inline volume.
-        // The rest, building a sidecar's image above all, is independent of the other sidecars.
+        // every population runs in a one-shot container of the default image: have it before they
+        // run side by side, or each would pull it
+        self.api
+            .image
+            .ensure(constants::DEFAULT_IMAGE, false)
+            .await?;
+
+        all_ok(
+            futures::future::join_all(by_volume.into_values().map(|specs| async move {
+                for p in specs {
+                    self.api
+                        .volume
+                        .populate_volume(p.files, p.uid, true, rewrite_files)
+                        .await?;
+                }
+                Ok(())
+            }))
+            .await,
+        )?;
+
+        // Volumes are populated above, one volume at a time per volume. The rest, building a sidecar's image above all, is independent of the other sidecars.
         let labels = &labels;
         let peer_relations = &peer_relations;
         let sidecars = cfg.sidecars.iter().map(|(name, s)| async move {

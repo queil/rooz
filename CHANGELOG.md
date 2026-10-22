@@ -8,6 +8,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases before 0.159.0 predate this
 file - see the git history.
 
+## [0.169.6] - 2026-10-22
+
+### Changed
+
+- `rooz new` populates the volumes of different sidecars concurrently. Populations that target the
+  same volume (the shared inline volume) stay sequential, as they rewrite the same tree.
+  The helper image they run in is ensured once beforehand, so concurrent runs don't each pull it.
+
 ## [0.169.5] - 2026-10-21
 
 ### Changed
