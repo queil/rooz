@@ -149,6 +149,7 @@ impl<'a> TryFrom<(&'a str, &'a RoozSidecar)> for RoozSidecarRuntime {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct RuntimeConfig {
     pub git_ssh_url: Option<String>,
+    #[serde(default)]
     pub extra_repos: Vec<String>,
     pub image: String,
     pub caches: Vec<String>,
@@ -645,6 +646,24 @@ mod tests {
         .unwrap_err()
         .to_string();
         assert!(err.contains("would share one inline file"), "{}", err);
+    }
+
+    #[test]
+    fn stored_config_without_extra_repos_still_loads() {
+        let stored = RuntimeConfig::default()
+            .to_string()
+            .unwrap()
+            .lines()
+            .filter(|l| !l.starts_with("extra_repos"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(!stored.contains("extra_repos"));
+        assert!(
+            RuntimeConfig::from_string(stored)
+                .unwrap()
+                .extra_repos
+                .is_empty()
+        );
     }
 
     #[test]

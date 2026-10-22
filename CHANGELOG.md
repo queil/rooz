@@ -16,6 +16,11 @@ file - see the git history.
   same volume (the shared inline volume) stay sequential, as they rewrite the same tree.
   The helper image they run in is ensured once beforehand, so concurrent runs don't each pull it.
 
+### Fixed
+
+- `rooz update` and `rooz enter` fail with `missing field extra_repos` on a workspace whose stored
+  config predates that field; it now defaults to none.
+
 ## [0.169.5] - 2026-10-21
 
 ### Changed
