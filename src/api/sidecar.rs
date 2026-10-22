@@ -18,6 +18,8 @@ use bollard_stubs::query_parameters::CommitContainerOptions;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 
+type Population = (VolumeFilesSpec, Option<i32>);
+
 impl<'a> WorkspaceApi<'a> {
     pub async fn ensure_sidecars(
         &self,
@@ -47,7 +49,7 @@ impl<'a> WorkspaceApi<'a> {
 
         // populations targeting the same volume (e.g. the shared inline volume) must stay
         // sequential, as they chown/rewrite the same tree; distinct volumes are independent
-        let mut by_volume: Vec<(String, Vec<(VolumeFilesSpec, Option<i32>)>)> = vec![];
+        let mut by_volume: Vec<(String, Vec<Population>)> = vec![];
 
         for (name, s) in &mut cfg.sidecars {
             log::debug!("Process sidecar: {}", name);
