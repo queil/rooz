@@ -149,7 +149,6 @@ impl<'a> TryFrom<(&'a str, &'a RoozSidecar)> for RoozSidecarRuntime {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct RuntimeConfig {
     pub git_ssh_url: Option<String>,
-    #[serde(default)]
     pub extra_repos: Vec<String>,
     pub image: String,
     pub caches: Vec<String>,
@@ -293,6 +292,13 @@ fn mask_install(install: &mut Option<InstallSpec>, secrets: &[&String]) {
 
 impl RuntimeConfig {
     pub fn from_string(config: String) -> Result<RuntimeConfig, AnyError> {
+        if config.trim().is_empty() {
+            return Err(
+                "The workspace has no stored runtime config: its creation did not finish. \
+                Remove it and run 'rooz new' again."
+                    .into(),
+            );
+        }
         match serde_yaml::from_str(&config) {
             Ok(val) => Ok(val),
             Err(e) => Err(Box::new(e)),
@@ -649,21 +655,11 @@ mod tests {
     }
 
     #[test]
-    fn stored_config_without_extra_repos_still_loads() {
-        let stored = RuntimeConfig::default()
-            .to_string()
-            .unwrap()
-            .lines()
-            .filter(|l| !l.starts_with("extra_repos"))
-            .collect::<Vec<_>>()
-            .join("\n");
-        assert!(!stored.contains("extra_repos"));
-        assert!(
-            RuntimeConfig::from_string(stored)
-                .unwrap()
-                .extra_repos
-                .is_empty()
-        );
+    fn empty_stored_config_is_named_as_unfinished_workspace() {
+        let err = RuntimeConfig::from_string(String::new())
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("creation did not finish"), "{}", err);
     }
 
     #[test]

@@ -18,8 +18,8 @@ file - see the git history.
 
 ### Fixed
 
-- `rooz update` and `rooz enter` fail with `missing field extra_repos` on a workspace whose stored
-  config predates that field; it now defaults to none.
+- `rooz update` and `rooz enter` on a workspace whose creation failed before its runtime config was
+  stored said `missing field extra_repos`; they now say the creation did not finish.
 
 ## [0.169.5] - 2026-10-21
 
