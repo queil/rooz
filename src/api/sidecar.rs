@@ -18,7 +18,11 @@ use bollard_stubs::query_parameters::CommitContainerOptions;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 
-type Population = (VolumeFilesSpec, Option<i32>);
+// A volume's files to write, owned by the sidecar's `uid` when it sets one
+struct Population {
+    files: VolumeFilesSpec,
+    uid: Option<i32>,
+}
 
 impl<'a> WorkspaceApi<'a> {
     pub async fn ensure_sidecars(
@@ -49,7 +53,7 @@ impl<'a> WorkspaceApi<'a> {
 
         // populations targeting the same volume (e.g. the shared inline volume) must stay
         // sequential, as they chown/rewrite the same tree; distinct volumes are independent
-        let mut by_volume: Vec<(String, Vec<Population>)> = vec![];
+        let mut by_volume: HashMap<String, Vec<Population>> = HashMap::new();
 
         for (name, s) in &mut cfg.sidecars {
             log::debug!("Process sidecar: {}", name);
@@ -77,11 +81,10 @@ impl<'a> WorkspaceApi<'a> {
                 s.real_mounts.insert(t.clone(), m.clone());
                 // The volume might already be created by the workspace-level volume creation
                 // but still may need files in the paths not covered by that process
-                let key = m.volume_name.as_str().to_string();
-                match by_volume.iter_mut().find(|(k, _)| *k == key) {
-                    Some((_, v)) => v.push((m, uid)),
-                    None => by_volume.push((key, vec![(m, uid)])),
-                }
+                by_volume
+                    .entry(m.volume_name.as_str().to_string())
+                    .or_default()
+                    .push(Population { files: m, uid });
             }
         }
 
@@ -93,11 +96,11 @@ impl<'a> WorkspaceApi<'a> {
             .await?;
 
         all_ok(
-            futures::future::join_all(by_volume.into_iter().map(|(_, specs)| async move {
-                for (m, uid) in specs {
+            futures::future::join_all(by_volume.into_values().map(|specs| async move {
+                for p in specs {
                     self.api
                         .volume
-                        .populate_volume(m, uid, true, rewrite_files)
+                        .populate_volume(p.files, p.uid, true, rewrite_files)
                         .await?;
                 }
                 Ok(())
