@@ -292,6 +292,13 @@ fn mask_install(install: &mut Option<InstallSpec>, secrets: &[&String]) {
 
 impl RuntimeConfig {
     pub fn from_string(config: String) -> Result<RuntimeConfig, AnyError> {
+        if config.trim().is_empty() {
+            return Err(
+                "The workspace has no stored runtime config: its creation did not finish. \
+                Run 'rooz update' to finish it, or remove it and run 'rooz new' again."
+                    .into(),
+            );
+        }
         match serde_yaml::from_str(&config) {
             Ok(val) => Ok(val),
             Err(e) => Err(Box::new(e)),
@@ -645,6 +652,14 @@ mod tests {
         .unwrap_err()
         .to_string();
         assert!(err.contains("would share one inline file"), "{}", err);
+    }
+
+    #[test]
+    fn empty_stored_config_is_named_as_unfinished_workspace() {
+        let err = RuntimeConfig::from_string(String::new())
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("creation did not finish"), "{}", err);
     }
 
     #[test]

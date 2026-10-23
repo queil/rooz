@@ -1,4 +1,6 @@
 use crate::api::VolumeApi;
+use crate::api::checkpoint::Checkpoints;
+use crate::api::exec::InstallCheckpoints;
 use crate::config::config::{MountSource, ResolvedStep};
 use crate::config::runtime::RuntimeConfig;
 use crate::model::types::{ContainerResult, VolumeFilesSpec};
@@ -218,6 +220,17 @@ impl<'a> WorkspaceApi<'a> {
                         live::install_reused(name);
                     }
 
+                    let checkpoints = Checkpoints::new(
+                        workspace_key,
+                        name,
+                        &(&base_image.id, &uid_string, &s.command, &s.args),
+                    );
+                    let resume = if image_id.is_none() {
+                        checkpoints.find(self.api.client, &install_steps).await
+                    } else {
+                        None
+                    };
+
                     if image_id.is_none()
                         && let ContainerResult::Created { id: container_id } = self
                             .api
@@ -235,6 +248,8 @@ impl<'a> WorkspaceApi<'a> {
                                 args: Some(vec!["infinity"]),
                                 // pulled above already, and the build key holds that image's id
                                 force_pull: false,
+                                // the steps an earlier attempt finished are in this image
+                                image: resume.as_ref().map_or(run_spec.image, |(_, id)| id),
                                 ..run_spec.clone()
                             })
                             .await?
@@ -243,7 +258,15 @@ impl<'a> WorkspaceApi<'a> {
                             self.api.container.start(&container_id).await?;
                             self.api
                                 .exec
-                                .install(name, &container_id, install_steps)
+                                .install(
+                                    name,
+                                    &container_id,
+                                    install_steps,
+                                    Some(InstallCheckpoints {
+                                        checkpoints: &checkpoints,
+                                        done: resume.as_ref().map_or(0, |(done, _)| *done),
+                                    }),
+                                )
                                 .await?;
                             self.api
                                 .container
@@ -278,7 +301,9 @@ impl<'a> WorkspaceApi<'a> {
                         // never left behind, built or not: a half-built install container carries
                         // the sidecar's name and labels and would pass for the sidecar itself
                         self.api.container.remove(&container_id, true).await?;
-                        image_id = Some(built?.id);
+                        let built = built?;
+                        checkpoints.clear(self.api.client).await;
+                        image_id = Some(built.id);
                     }
 
                     // nothing to point at means the sidecar container is already there and was not

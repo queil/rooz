@@ -13,6 +13,7 @@ use bollard::{
 use bollard_stubs::models::ExecInspectResponse;
 use futures::{Stream, StreamExt};
 
+use crate::api::checkpoint::Checkpoints;
 use crate::api::container::{inject, redact_injected};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use std::{io::Read, time::Duration};
@@ -24,6 +25,12 @@ use tokio::{
     sync::broadcast,
     time::sleep,
 };
+
+/// Where an install saves its progress, and how much of it an earlier attempt already made.
+pub struct InstallCheckpoints<'a> {
+    pub checkpoints: &'a Checkpoints,
+    pub done: usize,
+}
 
 /// A command that ran and exited non-zero - as opposed to one that could not run at all.
 #[derive(Debug)]
@@ -448,11 +455,12 @@ impl<'a> ExecApi<'a> {
         container_name: &str,
         container_id: &str,
         steps: Vec<ResolvedStep>,
+        checkpoints: Option<InstallCheckpoints<'_>>,
     ) -> Result<(), AnyError> {
         let names = steps.iter().map(|s| s.name.as_str()).collect::<Vec<_>>();
         live::install_begin(container_name, &names);
         match self
-            .install_steps(container_name, container_id, &steps)
+            .install_steps(container_name, container_id, &steps, checkpoints)
             .await
         {
             Ok(()) => {
@@ -471,8 +479,14 @@ impl<'a> ExecApi<'a> {
         container_name: &str,
         container_id: &str,
         steps: &[ResolvedStep],
+        checkpoints: Option<InstallCheckpoints<'_>>,
     ) -> Result<(), AnyError> {
+        let resumed = checkpoints.as_ref().map_or(0, |c| c.done);
         for (idx, step) in steps.iter().enumerate() {
+            if idx < resumed {
+                live::install_resumed(container_name, &step.name);
+                continue;
+            }
             let user = step.root.then_some(constants::ROOT_UID);
             let tag = (container_name, step.name.as_str());
             if let Some(check) = &step.skip_if {
@@ -499,7 +513,14 @@ impl<'a> ExecApi<'a> {
                 .status_tagged("install", container_id, user, Some(v), Some(tag))
                 .await?
             {
-                0 => live::install_step_done(container_name),
+                0 => {
+                    live::install_step_done(container_name);
+                    if let Some(c) = &checkpoints {
+                        c.checkpoints
+                            .save(self.client, container_id, steps, idx + 1)
+                            .await;
+                    }
+                }
                 code => {
                     return Err(format!(
                         "install step '{}' failed: exec failed with exit code {}",

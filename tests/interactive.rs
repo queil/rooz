@@ -167,6 +167,76 @@ async fn failing_install_step_fails_new() {
     cleanup(&env, &key, &cfg_path);
 }
 
+#[tokio::test]
+async fn update_resumes_a_failed_install_from_its_checkpoint() {
+    let Some(env) = TestEnv::from_env() else {
+        return;
+    };
+    let key = unique_key("int-ckpt");
+    let steps = |second: &str| {
+        format!(
+            "image: alpine:latest\ninstall:\n  01-first:\n    run: echo ran >> /first-runs\n    root: true\n  02-second:\n    run: {}\n    root: true\n",
+            second
+        )
+    };
+    let cfg_path = write_cfg(&key, &steps("exit 7"));
+
+    env.rooz()
+        .args(["system", "init", "--force"])
+        .assert()
+        .success();
+
+    let failed = env
+        .rooz()
+        .args(["new", &key, "--config", &cfg_path])
+        .output()
+        .expect("run rooz new");
+    assert!(!failed.status.success(), "the failing step must fail new");
+
+    let mut filters = std::collections::HashMap::new();
+    filters.insert(
+        "label".to_string(),
+        vec![
+            format!("dev.rooz.workspace={}", key),
+            "dev.rooz.role=install-checkpoint".to_string(),
+        ],
+    );
+    let checkpoints = env
+        .docker
+        .list_images(Some(bollard_stubs::query_parameters::ListImagesOptions {
+            filters: Some(filters.clone()),
+            all: true,
+            ..Default::default()
+        }))
+        .await
+        .unwrap();
+    assert_eq!(
+        checkpoints.len(),
+        1,
+        "the step that ran leaves one checkpoint"
+    );
+
+    write_cfg(&key, &steps("echo fixed > /second-ran"));
+    env.rooz().args(["update", &key]).assert().success();
+
+    assert_eq!(
+        env.exec_code(
+            &key,
+            vec!["sh", "-c", "test \"$(wc -l < /first-runs)\" = 1"]
+        )
+        .await,
+        0,
+        "the first step ran again instead of being resumed"
+    );
+    assert_eq!(
+        env.exec_code(&key, vec!["test", "-f", "/second-ran"]).await,
+        0,
+        "the second step did not run"
+    );
+
+    cleanup(&env, &key, &cfg_path);
+}
+
 // ── enter (interactive tty exec) ─────────────────────────────────────────────
 
 #[tokio::test]

@@ -21,6 +21,7 @@ pub const SYSTEM_CONFIG_ROLE: &str = "sys-config";
 pub const CACHE_ROLE: &str = "cache";
 pub const SIDECAR_ROLE: &str = "sidecar";
 pub const SIDECAR_RUNTIME_ROLE: &str = "sidecar-runtime";
+pub const INSTALL_CHECKPOINT_ROLE: &str = "install-checkpoint";
 
 #[derive(Clone, Debug)]
 pub struct KeyValue {
