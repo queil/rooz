@@ -572,6 +572,38 @@ impl<'a> ExecApi<'a> {
         Ok(())
     }
 
+    // The directory itself, not what is in it: a cache volume's root belongs to root until
+    // someone hands it over, and what is in it is already its owner's.
+    pub async fn chown_dir(
+        &self,
+        container_id: &str,
+        uid: &i32,
+        dir: &str,
+    ) -> Result<(), AnyError> {
+        let (out, code) = self
+            .output_with_code(
+                "chown",
+                container_id,
+                Some(constants::ROOT_USER),
+                Some(vec![
+                    "sh",
+                    "-c",
+                    &format!("chown {}:{} {}", uid, uid, chown_target(dir)),
+                ]),
+            )
+            .await?;
+        if code != 0 {
+            eprintln!(
+                "WARN: could not change ownership of {} to {} (exit {}): {}",
+                dir,
+                uid,
+                code,
+                out.trim()
+            );
+        }
+        Ok(())
+    }
+
     pub async fn default_uid(&self, container_id: &str) -> Result<i32, AnyError> {
         let output = self
             .output("default-uid", container_id, None, Some(vec!["id", "-u"]))

@@ -4,6 +4,7 @@ use colored::Colorize;
 use gix_config::File;
 use lazy_static::lazy_static;
 use regex::Regex;
+use sha2::{Digest, Sha256};
 
 use crate::{
     api::{GitApi, config::ConfigBody, container},
@@ -223,15 +224,58 @@ fn get_clone_dir(
 // rooz's own git runs are non-interactive and want none of that, so they switch it off.
 const NO_REPO_EXEC: &str = "-c core.hooksPath=/dev/null -c core.fsmonitor=false -c core.pager=cat";
 
+// Where the git containers keep a bare mirror of each repository they clone, in a cache volume.
+// Only those containers mount it: a workspace that could write it would plant objects that every
+// later clone of the repository trusts.
+const GIT_CACHE_DIR: &str = "/tmp/rooz-git-cache";
+
+fn mirror_dir(root: &str, url: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(url);
+    format!("{}/{}.git", root, &format!("{:x}", hasher.finalize())[..16])
+}
+
 // `--` stops git from parsing a URL as an option; the shell quoting keeps the
-// whole value a single argument.
-fn clone_line(clone_dir: &str, depth: &str, url: &str) -> String {
+// whole value a single argument. With `cache`, the repository is fetched into its mirror first and
+// the clone borrows the mirror's objects, then drops the link to it. A mirror that cannot be
+// updated or created only costs the speed-up: the clone then goes to the remote as usual.
+fn clone_line(clone_dir: &str, depth: &str, url: &str, cache: bool) -> String {
+    clone_line_with(GIT_CACHE_DIR, clone_dir, depth, url, cache)
+}
+
+fn clone_line_with(
+    cache_root: &str,
+    clone_dir: &str,
+    depth: &str,
+    url: &str,
+    cache: bool,
+) -> String {
+    let dir = sh::quote(clone_dir);
+    let url_arg = sh::quote(url);
+    let clone = format!(
+        "git {} $SAFE -c include.path=/tmp/rooz/.gitconfig clone $REF {} -- {}\n",
+        NO_REPO_EXEC, depth, url_arg
+    );
+    if !cache {
+        return format!(
+            "ls {}/.git > /dev/null 2>&1 || {{\nSAFE=; REF=\n{}}}\n",
+            dir, clone
+        );
+    }
+    let mirror = sh::quote(&mirror_dir(cache_root, url));
     format!(
-        "ls {}/.git > /dev/null 2>&1 || git {} -c include.path=/tmp/rooz/.gitconfig clone --filter=blob:none {} -- {}\n",
-        sh::quote(clone_dir),
-        NO_REPO_EXEC,
-        depth,
-        sh::quote(url)
+        "ls {dir}/.git > /dev/null 2>&1 || {{\n\
+         M={mirror}\n\
+         if [ -d \"$M\" ]; then git {opts} -c safe.directory=\"$M\" -c include.path=/tmp/rooz/.gitconfig -C \"$M\" remote update --prune || true\n\
+         else git {opts} -c include.path=/tmp/rooz/.gitconfig clone --mirror -- {url_arg} \"$M\" || true; fi\n\
+         SAFE=; REF=\n\
+         if [ -f \"$M/HEAD\" ]; then SAFE=\"-c safe.directory=$M\"; REF=\"--reference $M --dissociate\"; fi\n\
+         {clone}}}\n",
+        dir = dir,
+        mirror = mirror,
+        opts = NO_REPO_EXEC,
+        url_arg = url_arg,
+        clone = clone
     )
 }
 
@@ -264,10 +308,13 @@ impl<'a> GitApi<'a> {
 
         let gitconfig = self.api.get_system_config().await?.gitconfig;
 
+        // a shallow clone has no use for a mirror, and a config clone shares nothing
+        let cache = depth.is_empty() && !spec.isolated;
+
         for url in all_urls {
             validate_clone_url(&url)?;
             let clone_dir = get_clone_dir(&spec.working_dir, &url, &gitconfig)?;
-            clone_script.push_str(&clone_line(&clone_dir, &depth, &url));
+            clone_script.push_str(&clone_line(&clone_dir, &depth, &url, cache));
         }
 
         let clone_cmd = container::inject(&clone_script, "clone.sh");
@@ -296,6 +343,9 @@ impl<'a> GitApi<'a> {
             mounts.push(scratch_mount(&spec.working_dir));
         } else {
             volumes.push(RoozVolume::work(&spec.workspace_key, &spec.working_dir));
+        }
+        if cache {
+            volumes.push(RoozVolume::cache(GIT_CACHE_DIR));
         }
 
         self.api.volume.ensure_mounts(&volumes, None).await?;
@@ -327,6 +377,12 @@ impl<'a> GitApi<'a> {
                 .exec
                 .chown(&id, &spec.uid.parse::<i32>()?, &spec.working_dir)
                 .await?;
+            if cache {
+                self.api
+                    .exec
+                    .chown_dir(&id, &spec.uid.parse::<i32>()?, GIT_CACHE_DIR)
+                    .await?;
+            }
 
             self.api
                 .exec
@@ -484,14 +540,16 @@ mod tests {
 
     #[test]
     fn clone_line_quotes_url_and_dir() {
-        let line = clone_line("/work/re'po", "--depth=1", "https://h/a'b.git");
-        assert!(line.contains(r"ls '/work/re'\''po'/.git"), "{}", line);
-        assert!(line.ends_with("-- 'https://h/a'\\''b.git'\n"), "{}", line);
+        for cache in [false, true] {
+            let line = clone_line("/work/re'po", "--depth=1", "https://h/a'b.git", cache);
+            assert!(line.contains(r"ls '/work/re'\''po'/.git"), "{}", line);
+            assert!(line.contains("-- 'https://h/a'\\''b.git'\n"), "{}", line);
+        }
     }
 
     #[test]
     fn clone_line_disables_repo_controlled_execution() {
-        let line = clone_line("/work/repo", "", "https://h/a.git");
+        let line = clone_line("/work/repo", "", "https://h/a.git", true);
         for flag in [
             "-c core.hooksPath=/dev/null",
             "-c core.fsmonitor=false",
@@ -525,25 +583,23 @@ mod tests {
         let dir = std::env::temp_dir().join("rooz-clone-injection-test");
         let _ = std::fs::remove_file(&dir);
         let hostile = format!("x'; touch {}; #", dir.display());
-        let line = clone_line("/work/repo", "", &hostile);
-        let out = std::process::Command::new("sh")
-            .arg("-c")
-            .arg(line.replace(
-                &format!(
-                    "git {} -c include.path=/tmp/rooz/.gitconfig clone",
-                    NO_REPO_EXEC
-                ),
-                "printf '%s\\n'",
-            ))
-            .output()
-            .unwrap();
-        let stdout = String::from_utf8(out.stdout).unwrap();
-        assert!(!dir.exists(), "injected command executed");
-        assert!(
-            stdout.lines().any(|l| l == hostile),
-            "url did not survive as one argument: {}",
-            stdout
-        );
+        for cache in [false, true] {
+            let line =
+                clone_line_with("/tmp/rooz-no-such-cache", "/work/repo", "", &hostile, cache);
+            // git only echoes its arguments, so nothing but the shell parsing is under test
+            let out = std::process::Command::new("sh")
+                .arg("-c")
+                .arg(format!("git() {{ printf '%s\\n' \"$@\"; }}\n{}", line))
+                .output()
+                .unwrap();
+            let stdout = String::from_utf8(out.stdout).unwrap();
+            assert!(!dir.exists(), "injected command executed");
+            assert!(
+                stdout.lines().any(|l| l == hostile),
+                "url did not survive as one argument: {}",
+                stdout
+            );
+        }
     }
 
     #[test]
@@ -576,5 +632,138 @@ mod tests {
             get_clone_dir("/work", "https://h/rooz.git", &None).unwrap(),
             "/work/rooz"
         );
+    }
+
+    fn git(dir: &std::path::Path, args: &[&str]) -> String {
+        let out = std::process::Command::new("git")
+            .args(["-c", "protocol.file.allow=always"])
+            .args(args)
+            .current_dir(dir)
+            .output()
+            .expect("run git");
+        assert!(
+            out.status.success(),
+            "git {:?}: {}",
+            args,
+            String::from_utf8_lossy(&out.stderr)
+        );
+        String::from_utf8_lossy(&out.stdout).to_string()
+    }
+
+    // runs the generated script for real against a local repository, from the work dir as the
+    // git container does: the clone lands in `work/<name from the url>`
+    fn run_clone(cache_root: &std::path::Path, work: &std::path::Path, url: &str, cache: bool) {
+        std::fs::create_dir_all(work).unwrap();
+        let line = clone_line_with(
+            cache_root.to_str().unwrap(),
+            work.join("origin").to_str().unwrap(),
+            "",
+            url,
+            cache,
+        );
+        let out = std::process::Command::new("sh")
+            .current_dir(work)
+            .arg("-c")
+            .arg(format!(
+                "git() {{ command git -c protocol.file.allow=always \"$@\"; }}\n{}",
+                line
+            ))
+            .output()
+            .expect("run script");
+        assert!(
+            out.status.success(),
+            "{}\n{}",
+            line,
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
+    #[test]
+    fn a_cached_clone_is_complete_and_independent_of_its_mirror() {
+        if std::process::Command::new("git")
+            .arg("--version")
+            .output()
+            .is_err()
+        {
+            return;
+        }
+        let tmp = std::env::temp_dir().join(format!("rooz-git-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let (origin, cache, a, b) = (
+            tmp.join("origin"),
+            tmp.join("cache"),
+            tmp.join("a"),
+            tmp.join("b"),
+        );
+        std::fs::create_dir_all(&origin).unwrap();
+        std::fs::create_dir_all(&cache).unwrap();
+        git(&origin, &["init", "-q", "-b", "main"]);
+        std::fs::write(origin.join("f"), "one").unwrap();
+        git(&origin, &["add", "f"]);
+        git(
+            &origin,
+            &[
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "commit",
+                "-qm",
+                "one",
+            ],
+        );
+        let url = format!("file://{}", origin.display());
+
+        run_clone(&cache, &a, &url, true);
+        assert_eq!(std::fs::read_to_string(a.join("origin/f")).unwrap(), "one");
+        let mirror = mirror_dir(cache.to_str().unwrap(), &url);
+        assert!(std::path::Path::new(&mirror).join("HEAD").exists());
+        // no link left to the mirror, and the remote is the real one
+        assert!(!a.join("origin/.git/objects/info/alternates").exists());
+        assert_eq!(
+            git(&a.join("origin"), &["remote", "get-url", "origin"]).trim(),
+            url
+        );
+
+        // a new commit reaches the next clone through the updated mirror
+        std::fs::write(origin.join("f"), "two").unwrap();
+        git(
+            &origin,
+            &[
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "commit",
+                "-qam",
+                "two",
+            ],
+        );
+        run_clone(&cache, &b, &url, true);
+        assert_eq!(std::fs::read_to_string(b.join("origin/f")).unwrap(), "two");
+        assert_eq!(
+            git(&b.join("origin"), &["rev-list", "--count", "HEAD"]).trim(),
+            "2"
+        );
+
+        // the mirror going away leaves the clones whole
+        std::fs::remove_dir_all(&cache).unwrap();
+        assert_eq!(
+            git(&a.join("origin"), &["rev-list", "--count", "HEAD"]).trim(),
+            "1"
+        );
+        git(&b.join("origin"), &["fsck", "--no-progress"]);
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn an_uncached_clone_goes_straight_to_the_remote() {
+        let line = clone_line_with("/c", "/work/r", "", "https://h/a.git", false);
+        assert!(
+            !line.contains("--mirror") && !line.contains("--reference"),
+            "{}",
+            line
+        );
+        assert!(!line.contains("blob:none"), "{}", line);
     }
 }
