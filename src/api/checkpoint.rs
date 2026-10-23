@@ -51,20 +51,29 @@ impl Checkpoints {
         hash(&(&self.inputs, &steps[..done]))
     }
 
-    // How many steps are already done, and the image that has them. Steps changed since, or an
-    // other base image, match nothing.
+    // How many steps are already done, and the image that has them. The image is only ever one
+    // rooz committed and recorded itself: a tag or a label is no evidence of what carries it,
+    // since the image namespace is shared and anybody with engine access can write either.
     pub async fn find(&self, client: &Docker, steps: &[ResolvedStep]) -> Option<(usize, String)> {
-        let images = list(client, &self.labels())
-            .await
-            .map_err(|e| log::debug!("Could not list install checkpoints: {}", e))
-            .ok()?;
-        let by_key = images
-            .into_iter()
-            .filter_map(|i| Some((i.labels.get(labels::BUILD_KEY)?.clone(), i.id)))
-            .collect::<HashMap<_, _>>();
-        (1..=steps.len())
-            .rev()
-            .find_map(|done| Some((done, by_key.get(&self.key(steps, done))?.clone())))
+        let record = self.read_record();
+        for done in (1..=steps.len()).rev() {
+            let key = self.key(steps, done);
+            let Some(id) = record.get(&key) else {
+                continue;
+            };
+            let mut expected = self.labels();
+            expected.append(Labels::build_key(&key));
+            let carried = match client.inspect_image(id).await {
+                Ok(inspect) if same_id(inspect.id.as_deref(), id) => {
+                    inspect.config.and_then(|c| c.labels).unwrap_or_default()
+                }
+                _ => continue,
+            };
+            if expected.is_subset_of(&carried) {
+                return Some((done, id.clone()));
+            }
+        }
+        None
     }
 
     // Best effort: losing a checkpoint costs time, not correctness, so it never fails an install.
@@ -96,13 +105,20 @@ impl Checkpoints {
                 },
             )
             .await;
-        if let Err(e) = committed {
-            log::warn!(
+        match committed {
+            Ok(image) => {
+                // the id is the only thing a later attempt can trust, and only rooz knows which
+                // ids it committed: keep them where the engine cannot be written to
+                let mut record = self.read_record();
+                record.insert(key, image.id);
+                self.write_record(&record);
+            }
+            Err(e) => log::warn!(
                 "Could not save install checkpoint of {} after step {}: {}",
                 self.container,
                 done,
                 e
-            );
+            ),
         }
     }
 
@@ -111,6 +127,68 @@ impl Checkpoints {
             Ok(images) => remove(client, &images).await,
             Err(e) => log::debug!("Could not list install checkpoints: {}", e),
         }
+        if let Some(path) = self.record_path()
+            && let Err(e) = std::fs::remove_file(&path)
+            && e.kind() != std::io::ErrorKind::NotFound
+        {
+            log::debug!("Could not forget install checkpoints: {}", e);
+        }
+    }
+
+    // The ids of the checkpoint images rooz committed, kept off the engine: an image label, a
+    // container label and a volume label are all writable by anybody with engine access, so none
+    // of them is evidence that rooz built an image. Same reasoning as the age identity, which
+    // lives in the operator's own directory rather than in a volume.
+    fn record_path(&self) -> Option<std::path::PathBuf> {
+        let dir = crate::util::identity::key_path()
+            .ok()?
+            .parent()?
+            .join("checkpoints");
+        let name = hash(&(&self.workspace_key, &self.container));
+        Some(dir.join(format!("{}.record", name)))
+    }
+
+    fn read_record(&self) -> HashMap<String, String> {
+        let body = match self.record_path() {
+            Some(path) => std::fs::read_to_string(path).unwrap_or_default(),
+            None => String::new(),
+        };
+        body.lines()
+            .filter_map(|line| {
+                let (key, id) = line.split_once(' ')?;
+                Some((key.to_string(), id.to_string()))
+            })
+            .collect()
+    }
+
+    fn write_record(&self, record: &HashMap<String, String>) {
+        let Some(path) = self.record_path() else {
+            return;
+        };
+        if let Some(dir) = path.parent()
+            && let Err(e) = std::fs::create_dir_all(dir)
+        {
+            log::debug!("Could not keep install checkpoints: {}", e);
+            return;
+        }
+        let body = record
+            .iter()
+            .map(|(key, id)| format!("{} {}\n", key, id))
+            .collect::<String>();
+        if let Err(e) = std::fs::write(&path, body) {
+            log::debug!("Could not keep install checkpoints: {}", e);
+        }
+    }
+}
+
+// Engines are inconsistent about the 'sha256:' prefix, and a name is not an id.
+fn same_id(found: Option<&str>, expected: &str) -> bool {
+    fn bare(value: &str) -> &str {
+        value.strip_prefix("sha256:").unwrap_or(value)
+    }
+    match found {
+        Some(found) => !bare(found).is_empty() && bare(found) == bare(expected),
+        None => false,
     }
 }
 
@@ -160,6 +238,15 @@ pub async fn remove(client: &Docker, images: &[ImageSummary]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ids_compare_across_the_sha256_prefix_and_never_match_a_name() {
+        assert!(same_id(Some("sha256:abc"), "abc"));
+        assert!(same_id(Some("abc"), "sha256:abc"));
+        assert!(!same_id(Some("sha256:abc"), "def"));
+        assert!(!same_id(Some(""), ""));
+        assert!(!same_id(None, "abc"));
+    }
 
     fn step(name: &str, run: &str) -> ResolvedStep {
         ResolvedStep {
