@@ -1,0 +1,162 @@
+name: joey
+
+# joey is released with rooz and carries its version: the tag that releases rooz publishes the
+# images. A separate workflow, so the binaries' release does not wait for it or fail with it.
+on:
+  push:
+    tags: ["v[0-9]*"]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  binaries:
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            arch: amd64
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+            arch: arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: joey carries the version of the tag
+        run: |
+          scripts/check-joey-version.sh
+          crate="v$(sed -n 's/^version = "\(.*\)"/\1/p' joey/Cargo.toml | head -n1)"
+          [ "${{ github.ref_name }}" = "$crate" ] || {
+            echo "RELEASE REFUSED: tag is '${{ github.ref_name }}', joey/Cargo.toml says '$crate'" >&2
+            exit 1
+          }
+
+      - name: add target
+        run: rustup target add ${{ matrix.target }}
+
+      - name: test
+        run: cargo test --locked --manifest-path joey/Cargo.toml
+
+      - name: build
+        run: cargo build --release --locked --manifest-path joey/Cargo.toml --target ${{ matrix.target }}
+
+      - name: the binary reports the tag
+        run: |
+          bin="joey/target/${{ matrix.target }}/release/joey"
+          expected="joey ${GITHUB_REF_NAME#v}"
+          actual="$("$bin" --version)"
+          [ "$actual" = "$expected" ] || {
+            echo "RELEASE REFUSED: --version says '$actual', expected '$expected'" >&2
+            exit 1
+          }
+          mkdir -p ctx && cp "$bin" ctx/joey
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: joey-${{ matrix.arch }}
+          path: ctx/joey
+          if-no-files-found: error
+
+  # one image per architecture, built on a runner of that architecture, so there is no emulation;
+  # `manifest` below joins them
+  images:
+    needs: binaries
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            arch: amd64
+          - os: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: joey-${{ matrix.arch }}
+          path: ctx
+
+      - name: build, check and push
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          chmod +x ctx/joey
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          repo="ghcr.io/$owner/joey"
+          version="${GITHUB_REF_NAME#v}"
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+
+          docker build -f joey/Dockerfile.scratch \
+            --build-arg SOURCE="${{ github.server_url }}/${{ github.repository }}" \
+            -t "$repo:$version-${{ matrix.arch }}" ctx
+          docker build -f joey/Dockerfile.tools \
+            --build-arg SOURCE="${{ github.server_url }}/${{ github.repository }}" \
+            -t "$repo:$version-tools-${{ matrix.arch }}" ctx
+
+          # what ships has run: the same checks rooz's one-shots rely on
+          [ "$(docker run --rm "$repo:$version-${{ matrix.arch }}" --version)" = "joey $version" ]
+          docker run --rm --entrypoint sh "$repo:$version-tools-${{ matrix.arch }}" -c \
+            'joey --version && git --version && ssh -V && command -v ssh-keygen'
+
+          docker push "$repo:$version-${{ matrix.arch }}"
+          docker push "$repo:$version-tools-${{ matrix.arch }}"
+
+  manifest:
+    needs: images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: join the architectures
+        id: join
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          repo="ghcr.io/$owner/joey"
+          version="${GITHUB_REF_NAME#v}"
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+
+          docker buildx imagetools create -t "$repo:$version" \
+            "$repo:$version-amd64" "$repo:$version-arm64"
+          docker buildx imagetools create -t "$repo:$version-tools" \
+            "$repo:$version-tools-amd64" "$repo:$version-tools-arm64"
+
+          {
+            echo "name=$repo"
+            echo "scratch=$(docker buildx imagetools inspect "$repo:$version" --format '{{.Manifest.Digest}}')"
+            echo "tools=$(docker buildx imagetools inspect "$repo:$version-tools" --format '{{.Manifest.Digest}}')"
+          } >> "$GITHUB_OUTPUT"
+
+      # the digests rooz pins in a release: they are in the log and the job summary
+      - name: digests
+        run: |
+          {
+            echo "### joey ${GITHUB_REF_NAME}"
+            echo "- scratch: \`${{ steps.join.outputs.name }}@${{ steps.join.outputs.scratch }}\`"
+            echo "- tools: \`${{ steps.join.outputs.name }}@${{ steps.join.outputs.tools }}\`"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ steps.join.outputs.name }}
+          subject-digest: ${{ steps.join.outputs.scratch }}
+          push-to-registry: true
+
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ steps.join.outputs.name }}
+          subject-digest: ${{ steps.join.outputs.tools }}
+          push-to-registry: true
