@@ -1,0 +1,7 @@
+# What rooz's one-shot containers need around the binary: a shell, git and an ssh client.
+FROM docker.io/library/alpine:3.22
+ARG SOURCE=https://github.com/queil/rooz
+LABEL org.opencontainers.image.source=$SOURCE \
+      org.opencontainers.image.description="rooz's helper with sh, git and openssh-client"
+RUN apk add --no-cache git openssh-client ca-certificates
+COPY joey /usr/local/bin/joey
