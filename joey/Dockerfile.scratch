@@ -1,0 +1,8 @@
+# Only the static binary: no shell, no package manager. Built from a binary the workflow compiled
+# for the platform it runs on, so there is nothing to emulate.
+FROM scratch
+ARG SOURCE=https://github.com/queil/rooz
+LABEL org.opencontainers.image.source=$SOURCE \
+      org.opencontainers.image.description="rooz's helper (static binary only)"
+COPY joey /joey
+ENTRYPOINT ["/joey"]

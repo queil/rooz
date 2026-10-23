@@ -10,6 +10,13 @@ file - see the git history.
 
 ## [Unreleased]
 
+### Added
+
+- `joey`, rooz's helper, as a crate of its own in `joey/` that carries rooz's version. Each release
+  publishes it as `ghcr.io/queil/joey:<version>` (the static binary alone) and
+  `ghcr.io/queil/joey:<version>-tools` (with `sh`, `git` and `openssh-client`), for amd64 and arm64.
+  rooz does not use either yet.
+
 ### Changed
 
 - Clones are full instead of `--filter=blob:none`: `git log`, `git show` and checkouts no longer
