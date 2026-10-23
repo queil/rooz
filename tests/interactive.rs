@@ -204,6 +204,11 @@ async fn failing_install_step_fails_new() {
         "unexpected error output: {}",
         stderr
     );
+    assert!(
+        stderr.contains(&format!("rooz update {}", key)),
+        "no resume hint in: {}",
+        stderr
+    );
 
     cleanup(&env, &key, &cfg_path);
 }

@@ -231,9 +231,17 @@ async fn run() -> Result<(), AnyError> {
                 return Ok(());
             }
 
-            workspace
+            if let Err(e) = workspace
                 .new(&name, &work, config_source, false, None)
-                .await?;
+                .await
+            {
+                // a failure before the config was stored leaves nothing to resume
+                let unfinished = workspace.api.volume.get_single(&labels).await?.is_some();
+                return Err(match unfinished {
+                    true => format!("{}\n\n{}", e, unfinished_hint(&rooz_cmd, &name)).into(),
+                    false => e,
+                });
+            }
             println!(
                 "\nThe workspace is ready. Run '{} enter {}' to enter.",
                 rooz_cmd, name
@@ -610,6 +618,13 @@ async fn run() -> Result<(), AnyError> {
     Ok(())
 }
 
+fn unfinished_hint(rooz_cmd: &str, name: &str) -> String {
+    format!(
+        "The workspace was left unfinished: run '{} update {}' to resume from the last completed install step.",
+        rooz_cmd, name
+    )
+}
+
 fn rooz_command(host: Option<&str>) -> String {
     match host {
         Some(host) => format!("rooz -H {}", host),
@@ -619,7 +634,15 @@ fn rooz_command(host: Option<&str>) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::rooz_command;
+    use super::{rooz_command, unfinished_hint};
+
+    #[test]
+    fn the_unfinished_hint_names_the_host_and_the_workspace() {
+        assert_eq!(
+            unfinished_hint(&rooz_command(Some("prod")), "ws"),
+            "The workspace was left unfinished: run 'rooz -H prod update ws' to resume from the last completed install step."
+        );
+    }
 
     #[test]
     fn next_step_hints_name_the_host_they_must_run_against() {

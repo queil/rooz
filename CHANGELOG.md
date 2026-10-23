@@ -10,6 +10,12 @@ file - see the git history.
 
 ## [Unreleased]
 
+### Changed
+
+- When `rooz new` fails after the workspace's config was stored (an install step failed, say), the
+  error ends with `run 'rooz update <name>' to resume from the last completed install step`,
+  naming the host with `-H`.
+
 ### Fixed
 
 - `rooz update --rebuild` runs every install step, the work container's and the sidecars', whatever
