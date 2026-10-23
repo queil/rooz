@@ -8,6 +8,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases before 0.159.0 predate this
 file - see the git history.
 
+## [Unreleased]
+
+### Fixed
+
+- `rooz update --rebuild` runs every install step, the work container's and the sidecars', whatever
+  its `skip_if` says. A `skip_if` that looks at a volume (`test -x ~/.cargo/bin/rustc`) was true
+  while the rebuilt image lacked the other half of the install (`~/.rustup`), so the step was
+  skipped and the workspace stayed broken.
+
 ## [0.170.0] - 2026-10-22
 
 ### Added

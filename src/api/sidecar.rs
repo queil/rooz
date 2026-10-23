@@ -34,6 +34,7 @@ impl<'a> WorkspaceApi<'a> {
         force: bool,
         pull_image: bool,
         rewrite_files: bool,
+        run_all_steps: bool,
         recorded_images: Option<&HashMap<String, String>>,
     ) -> Result<RuntimeConfig, AnyError> {
         let mut cfg = config.clone();
@@ -176,7 +177,10 @@ impl<'a> WorkspaceApi<'a> {
                     ..Default::default()
                 };
 
-                let install_steps = s.install.as_ref().map(|i| i.resolved()).unwrap_or_default();
+                let install_steps = run_all(
+                    s.install.as_ref().map(|i| i.resolved()).unwrap_or_default(),
+                    run_all_steps,
+                );
                 if !install_steps.is_empty() {
                     let runtime_image = format!("localhost/rooz/{}/{}", workspace_key, name);
                     let base_image = self.api.image.ensure(&s.image, pull_image).await?;
@@ -339,6 +343,17 @@ impl<'a> WorkspaceApi<'a> {
     }
 }
 
+// Steps with their skip_if dropped when every one of them has to run.
+pub fn run_all(steps: Vec<ResolvedStep>, all: bool) -> Vec<ResolvedStep> {
+    match all {
+        true => steps
+            .into_iter()
+            .map(|s| ResolvedStep { skip_if: None, ..s })
+            .collect(),
+        false => steps,
+    }
+}
+
 // What a built sidecar image depends on: a change to any of these builds it again.
 fn build_key(
     base_image_id: &str,
@@ -362,5 +377,34 @@ pub fn all_ok(results: impl IntoIterator<Item = Result<(), AnyError>>) -> Result
     match errors.len() {
         0 => Ok(()),
         _ => Err(errors.join("\n").into()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn guarded() -> Vec<ResolvedStep> {
+        vec![ResolvedStep {
+            name: "rust".into(),
+            run: "install".into(),
+            skip_if: Some("test -x ~/.cargo/bin/rustc".into()),
+            root: false,
+        }]
+    }
+
+    #[test]
+    fn a_rebuild_drops_skip_if_and_nothing_else() {
+        let steps = run_all(guarded(), true);
+        assert_eq!(steps[0].skip_if, None);
+        assert_eq!(
+            (steps[0].name.as_str(), steps[0].run.as_str()),
+            ("rust", "install")
+        );
+    }
+
+    #[test]
+    fn without_a_rebuild_skip_if_stays() {
+        assert_eq!(run_all(guarded(), false), guarded());
     }
 }

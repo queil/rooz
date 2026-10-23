@@ -132,6 +132,47 @@ async fn install_skip_if_skips_on_zero_exit_only() {
 }
 
 #[tokio::test]
+async fn update_rebuild_runs_steps_whose_skip_if_succeeds() {
+    let Some(env) = TestEnv::from_env() else {
+        return;
+    };
+    let key = unique_key("int-rebuild-skip");
+    let cfg_path = write_cfg(
+        &key,
+        "image: alpine:latest\ninstall:\n  01-guarded:\n    skip_if: 'true'\n    run: echo ran >> /work/marker\n",
+    );
+
+    env.rooz()
+        .args(["system", "init", "--force"])
+        .assert()
+        .success();
+    env.rooz()
+        .args(["new", &key, "--config", &cfg_path])
+        .assert()
+        .success();
+    let work_vol = format!("rooz_{}_work", key);
+    assert_eq!(env.volume_file(&work_vol, "marker").await, "");
+
+    env.rooz()
+        .args(["update", &key, "--no-pull"])
+        .assert()
+        .success();
+    assert_eq!(
+        env.volume_file(&work_vol, "marker").await,
+        "",
+        "a plain update honours skip_if"
+    );
+
+    env.rooz()
+        .args(["update", &key, "--no-pull", "--rebuild"])
+        .assert()
+        .success();
+    assert_eq!(env.volume_file(&work_vol, "marker").await, "ran\n");
+
+    cleanup(&env, &key, &cfg_path);
+}
+
+#[tokio::test]
 async fn failing_install_step_fails_new() {
     let Some(env) = TestEnv::from_env() else {
         return;

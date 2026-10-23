@@ -1,5 +1,5 @@
 use crate::{
-    api::{WorkspaceApi, checkpoint::Checkpoints, exec::InstallCheckpoints},
+    api::{WorkspaceApi, checkpoint::Checkpoints, exec::InstallCheckpoints, sidecar::run_all},
     model::{
         types::{AnyError, ContainerResult, RunMode, RunSpec, WorkSpec, WorkspaceResult},
         volume::RoozVolume,
@@ -48,11 +48,13 @@ impl<'a> WorkspaceApi<'a> {
             .filter_map(|m| m.target.clone())
             .collect::<Vec<_>>();
 
-        let install_steps = spec
-            .install
-            .as_ref()
-            .map(|i| i.resolved())
-            .unwrap_or_default();
+        let install_steps = run_all(
+            spec.install
+                .as_ref()
+                .map(|i| i.resolved())
+                .unwrap_or_default(),
+            spec.run_all_steps,
+        );
         // An ephemeral workspace is not rebuilt, so there is nothing to resume it from.
         // The environment is hashed with the rest: the steps run with it.
         let checkpoints = if install_steps.is_empty() || spec.ephemeral {

@@ -138,6 +138,7 @@ impl<'a> WorkspaceApi<'a> {
                 _ => HashMap::new(),
             },
             pull_sidecar_images: pull_requested,
+            run_all_steps: rebuild_images,
         };
 
         match mode {
