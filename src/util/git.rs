@@ -422,7 +422,7 @@ impl<'a> GitApi<'a> {
             .await;
             // the container mounts the ssh key: a failed clone must not leave it running
             if let Err(e) = cloned {
-                self.api.container.remove(&id, true).await.ok();
+                self.done_with(&id).await;
                 return Err(e);
             }
             Ok(id.to_string())
@@ -439,14 +439,16 @@ impl<'a> GitApi<'a> {
         let container_id = self
             .clone_from_spec(spec, &CloneUrls::Root { url: url.into() })
             .await?;
-        let clone_dir = get_clone_dir(
-            &spec.working_dir,
-            url,
-            &self.api.get_system_config().await?.gitconfig,
-        )?;
-        self.api.container.kill(&container_id, false).await?;
-
-        Ok(RootRepoCloneResult { dir: clone_dir })
+        let clone_dir = async {
+            get_clone_dir(
+                &spec.working_dir,
+                url,
+                &self.api.get_system_config().await?.gitconfig,
+            )
+        }
+        .await;
+        self.done_with(&container_id).await;
+        Ok(RootRepoCloneResult { dir: clone_dir? })
     }
 
     pub async fn clone_extra_repos(
@@ -457,7 +459,7 @@ impl<'a> GitApi<'a> {
         let container_id = self
             .clone_from_spec(&spec, &CloneUrls::Extra { urls })
             .await?;
-        self.api.container.kill(&container_id, false).await?;
+        self.done_with(&container_id).await;
         Ok(())
     }
 
@@ -484,18 +486,30 @@ impl<'a> GitApi<'a> {
                 },
             )
             .await?;
-        let clone_dir = get_clone_dir(
-            &spec.working_dir,
-            url,
-            &self.api.get_system_config().await?.gitconfig,
-        )?;
-        let file_format = FileFormat::from_path(path)?;
-        let result = self
-            .config
-            .read_config_body(&container_id, &clone_dir, file_format, path)
-            .await?;
-        self.api.container.kill(&container_id, false).await?;
-        Ok((result, clone_dir))
+        // the config is read inside the container, so it goes once that is over, read or not
+        let outcome = async {
+            let clone_dir = get_clone_dir(
+                &spec.working_dir,
+                url,
+                &self.api.get_system_config().await?.gitconfig,
+            )?;
+            let file_format = FileFormat::from_path(path)?;
+            let result = self
+                .config
+                .read_config_body(&container_id, &clone_dir, file_format, path)
+                .await?;
+            Ok((result, clone_dir))
+        }
+        .await;
+        self.done_with(&container_id).await;
+        outcome
+    }
+
+    // A clone container mounts the ssh key volume read-write and runs until it is removed: every
+    // caller of clone_from_spec ends with this, on its error paths too. Best effort - the error
+    // that brought it here says more than a failed removal.
+    async fn done_with(&self, container_id: &str) {
+        self.api.container.remove(container_id, true).await.ok();
     }
 }
 

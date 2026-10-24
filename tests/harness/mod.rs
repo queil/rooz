@@ -161,6 +161,97 @@ impl TestEnv {
         .to_string()
     }
 
+    /// Runs `script` as root in a throwaway `image` container, with `volume` writable at /mnt, and
+    /// waits for it to finish.
+    pub async fn run_in_volume(&self, image: &str, volume: &str, script: &str) {
+        let cname = format!("rooz-test-run-{}", volume.replace(['/', ':'], "-"));
+        let body = ContainerCreateBody {
+            image: Some(image.to_string()),
+            entrypoint: Some(vec!["sh".to_string(), "-c".to_string()]),
+            cmd: Some(vec![script.to_string()]),
+            user: Some("0".to_string()),
+            host_config: Some(HostConfig {
+                mounts: Some(vec![Mount {
+                    target: Some("/mnt".to_string()),
+                    source: Some(volume.to_string()),
+                    typ: Some(MountType::VOLUME),
+                    ..Default::default()
+                }]),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        self.docker
+            .create_container(
+                Some(CreateContainerOptions {
+                    name: Some(cname.clone()),
+                    ..Default::default()
+                }),
+                body,
+            )
+            .await
+            .unwrap();
+        self.docker
+            .start_container(&cname, None::<StartContainerOptions>)
+            .await
+            .unwrap();
+        self.docker
+            .wait_container(&cname, None::<WaitContainerOptions>)
+            .next()
+            .await;
+        self.remove_decoy_container(&cname).await;
+    }
+
+    /// Serves `dir` of `volume` over plain HTTP from a container named `name`; returns its address.
+    pub async fn serve_dir(&self, name: &str, volume: &str, dir: &str) -> String {
+        let body = ContainerCreateBody {
+            image: Some("docker.io/library/python:3-alpine".to_string()),
+            cmd: Some(
+                ["python3", "-m", "http.server", "80", "-d", dir]
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect(),
+            ),
+            host_config: Some(HostConfig {
+                mounts: Some(vec![Mount {
+                    target: Some("/srv".to_string()),
+                    source: Some(volume.to_string()),
+                    typ: Some(MountType::VOLUME),
+                    read_only: Some(true),
+                    ..Default::default()
+                }]),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        self.docker
+            .create_container(
+                Some(CreateContainerOptions {
+                    name: Some(name.to_string()),
+                    ..Default::default()
+                }),
+                body,
+            )
+            .await
+            .unwrap();
+        self.docker
+            .start_container(name, None::<StartContainerOptions>)
+            .await
+            .unwrap();
+        let networks = self
+            .docker
+            .inspect_container(name, None)
+            .await
+            .unwrap()
+            .network_settings
+            .and_then(|n| n.networks)
+            .unwrap_or_default();
+        networks
+            .values()
+            .find_map(|n| n.ip_address.clone().filter(|ip| !ip.is_empty()))
+            .expect("server has no address")
+    }
+
     async fn volume_cmd(&self, volume_name: &str, cmd: Vec<String>) -> String {
         let cname = format!("rooz-test-cat-{}", volume_name.replace(['/', ':'], "-"));
         let mount = Mount {

@@ -33,9 +33,10 @@ file - see the git history.
 
 ### Fixed
 
-- A clone that failed (no terminal, an unreachable host) left its container running, with the SSH
-  key volume mounted, and `rooz rm` did not remove it. The container is removed when anything
-  after its creation fails.
+- A clone that failed (no terminal, an unreachable host), or a `--config <git url>` whose file
+  could not be read from the clone (missing, invalid, naming a missing data file or base), left the
+  clone container running with the SSH key volume mounted, and `rooz rm` did not remove it. The
+  container is removed once rooz is done with it, whatever the outcome.
 - `rooz update --rebuild` runs every install step, the work container's and the sidecars', whatever
   its `skip_if` says. A `skip_if` that looks at a volume (`test -x ~/.cargo/bin/rustc`) was true
   while the rebuilt image lacked the other half of the install (`~/.rustup`), so the step was
