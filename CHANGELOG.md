@@ -17,7 +17,8 @@ file - see the git history.
   sidecar with no ssh or no route out). Each repository is mirrored bare in a cache volume that is
   refreshed on every clone, and the clone borrows its objects and then drops the link, so cloning the
   same repository again is quick. A mirror that cannot be updated falls back to cloning from the
-  remote. Config clones (`--config <url>`) and shallow clones do not use it.
+  remote. Config clones (`--config <url>`), shallow clones and `file://` URLs do not use it. Git never
+  runs against the remote from inside a mirror and ignores a mirror another user owns.
 - When `rooz new` fails after the workspace's config was stored (an install step failed, say), the
   error ends with `run 'rooz update <name>' to resume from the last completed install step`,
   naming the host with `-H`.
