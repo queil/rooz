@@ -8,6 +8,16 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases before 0.159.0 predate this
 file - see the git history.
 
+## [Unreleased]
+
+### Changed
+
+- `rooz cache ls` measures only the cache volumes it lists, with `du` in one short-lived container,
+  instead of asking the engine for its disk usage report, which sizes every image, container and
+  volume and took long on a busy engine.
+- A clone no longer warns `could not create the container user` when the git container's root
+  filesystem is read-only (podman): the clone does not need the account.
+
 ## [0.171.0] - 2026-10-24
 
 ### Added

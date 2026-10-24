@@ -1,6 +1,9 @@
 use std::collections::{BTreeSet, HashMap};
 
-use bollard::query_parameters::{ListContainersOptions, ListVolumesOptions, RemoveVolumeOptions};
+use bollard::{
+    models::{Mount, MountType},
+    query_parameters::{ListContainersOptions, ListVolumesOptions, RemoveVolumeOptions},
+};
 use serde::Serialize;
 use tabled::{Table, Tabled, settings::Style};
 
@@ -55,6 +58,47 @@ fn resolve<'a>(arg: &str, scope: &str, known: &'a [Cache]) -> Option<&'a Cache> 
 }
 
 impl<'a> Api<'a> {
+    // `du` over the listed volumes in one short-lived container. The engine's disk usage report
+    // sizes every image, container and volume on it, which takes long on a busy engine, and its
+    // per-type filter cannot be sent through bollard. A volume that cannot be measured shows no size.
+    async fn cache_sizes(&self, names: &[String]) -> HashMap<String, i64> {
+        if names.is_empty() {
+            return HashMap::new();
+        }
+        let mounts = names
+            .iter()
+            .enumerate()
+            .map(|(i, name)| Mount {
+                target: Some(format!("/c/{}", i)),
+                source: Some(name.clone()),
+                typ: Some(MountType::VOLUME),
+                read_only: Some(true),
+                ..Default::default()
+            })
+            .collect();
+        let script =
+            "for i in $(ls /c); do echo \"$i $(du -sk /c/$i | cut -f1)\"; done".to_string();
+        match self
+            .container
+            .one_shot_output("cache sizes", script, Some(mounts), None, None)
+            .await
+        {
+            Ok(out) => out
+                .data
+                .lines()
+                .filter_map(|line| {
+                    let (i, kib) = line.trim().split_once(' ')?;
+                    let name = names.get(i.parse::<usize>().ok()?)?;
+                    Some((name.clone(), kib.parse::<i64>().ok()? * 1024))
+                })
+                .collect(),
+            Err(e) => {
+                log::debug!("Could not read volume sizes: {}", e);
+                HashMap::new()
+            }
+        }
+    }
+
     async fn caches(&self, all_scopes: bool) -> Result<Vec<Cache>, AnyError> {
         let prefix = scope_prefix(&cache_scope());
 
@@ -66,27 +110,6 @@ impl<'a> Api<'a> {
             .await?
             .volumes
             .unwrap_or_default();
-
-        // size comes from the engine's disk usage report; engines without one show no size
-        let sizes: HashMap<String, i64> = match self.client.df(None).await {
-            Ok(df) => df
-                .volume_usage
-                .and_then(|u| u.items)
-                .unwrap_or_default()
-                .iter()
-                .filter_map(|v| {
-                    Some((
-                        v.get("Name")?.as_str()?.to_string(),
-                        v.get("UsageData")?.get("Size")?.as_i64()?,
-                    ))
-                })
-                .filter(|(_, size)| *size >= 0)
-                .collect(),
-            Err(e) => {
-                log::debug!("Could not read volume sizes: {}", e);
-                HashMap::new()
-            }
-        };
 
         // every container, stopped or not: the engine refuses to remove a volume any of them
         // references
@@ -111,9 +134,16 @@ impl<'a> Api<'a> {
             }
         }
 
-        let mut caches = volumes
+        let volumes = volumes
             .into_iter()
             .filter(|v| all_scopes || v.name.starts_with(&prefix))
+            .collect::<Vec<_>>();
+        let sizes = self
+            .cache_sizes(&volumes.iter().map(|v| v.name.clone()).collect::<Vec<_>>())
+            .await;
+
+        let mut caches = volumes
+            .into_iter()
             .map(|v| {
                 let workspaces = mounted_by
                     .get(&v.name)

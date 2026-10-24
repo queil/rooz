@@ -396,7 +396,9 @@ impl<'a> GitApi<'a> {
         if let ContainerResult::Created { id } = self.api.container.create(run_spec).await? {
             let cloned: Result<(), AnyError> = async {
                 self.api.container.start(&id).await?;
-                self.api.exec.ensure_user(&id).await?;
+                // rooz's gitconfig hands ssh its key and known_hosts paths, so the clone needs no
+                // account - and on podman the container's root filesystem is read-only
+                self.api.exec.ensure_user_quietly(&id).await?;
                 self.api
                     .exec
                     .chown(&id, &spec.uid.parse::<i32>()?, &spec.working_dir)

@@ -715,6 +715,20 @@ echo start > /tmp/exec_start
             Err(e) => return Err(e.into()),
         };
 
+        // auto-removal follows the exit by a moment: until it is done the container still holds
+        // its mounts, and a caller that removes one of those volumes next would find it in use
+        let _ = timeout(Duration::from_secs(5), async {
+            while self
+                .client
+                .inspect_container(&id, None::<InspectContainerOptions>)
+                .await
+                .is_ok()
+            {
+                sleep(Duration::from_millis(50)).await;
+            }
+        })
+        .await;
+
         Ok(OneShotResult { data })
     }
 
