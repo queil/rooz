@@ -42,16 +42,19 @@ jobs:
         id: rel
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_PRERELEASE: ${{ github.event.release.prerelease }}
+          CHANNEL: ${{ inputs.channel }}
         run: |
-          if [ "${{ github.event_name }}" = "release" ]; then
-            echo "tag=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
-            if [ "${{ github.event.release.prerelease }}" = "true" ]; then
+          if [ "$GITHUB_EVENT_NAME" = "release" ]; then
+            echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+            if [ "$RELEASE_PRERELEASE" = "true" ]; then
               echo "branch=staging" >> "$GITHUB_OUTPUT"
             else
               echo "branch=main" >> "$GITHUB_OUTPUT"
             fi
           else
-            if ! tag=$(gh api repos/${{ github.repository }}/releases/latest --jq .tag_name 2>/dev/null); then
+            if ! tag=$(gh api repos/$GITHUB_REPOSITORY/releases/latest --jq .tag_name 2>/dev/null); then
               tag=""
             fi
             case "$tag" in
@@ -59,7 +62,7 @@ jobs:
               *) echo "releases/latest is '$tag' - not a rooz release tag" >&2; exit 1 ;;
             esac
             echo "tag=$tag" >> "$GITHUB_OUTPUT"
-            if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.channel }}" = "staging" ]; then
+            if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && [ "$CHANNEL" = "staging" ]; then
               echo "branch=staging" >> "$GITHUB_OUTPUT"
             else
               echo "branch=main" >> "$GITHUB_OUTPUT"
@@ -69,18 +72,21 @@ jobs:
       - name: fetch the pinned installer from the release
         env:
           GH_TOKEN: ${{ github.token }}
+          REL_TAG: ${{ steps.rel.outputs.tag }}
         run: |
-          tag="${{ steps.rel.outputs.tag }}"
-          gh release download "$tag" --repo "${{ github.repository }}" \
+          tag="$REL_TAG"
+          gh release download "$tag" --repo "$GITHUB_REPOSITORY" \
             --pattern install.sh --dir docs/src
           sh -n docs/src/install.sh
           grep -q "TAG=\"$tag\"" docs/src/install.sh \
             || { echo "installer from $tag does not pin $tag - refusing to deploy" >&2; exit 1; }
 
       - name: install the released rooz with that installer
+        env:
+          REL_TAG: ${{ steps.rel.outputs.tag }}
         run: |
           sh docs/src/install.sh
-          tag="${{ steps.rel.outputs.tag }}"
+          tag="$REL_TAG"
           version="$(~/.local/bin/rooz --version)"
           [ "$version" = "rooz ${tag#v}" ] \
             || { echo "installed '$version', released '$tag'" >&2; exit 1; }
@@ -88,8 +94,10 @@ jobs:
           jq empty docs/src/schema.json
 
       - name: CLI reference from the released tag
+        env:
+          REL_TAG: ${{ steps.rel.outputs.tag }}
         run: |
-          tag="${{ steps.rel.outputs.tag }}"
+          tag="$REL_TAG"
           git fetch --depth 1 origin tag "$tag"
           git worktree add "$RUNNER_TEMP/rel" "$tag"
           mkdir -p docs/src/reference
@@ -108,8 +116,10 @@ jobs:
           mdbook --version
 
       - name: stamp the version badge
+        env:
+          REL_TAG: ${{ steps.rel.outputs.tag }}
         run: |
-          tag="${{ steps.rel.outputs.tag }}"
+          tag="$REL_TAG"
           sed -i "s/const version = \"dev\";/const version = \"$tag\";/" docs/theme/version.js
           grep -q "const version = \"$tag\";" docs/theme/version.js \
             || { echo "version badge not stamped with $tag" >&2; exit 1; }
@@ -118,8 +128,10 @@ jobs:
         run: mdbook build docs
 
       - name: verify the artifact before it ships
+        env:
+          REL_TAG: ${{ steps.rel.outputs.tag }}
         run: |
-          tag="${{ steps.rel.outputs.tag }}"
+          tag="$REL_TAG"
           sh -n docs/book/install.sh
           grep -q "TAG=\"$tag\"" docs/book/install.sh \
             || { echo "built site would serve an installer not pinned to $tag" >&2; exit 1; }
@@ -132,15 +144,18 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          REL_BRANCH: ${{ steps.rel.outputs.branch }}
         run: |
           npx --yes wrangler@4.151.1 pages deploy docs/book \
             --project-name rooz-dev \
-            --branch "${{ steps.rel.outputs.branch }}"
+            --branch "$REL_BRANCH"
 
       - name: served installer pins the released tag
         if: github.event_name == 'release' && github.event.release.prerelease == false
+        env:
+          REL_TAG: ${{ steps.rel.outputs.tag }}
         run: |
-          tag="${{ steps.rel.outputs.tag }}"
+          tag="$REL_TAG"
           for i in $(seq 1 24); do
             served=$(curl -fsSL https://rooz.dev/install.sh 2>/dev/null | grep -m1 '^    TAG=' | cut -d'"' -f2 || true)
             [ "$served" = "$tag" ] && { echo "served installer pins $tag (after $((i * 5))s)"; exit 0; }

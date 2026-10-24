@@ -27,7 +27,7 @@ jobs:
 
       - name: tag matches Cargo.toml
         run: |
-          tag="${{ github.ref_name }}"
+          tag="$GITHUB_REF_NAME"
           crate="v$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')"
           [ "$tag" = "$crate" ] || {
             echo "RELEASE REFUSED: tag is '$tag', Cargo.toml says '$crate'" >&2
@@ -37,7 +37,7 @@ jobs:
 
       - name: the changelog describes this version
         run: |
-          scripts/changelog-section.sh "${{ github.ref_name }}" > /dev/null || {
+          scripts/changelog-section.sh "$GITHUB_REF_NAME" > /dev/null || {
             version="${GITHUB_REF_NAME#v}"
             echo "RELEASE REFUSED: CHANGELOG.md has no '## [$version]' section - rename the 'Unreleased' one before tagging" >&2
             exit 1
@@ -172,13 +172,13 @@ jobs:
           echo "dd8797ce9caa29d101f39f7096c624a92cea676922f8c1822ced7348e01611d9  $RUNNER_TEMP/weir" | sha256sum -c -
           chmod +x "$RUNNER_TEMP/weir"
           "$RUNNER_TEMP/weir" scripts/gen-install.weir --template install.sh --sums dist/SHA256SUMS \
-            --tag "${{ github.ref_name }}" --out dist/install.sh
+            --tag "$GITHUB_REF_NAME" --out dist/install.sh
           sh -n dist/install.sh
 
       # the hand-written section for this version, with the generated commit list
       # appended by --generate-notes
       - name: release notes from CHANGELOG.md
-        run: scripts/changelog-section.sh "${{ github.ref_name }}" > notes.md
+        run: scripts/changelog-section.sh "$GITHUB_REF_NAME" > notes.md
 
       # created with no assets: an upload that dies half way through used to
       # leave a release that looks complete. Uploads are their own retried step.
@@ -186,10 +186,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${{ github.ref_name }}" \
-            --repo "${{ github.repository }}" \
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
             --draft \
-            --title "rooz ${{ github.ref_name }}" \
+            --title "rooz $GITHUB_REF_NAME" \
             --notes-file notes.md \
             --generate-notes
 
@@ -198,8 +198,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           for attempt in 1 2 3; do
-            if gh release upload "${{ github.ref_name }}" --clobber \
-                 --repo "${{ github.repository }}" \
+            if gh release upload "$GITHUB_REF_NAME" --clobber \
+                 --repo "$GITHUB_REPOSITORY" \
                  dist/rooz-* dist/SHA256SUMS dist/install.sh; then
               exit 0
             fi
@@ -221,8 +221,8 @@ jobs:
           rooz-x86_64-apple-darwin
           SHA256SUMS
           install.sh"
-          gh release view "${{ github.ref_name }}" \
-            --repo "${{ github.repository }}" \
+          gh release view "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
             --json assets --jq '.assets[] | "\(.name) \(.state) \(.size)"' > assets.txt
           cat assets.txt
           missing=0
@@ -237,4 +237,4 @@ jobs:
             fi
           done <<< "$(echo "$expected" | sed 's/^[[:space:]]*//')"
           [ "$missing" -eq 0 ] || exit 1
-          echo "draft ${{ github.ref_name }} carries every expected asset - publish it when you are happy with the notes"
+          echo "draft $GITHUB_REF_NAME carries every expected asset - publish it when you are happy with the notes"
