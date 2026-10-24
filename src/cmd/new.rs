@@ -157,6 +157,9 @@ fn check_secrets(
 pub struct Rebuild {
     pub sidecar_images: HashMap<String, String>,
     pub pull_sidecar_images: bool,
+    // every install step runs, whatever its skip_if says: that state may be in a volume the
+    // rebuilt image does not share
+    pub run_all_steps: bool,
 }
 
 fn check_privileged(containers: &[(String, String)], consent: &Consent) -> Result<(), AnyError> {
@@ -606,6 +609,7 @@ impl<'a> WorkspaceApi<'a> {
             .map(|x| x.iter().map(|z| z.as_ref()).collect()),
             mounts: container_mounts,
             install: cfg2.install,
+            run_all_steps: rebuild.is_some_and(|r| r.run_all_steps),
             ..*work_spec
         };
 
@@ -621,6 +625,7 @@ impl<'a> WorkspaceApi<'a> {
                 force,
                 cli_params.pull_image || rebuild.is_some_and(|r| r.pull_sidecar_images),
                 rebuild.is_some(),
+                rebuild.is_some_and(|r| r.run_all_steps),
                 rebuild.map(|r| &r.sidecar_images),
             ),
             self.create(&work_spec),

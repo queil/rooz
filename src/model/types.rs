@@ -51,6 +51,7 @@ pub struct WorkSpec<'a> {
     pub args: Option<Vec<&'a str>>,
     pub mounts: Vec<Mount>,
     pub install: Option<InstallSpec>,
+    pub run_all_steps: bool,
 }
 
 impl Default for WorkSpec<'_> {
@@ -76,6 +77,7 @@ impl Default for WorkSpec<'_> {
             args: None,
             mounts: Vec::new(),
             install: None,
+            run_all_steps: false,
         }
     }
 }

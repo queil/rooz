@@ -163,7 +163,8 @@ A sidecar with `install` steps is built once: rooz runs the steps, commits
   broken; volumes are kept. A change to any of them, or `--purge`, builds it again from the
   base image.
 * A rebuild starts from the base image, so `skip_if` sees nothing earlier builds installed. It only
-  skips steps whose output is on a volume or cache.
+  skips steps whose output is on a volume or cache. `rooz update --rebuild` ignores `skip_if` and
+  runs every step, the work container's too, so keep steps safe to run again.
 * Install steps run without the sidecar's `env`, as its `uid`. Use absolute paths there; `env` applies
   when the sidecar runs.
 * Removing a workspace removes its built images.
