@@ -278,7 +278,7 @@ fn clone_line_with(
         );
     }
     let mirror = sh::quote(&mirror_dir(cache_root, url));
-    let ours = r#"[ "$(stat -c %u "$M" 2>/dev/null)" = "$(id -u)" ]"#;
+    let ours = r#"[ -O "$M" ]"#;
     format!(
         "ls {dir}/.git > /dev/null 2>&1 || {{\n\
          M={mirror}\n\
@@ -584,7 +584,7 @@ mod tests {
             assert!(on_mirror[0].contains(flag), "missing {}: {}", flag, line);
         }
         // a mirror owned by someone else is neither read nor written
-        assert_eq!(line.matches("stat -c %u").count(), 2, "{}", line);
+        assert_eq!(line.matches(r#"[ -O "$M" ]"#).count(), 2, "{}", line);
     }
 
     #[test]
