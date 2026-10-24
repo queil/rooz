@@ -12,6 +12,12 @@ file - see the git history.
 
 ### Changed
 
+- Clones are full instead of `--filter=blob:none`: `git log`, `git show` and checkouts no longer
+  need the remote (a partial clone fetches missing blobs on demand, which fails in a workspace or
+  sidecar with no ssh or no route out). Each repository is mirrored bare in a cache volume that is
+  refreshed on every clone, and the clone borrows its objects and then drops the link, so cloning the
+  same repository again is quick. A mirror that cannot be updated falls back to cloning from the
+  remote. Config clones (`--config <url>`) and shallow clones do not use it.
 - When `rooz new` fails after the workspace's config was stored (an install step failed, say), the
   error ends with `run 'rooz update <name>' to resume from the last completed install step`,
   naming the host with `-H`.

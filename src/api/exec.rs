@@ -534,6 +534,27 @@ impl<'a> ExecApi<'a> {
     }
 
     pub async fn chown(&self, container_id: &str, uid: &i32, dir: &str) -> Result<(), AnyError> {
+        self.chown_with(container_id, uid, dir, true).await
+    }
+
+    // The directory itself, not what is in it: a cache volume's root belongs to root until
+    // someone hands it over, and what is in it is already its owner's.
+    pub async fn chown_dir(
+        &self,
+        container_id: &str,
+        uid: &i32,
+        dir: &str,
+    ) -> Result<(), AnyError> {
+        self.chown_with(container_id, uid, dir, false).await
+    }
+
+    async fn chown_with(
+        &self,
+        container_id: &str,
+        uid: &i32,
+        dir: &str,
+        recursive: bool,
+    ) -> Result<(), AnyError> {
         // TODO: this is true if the volume was first mounted as the right user
         // otherwise chown is still needed. I could probably check if a setup container had run first
         // because this is the main reason the volumes would be owned by root
@@ -546,6 +567,7 @@ impl<'a> ExecApi<'a> {
         log::debug!("Changing ownership... ({} {})", uid, dir);
 
         let uid_format = format!("{}:{}", uid, uid);
+        let flags = if recursive { "-R " } else { "" };
         let (chown_response, chown_code) = self
             .output_with_code(
                 "chown",
@@ -554,7 +576,7 @@ impl<'a> ExecApi<'a> {
                 Some(vec![
                     "sh",
                     "-c",
-                    &format!("chown -R {} {}", uid_format, chown_target(dir)),
+                    &format!("chown {}{} {}", flags, uid_format, chown_target(dir)),
                 ]),
             )
             .await?;
