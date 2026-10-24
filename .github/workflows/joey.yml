@@ -2,9 +2,16 @@ name: joey
 
 # joey is released with rooz and carries its version: the tag that releases rooz publishes the
 # images. A separate workflow, so the binaries' release does not wait for it or fail with it.
+#
+# A dry run publishes the same images under a throwaway version, `<crate version>-dry.<run number>`
+# (never `latest`, never attested), to try the whole flow before a tag does. Push a branch named
+# `joey-dry-run/<anything>` or start the workflow by hand; the manual start only exists once this
+# file is on the default branch. Delete the dry versions from the package page afterwards.
 on:
   push:
     tags: ["v[0-9]*"]
+    branches: ["joey-dry-run/**"]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -13,7 +20,40 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  meta:
+    runs-on: ubuntu-latest
+    outputs:
+      crate: ${{ steps.v.outputs.crate }}
+      image: ${{ steps.v.outputs.image }}
+      dry: ${{ steps.v.outputs.dry }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: versions
+        id: v
+        run: |
+          scripts/check-joey-version.sh
+          crate="$(sed -n 's/^version = "\(.*\)"/\1/p' joey/Cargo.toml | head -n1)"
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            [ "${{ github.ref_name }}" = "v$crate" ] || {
+              echo "RELEASE REFUSED: tag is '${{ github.ref_name }}', joey/Cargo.toml says 'v$crate'" >&2
+              exit 1
+            }
+            image="$crate"
+            dry=false
+          else
+            image="$crate-dry.${{ github.run_number }}"
+            dry=true
+          fi
+          {
+            echo "crate=$crate"
+            echo "image=$image"
+            echo "dry=$dry"
+          } >> "$GITHUB_OUTPUT"
+          echo "joey $crate publishes as $image (dry run: $dry)"
+
   binaries:
+    needs: meta
     strategy:
       fail-fast: true
       matrix:
@@ -28,15 +68,6 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - name: joey carries the version of the tag
-        run: |
-          scripts/check-joey-version.sh
-          crate="v$(sed -n 's/^version = "\(.*\)"/\1/p' joey/Cargo.toml | head -n1)"
-          [ "${{ github.ref_name }}" = "$crate" ] || {
-            echo "RELEASE REFUSED: tag is '${{ github.ref_name }}', joey/Cargo.toml says '$crate'" >&2
-            exit 1
-          }
-
       - name: add target
         run: rustup target add ${{ matrix.target }}
 
@@ -46,10 +77,10 @@ jobs:
       - name: build
         run: cargo build --release --locked --manifest-path joey/Cargo.toml --target ${{ matrix.target }}
 
-      - name: the binary reports the tag
+      - name: the binary reports the version
         run: |
           bin="joey/target/${{ matrix.target }}/release/joey"
-          expected="joey ${GITHUB_REF_NAME#v}"
+          expected="joey ${{ needs.meta.outputs.crate }}"
           actual="$("$bin" --version)"
           [ "$actual" = "$expected" ] || {
             echo "RELEASE REFUSED: --version says '$actual', expected '$expected'" >&2
@@ -66,7 +97,7 @@ jobs:
   # one image per architecture, built on a runner of that architecture, so there is no emulation;
   # `manifest` below joins them
   images:
-    needs: binaries
+    needs: [meta, binaries]
     strategy:
       matrix:
         include:
@@ -92,7 +123,7 @@ jobs:
           chmod +x ctx/joey
           owner="${GITHUB_REPOSITORY_OWNER,,}"
           repo="ghcr.io/$owner/joey"
-          version="${GITHUB_REF_NAME#v}"
+          version="${{ needs.meta.outputs.image }}"
           echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
 
           docker build -f joey/Dockerfile.scratch \
@@ -103,7 +134,7 @@ jobs:
             -t "$repo:$version-tools-${{ matrix.arch }}" ctx
 
           # what ships has run: the same checks rooz's one-shots rely on
-          [ "$(docker run --rm "$repo:$version-${{ matrix.arch }}" --version)" = "joey $version" ]
+          [ "$(docker run --rm "$repo:$version-${{ matrix.arch }}" --version)" = "joey ${{ needs.meta.outputs.crate }}" ]
           docker run --rm --entrypoint sh "$repo:$version-tools-${{ matrix.arch }}" -c \
             'joey --version && git --version && ssh -V && command -v ssh-keygen'
 
@@ -111,7 +142,7 @@ jobs:
           docker push "$repo:$version-tools-${{ matrix.arch }}"
 
   manifest:
-    needs: images
+    needs: [meta, images]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -126,7 +157,7 @@ jobs:
         run: |
           owner="${GITHUB_REPOSITORY_OWNER,,}"
           repo="ghcr.io/$owner/joey"
-          version="${GITHUB_REF_NAME#v}"
+          version="${{ needs.meta.outputs.image }}"
           echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
 
           docker buildx imagetools create -t "$repo:$version" \
@@ -144,18 +175,24 @@ jobs:
       - name: digests
         run: |
           {
-            echo "### joey ${GITHUB_REF_NAME}"
+            echo "### joey ${{ needs.meta.outputs.image }}"
             echo "- scratch: \`${{ steps.join.outputs.name }}@${{ steps.join.outputs.scratch }}\`"
             echo "- tools: \`${{ steps.join.outputs.name }}@${{ steps.join.outputs.tools }}\`"
+            if [ "${{ needs.meta.outputs.dry }}" = "true" ]; then
+              echo
+              echo "Dry run: delete the \`${{ needs.meta.outputs.image }}*\` versions from the package page."
+            fi
           } | tee -a "$GITHUB_STEP_SUMMARY"
 
-      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+      - if: needs.meta.outputs.dry == 'false'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-name: ${{ steps.join.outputs.name }}
           subject-digest: ${{ steps.join.outputs.scratch }}
           push-to-registry: true
 
-      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+      - if: needs.meta.outputs.dry == 'false'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-name: ${{ steps.join.outputs.name }}
           subject-digest: ${{ steps.join.outputs.tools }}
