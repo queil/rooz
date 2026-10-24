@@ -314,7 +314,8 @@ fn scratch_mount(target: &str) -> Mount {
 impl<'a> GitApi<'a> {
     async fn clone_from_spec(&self, spec: &CloneEnv, urls: &CloneUrls) -> Result<String, AnyError> {
         self.api.volume.require_ssh_key().await?;
-        let mut clone_script = ssh::ensure_config_script("/tmp/.ssh");
+        // a clone that fails fails the script, the first one of several included
+        let mut clone_script = format!("set -e\n{}", ssh::ensure_config_script("/tmp/.ssh"));
         let all_urls: Vec<String> = match &urls {
             CloneUrls::Root { url } => vec![url.to_string()],
             CloneUrls::Extra { urls } => {
@@ -407,17 +408,21 @@ impl<'a> GitApi<'a> {
                         .await?;
                 }
 
-                self.api
+                match self
+                    .api
                     .exec
-                    .tty(
+                    .tty_status(
                         "git-clone",
                         &id,
                         None,
                         None,
                         Some(clone_cmd.iter().map(String::as_str).collect()),
                     )
-                    .await?;
-                Ok(())
+                    .await?
+                {
+                    0 => Ok(()),
+                    code => Err(format!("git clone failed (exit code {}), see above", code).into()),
+                }
             }
             .await;
             // the container mounts the ssh key: a failed clone must not leave it running

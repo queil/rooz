@@ -37,6 +37,9 @@ file - see the git history.
   could not be read from the clone (missing, invalid, naming a missing data file or base), left the
   clone container running with the SSH key volume mounted, and `rooz rm` did not remove it. The
   container is removed once rooz is done with it, whatever the outcome.
+- A git clone that failed went unnoticed: a failed `--config <git url>` clone was reported as
+  `Config file ... not found or empty`, and a failed `extra_repos` clone was skipped. Any failed
+  clone now fails the command with `git clone failed (exit code N)` after git's own message.
 - `rooz update --rebuild` runs every install step, the work container's and the sidecars', whatever
   its `skip_if` says. A `skip_if` that looks at a volume (`test -x ~/.cargo/bin/rustc`) was true
   while the rebuilt image lacked the other half of the install (`~/.rustup`), so the step was

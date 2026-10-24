@@ -298,16 +298,15 @@ fn sys_config_write(body: &str) -> String {
     )
 }
 
-// The server speaks dumb HTTP, which has no shallow clones, so the config clone (depth 1) fails
-// and leaves an empty clone dir: enough to reach the config read after the clone, not to read one.
+// The server speaks dumb HTTP, which has no shallow clones, and the config clone is shallow: only
+// an empty repository clones. That is enough for a clone that succeeds and a config read after it
+// that fails.
 async fn serve_config_repo(env: &TestEnv, key: &str) -> ServedRepo {
     let name = format!("rooz-test-repo-{}", key);
     env.run_in_volume(
         "docker.io/chainguard/git:latest-dev",
         &name,
-        "set -e; cd /mnt; git init -q -b main w; \
-         git -C w -c user.email=t@t -c user.name=t commit -q --allow-empty -m repo; \
-         git clone -q --bare w www/r.git; git -C www/r.git update-server-info",
+        "set -e; git init -q --bare /mnt/www/r.git; git -C /mnt/www/r.git update-server-info",
     )
     .await;
     let ip = env.serve_dir(&name, &name, "/srv/www").await;
@@ -381,6 +380,44 @@ async fn a_failed_config_read_leaves_no_clone_container_behind() {
         after, before,
         "the clone container outlived the failed read"
     );
+}
+
+#[tokio::test]
+async fn a_clone_that_fails_is_reported_as_one() {
+    let Some(env) = TestEnv::from_env() else {
+        return;
+    };
+    if !has_script() {
+        return;
+    }
+    let key = unique_key("int-clone-fail");
+    env.rooz()
+        .args(["system", "init", "--force"])
+        .assert()
+        .success();
+    let repo = serve_config_repo(&env, &key).await;
+
+    let before = env.git_containers().await;
+    // the server has no such repository
+    let (out, ok) = pty_rooz(
+        &env,
+        &[
+            "new",
+            &key,
+            "--config",
+            "ssh://git@rooz-test.invalid/missing.git//rooz.yaml",
+        ],
+        "",
+    );
+    let after = env.git_containers().await;
+
+    teardown(&env, repo).await;
+    env.rooz().args(["rm", &key, "--force"]).output().ok();
+
+    assert!(!ok, "a clone of a missing repository succeeded: {}", out);
+    // not a config that is "not found": the clone is what failed
+    assert!(out.contains("git clone failed"), "{}", out);
+    assert_eq!(after, before, "the failed clone left its container");
 }
 
 // ── enter (interactive tty exec) ─────────────────────────────────────────────
