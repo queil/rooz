@@ -1,6 +1,7 @@
 mod harness;
 
 use assert_cmd::cargo::cargo_bin;
+use base64::{Engine, engine::general_purpose::STANDARD};
 use harness::{TestEnv, cleanup, unique_key, write_cfg};
 use std::{
     io::Write,
@@ -281,6 +282,142 @@ async fn update_resumes_a_failed_install_from_its_checkpoint() {
     );
 
     cleanup(&env, &key, &cfg_path);
+}
+
+// A remote --config must be ssh. This serves a repository over HTTP from the engine and routes
+// `ssh://git@rooz-test.invalid/` to it through the system gitconfig; `teardown` undoes both.
+struct ServedRepo {
+    name: String,
+    original_sys_config: String,
+}
+
+fn sys_config_write(body: &str) -> String {
+    format!(
+        "printf '%s' '{}' | base64 -d > /mnt/rooz.config",
+        STANDARD.encode(body)
+    )
+}
+
+// The server speaks dumb HTTP, which has no shallow clones, and the config clone is shallow: only
+// an empty repository clones. That is enough for a clone that succeeds and a config read after it
+// that fails.
+async fn serve_config_repo(env: &TestEnv, key: &str) -> ServedRepo {
+    let name = format!("rooz-test-repo-{}", key);
+    env.run_in_volume(
+        "docker.io/chainguard/git:latest-dev",
+        &name,
+        "set -e; git init -q --bare /mnt/www/r.git; git -C /mnt/www/r.git update-server-info",
+    )
+    .await;
+    let ip = env.serve_dir(&name, &name, "/srv/www").await;
+
+    let original_sys_config = env.volume_file("rooz_sys-config", "rooz.config").await;
+    let route = format!(
+        "  [url \"http://{}/\"]\n    insteadOf = ssh://git@rooz-test.invalid/\n",
+        ip
+    );
+    let routed = if original_sys_config.contains("gitconfig:") {
+        format!("{}\n{}", original_sys_config.trim_end(), route)
+    } else {
+        format!("{}gitconfig: |-\n{}", original_sys_config, route)
+    };
+    env.run_in_volume(
+        "alpine:latest",
+        "rooz_sys-config",
+        &sys_config_write(&routed),
+    )
+    .await;
+    ServedRepo {
+        name,
+        original_sys_config,
+    }
+}
+
+async fn teardown(env: &TestEnv, repo: ServedRepo) {
+    env.run_in_volume(
+        "alpine:latest",
+        "rooz_sys-config",
+        &sys_config_write(&repo.original_sys_config),
+    )
+    .await;
+    env.remove_decoy_container(&repo.name).await;
+    env.remove_decoy_volume(&repo.name).await;
+}
+
+const SERVED_CONFIG: &str = "ssh://git@rooz-test.invalid/r.git//rooz.yaml";
+
+#[tokio::test]
+async fn a_failed_config_read_leaves_no_clone_container_behind() {
+    let Some(env) = TestEnv::from_env() else {
+        return;
+    };
+    if !has_script() {
+        return;
+    }
+    let key = unique_key("int-cfg-read");
+    env.rooz()
+        .args(["system", "init", "--force"])
+        .assert()
+        .success();
+    let repo = serve_config_repo(&env, &key).await;
+
+    let before = env.git_containers().await;
+    let (out, ok) = pty_rooz(&env, &["new", &key, "--config", SERVED_CONFIG], "");
+    let after = env.git_containers().await;
+
+    teardown(&env, repo).await;
+    env.rooz().args(["rm", &key, "--force"]).output().ok();
+
+    // the clone worked and the read inside its container failed
+    assert!(
+        !ok,
+        "a config that is not in the repository was found: {}",
+        out
+    );
+    assert!(out.contains("not found or empty"), "{}", out);
+    // and that container, which mounts the ssh key, is gone
+    assert_eq!(
+        after, before,
+        "the clone container outlived the failed read"
+    );
+}
+
+#[tokio::test]
+async fn a_clone_that_fails_is_reported_as_one() {
+    let Some(env) = TestEnv::from_env() else {
+        return;
+    };
+    if !has_script() {
+        return;
+    }
+    let key = unique_key("int-clone-fail");
+    env.rooz()
+        .args(["system", "init", "--force"])
+        .assert()
+        .success();
+    let repo = serve_config_repo(&env, &key).await;
+
+    let before = env.git_containers().await;
+    // the server has no such repository
+    let (out, ok) = pty_rooz(
+        &env,
+        &[
+            "new",
+            &key,
+            "--config",
+            "ssh://git@rooz-test.invalid/missing.git//rooz.yaml",
+        ],
+        "",
+    );
+    let after = env.git_containers().await;
+
+    teardown(&env, repo).await;
+    env.rooz().args(["rm", &key, "--force"]).output().ok();
+
+    assert!(!ok, "a clone of a missing repository succeeded: {}", out);
+    // not a config that is "not found": the clone is what failed
+    assert!(out.contains("git clone failed"), "{}", out);
+    assert_eq!(after, before, "the failed clone left its container");
 }
 
 // ── enter (interactive tty exec) ─────────────────────────────────────────────

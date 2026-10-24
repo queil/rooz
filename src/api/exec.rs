@@ -310,6 +310,27 @@ impl<'a> ExecApi<'a> {
         self.start_tty(&exec_id).await
     }
 
+    // `tty`, and the command's exit code once it is done
+    pub async fn tty_status(
+        &self,
+        reason: &str,
+        container_id: &str,
+        working_dir: Option<&str>,
+        user: Option<&str>,
+        cmd: Option<Vec<&str>>,
+    ) -> Result<i64, AnyError> {
+        let exec_id = self
+            .create_exec(reason, container_id, working_dir, user, cmd, true)
+            .await?;
+        self.start_tty(&exec_id).await?;
+        Ok(self
+            .client
+            .inspect_exec(&exec_id)
+            .await?
+            .exit_code
+            .unwrap_or(-1))
+    }
+
     // One non-interactive command with stdout and stderr passed through as they arrive; returns
     // its exit code.
     pub async fn passthrough(

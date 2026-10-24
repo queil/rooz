@@ -6,6 +6,46 @@ use harness::{TestEnv, cleanup, unique_key, write_cfg};
 // ── lifecycle ────────────────────────────────────────────────────────────────
 
 #[tokio::test]
+async fn a_failed_clone_leaves_no_container_behind() {
+    let Some(env) = TestEnv::from_env() else {
+        return;
+    };
+    let key = unique_key("lc-clone-fail");
+
+    env.rooz()
+        .args(["system", "init", "--force"])
+        .assert()
+        .success();
+    let before = env.git_containers().await;
+
+    // the clone container mounts the ssh key volume: it must go whatever fails
+    let out = env
+        .rooz()
+        .args([
+            "new",
+            &key,
+            "--image",
+            "alpine:latest",
+            "--git-ssh-url",
+            "https://h.invalid/none.git",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        !out.status.success(),
+        "a clone of a host that does not exist succeeded"
+    );
+    assert_eq!(
+        env.git_containers().await,
+        before,
+        "the clone container outlived the failure: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    env.rooz().args(["rm", &key, "--force"]).output().ok();
+}
+
+#[tokio::test]
 async fn stop_and_start() {
     let Some(env) = TestEnv::from_env() else {
         return;

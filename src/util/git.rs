@@ -231,7 +231,8 @@ const NO_REPO_EXEC: &str = "-c core.hooksPath=/dev/null -c core.fsmonitor=false 
 // is at hand) and never looks at a mirror someone else owns.
 const GIT_CACHE_DIR: &str = "/tmp/rooz-git-cache";
 
-// Whatever a mirror's own config says, a fetch into it is a plain local one.
+// Whatever a mirror's own config says, a fetch into it is a plain local one. The script runs with
+// umask 0000, so the mirror steps set their own: a mirror is its owner's alone.
 const LOCAL_ONLY: &str = "-c protocol.allow=never -c protocol.file.allow=always";
 
 fn mirror_dir(root: &str, url: &str) -> String {
@@ -284,9 +285,11 @@ fn clone_line_with(
         "ls {dir}/.git > /dev/null 2>&1 || {{\n\
          M={mirror}\n\
          REF=; if [ -f \"$M/HEAD\" ] && {ours}; then REF=\"--reference-if-able $M --dissociate\"; fi\n\
-         if {clone}; then\n\
+         if {clone}; then (\n\
+         umask 077\n\
          [ -d \"$M\" ] || git {opts} init -q --bare \"$M\" 2>/dev/null || true\n\
-         if {ours}; then git {opts} {local} --git-dir=\"$M\" fetch -q --no-tags -- {dir} '+refs/remotes/origin/*:refs/heads/*' '+refs/tags/*:refs/tags/*' || true; fi\n\
+         if {ours}; then git {opts} {local} --git-dir=\"$M\" fetch -q --no-tags -- {dir} '+refs/remotes/origin/*:refs/heads/*' '^refs/remotes/origin/HEAD' '+refs/tags/*:refs/tags/*' || true; fi\n\
+         )\n\
          else false; fi\n\
          }}\n",
         dir = dir,
@@ -311,7 +314,8 @@ fn scratch_mount(target: &str) -> Mount {
 impl<'a> GitApi<'a> {
     async fn clone_from_spec(&self, spec: &CloneEnv, urls: &CloneUrls) -> Result<String, AnyError> {
         self.api.volume.require_ssh_key().await?;
-        let mut clone_script = ssh::ensure_config_script("/tmp/.ssh");
+        // a clone that fails fails the script, the first one of several included
+        let mut clone_script = format!("set -e\n{}", ssh::ensure_config_script("/tmp/.ssh"));
         let all_urls: Vec<String> = match &urls {
             CloneUrls::Root { url } => vec![url.to_string()],
             CloneUrls::Extra { urls } => {
@@ -390,29 +394,42 @@ impl<'a> GitApi<'a> {
         };
 
         if let ContainerResult::Created { id } = self.api.container.create(run_spec).await? {
-            self.api.container.start(&id).await?;
-            self.api.exec.ensure_user(&id).await?;
-            self.api
-                .exec
-                .chown(&id, &spec.uid.parse::<i32>()?, &spec.working_dir)
-                .await?;
-            if cache {
+            let cloned: Result<(), AnyError> = async {
+                self.api.container.start(&id).await?;
+                self.api.exec.ensure_user(&id).await?;
                 self.api
                     .exec
-                    .chown_dir(&id, &spec.uid.parse::<i32>()?, GIT_CACHE_DIR)
+                    .chown(&id, &spec.uid.parse::<i32>()?, &spec.working_dir)
                     .await?;
-            }
+                if cache {
+                    self.api
+                        .exec
+                        .chown_dir(&id, &spec.uid.parse::<i32>()?, GIT_CACHE_DIR)
+                        .await?;
+                }
 
-            self.api
-                .exec
-                .tty(
-                    "git-clone",
-                    &id,
-                    None,
-                    None,
-                    Some(clone_cmd.iter().map(String::as_str).collect()),
-                )
-                .await?;
+                match self
+                    .api
+                    .exec
+                    .tty_status(
+                        "git-clone",
+                        &id,
+                        None,
+                        None,
+                        Some(clone_cmd.iter().map(String::as_str).collect()),
+                    )
+                    .await?
+                {
+                    0 => Ok(()),
+                    code => Err(format!("git clone failed (exit code {}), see above", code).into()),
+                }
+            }
+            .await;
+            // the container mounts the ssh key: a failed clone must not leave it running
+            if let Err(e) = cloned {
+                self.done_with(&id).await;
+                return Err(e);
+            }
             Ok(id.to_string())
         } else {
             unreachable!("Random suffix gets generated each time")
@@ -427,14 +444,16 @@ impl<'a> GitApi<'a> {
         let container_id = self
             .clone_from_spec(spec, &CloneUrls::Root { url: url.into() })
             .await?;
-        let clone_dir = get_clone_dir(
-            &spec.working_dir,
-            url,
-            &self.api.get_system_config().await?.gitconfig,
-        )?;
-        self.api.container.kill(&container_id, false).await?;
-
-        Ok(RootRepoCloneResult { dir: clone_dir })
+        let clone_dir = async {
+            get_clone_dir(
+                &spec.working_dir,
+                url,
+                &self.api.get_system_config().await?.gitconfig,
+            )
+        }
+        .await;
+        self.done_with(&container_id).await;
+        Ok(RootRepoCloneResult { dir: clone_dir? })
     }
 
     pub async fn clone_extra_repos(
@@ -445,7 +464,7 @@ impl<'a> GitApi<'a> {
         let container_id = self
             .clone_from_spec(&spec, &CloneUrls::Extra { urls })
             .await?;
-        self.api.container.kill(&container_id, false).await?;
+        self.done_with(&container_id).await;
         Ok(())
     }
 
@@ -472,18 +491,30 @@ impl<'a> GitApi<'a> {
                 },
             )
             .await?;
-        let clone_dir = get_clone_dir(
-            &spec.working_dir,
-            url,
-            &self.api.get_system_config().await?.gitconfig,
-        )?;
-        let file_format = FileFormat::from_path(path)?;
-        let result = self
-            .config
-            .read_config_body(&container_id, &clone_dir, file_format, path)
-            .await?;
-        self.api.container.kill(&container_id, false).await?;
-        Ok((result, clone_dir))
+        // the config is read inside the container, so it goes once that is over, read or not
+        let outcome = async {
+            let clone_dir = get_clone_dir(
+                &spec.working_dir,
+                url,
+                &self.api.get_system_config().await?.gitconfig,
+            )?;
+            let file_format = FileFormat::from_path(path)?;
+            let result = self
+                .config
+                .read_config_body(&container_id, &clone_dir, file_format, path)
+                .await?;
+            Ok((result, clone_dir))
+        }
+        .await;
+        self.done_with(&container_id).await;
+        outcome
+    }
+
+    // A clone container mounts the ssh key volume read-write and runs until it is removed: every
+    // caller of clone_from_spec ends with this, on its error paths too. Best effort - the error
+    // that brought it here says more than a failed removal.
+    async fn done_with(&self, container_id: &str) {
+        self.api.container.remove(container_id, true).await.ok();
     }
 }
 
@@ -715,7 +746,7 @@ mod tests {
             .current_dir(work)
             .arg("-c")
             .arg(format!(
-                "git() {{ command git -c protocol.file.allow=always \"$@\"; }}\n{}",
+                "umask 000\ngit() {{ command git -c protocol.file.allow=always \"$@\"; }}\n{}",
                 line
             ))
             .output()
@@ -768,6 +799,23 @@ mod tests {
         assert_eq!(std::fs::read_to_string(a.join("origin/f")).unwrap(), "one");
         let mirror = mirror_dir(cache.to_str().unwrap(), &url);
         assert!(std::path::Path::new(&mirror).join("HEAD").exists());
+        // written with the container's umask 0000, the mirror is still its owner's alone, and
+        // origin's HEAD did not become a branch
+        {
+            use std::os::unix::fs::PermissionsExt;
+            for p in ["", "/objects", "/config", "/HEAD"] {
+                let mode = std::fs::metadata(format!("{}{}", mirror, p))
+                    .unwrap()
+                    .permissions()
+                    .mode();
+                assert_eq!(mode & 0o077, 0, "{}{} is {:o}", mirror, p, mode);
+            }
+        }
+        assert!(
+            !std::path::Path::new(&mirror)
+                .join("refs/heads/HEAD")
+                .exists()
+        );
         // no link left to the mirror, and the remote is the real one
         assert!(!a.join("origin/.git/objects/info/alternates").exists());
         assert_eq!(

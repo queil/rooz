@@ -8,9 +8,9 @@ use bollard::{
     exec::{CreateExecOptions, StartExecResults},
     models::{ContainerCreateBody, HostConfig, Mount, VolumeCreateRequest},
     query_parameters::{
-        CreateContainerOptions, ListContainersOptions, ListNetworksOptions, ListVolumesOptions,
-        LogsOptions, RemoveContainerOptions, RemoveVolumeOptions, StartContainerOptions,
-        WaitContainerOptions,
+        CreateContainerOptions, CreateImageOptions, ListContainersOptions, ListNetworksOptions,
+        ListVolumesOptions, LogsOptions, RemoveContainerOptions, RemoveVolumeOptions,
+        StartContainerOptions, WaitContainerOptions,
     },
 };
 use bollard_stubs::models::{ContainerSummary, ContainerSummaryStateEnum, MountType, Volume};
@@ -99,6 +99,27 @@ impl TestEnv {
             .unwrap_or_default()
     }
 
+    // rooz's clone containers carry no workspace label
+    pub async fn git_containers(&self) -> Vec<String> {
+        let mut filters = HashMap::new();
+        filters.insert("label".to_string(), vec!["dev.rooz.role=git".to_string()]);
+        let opts = ListContainersOptions {
+            all: true,
+            filters: Some(filters),
+            ..Default::default()
+        };
+        let mut ids = self
+            .docker
+            .list_containers(Some(opts))
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|c| c.id)
+            .collect::<Vec<_>>();
+        ids.sort();
+        ids
+    }
+
     pub async fn volumes_by_workspace(&self, key: &str) -> Vec<Volume> {
         let mut filters = HashMap::new();
         filters.insert(
@@ -140,6 +161,118 @@ impl TestEnv {
         .to_string()
     }
 
+    /// Pulls `image` unless the engine has it: creating a container through the API does not.
+    pub async fn ensure_image(&self, image: &str) {
+        if self.docker.inspect_image(image).await.is_ok() {
+            return;
+        }
+        let mut pull = self.docker.create_image(
+            Some(CreateImageOptions {
+                from_image: Some(image.to_string()),
+                ..Default::default()
+            }),
+            None,
+            None,
+        );
+        while let Some(progress) = pull.next().await {
+            progress.unwrap_or_else(|e| panic!("pulling {}: {}", image, e));
+        }
+    }
+
+    /// Runs `script` as root in a throwaway `image` container, with `volume` writable at /mnt, and
+    /// waits for it to finish.
+    pub async fn run_in_volume(&self, image: &str, volume: &str, script: &str) {
+        self.ensure_image(image).await;
+        let cname = format!("rooz-test-run-{}", volume.replace(['/', ':'], "-"));
+        let body = ContainerCreateBody {
+            image: Some(image.to_string()),
+            entrypoint: Some(vec!["sh".to_string(), "-c".to_string()]),
+            cmd: Some(vec![script.to_string()]),
+            user: Some("0".to_string()),
+            host_config: Some(HostConfig {
+                mounts: Some(vec![Mount {
+                    target: Some("/mnt".to_string()),
+                    source: Some(volume.to_string()),
+                    typ: Some(MountType::VOLUME),
+                    ..Default::default()
+                }]),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        self.docker
+            .create_container(
+                Some(CreateContainerOptions {
+                    name: Some(cname.clone()),
+                    ..Default::default()
+                }),
+                body,
+            )
+            .await
+            .unwrap();
+        self.docker
+            .start_container(&cname, None::<StartContainerOptions>)
+            .await
+            .unwrap();
+        self.docker
+            .wait_container(&cname, None::<WaitContainerOptions>)
+            .next()
+            .await;
+        self.remove_decoy_container(&cname).await;
+    }
+
+    /// Serves `dir` of `volume` over plain HTTP from a container named `name`; returns its address.
+    pub async fn serve_dir(&self, name: &str, volume: &str, dir: &str) -> String {
+        let image = "docker.io/library/python:3-alpine";
+        self.ensure_image(image).await;
+        let body = ContainerCreateBody {
+            image: Some(image.to_string()),
+            cmd: Some(
+                ["python3", "-m", "http.server", "80", "-d", dir]
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect(),
+            ),
+            host_config: Some(HostConfig {
+                mounts: Some(vec![Mount {
+                    target: Some("/srv".to_string()),
+                    source: Some(volume.to_string()),
+                    typ: Some(MountType::VOLUME),
+                    read_only: Some(true),
+                    ..Default::default()
+                }]),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        self.docker
+            .create_container(
+                Some(CreateContainerOptions {
+                    name: Some(name.to_string()),
+                    ..Default::default()
+                }),
+                body,
+            )
+            .await
+            .unwrap();
+        self.docker
+            .start_container(name, None::<StartContainerOptions>)
+            .await
+            .unwrap();
+        let networks = self
+            .docker
+            .inspect_container(name, None)
+            .await
+            .unwrap()
+            .network_settings
+            .and_then(|n| n.networks)
+            .unwrap_or_default();
+        networks
+            .values()
+            .find_map(|n| n.ip_address.clone().filter(|ip| !ip.is_empty()))
+            .expect("server has no address")
+    }
+
     async fn volume_cmd(&self, volume_name: &str, cmd: Vec<String>) -> String {
         let cname = format!("rooz-test-cat-{}", volume_name.replace(['/', ':'], "-"));
         let mount = Mount {
@@ -149,6 +282,7 @@ impl TestEnv {
             read_only: Some(true),
             ..Default::default()
         };
+        self.ensure_image("alpine:latest").await;
         let body = ContainerCreateBody {
             image: Some("alpine:latest".to_string()),
             cmd: Some(cmd),
@@ -204,6 +338,7 @@ impl TestEnv {
     }
 
     pub async fn create_decoy_container(&self, name: &str) {
+        self.ensure_image("alpine:latest").await;
         let body = ContainerCreateBody {
             image: Some("alpine:latest".to_string()),
             cmd: Some(vec!["true".to_string()]),
@@ -361,6 +496,7 @@ impl TestEnv {
 
     pub async fn squat_image(&self, repo: &str, labels: &[(&str, &str)], marker: &str) -> String {
         let name = format!("squat-{}", repo.replace(['/', ':', '.'], "-"));
+        self.ensure_image("alpine:latest").await;
         let body = ContainerCreateBody {
             image: Some("alpine:latest".to_string()),
             cmd: Some(vec![

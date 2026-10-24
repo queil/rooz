@@ -8,7 +8,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases before 0.159.0 predate this
 file - see the git history.
 
-## [Unreleased]
+## [0.171.0] - 2026-10-24
 
 ### Added
 
@@ -25,13 +25,21 @@ file - see the git history.
   refreshed on every clone, and the clone borrows its objects and then drops the link, so cloning the
   same repository again is quick. A mirror that cannot be updated falls back to cloning from the
   remote. Config clones (`--config <url>`), shallow clones and `file://` URLs do not use it. Git never
-  runs against the remote from inside a mirror and ignores a mirror another user owns.
+  runs against the remote from inside a mirror, ignores a mirror another user owns, and keeps its
+  mirrors readable and writable by their owner only.
 - When `rooz new` fails after the workspace's config was stored (an install step failed, say), the
   error ends with `run 'rooz update <name>' to resume from the last completed install step`,
   naming the host with `-H`.
 
 ### Fixed
 
+- A clone that failed (no terminal, an unreachable host), or a `--config <git url>` whose file
+  could not be read from the clone (missing, invalid, naming a missing data file or base), left the
+  clone container running with the SSH key volume mounted, and `rooz rm` did not remove it. The
+  container is removed once rooz is done with it, whatever the outcome.
+- A git clone that failed went unnoticed: a failed `--config <git url>` clone was reported as
+  `Config file ... not found or empty`, and a failed `extra_repos` clone was skipped. Any failed
+  clone now fails the command with `git clone failed (exit code N)` after git's own message.
 - `rooz update --rebuild` runs every install step, the work container's and the sidecars', whatever
   its `skip_if` says. A `skip_if` that looks at a volume (`test -x ~/.cargo/bin/rustc`) was true
   while the rebuilt image lacked the other half of the install (`~/.rustup`), so the step was
