@@ -282,6 +282,7 @@ impl TestEnv {
             read_only: Some(true),
             ..Default::default()
         };
+        self.ensure_image("alpine:latest").await;
         let body = ContainerCreateBody {
             image: Some("alpine:latest".to_string()),
             cmd: Some(cmd),
@@ -337,6 +338,7 @@ impl TestEnv {
     }
 
     pub async fn create_decoy_container(&self, name: &str) {
+        self.ensure_image("alpine:latest").await;
         let body = ContainerCreateBody {
             image: Some("alpine:latest".to_string()),
             cmd: Some(vec!["true".to_string()]),
@@ -494,6 +496,7 @@ impl TestEnv {
 
     pub async fn squat_image(&self, repo: &str, labels: &[(&str, &str)], marker: &str) -> String {
         let name = format!("squat-{}", repo.replace(['/', ':', '.'], "-"));
+        self.ensure_image("alpine:latest").await;
         let body = ContainerCreateBody {
             image: Some("alpine:latest".to_string()),
             cmd: Some(vec![
