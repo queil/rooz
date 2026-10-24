@@ -99,6 +99,27 @@ impl TestEnv {
             .unwrap_or_default()
     }
 
+    // rooz's clone containers carry no workspace label
+    pub async fn git_containers(&self) -> Vec<String> {
+        let mut filters = HashMap::new();
+        filters.insert("label".to_string(), vec!["dev.rooz.role=git".to_string()]);
+        let opts = ListContainersOptions {
+            all: true,
+            filters: Some(filters),
+            ..Default::default()
+        };
+        let mut ids = self
+            .docker
+            .list_containers(Some(opts))
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|c| c.id)
+            .collect::<Vec<_>>();
+        ids.sort();
+        ids
+    }
+
     pub async fn volumes_by_workspace(&self, key: &str) -> Vec<Volume> {
         let mut filters = HashMap::new();
         filters.insert(

@@ -393,29 +393,38 @@ impl<'a> GitApi<'a> {
         };
 
         if let ContainerResult::Created { id } = self.api.container.create(run_spec).await? {
-            self.api.container.start(&id).await?;
-            self.api.exec.ensure_user(&id).await?;
-            self.api
-                .exec
-                .chown(&id, &spec.uid.parse::<i32>()?, &spec.working_dir)
-                .await?;
-            if cache {
+            let cloned: Result<(), AnyError> = async {
+                self.api.container.start(&id).await?;
+                self.api.exec.ensure_user(&id).await?;
                 self.api
                     .exec
-                    .chown_dir(&id, &spec.uid.parse::<i32>()?, GIT_CACHE_DIR)
+                    .chown(&id, &spec.uid.parse::<i32>()?, &spec.working_dir)
                     .await?;
-            }
+                if cache {
+                    self.api
+                        .exec
+                        .chown_dir(&id, &spec.uid.parse::<i32>()?, GIT_CACHE_DIR)
+                        .await?;
+                }
 
-            self.api
-                .exec
-                .tty(
-                    "git-clone",
-                    &id,
-                    None,
-                    None,
-                    Some(clone_cmd.iter().map(String::as_str).collect()),
-                )
-                .await?;
+                self.api
+                    .exec
+                    .tty(
+                        "git-clone",
+                        &id,
+                        None,
+                        None,
+                        Some(clone_cmd.iter().map(String::as_str).collect()),
+                    )
+                    .await?;
+                Ok(())
+            }
+            .await;
+            // the container mounts the ssh key: a failed clone must not leave it running
+            if let Err(e) = cloned {
+                self.api.container.remove(&id, true).await.ok();
+                return Err(e);
+            }
             Ok(id.to_string())
         } else {
             unreachable!("Random suffix gets generated each time")
