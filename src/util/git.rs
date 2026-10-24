@@ -225,9 +225,14 @@ fn get_clone_dir(
 const NO_REPO_EXEC: &str = "-c core.hooksPath=/dev/null -c core.fsmonitor=false -c core.pager=cat";
 
 // Where the git containers keep a bare mirror of each repository they clone, in a cache volume.
-// Only those containers mount it: a workspace that could write it would plant objects that every
-// later clone of the repository trusts.
+// Only those containers mount it, but another user of the engine can write it, so a mirror is
+// never trusted to run anything: a clone borrows its objects, and a finished clone feeds them
+// back through a local fetch. Git never talks to a remote from inside a mirror (where the ssh key
+// is at hand) and never looks at a mirror someone else owns.
 const GIT_CACHE_DIR: &str = "/tmp/rooz-git-cache";
+
+// Whatever a mirror's own config says, a fetch into it is a plain local one.
+const LOCAL_ONLY: &str = "-c protocol.allow=never -c protocol.file.allow=always";
 
 fn mirror_dir(root: &str, url: &str) -> String {
     let mut hasher = Sha256::new();
@@ -235,10 +240,18 @@ fn mirror_dir(root: &str, url: &str) -> String {
     format!("{}/{}.git", root, &format!("{:x}", hasher.finalize())[..16])
 }
 
+// The mirrors sit in a volume every workspace of the operator shares, and a 'file://' URL names
+// what is in it. A local path can come from a config rooz does not trust, so it keeps that volume
+// out of the container.
+fn cacheable(urls: &[String]) -> bool {
+    urls.iter()
+        .all(|u| !matches!(transport(u), Ok(Transport::Local)))
+}
+
 // `--` stops git from parsing a URL as an option; the shell quoting keeps the
-// whole value a single argument. With `cache`, the repository is fetched into its mirror first and
-// the clone borrows the mirror's objects, then drops the link to it. A mirror that cannot be
-// updated or created only costs the speed-up: the clone then goes to the remote as usual.
+// whole value a single argument. With `cache`, the clone borrows the objects of the repository's
+// mirror (when it is ours) and drops the link, then the finished clone refreshes the mirror. A
+// mirror that cannot be used or updated only costs the speed-up.
 fn clone_line(clone_dir: &str, depth: &str, url: &str, cache: bool) -> String {
     clone_line_with(GIT_CACHE_DIR, clone_dir, depth, url, cache)
 }
@@ -251,31 +264,36 @@ fn clone_line_with(
     cache: bool,
 ) -> String {
     let dir = sh::quote(clone_dir);
-    let url_arg = sh::quote(url);
     let clone = format!(
-        "git {} $SAFE -c include.path=/tmp/rooz/.gitconfig clone $REF {} -- {}\n",
-        NO_REPO_EXEC, depth, url_arg
+        "git {} -c include.path=/tmp/rooz/.gitconfig clone $REF {} -- {}",
+        NO_REPO_EXEC,
+        depth,
+        sh::quote(url)
     );
     if !cache {
         return format!(
-            "ls {}/.git > /dev/null 2>&1 || {{\nSAFE=; REF=\n{}}}\n",
-            dir, clone
+            "ls {dir}/.git > /dev/null 2>&1 || {{\nREF=\n{clone}\n}}\n",
+            dir = dir,
+            clone = clone
         );
     }
     let mirror = sh::quote(&mirror_dir(cache_root, url));
+    let ours = r#"[ "$(stat -c %u "$M" 2>/dev/null)" = "$(id -u)" ]"#;
     format!(
         "ls {dir}/.git > /dev/null 2>&1 || {{\n\
          M={mirror}\n\
-         if [ -d \"$M\" ]; then git {opts} -c safe.directory=\"$M\" -c include.path=/tmp/rooz/.gitconfig -C \"$M\" remote update --prune || true\n\
-         else git {opts} -c include.path=/tmp/rooz/.gitconfig clone --mirror -- {url_arg} \"$M\" || true; fi\n\
-         SAFE=; REF=\n\
-         if [ -f \"$M/HEAD\" ]; then SAFE=\"-c safe.directory=$M\"; REF=\"--reference $M --dissociate\"; fi\n\
-         {clone}}}\n",
+         REF=; if [ -f \"$M/HEAD\" ] && {ours}; then REF=\"--reference-if-able $M --dissociate\"; fi\n\
+         if {clone}; then\n\
+         [ -d \"$M\" ] || git {opts} init -q --bare \"$M\" 2>/dev/null || true\n\
+         if {ours}; then git {opts} {local} --git-dir=\"$M\" fetch -q --no-tags -- {dir} '+refs/remotes/origin/*:refs/heads/*' '+refs/tags/*:refs/tags/*' || true; fi\n\
+         else false; fi\n\
+         }}\n",
         dir = dir,
         mirror = mirror,
+        ours = ours,
+        clone = clone,
         opts = NO_REPO_EXEC,
-        url_arg = url_arg,
-        clone = clone
+        local = LOCAL_ONLY
     )
 }
 
@@ -309,7 +327,7 @@ impl<'a> GitApi<'a> {
         let gitconfig = self.api.get_system_config().await?.gitconfig;
 
         // a shallow clone has no use for a mirror, and a config clone shares nothing
-        let cache = depth.is_empty() && !spec.isolated;
+        let cache = depth.is_empty() && !spec.isolated && cacheable(&all_urls);
 
         for url in all_urls {
             validate_clone_url(&url)?;
@@ -543,8 +561,38 @@ mod tests {
         for cache in [false, true] {
             let line = clone_line("/work/re'po", "--depth=1", "https://h/a'b.git", cache);
             assert!(line.contains(r"ls '/work/re'\''po'/.git"), "{}", line);
-            assert!(line.contains("-- 'https://h/a'\\''b.git'\n"), "{}", line);
+            assert!(line.contains("-- 'https://h/a'\\''b.git'"), "{}", line);
         }
+    }
+
+    #[test]
+    fn a_mirror_is_never_trusted_to_run_or_fetch_anything() {
+        // the volume is writable by any user of the engine
+        let line = clone_line("/work/repo", "", "git@h:a/b.git", true);
+        assert!(!line.contains("safe.directory"), "{}", line);
+        assert!(!line.contains("remote update"), "{}", line);
+        assert!(!line.contains("--mirror"), "{}", line);
+        // the only git run on a mirror is a local fetch from the clone, whatever the mirror's
+        // config rewrites its URLs to
+        let on_mirror: Vec<&str> = line.lines().filter(|l| l.contains("--git-dir")).collect();
+        assert_eq!(on_mirror.len(), 1, "{}", line);
+        for flag in [
+            "-c protocol.allow=never",
+            "-c protocol.file.allow=always",
+            "-c core.hooksPath=/dev/null",
+        ] {
+            assert!(on_mirror[0].contains(flag), "missing {}: {}", flag, line);
+        }
+        // a mirror owned by someone else is neither read nor written
+        assert_eq!(line.matches("stat -c %u").count(), 2, "{}", line);
+    }
+
+    #[test]
+    fn a_local_url_keeps_the_shared_mirror_volume_out_of_the_clone() {
+        let urls = |u: &[&str]| u.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert!(cacheable(&urls(&["git@h:a/b.git", "https://h/a.git"])));
+        assert!(!cacheable(&urls(&["file:///tmp/rooz-git-cache/ab.git"])));
+        assert!(!cacheable(&urls(&["git@h:a/b.git", "file:///x"])));
     }
 
     #[test]
@@ -725,6 +773,25 @@ mod tests {
             url
         );
 
+        // the mirror holds the history, and its own config decides nothing: the keys that would
+        // run a command or redirect a fetch are in it, and neither happens
+        assert_eq!(
+            git(
+                std::path::Path::new(&mirror),
+                &["rev-list", "--count", "refs/heads/main"]
+            )
+            .trim(),
+            "1"
+        );
+        let planted = tmp.join("planted");
+        let mut config = std::fs::read_to_string(format!("{}/config", mirror)).unwrap();
+        config.push_str(&format!(
+            "[core]\n\tsshCommand = touch {p}\n\tgitProxy = touch {p}\n[url \"ssh://evil.invalid/\"]\n\tinsteadOf = {a}\n",
+            p = planted.display(),
+            a = tmp.display()
+        ));
+        std::fs::write(format!("{}/config", mirror), config).unwrap();
+
         // a new commit reaches the next clone through the updated mirror
         std::fs::write(origin.join("f"), "two").unwrap();
         git(
@@ -745,6 +812,8 @@ mod tests {
             git(&b.join("origin"), &["rev-list", "--count", "HEAD"]).trim(),
             "2"
         );
+
+        assert!(!planted.exists(), "a command from the mirror's config ran");
 
         // the mirror going away leaves the clones whole
         std::fs::remove_dir_all(&cache).unwrap();
