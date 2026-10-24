@@ -34,15 +34,15 @@ jobs:
         run: |
           scripts/check-joey-version.sh
           crate="$(sed -n 's/^version = "\(.*\)"/\1/p' joey/Cargo.toml | head -n1)"
-          if [ "${{ github.ref_type }}" = "tag" ]; then
-            [ "${{ github.ref_name }}" = "v$crate" ] || {
-              echo "RELEASE REFUSED: tag is '${{ github.ref_name }}', joey/Cargo.toml says 'v$crate'" >&2
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            [ "$GITHUB_REF_NAME" = "v$crate" ] || {
+              echo "RELEASE REFUSED: tag is '$GITHUB_REF_NAME', joey/Cargo.toml says 'v$crate'" >&2
               exit 1
             }
             image="$crate"
             dry=false
           else
-            image="$crate-dry.${{ github.run_number }}"
+            image="$crate-dry.$GITHUB_RUN_NUMBER"
             dry=true
           fi
           {
@@ -78,9 +78,11 @@ jobs:
         run: cargo build --release --locked --manifest-path joey/Cargo.toml --target ${{ matrix.target }}
 
       - name: the binary reports the version
+        env:
+          CRATE_VERSION: ${{ needs.meta.outputs.crate }}
         run: |
           bin="joey/target/${{ matrix.target }}/release/joey"
-          expected="joey ${{ needs.meta.outputs.crate }}"
+          expected="joey $CRATE_VERSION"
           actual="$("$bin" --version)"
           [ "$actual" = "$expected" ] || {
             echo "RELEASE REFUSED: --version says '$actual', expected '$expected'" >&2
@@ -119,22 +121,24 @@ jobs:
       - name: build, check and push
         env:
           GH_TOKEN: ${{ github.token }}
+          IMAGE_VERSION: ${{ needs.meta.outputs.image }}
+          CRATE_VERSION: ${{ needs.meta.outputs.crate }}
         run: |
           chmod +x ctx/joey
           owner="${GITHUB_REPOSITORY_OWNER,,}"
           repo="ghcr.io/$owner/joey"
-          version="${{ needs.meta.outputs.image }}"
+          version="$IMAGE_VERSION"
           echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
 
           docker build -f joey/Dockerfile.scratch \
-            --build-arg SOURCE="${{ github.server_url }}/${{ github.repository }}" \
+            --build-arg SOURCE="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
             -t "$repo:$version-${{ matrix.arch }}" ctx
           docker build -f joey/Dockerfile.tools \
-            --build-arg SOURCE="${{ github.server_url }}/${{ github.repository }}" \
+            --build-arg SOURCE="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
             -t "$repo:$version-tools-${{ matrix.arch }}" ctx
 
           # what ships has run: the same checks rooz's one-shots rely on
-          [ "$(docker run --rm "$repo:$version-${{ matrix.arch }}" --version)" = "joey ${{ needs.meta.outputs.crate }}" ]
+          [ "$(docker run --rm "$repo:$version-${{ matrix.arch }}" --version)" = "joey $CRATE_VERSION" ]
           docker run --rm --entrypoint sh "$repo:$version-tools-${{ matrix.arch }}" -c \
             'joey --version && git --version && ssh -V && command -v ssh-keygen'
 
@@ -154,10 +158,11 @@ jobs:
         id: join
         env:
           GH_TOKEN: ${{ github.token }}
+          IMAGE_VERSION: ${{ needs.meta.outputs.image }}
         run: |
           owner="${GITHUB_REPOSITORY_OWNER,,}"
           repo="ghcr.io/$owner/joey"
-          version="${{ needs.meta.outputs.image }}"
+          version="$IMAGE_VERSION"
           echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
 
           docker buildx imagetools create -t "$repo:$version" \
@@ -173,14 +178,20 @@ jobs:
 
       # the digests rooz pins in a release: they are in the log and the job summary
       - name: digests
+        env:
+          IMAGE_VERSION: ${{ needs.meta.outputs.image }}
+          DRY: ${{ needs.meta.outputs.dry }}
+          NAME: ${{ steps.join.outputs.name }}
+          SCRATCH: ${{ steps.join.outputs.scratch }}
+          TOOLS: ${{ steps.join.outputs.tools }}
         run: |
           {
-            echo "### joey ${{ needs.meta.outputs.image }}"
-            echo "- scratch: \`${{ steps.join.outputs.name }}@${{ steps.join.outputs.scratch }}\`"
-            echo "- tools: \`${{ steps.join.outputs.name }}@${{ steps.join.outputs.tools }}\`"
-            if [ "${{ needs.meta.outputs.dry }}" = "true" ]; then
+            echo "### joey $IMAGE_VERSION"
+            echo "- scratch: \`$NAME@$SCRATCH\`"
+            echo "- tools: \`$NAME@$TOOLS\`"
+            if [ "$DRY" = "true" ]; then
               echo
-              echo "Dry run: delete the \`${{ needs.meta.outputs.image }}*\` versions from the package page."
+              echo "Dry run: delete the \`$IMAGE_VERSION*\` versions from the package page."
             fi
           } | tee -a "$GITHUB_STEP_SUMMARY"
 
