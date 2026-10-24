@@ -140,7 +140,7 @@ jobs:
           # what ships has run: the same checks rooz's one-shots rely on
           [ "$(docker run --rm "$repo:$version-${{ matrix.arch }}" --version)" = "joey $CRATE_VERSION" ]
           docker run --rm --entrypoint sh "$repo:$version-tools-${{ matrix.arch }}" -c \
-            'joey --version && git --version && ssh -V && command -v ssh-keygen'
+            'joey --version && git --version && ssh -V && command -v ssh-keygen && apk info -v | sort'
 
           docker push "$repo:$version-${{ matrix.arch }}"
           docker push "$repo:$version-tools-${{ matrix.arch }}"

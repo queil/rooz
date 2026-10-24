@@ -1,5 +1,7 @@
 # What rooz's one-shot containers need around the binary: a shell, git and an ssh client.
-FROM docker.io/library/alpine:3.22
+# The base is pinned to the digest of the multi-arch index, so the release does not depend on what
+# the tag points to on the day it is built; dependabot proposes the next digest.
+FROM docker.io/library/alpine:3.22@sha256:2e0b81d60597f449baa56dc25d355367869d2dca4cd57e866f1e2b52af3eb55f
 ARG SOURCE=https://github.com/queil/rooz
 LABEL org.opencontainers.image.source=$SOURCE \
       org.opencontainers.image.description="rooz's helper with sh, git and openssh-client"
