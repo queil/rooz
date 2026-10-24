@@ -1,0 +1,11 @@
+[package]
+name = "joey"
+version = "0.170.0"
+edition = "2024"
+description = "rooz's helper: the small static binary that runs in the containers rooz starts"
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
+panic = "abort"
