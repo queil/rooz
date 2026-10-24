@@ -1,0 +1,38 @@
+name: cargo cache (restore)
+description: >-
+  Restores the cargo registry and the dependencies' build output. Pair it with cargo-cache-save at
+  the end of the job.
+inputs:
+  name:
+    description: What the cache is for; jobs that build the same way share one.
+    required: true
+outputs:
+  key:
+    description: The key a save after this job writes.
+    value: ${{ steps.key.outputs.key }}
+  hit:
+    description: Whether exactly that key was restored, so there is nothing new to save.
+    value: ${{ steps.restore.outputs.cache-hit }}
+runs:
+  using: composite
+  steps:
+    - id: key
+      shell: bash
+      env:
+        NAME: ${{ inputs.name }}
+        LOCK: ${{ hashFiles('Cargo.lock') }}
+      run: |
+        prefix="cargo-$RUNNER_OS-$NAME-$(rustc -V | cut -d' ' -f2)-"
+        echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
+        echo "key=$prefix$LOCK" >> "$GITHUB_OUTPUT"
+
+    - id: restore
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+      with:
+        path: |
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ steps.key.outputs.key }}
+        restore-keys: ${{ steps.key.outputs.prefix }}

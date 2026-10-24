@@ -1,0 +1,33 @@
+name: cargo cache (save)
+description: >-
+  Saves what cargo-cache-restore restores, without the workspace's own build output: that changes
+  with every commit, so caching it only makes the cache grow.
+inputs:
+  key:
+    description: The key output of cargo-cache-restore.
+    required: true
+  hit:
+    description: The hit output of cargo-cache-restore.
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: keep only the dependencies
+      if: inputs.hit != 'true'
+      shell: bash
+      run: |
+        for pkg in $(cargo metadata --no-deps --format-version 1 | jq -r '.packages[].name'); do
+          cargo clean --quiet -p "$pkg"
+        done
+        rm -rf target/debug/incremental target/release/incremental
+        du -sh target ~/.cargo/registry 2>/dev/null || true
+
+    - if: inputs.hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+      with:
+        path: |
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ inputs.key }}

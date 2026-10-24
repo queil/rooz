@@ -9,21 +9,20 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  # every CI build starts from scratch: incremental state is never reused, only cached and restored
+  CARGO_INCREMENTAL: 0
+  # file and line in a backtrace is all a test failure needs; full debuginfo is most of target/
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
 
 jobs:
   gate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+      - id: cache
+        uses: ./.github/actions/cargo-cache-restore
         with:
-          path: |
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-
+          name: dev
 
       - name: tag matches Cargo.toml
         run: |
