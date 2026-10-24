@@ -278,7 +278,8 @@ fn clone_line_with(
         );
     }
     let mirror = sh::quote(&mirror_dir(cache_root, url));
-    let ours = r#"[ "$(stat -c %u "$M" 2>/dev/null)" = "$(id -u)" ]"#;
+    // `-O` follows a symlink, so a link someone left at the mirror path is refused too
+    let ours = r#"[ -O "$M" ] && [ ! -L "$M" ]"#;
     format!(
         "ls {dir}/.git > /dev/null 2>&1 || {{\n\
          M={mirror}\n\
@@ -584,7 +585,8 @@ mod tests {
             assert!(on_mirror[0].contains(flag), "missing {}: {}", flag, line);
         }
         // a mirror owned by someone else is neither read nor written
-        assert_eq!(line.matches("stat -c %u").count(), 2, "{}", line);
+        assert_eq!(line.matches(r#"[ -O "$M" ]"#).count(), 2, "{}", line);
+        assert_eq!(line.matches(r#"[ ! -L "$M" ]"#).count(), 2, "{}", line);
     }
 
     #[test]
@@ -822,6 +824,58 @@ mod tests {
             "1"
         );
         git(&b.join("origin"), &["fsck", "--no-progress"]);
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn a_symlink_at_the_mirror_path_is_neither_read_nor_written() {
+        if std::process::Command::new("git")
+            .arg("--version")
+            .output()
+            .is_err()
+        {
+            return;
+        }
+        let tmp = std::env::temp_dir().join(format!("rooz-git-link-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let (origin, cache, work, elsewhere) = (
+            tmp.join("origin"),
+            tmp.join("cache"),
+            tmp.join("w"),
+            tmp.join("elsewhere.git"),
+        );
+        for d in [&origin, &cache, &elsewhere] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        git(&origin, &["init", "-q", "-b", "main"]);
+        std::fs::write(origin.join("f"), "one").unwrap();
+        git(&origin, &["add", "f"]);
+        git(
+            &origin,
+            &[
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "commit",
+                "-qm",
+                "one",
+            ],
+        );
+        git(&elsewhere, &["init", "-q", "--bare"]);
+        let url = format!("file://{}", origin.display());
+        // a link to a repository the cloning user owns passes `-O` on its own
+        std::os::unix::fs::symlink(&elsewhere, mirror_dir(cache.to_str().unwrap(), &url)).unwrap();
+
+        run_clone(&cache, &work, &url, true);
+        assert_eq!(
+            std::fs::read_to_string(work.join("origin/f")).unwrap(),
+            "one"
+        );
+        assert!(
+            !elsewhere.join("refs/heads/main").exists(),
+            "the clone was fed into the linked repository"
+        );
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
