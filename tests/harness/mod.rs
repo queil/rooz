@@ -8,9 +8,9 @@ use bollard::{
     exec::{CreateExecOptions, StartExecResults},
     models::{ContainerCreateBody, HostConfig, Mount, VolumeCreateRequest},
     query_parameters::{
-        CreateContainerOptions, ListContainersOptions, ListNetworksOptions, ListVolumesOptions,
-        LogsOptions, RemoveContainerOptions, RemoveVolumeOptions, StartContainerOptions,
-        WaitContainerOptions,
+        CreateContainerOptions, CreateImageOptions, ListContainersOptions, ListNetworksOptions,
+        ListVolumesOptions, LogsOptions, RemoveContainerOptions, RemoveVolumeOptions,
+        StartContainerOptions, WaitContainerOptions,
     },
 };
 use bollard_stubs::models::{ContainerSummary, ContainerSummaryStateEnum, MountType, Volume};
@@ -161,9 +161,28 @@ impl TestEnv {
         .to_string()
     }
 
+    /// Pulls `image` unless the engine has it: creating a container through the API does not.
+    pub async fn ensure_image(&self, image: &str) {
+        if self.docker.inspect_image(image).await.is_ok() {
+            return;
+        }
+        let mut pull = self.docker.create_image(
+            Some(CreateImageOptions {
+                from_image: Some(image.to_string()),
+                ..Default::default()
+            }),
+            None,
+            None,
+        );
+        while let Some(progress) = pull.next().await {
+            progress.unwrap_or_else(|e| panic!("pulling {}: {}", image, e));
+        }
+    }
+
     /// Runs `script` as root in a throwaway `image` container, with `volume` writable at /mnt, and
     /// waits for it to finish.
     pub async fn run_in_volume(&self, image: &str, volume: &str, script: &str) {
+        self.ensure_image(image).await;
         let cname = format!("rooz-test-run-{}", volume.replace(['/', ':'], "-"));
         let body = ContainerCreateBody {
             image: Some(image.to_string()),
@@ -204,8 +223,10 @@ impl TestEnv {
 
     /// Serves `dir` of `volume` over plain HTTP from a container named `name`; returns its address.
     pub async fn serve_dir(&self, name: &str, volume: &str, dir: &str) -> String {
+        let image = "docker.io/library/python:3-alpine";
+        self.ensure_image(image).await;
         let body = ContainerCreateBody {
-            image: Some("docker.io/library/python:3-alpine".to_string()),
+            image: Some(image.to_string()),
             cmd: Some(
                 ["python3", "-m", "http.server", "80", "-d", dir]
                     .iter()
