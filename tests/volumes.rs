@@ -1012,6 +1012,9 @@ async fn cache_commands_list_refuse_mounted_and_remove_unused() {
         .expect("cache listed");
     assert_eq!(row["mounted"], true);
     assert!(row["workspaces"].to_string().contains(&key));
+    assert!(row["size"].is_i64(), "no size for {}: {}", vol, row);
+    // measuring a cache does not leave its volume looking used
+    assert!(!row["workspaces"].to_string().contains('?'), "{}", row);
 
     env.rooz().args(["cache", "rm", &path]).assert().failure();
     assert!(env.volume_exists(&vol).await, "a mounted cache was removed");

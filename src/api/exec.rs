@@ -623,6 +623,15 @@ impl<'a> ExecApi<'a> {
     }
 
     pub async fn ensure_user(&self, container_id: &str) -> Result<(), AnyError> {
+        self.ensure_user_with(container_id, true).await
+    }
+
+    // For a container that works without the account, a failure is only worth a debug line
+    pub async fn ensure_user_quietly(&self, container_id: &str) -> Result<(), AnyError> {
+        self.ensure_user_with(container_id, false).await
+    }
+
+    async fn ensure_user_with(&self, container_id: &str, warn: bool) -> Result<(), AnyError> {
         let ensure_user_cmd = inject(
             r#"exec 2>&1
                        grep -q "^$ROOZ_META_USER:x:$ROOZ_META_UID:" /etc/passwd && exit 0
@@ -643,7 +652,7 @@ impl<'a> ExecApi<'a> {
         log::debug!("{}", ensure_user_output);
         // images without a writable /etc/passwd (distroless, scratch-based) have no account to
         // manage, and everything but the user's name works without one
-        if ensure_user_code != 0 {
+        if ensure_user_code != 0 && warn {
             eprintln!(
                 "WARN: could not create the container user (exit {}): {}",
                 ensure_user_code,
