@@ -18,6 +18,10 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  # What the tools image installs, as `name` or `name=version`. A version here is held to: the image
+  # check fails when the build resolved another one. Take the versions from the `apk info -v` list
+  # a run prints, and bump them when the base image digest moves.
+  APK_PACKAGES: git openssh-client ca-certificates
 
 jobs:
   meta:
@@ -135,12 +139,23 @@ jobs:
             -t "$repo:$version-${{ matrix.arch }}" ctx
           docker build -f joey/Dockerfile.tools \
             --build-arg SOURCE="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+            --build-arg APK_PACKAGES="$APK_PACKAGES" \
             -t "$repo:$version-tools-${{ matrix.arch }}" ctx
 
           # what ships has run: the same checks rooz's one-shots rely on
           [ "$(docker run --rm "$repo:$version-${{ matrix.arch }}" --version)" = "joey $CRATE_VERSION" ]
           docker run --rm --entrypoint sh "$repo:$version-tools-${{ matrix.arch }}" -c \
-            'joey --version && git --version && ssh -V && command -v ssh-keygen'
+            'joey --version && git --version && ssh -V && command -v ssh-keygen && apk info -v | sort'
+          # a pinned package (`name=version`) is the one installed
+          installed="$(docker run --rm --entrypoint apk "$repo:$version-tools-${{ matrix.arch }}" info -v)"
+          for pkg in $APK_PACKAGES; do
+            case "$pkg" in
+              *=*) echo "$installed" | grep -qx "${pkg%%=*}-${pkg#*=}" || {
+                     echo "RELEASE REFUSED: $pkg is pinned, the image has: $(echo "$installed" | grep "^${pkg%%=*}-" | tr '\n' ' ')" >&2
+                     exit 1
+                   } ;;
+            esac
+          done
 
           docker push "$repo:$version-${{ matrix.arch }}"
           docker push "$repo:$version-tools-${{ matrix.arch }}"

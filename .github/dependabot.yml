@@ -1,8 +1,13 @@
 # Actions are pinned to commit SHAs (a tag is a mutable ref owned by the action's
-# repository), so upgrades have to arrive as reviewable PRs rather than silently.
+# repository), and joey's base image to a digest, so upgrades have to arrive as reviewable PRs
+# rather than silently.
 version: 2
 updates:
   - package-ecosystem: github-actions
     directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directory: /joey
     schedule:
       interval: weekly
