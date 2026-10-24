@@ -8,6 +8,10 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  # every CI build starts from scratch: incremental state is never reused, only cached and restored
+  CARGO_INCREMENTAL: 0
+  # file and line in a backtrace is all a test failure needs; full debuginfo is most of target/
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
 
 jobs:
   # ── unit tests (no daemon) ──────────────────────────────────────────────────
