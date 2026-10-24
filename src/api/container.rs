@@ -616,7 +616,7 @@ exit $EXEC_EXIT_CODE"#;
         let id = self
             .create(RunSpec {
                 reason: name,
-                image: image.unwrap_or(constants::DEFAULT_IMAGE),
+                image: image.unwrap_or(constants::HELPER_IMAGE),
                 container_name: &id::random_suffix("one-shot"),
                 command: Some(entrypoint),
                 mounts: mounts.map(|mut m| {
@@ -771,7 +771,7 @@ echo start > /tmp/exec_start
     ) -> Result<String, AnyError> {
         self.create(RunSpec {
             reason: "move-copy",
-            image: constants::DEFAULT_IMAGE,
+            image: constants::HELPER_IMAGE,
             container_name: &id::random_suffix("one-shot"),
             command: Some(vec!["true"]),
             mounts: Some(vec![Mount {
@@ -831,7 +831,7 @@ echo start > /tmp/exec_start
         let id = self
             .create(RunSpec {
                 reason: name,
-                image: constants::DEFAULT_IMAGE,
+                image: constants::HELPER_IMAGE,
                 container_name: &id::random_suffix("one-shot"),
                 command: Some(vec!["sh", "-c", &cmd]),
                 mounts: Some(mounts),

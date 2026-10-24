@@ -95,7 +95,7 @@ impl<'a> WorkspaceApi<'a> {
         // run side by side, or each would pull it
         self.api
             .image
-            .ensure(constants::DEFAULT_IMAGE, false)
+            .ensure(constants::HELPER_IMAGE, false)
             .await?;
 
         all_ok(

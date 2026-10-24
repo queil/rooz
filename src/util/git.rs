@@ -147,7 +147,7 @@ pub struct CloneEnv {
 impl Default for CloneEnv {
     fn default() -> Self {
         Self {
-            image: constants::DEFAULT_IMAGE.to_string(),
+            image: constants::HELPER_IMAGE.to_string(),
             uid: constants::DEFAULT_UID.to_string(),
             workspace_key: Default::default(),
             working_dir: constants::WORK_DIR.to_string(),

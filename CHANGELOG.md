@@ -12,6 +12,11 @@ file - see the git history.
 
 ### Changed
 
+- rooz runs its own containers (clones, volume population, key generation, `cache ls`) from joey's
+  tools image, `ghcr.io/queil/joey:0.171.0-tools`, pinned by digest, instead of
+  `docker.io/chainguard/git:latest-dev`. It is also the default workspace image and the default
+  image of `generate:` scripts. An image pinned by digest is not pulled again by `--pull-image`
+  or `rooz update`: its content cannot change.
 - `rooz cache ls` measures only the cache volumes it lists, with `du` in one short-lived container,
   instead of asking the engine for its disk usage report, which sizes every image, container and
   volume and took long on a busy engine.

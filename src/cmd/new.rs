@@ -865,7 +865,7 @@ impl<'a> WorkspaceApi<'a> {
         self.api
             .image
             .ensure(
-                constants::DEFAULT_IMAGE,
+                constants::HELPER_IMAGE,
                 cli_params.pull_image && plan.is_none(),
             )
             .await?;

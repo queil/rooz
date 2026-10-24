@@ -43,7 +43,8 @@ them; set `ROOZ_REQUIRE_SECURE_TRANSPORT=true` to refuse them.
 
 ## Image
 
-Default: `docker.io/chainguard/git:latest-dev`. Set it with `ROOZ_IMAGE`, `--image`, or in a config file:
+Default: rooz's helper image, `ghcr.io/queil/joey:<version>-tools` pinned by digest (Alpine with
+`sh`, `git` and `openssh-client`). Set it with `ROOZ_IMAGE`, `--image`, or in a config file:
 
 ```yaml
 image: ghcr.io/queil/image:dotnet
@@ -255,7 +256,7 @@ A `data` entry is one of:
 * `content:`: a file with this text.
 * `file:`: a file loaded from next to the config. See [Files next to the config](#files-next-to-the-config).
 * `generate:`: a file holding the stdout of a `sh` script, run in a one-shot container. `image:` picks
-  the image (default `docker.io/chainguard/git:latest-dev`).
+  the image (default: rooz's helper image, see [Image](#image)).
 
 Files also take `executable: true` (mode `755`, else `644`) and `once: true`. They are owned by the user
 of the container that mounts them, and writable.
