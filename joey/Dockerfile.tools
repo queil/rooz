@@ -5,5 +5,7 @@ FROM docker.io/library/alpine:3.22@sha256:2e0b81d60597f449baa56dc25d355367869d2d
 ARG SOURCE=https://github.com/queil/rooz
 LABEL org.opencontainers.image.source=$SOURCE \
       org.opencontainers.image.description="rooz's helper with sh, git and openssh-client"
-RUN apk add --no-cache git openssh-client ca-certificates
+# `name` or `name=version`; the release workflow passes the pinned list
+ARG APK_PACKAGES="git openssh-client ca-certificates"
+RUN apk add --no-cache $APK_PACKAGES
 COPY joey /usr/local/bin/joey
