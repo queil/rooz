@@ -231,7 +231,8 @@ const NO_REPO_EXEC: &str = "-c core.hooksPath=/dev/null -c core.fsmonitor=false 
 // is at hand) and never looks at a mirror someone else owns.
 const GIT_CACHE_DIR: &str = "/tmp/rooz-git-cache";
 
-// Whatever a mirror's own config says, a fetch into it is a plain local one.
+// Whatever a mirror's own config says, a fetch into it is a plain local one. The script runs with
+// umask 0000, so the mirror steps set their own: a mirror is its owner's alone.
 const LOCAL_ONLY: &str = "-c protocol.allow=never -c protocol.file.allow=always";
 
 fn mirror_dir(root: &str, url: &str) -> String {
@@ -284,9 +285,11 @@ fn clone_line_with(
         "ls {dir}/.git > /dev/null 2>&1 || {{\n\
          M={mirror}\n\
          REF=; if [ -f \"$M/HEAD\" ] && {ours}; then REF=\"--reference-if-able $M --dissociate\"; fi\n\
-         if {clone}; then\n\
+         if {clone}; then (\n\
+         umask 077\n\
          [ -d \"$M\" ] || git {opts} init -q --bare \"$M\" 2>/dev/null || true\n\
-         if {ours}; then git {opts} {local} --git-dir=\"$M\" fetch -q --no-tags -- {dir} '+refs/remotes/origin/*:refs/heads/*' '+refs/tags/*:refs/tags/*' || true; fi\n\
+         if {ours}; then git {opts} {local} --git-dir=\"$M\" fetch -q --no-tags -- {dir} '+refs/remotes/origin/*:refs/heads/*' '^refs/remotes/origin/HEAD' '+refs/tags/*:refs/tags/*' || true; fi\n\
+         )\n\
          else false; fi\n\
          }}\n",
         dir = dir,
@@ -715,7 +718,7 @@ mod tests {
             .current_dir(work)
             .arg("-c")
             .arg(format!(
-                "git() {{ command git -c protocol.file.allow=always \"$@\"; }}\n{}",
+                "umask 000\ngit() {{ command git -c protocol.file.allow=always \"$@\"; }}\n{}",
                 line
             ))
             .output()
@@ -768,6 +771,23 @@ mod tests {
         assert_eq!(std::fs::read_to_string(a.join("origin/f")).unwrap(), "one");
         let mirror = mirror_dir(cache.to_str().unwrap(), &url);
         assert!(std::path::Path::new(&mirror).join("HEAD").exists());
+        // written with the container's umask 0000, the mirror is still its owner's alone, and
+        // origin's HEAD did not become a branch
+        {
+            use std::os::unix::fs::PermissionsExt;
+            for p in ["", "/objects", "/config", "/HEAD"] {
+                let mode = std::fs::metadata(format!("{}{}", mirror, p))
+                    .unwrap()
+                    .permissions()
+                    .mode();
+                assert_eq!(mode & 0o077, 0, "{}{} is {:o}", mirror, p, mode);
+            }
+        }
+        assert!(
+            !std::path::Path::new(&mirror)
+                .join("refs/heads/HEAD")
+                .exists()
+        );
         // no link left to the mirror, and the remote is the real one
         assert!(!a.join("origin/.git/objects/info/alternates").exists());
         assert_eq!(
