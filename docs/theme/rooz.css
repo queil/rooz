@@ -324,26 +324,20 @@ table tbody tr:last-child td {
 
 /* brand row: sticky, the height of the top bar so the two read as one header */
 .sidebar .sidebar-scrollbox::before {
-    content: "rooz";
+    content: "";
     position: sticky;
     top: 0;
     z-index: 1;
-    display: flex;
-    align-items: center;
+    display: block;
     height: var(--menu-bar-height);
     margin: 0 -12px 14px;
-    padding-left: 61px;
     border-bottom: 1px solid var(--sidebar-spacer);
     background: var(--sidebar-bg);
-    font-family: var(--display-font);
-    font-size: 1.3em;
-    font-weight: 700;
-    letter-spacing: -0.03em;
-    color: var(--fg);
 }
 
-/* the logo sits on the fixed sidebar, in the theme's accent (plain background images, so it also
-   shows when the built site is opened from disk, where a CSS mask would be blocked) */
+/* the logo sits on the fixed sidebar, in the hero's teal-to-rust gradient (plain background
+   images, so it also shows when the built site is opened from disk, where a CSS mask would be
+   blocked) */
 .sidebar::before {
     content: "";
     position: absolute;
