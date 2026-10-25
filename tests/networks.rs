@@ -10,23 +10,23 @@ image: alpine:latest
 sidecars:
   claude:
     image: alpine:latest
-    command: [sleep]
-    args: [infinity]
+    command: [sh, -c]
+    args: ['while true; do nc -l -p 7 >/dev/null 2>&1; done']
     peers: [proxy]
   proxy:
     image: alpine:latest
-    command: [sleep]
-    args: [infinity]
+    command: [sh, -c]
+    args: ['while true; do nc -l -p 7 >/dev/null 2>&1; done']
     egress: true
   dkr:
     image: alpine:latest
-    command: [sleep]
-    args: [infinity]
+    command: [sh, -c]
+    args: ['while true; do nc -l -p 7 >/dev/null 2>&1; done']
     peers: [images]
   images:
     image: alpine:latest
-    command: [sleep]
-    args: [infinity]
+    command: [sh, -c]
+    args: ['while true; do nc -l -p 7 >/dev/null 2>&1; done']
     egress: true
 ";
     let mut f = fs::File::create(&path).expect("write networks config");
@@ -69,7 +69,7 @@ async fn hub_and_spoke_topology() {
 
     for sidecar in ["claude", "proxy", "dkr", "images"] {
         assert_eq!(
-            env.ping(&key, sidecar).await,
+            env.reach(&key, sidecar).await,
             0,
             "work container cannot reach sidecar '{}'",
             sidecar
@@ -80,28 +80,28 @@ async fn hub_and_spoke_topology() {
     let claude = format!("{}_claude", key);
 
     assert_eq!(
-        env.ping(&dkr, "images").await,
+        env.reach(&dkr, "images").await,
         0,
         "dkr cannot reach its declared peer 'images'"
     );
     assert_eq!(
-        env.ping(&claude, "proxy").await,
+        env.reach(&claude, "proxy").await,
         0,
         "claude cannot reach its declared peer 'proxy'"
     );
 
     assert_ne!(
-        env.ping(&dkr, "proxy").await,
+        env.reach(&dkr, "proxy").await,
         0,
         "dkr must not reach 'proxy' (no peer declared)"
     );
     assert_ne!(
-        env.ping(&dkr, "claude").await,
+        env.reach(&dkr, "claude").await,
         0,
         "dkr must not reach 'claude' (no peer declared)"
     );
     assert_ne!(
-        env.ping(&claude, "images").await,
+        env.reach(&claude, "images").await,
         0,
         "claude must not reach 'images' (no peer declared)"
     );

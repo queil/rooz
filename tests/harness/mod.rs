@@ -468,8 +468,14 @@ impl TestEnv {
             .unwrap_or(-1)
     }
 
-    pub async fn ping(&self, from: &str, to: &str) -> i64 {
-        self.exec_code(from, vec!["ping", "-c1", "-w2", to]).await
+    // 0 when `from` opens a TCP connection to port 7 of `to` (the test sidecars listen there). TCP,
+    // not ping: podman does not grant the NET_RAW ping needs, so ping proves nothing there.
+    pub async fn reach(&self, from: &str, to: &str) -> i64 {
+        let probe = format!(
+            "for i in 1 2 3; do nc -z -w 2 {} 7 && exit 0; sleep 1; done; exit 1",
+            to
+        );
+        self.exec_code(from, vec!["sh", "-c", &probe]).await
     }
 
     pub async fn network_names_by_workspace(&self, key: &str) -> Vec<String> {
