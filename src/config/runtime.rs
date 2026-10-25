@@ -137,7 +137,8 @@ impl<'a> TryFrom<(&'a str, &'a RoozSidecar)> for RoozSidecarRuntime {
             vpn,
             init: value.init.unwrap_or(true),
             work_dir: value.work_dir.clone().unwrap_or_default(),
-            egress: value.egress.unwrap_or(false),
+            // a policy still here was never expanded into its proxy: no way out at all
+            egress: value.egress.as_ref().is_some_and(|e| e.is_open()),
             install: value.install.clone(),
             uid: value.uid,
             peers: value.peers.clone().unwrap_or_default(),
