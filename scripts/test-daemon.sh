@@ -58,7 +58,9 @@ up)
     ;;
 
   podman)
-    IMAGE="quay.io/podman/stable:v5"
+    # rooz needs podman 6; the image has no `v6` major tag, so `latest` - and the check below
+    # fails the run if that ever stops being 6 or newer
+    IMAGE="quay.io/podman/stable:latest"
     docker run -d --name "$CONTAINER_NAME" \
       --privileged \
       --security-opt seccomp=unconfined \
@@ -78,6 +80,13 @@ up)
         exit 1
       fi
     done
+
+    VERSION=$(docker exec "$CONTAINER_NAME" podman version --format '{{.Client.Version}}')
+    if [ "${VERSION%%.*}" -lt 6 ]; then
+      echo "rooz needs podman 6 or newer; $IMAGE has $VERSION" >&2
+      exit 1
+    fi
+    echo "podman $VERSION" >&2
 
     PORT=$(docker port "$CONTAINER_NAME" 2375 | cut -d: -f2)
     if echo "${DOCKER_HOST:-}" | grep -q '^tcp://'; then
