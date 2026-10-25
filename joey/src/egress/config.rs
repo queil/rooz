@@ -20,6 +20,9 @@ pub struct Config {
     pub inject: Vec<InjectHost>,
     // the CA the proxy issues inject hosts' certificates from; the clients trust its certificate
     pub ca: Option<CaFiles>,
+    // the one `Proxy-Authorization` value the proxy acts for; without it, for anyone who reaches
+    // its port
+    pub auth: Option<String>,
     // PEM files of roots trusted for upstream servers, on top of the built-in web roots
     #[serde(default)]
     pub upstream_roots: Vec<String>,
@@ -81,6 +84,11 @@ impl Config {
                     p
                 ));
             }
+        }
+        if let Some(auth) = &self.auth
+            && (auth.is_empty() || HeaderValue::from_str(auth).is_err())
+        {
+            return Err("auth: not a header value".into());
         }
         if self.ports.is_empty() {
             return Err("ports: at least one port".into());

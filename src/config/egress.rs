@@ -113,6 +113,24 @@ pub fn proxy_name(sidecar: &str) -> String {
     format!("{}-egress", sidecar)
 }
 
+// The credential in the sidecar's proxy URL, and the `Proxy-Authorization` value the proxy checks.
+// The proxy holds what the sidecar must not, and the work container reaches it too (it shares a
+// network with every sidecar), so reaching its port must not be enough to use it.
+fn proxy_token() -> (String, String) {
+    use base64::{Engine as _, engine::general_purpose};
+    use rand::{RngExt, distr::Alphanumeric, rng};
+    let token: String = rng()
+        .sample_iter(&Alphanumeric)
+        .take(32)
+        .map(char::from)
+        .collect();
+    let header = format!(
+        "Basic {}",
+        general_purpose::STANDARD.encode(format!("rooz:{}", token))
+    );
+    (token, header)
+}
+
 fn inline(content: String, once: bool) -> MountSource {
     MountSource::InlineDataValue(DataValue::InlineContent {
         content,
@@ -122,12 +140,13 @@ fn inline(content: String, once: bool) -> MountSource {
 }
 
 // What joey reads
-fn proxy_config(policy: &EgressPolicy, with_ca: bool) -> String {
+fn proxy_config(policy: &EgressPolicy, with_ca: bool, auth: &str) -> String {
     let mut cfg = serde_json::json!({
         "listen": format!("0.0.0.0:{}", PROXY_PORT),
         "allow": policy.allow,
         "ports": policy.ports.clone().unwrap_or_else(|| vec![443]),
         "inject": policy.inject,
+        "auth": auth,
     });
     if with_ca {
         cfg["ca"] = serde_json::json!({"cert": PROXY_CA_CERT, "key": PROXY_CA_KEY});
@@ -187,6 +206,8 @@ pub fn expand_with(
         true => Some(make_ca()?),
         false => None,
     };
+    // generated, never to be stored in clear: each proxy's client credential, and the CA's key
+    let mut generated = Vec::new();
 
     for (name, policy) in policies {
         let proxy = proxy_name(&name);
@@ -210,7 +231,10 @@ pub fn expand_with(
             .join(",");
         peers.push(proxy.clone());
         agent.peers = Some(peers);
-        let url = format!("http://{}:{}", proxy, PROXY_PORT);
+        let (token, auth) = proxy_token();
+        let url = format!("http://rooz:{}@{}:{}", token, proxy, PROXY_PORT);
+        generated.push(token);
+        generated.push(auth.clone());
         let env = agent.env.get_or_insert_with(IndexMap::new);
         // the sidecar's own settings win
         for key in ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"] {
@@ -223,7 +247,7 @@ pub fn expand_with(
         let mut proxy_mounts = IndexMap::new();
         proxy_mounts.insert(
             PROXY_CONFIG.to_string(),
-            inline(proxy_config(&policy, with_ca), false),
+            inline(proxy_config(&policy, with_ca, &auth), false),
         );
         if let (true, Some(ca)) = (with_ca, &ca) {
             agent
@@ -260,7 +284,10 @@ pub fn expand_with(
             },
         );
     }
-    Ok(ca.map(|c| vec![c.key]).unwrap_or_default())
+    if let Some(ca) = ca {
+        generated.push(ca.key);
+    }
+    Ok(generated)
 }
 
 #[cfg(test)]
@@ -301,7 +328,12 @@ mod tests {
             "sidecars:\n  agent:\n    image: x\n    peers: [dkr]\n    env:\n      NO_PROXY: mine\n    egress:\n      allow: [github.com]\n  dkr:\n    image: y\n",
         );
         let secrets = expand_with(&mut c, "joey-image", fake_ca).unwrap();
-        assert!(secrets.is_empty(), "no inject, no CA");
+        assert_eq!(
+            secrets.len(),
+            2,
+            "the proxy credential, as token and header, is masked"
+        );
+        let (token, auth) = (&secrets[0], &secrets[1]);
         let s = c.sidecars.unwrap();
         let agent = &s["agent"];
         assert_eq!(agent.egress, Some(SidecarEgress::Open(false)));
@@ -310,7 +342,10 @@ mod tests {
             &vec!["dkr".to_string(), "agent-egress".into()]
         );
         let env = agent.env.as_ref().unwrap();
-        assert_eq!(env["HTTPS_PROXY"], "http://agent-egress:9124");
+        let url = format!("http://rooz:{}@agent-egress:9124", token);
+        assert_eq!(env["HTTP_PROXY"], url);
+        assert_eq!(env["HTTPS_PROXY"], url);
+        assert_eq!(token.len(), 32);
         assert_eq!(env["NO_PROXY"], "mine", "the sidecar's own setting wins");
         assert_eq!(env["no_proxy"], "localhost,127.0.0.1,::1,dkr");
         assert!(!env.contains_key("NODE_EXTRA_CA_CERTS"));
@@ -322,6 +357,12 @@ mod tests {
         assert_eq!(mounts.len(), 1);
         let json: serde_json::Value = serde_json::from_str(content(&mounts[PROXY_CONFIG])).unwrap();
         assert_eq!(json["allow"], serde_json::json!(["github.com"]));
+        assert_eq!(
+            json["auth"],
+            serde_json::json!(auth),
+            "the proxy checks the sidecar's credential"
+        );
+        assert!(auth.starts_with("Basic "));
         assert_eq!(json["ports"], serde_json::json!([443]));
         assert!(json.get("ca").is_none());
     }
@@ -333,10 +374,11 @@ mod tests {
         );
         let secrets = expand_with(&mut c, "joey-image", fake_ca).unwrap();
         assert_eq!(
-            secrets,
-            vec!["KEY".to_string()],
-            "the key is masked when stored"
+            secrets.len(),
+            3,
+            "the proxy credential and the CA key are masked"
         );
+        assert_eq!(secrets[2], "KEY", "the key is masked when stored");
         let s = c.sidecars.unwrap();
         let agent_mounts = s["agent"].mounts.as_ref().unwrap();
         assert_eq!(content(&agent_mounts[AGENT_CA_CERT]), "CERT");

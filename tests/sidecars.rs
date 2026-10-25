@@ -733,16 +733,32 @@ async fn an_egress_policy_puts_the_sidecar_behind_its_own_proxy() {
 
     // pointed at its proxy, which is up: a CA that failed to load would have stopped it
     assert_eq!(
-        run("[ \"$HTTPS_PROXY\" = http://agent-egress:9124 ] && nc -z -w 5 agent-egress 9124")
+        run("case \"$HTTPS_PROXY\" in http://rooz:*@agent-egress:9124) nc -z -w 5 agent-egress 9124 ;; *) exit 1 ;; esac")
             .await,
         0,
         "no proxy to reach"
     );
     // the proxy refuses a host outside the policy
     assert_eq!(
-        run("printf 'CONNECT example.com:443 HTTP/1.1\\r\\n\\r\\n' | nc -w 5 agent-egress 9124 | head -1 | grep -q ' 403 '").await,
+        run("t=${HTTPS_PROXY#http://rooz:}; t=${t%@*}; a=$(printf 'rooz:%s' \"$t\" | base64); printf 'CONNECT example.com:443 HTTP/1.1\\r\\nProxy-Authorization: Basic %s\\r\\n\\r\\n' \"$a\" | nc -w 5 agent-egress 9124 | head -1 | grep -q ' 403 '").await,
         0,
         "the proxy let an unlisted host through"
+    );
+    // the proxy acts only for the client given its credential: not the work container, which
+    // reaches it too, nor the sidecar without the credential
+    let unauthenticated = "printf 'CONNECT allowed.test:443 HTTP/1.1\\r\\n\\r\\n' | nc -w 5 agent-egress 9124 | head -1 | grep -q ' 407 '";
+    assert_eq!(
+        run(unauthenticated).await,
+        0,
+        "the proxy served a client without its credential"
+    );
+    let work = key.clone();
+    let cmd = sh(unauthenticated);
+    assert_eq!(
+        env.exec_code(&work, cmd.iter().map(String::as_str).collect())
+            .await,
+        0,
+        "the work container used the proxy"
     );
     // the sidecar trusts the proxy's CA and never sees its key
     assert_eq!(

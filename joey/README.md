@@ -6,6 +6,10 @@ rooz's helper: a small static binary for the containers rooz starts.
 
 The only way out for the containers that peer with it. It speaks HTTP `CONNECT` and nothing else.
 
+* With `auth` set, it acts only for a client sending that exact `Proxy-Authorization` value; any
+  other gets `407` before anything else is decided. It holds credentials its client must not, so
+  reaching its port must not be enough to use them.
+
 * A `CONNECT` is decided on its host and port before anything is resolved or dialled: a host or
   port outside the lists gets `403`.
 * An `allow` host is reached as it is: the TLS session is the client's and the server's. The
@@ -24,6 +28,7 @@ The only way out for the containers that peer with it. It speaks HTTP `CONNECT` 
 ```json
 {
   "listen": "0.0.0.0:9124",
+  "auth": "Basic cm9vejo8dG9rZW4+",
   "allow": ["github.com", "*.githubusercontent.com", "crates.io"],
   "ports": [443],
   "ca": {"cert": "/etc/joey/ca.pem", "key": "/etc/joey/ca.key"},

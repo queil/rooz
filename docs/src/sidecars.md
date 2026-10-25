@@ -83,7 +83,9 @@ sidecars:
 * rooz adds a sidecar `<name>-egress` running joey's proxy (`joey egress-proxy`). It is the only one of
   the two with a way out; the sidecar reaches it, and nothing else outside the workspace, through
   their peer network. `HTTP(S)_PROXY` and `NO_PROXY` (itself and its peers) are set in the sidecar
-  unless its `env` sets them.
+  unless its `env` sets them. The proxy URL carries a credential generated for that proxy, and the
+  proxy refuses (`407`) any client without it - the work container reaches the proxy too, and must not
+  spend what it holds. A tool that ignores credentials in a proxy URL cannot get out.
 * `allow`: hosts reached through as they are, TLS end to end. `*.example.com` is the hosts under
   `example.com`, not `example.com` itself. The proxy refuses any other host, and any port but `ports`
   (`[443]` unless set), before it is even resolved, and checks that a connection's TLS server name is
