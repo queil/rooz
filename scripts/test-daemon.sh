@@ -58,9 +58,9 @@ up)
     ;;
 
   podman)
-    # rooz needs podman 6; the image has no `v6` major tag, so `latest` - and the check below
-    # fails the run if that ever stops being 6 or newer
-    IMAGE="quay.io/podman/stable:latest"
+    # rooz needs podman 6, which podman/stable does not carry yet: the upstream build, from podman's
+    # main branch - and the check below fails the run if it is ever older than 6
+    IMAGE="quay.io/podman/upstream:latest"
     docker run -d --name "$CONTAINER_NAME" \
       --privileged \
       --security-opt seccomp=unconfined \
