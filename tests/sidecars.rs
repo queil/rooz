@@ -1,6 +1,6 @@
 mod harness;
 
-use harness::{TestEnv, pinned_consent, unique_key};
+use harness::{TestEnv, pinned_consent, unique_key, write_cfg};
 use std::{fs, io::Write};
 
 fn sidecar_cfg(key: &str) -> (String, String) {
@@ -691,6 +691,70 @@ async fn vpn_sidecar_gets_net_admin_and_tun() {
         env.exec_code(&plain, tun).await,
         0,
         "plain sidecar has /dev/net/tun"
+    );
+
+    env.rooz().args(["rm", &key, "--force"]).assert().success();
+    let _ = fs::remove_file(&cfg_path);
+}
+
+// The proxy image: the released one rooz pins, or ROOZ_EGRESS_IMAGE for a joey build not released
+// yet - the variable reaches rooz from the test's own environment.
+#[tokio::test]
+async fn an_egress_policy_puts_the_sidecar_behind_its_own_proxy() {
+    let Some(env) = TestEnv::from_env() else {
+        return;
+    };
+    let key = unique_key("sc-egress");
+    let cfg_path = write_cfg(
+        &key,
+        "image: alpine:latest\nsidecars:\n  agent:\n    image: alpine:latest\n    command: [sleep]\n    args: [infinity]\n    egress:\n      allow: [allowed.test]\n      inject:\n        - host: api.example.test\n          rules:\n            - set: {authorization: Bearer t0ken}\n",
+    );
+
+    env.rooz()
+        .args(["system", "init", "--force"])
+        .assert()
+        .success();
+    env.rooz()
+        .args(["new", &key, "--config", &cfg_path])
+        .assert()
+        .success();
+
+    let agent = format!("{}_agent", key);
+    let sh = |script: &str| vec!["sh".to_string(), "-c".to_string(), script.to_string()];
+    let run = |script: &'static str| {
+        let agent = agent.clone();
+        let env = &env;
+        async move {
+            let cmd = sh(script);
+            env.exec_code(&agent, cmd.iter().map(String::as_str).collect())
+                .await
+        }
+    };
+
+    // pointed at its proxy, which is up: a CA that failed to load would have stopped it
+    assert_eq!(
+        run("[ \"$HTTPS_PROXY\" = http://agent-egress:9124 ] && nc -z -w 5 agent-egress 9124")
+            .await,
+        0,
+        "no proxy to reach"
+    );
+    // the proxy refuses a host outside the policy
+    assert_eq!(
+        run("printf 'CONNECT example.com:443 HTTP/1.1\\r\\n\\r\\n' | nc -w 5 agent-egress 9124 | head -1 | grep -q ' 403 '").await,
+        0,
+        "the proxy let an unlisted host through"
+    );
+    // the sidecar trusts the proxy's CA and never sees its key
+    assert_eq!(
+        run("grep -q 'BEGIN CERTIFICATE' \"$NODE_EXTRA_CA_CERTS\" && ! grep -rqs 'PRIVATE KEY' /usr/local/share/ca-certificates /etc/joey").await,
+        0,
+        "CA certificate missing, or the key visible"
+    );
+    // and has no way out but the proxy
+    assert_ne!(
+        run("nc -z -w 3 1.1.1.1 443").await,
+        0,
+        "the sidecar reached the internet directly"
     );
 
     env.rooz().args(["rm", &key, "--force"]).assert().success();

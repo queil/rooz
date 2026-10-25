@@ -416,7 +416,7 @@ impl<'a> WorkspaceApi<'a> {
 
         // captured before expansion: these plaintext values get substituted all over the
         // config, and must not reach the persisted copy
-        let decrypted_secrets = cfg_builder
+        let mut decrypted_secrets = cfg_builder
             .secrets
             .clone()
             .unwrap_or_default()
@@ -424,6 +424,10 @@ impl<'a> WorkspaceApi<'a> {
             .collect::<Vec<String>>();
 
         cfg_builder.expand_vars(operator_authored)?;
+        // a sidecar's egress policy becomes its proxy; the CA key it generates is masked like a secret
+        let egress_image = std::env::var(constants::EGRESS_IMAGE_ENV)
+            .unwrap_or_else(|_| constants::EGRESS_IMAGE.to_string());
+        decrypted_secrets.extend(crate::config::egress::expand(cfg_builder, &egress_image)?);
 
         let mut cfg = RuntimeConfig::try_from(&*cfg_builder)?;
         // not a config field: the work container's uid is whatever the workspace was made with

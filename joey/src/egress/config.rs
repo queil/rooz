@@ -112,10 +112,15 @@ impl Config {
                     }
                 }
                 for p in &r.paths {
+                    // a prefix ends at a segment boundary: `/v1/*`, never `/v1*`, which would also
+                    // be `/v1-admin`
                     let body = p.strip_suffix('*').unwrap_or(p);
-                    if !p.starts_with('/') || body.contains('*') {
+                    if !p.starts_with('/')
+                        || body.contains('*')
+                        || (p.ends_with('*') && !body.ends_with('/'))
+                    {
                         return Err(format!(
-                            "inject {}: path '{}' must start with '/' and may only end in '*'",
+                            "inject {}: path '{}' must start with '/'; a prefix ends in '/*'",
                             h.host, p
                         ));
                     }
@@ -189,6 +194,7 @@ mod tests {
             r#"{"ca": {"cert": "c", "key": "k"}, "inject": [{"host": "a.example", "rules": [{"methods": ["post"]}]}]}"#,
             r#"{"ca": {"cert": "c", "key": "k"}, "inject": [{"host": "a.example", "rules": [{"paths": ["v1/*"]}]}]}"#,
             r#"{"ca": {"cert": "c", "key": "k"}, "inject": [{"host": "a.example", "rules": [{"paths": ["/*/x"]}]}]}"#,
+            r#"{"ca": {"cert": "c", "key": "k"}, "inject": [{"host": "a.example", "rules": [{"paths": ["/v1*"]}]}]}"#,
             r#"{"ca": {"cert": "c", "key": "k"}, "inject": [{"host": "a.example", "rules": [{"set": {"bad header": "x"}}]}]}"#,
             r#"{"ca": {"cert": "c", "key": "k"}, "inject": [{"host": "a.example", "rules": [{"set": {"x": "a\nb"}}]}]}"#,
         ] {

@@ -57,7 +57,22 @@ pub struct TestEnv {
 }
 
 impl TestEnv {
+    // Without a daemon the integration tests return early and pass. Where they are meant to run,
+    // ROOZ_TEST_REQUIRE_DAEMON turns that into a failure, so a daemon that did not start shows.
     pub fn from_env() -> Option<Self> {
+        let env = Self::connect_from_env();
+        if env.is_none() && env::var("ROOZ_TEST_REQUIRE_DAEMON").is_ok() {
+            panic!(
+                "ROOZ_TEST_REQUIRE_DAEMON is set but there is no daemon: ROOZ_TEST_DOCKER_HOST={:?}, \
+                 ROOZ_TEST_ENGINE={:?}",
+                env::var("ROOZ_TEST_DOCKER_HOST").ok(),
+                env::var("ROOZ_TEST_ENGINE").ok()
+            );
+        }
+        env
+    }
+
+    fn connect_from_env() -> Option<Self> {
         let docker_host = env::var("ROOZ_TEST_DOCKER_HOST").ok()?;
         // both variables have to be set for the suite to run against a daemon
         env::var("ROOZ_TEST_ENGINE").ok()?;

@@ -8,14 +8,21 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases before 0.159.0 predate this
 file - see the git history.
 
-## [Unreleased]
+## [0.173.0] - 2026-10-25
 
 ### Added
 
 - `joey egress-proxy`, the first work for rooz's helper binary: an HTTP `CONNECT` proxy that decides
   on host and port before dialling, holds an allowed host's TLS to the server name it was opened
   for, and intercepts only the hosts with header rules (for a token the client must not hold).
-  See `joey/README.md`. rooz does not start it yet.
+  See `joey/README.md`.
+- An egress policy for sidecars: `egress: {allow: [...], inject: [...]}` puts a sidecar behind a proxy
+  of its own (`<name>-egress`, running `joey egress-proxy`), its only way out. Allowed hosts are
+  reached with their own TLS; `inject` hosts get header rules applied by the proxy, so a token in
+  `secrets` never reaches the sidecar. rooz generates the workspace's CA for it, mounts the
+  certificate in the sidecar and sets `HTTP(S)_PROXY`, `NO_PROXY` and `NODE_EXTRA_CA_CERTS`.
+  `egress: true` and `false` are unchanged. The proxy runs `ghcr.io/queil/joey` of rooz's own version,
+  published by the same release; `ROOZ_EGRESS_IMAGE` runs another image, for trying a joey build.
 
 ## [0.172.0] - 2026-10-25
 

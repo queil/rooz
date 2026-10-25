@@ -93,7 +93,7 @@ async fn upstream(ca: &Ca) -> (u16, Arc<AtomicUsize>) {
                     return;
                 };
                 let svc = service_fn(|req: Request<Incoming>| async move {
-                    let mut body = format!("path={}\n", req.uri().path());
+                    let mut body = format!("path={}\ntarget={}\n", req.uri().path(), req.uri());
                     for (n, v) in req.headers() {
                         body.push_str(&format!("{}: {}\n", n, v.to_str().unwrap_or("?")));
                     }
@@ -282,6 +282,65 @@ async fn an_inject_host_gets_its_headers_only_where_a_rule_matches() {
     let unmarked = through("/v1/messages", &[]).await;
     assert!(!unmarked.contains("authorization"), "{}", unmarked);
 
+    let _ = std::fs::remove_dir_all(d);
+}
+
+// An inject host's tunnel, with the upstream's and the proxy's CAs in place
+async fn intercepted(rules: serde_json::Value) -> (String, u16, String, PathBuf) {
+    let up = ca("upstream");
+    let mitm = ca("proxy");
+    let (port, _) = upstream(&up).await;
+    let d = dir();
+    std::fs::write(d.join("ca.pem"), &mitm.cert_pem).unwrap();
+    std::fs::write(d.join("ca.key"), &mitm.key_pem).unwrap();
+    std::fs::write(d.join("up.pem"), &up.cert_pem).unwrap();
+    let addr = proxy(serde_json::json!({
+        "ports": [port],
+        "ca": {"cert": d.join("ca.pem"), "key": d.join("ca.key")},
+        "upstream_roots": [d.join("up.pem")],
+        "inject": [{"host": "localhost", "rules": rules}]
+    }))
+    .await;
+    (addr, port, mitm.cert_pem, d)
+}
+
+#[tokio::test]
+async fn a_path_that_could_escape_a_rule_goes_nowhere() {
+    let (addr, port, root, d) = intercepted(serde_json::json!([{
+        "paths": ["/v1/*"], "set": {"authorization": "Bearer t0ken"}
+    }]))
+    .await;
+    for path in [
+        "/v1/messages/../../admin/keys",
+        "/v1/%2e%2e/admin/keys",
+        "/v1//messages",
+        "/v1/./messages",
+    ] {
+        let (_, s) = connect(&addr, &format!("localhost:{}", port)).await;
+        let body = get(s, "localhost", &root, path, &[]).await.unwrap();
+        assert_eq!(body, "path is not canonical", "{} was forwarded", path);
+    }
+    // the path the rule is about still works
+    let (_, s) = connect(&addr, &format!("localhost:{}", port)).await;
+    let body = get(s, "localhost", &root, "/v1/messages", &[])
+        .await
+        .unwrap();
+    assert!(body.contains("authorization: Bearer t0ken"), "{}", body);
+    let _ = std::fs::remove_dir_all(d);
+}
+
+#[tokio::test]
+async fn an_absolute_form_target_leaves_as_origin_form() {
+    let (addr, port, root, d) = intercepted(serde_json::json!([{
+        "paths": ["/v1/*"], "set": {"authorization": "Bearer t0ken"}
+    }]))
+    .await;
+    let (_, s) = connect(&addr, &format!("localhost:{}", port)).await;
+    let body = get(s, "localhost", &root, "http://evil.test/v1/x?q=1", &[])
+        .await
+        .unwrap();
+    assert!(body.contains("target=/v1/x?q=1\n"), "{}", body);
+    assert!(!body.contains("evil.test"), "{}", body);
     let _ = std::fs::remove_dir_all(d);
 }
 

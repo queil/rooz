@@ -279,7 +279,7 @@ pub struct RoozSidecar {
     pub install: Option<InstallSpec>,
     pub work_dir: Option<String>,
     pub uid: Option<i32>,
-    pub egress: Option<bool>,
+    pub egress: Option<crate::config::egress::SidecarEgress>,
     pub shell: Option<Vec<String>>,
     pub peers: Option<Vec<String>>,
 }
@@ -313,7 +313,11 @@ impl RoozSidecar {
             vpn: self.vpn,
             init: self.init,
             uid: self.uid,
-            egress: self.egress,
+            egress: self
+                .egress
+                .as_ref()
+                .map(|e| e.expand_vars(reg, vars))
+                .transpose()?,
         })
     }
 }
@@ -845,7 +849,7 @@ impl RoozSidecar {
         self.install = InstallSpec::merged(&self.install, &other.install);
         self.work_dir = other.work_dir.clone().or(self.work_dir.clone());
         self.uid = other.uid.or(self.uid);
-        self.egress = other.egress.or(self.egress);
+        self.egress = other.egress.clone().or(self.egress.take());
         self.peers = union_sorted(self.peers.take(), other.peers.clone());
     }
 }

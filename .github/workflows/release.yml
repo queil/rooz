@@ -56,12 +56,26 @@ jobs:
 
       - name: start docker daemon
         run: |
+          set -o pipefail
           bash scripts/test-daemon.sh up docker \
             | grep '^export ' \
             | sed 's/^export //' \
             >> "$GITHUB_ENV"
 
+      # the egress proxy this release names is published by it; the gate tests this commit's
+      - name: joey image from this commit
+        run: |
+          # a failed build or load must fail here, not as a pull error in the tests
+          set -o pipefail
+          bash scripts/joey-test-image.sh \
+            | grep '^export ' \
+            | sed 's/^export //' \
+            >> "$GITHUB_ENV"
+
       - name: integration tests
+        # every test runs against the daemon or fails, never skips
+        env:
+          ROOZ_TEST_REQUIRE_DAEMON: "1"
         run: |
           cargo test --locked \
             --test smoke \

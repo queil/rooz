@@ -1,6 +1,6 @@
 [package]
 name = "joey"
-version = "0.172.0"
+version = "0.173.0"
 edition = "2024"
 description = "rooz's helper: the small static binary that runs in the containers rooz starts"
 
