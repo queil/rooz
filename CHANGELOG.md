@@ -31,6 +31,9 @@ file - see the git history.
   `no exec session ... found`: podman removes a command's exec session with its container, and rooz
   read the command's exit code from the session after the container was gone. It is read from the
   container now.
+- On podman, `rooz move --to` handed every file in the moved volumes to root: podman's archive
+  download reports all files as owned by root. The volume is now read with `tar` inside a container,
+  which keeps owners and modes.
 
 ## [0.172.0] - 2026-10-25
 

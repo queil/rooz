@@ -386,6 +386,49 @@ impl<'a> ExecApi<'a> {
         }
     }
 
+    // A command's stdout as it comes, bytes untouched (stderr goes to ours), and the exec's id, to
+    // read its exit code from once the stream is done.
+    pub async fn stdout_stream(
+        &self,
+        reason: &str,
+        container_id: &str,
+        cmd: Vec<&str>,
+    ) -> Result<
+        (
+            String,
+            impl futures::Stream<Item = Result<bytes::Bytes, AnyError>> + use<>,
+        ),
+        AnyError,
+    > {
+        let exec_id = self
+            .create_exec(
+                reason,
+                container_id,
+                None,
+                Some(constants::ROOT_UID),
+                Some(cmd),
+                false,
+            )
+            .await?;
+        let StartExecResults::Attached { output, .. } =
+            self.client.start_exec(&exec_id, None).await?
+        else {
+            return Err("Could not start exec: the engine returned no attached stream. Check that the container is running.".into());
+        };
+        let stdout = output.filter_map(|item| async move {
+            match item {
+                Ok(LogOutput::StdOut { message }) => Some(Ok(message)),
+                Ok(LogOutput::StdErr { message }) => {
+                    eprint!("{}", String::from_utf8_lossy(&message));
+                    None
+                }
+                Ok(_) => None,
+                Err(e) => Some(Err(AnyError::from(e))),
+            }
+        });
+        Ok((exec_id, stdout))
+    }
+
     // `output` plus the exit code, for commands whose failure matters
     async fn output_with_code(
         &self,
@@ -468,7 +511,7 @@ impl<'a> ExecApi<'a> {
 
     // The engine can report the stream closed a moment before it records the exit code; a
     // missing one is not a success.
-    async fn exit_code(&self, exec_id: &str) -> Result<i64, AnyError> {
+    pub(crate) async fn exit_code(&self, exec_id: &str) -> Result<i64, AnyError> {
         for _ in 0..50 {
             let inspect = self.client.inspect_exec(exec_id).await?;
             if inspect.running != Some(true)

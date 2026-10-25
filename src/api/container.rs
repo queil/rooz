@@ -806,20 +806,37 @@ echo start > /tmp/exec_start
         .map(|r| r.id().to_string())
     }
 
-    // The content of `path` as a tar stream
-    pub fn download_tar(
+    // A running container with one volume mounted read-only at `target`, to tar it from: the archive
+    // API's download cannot be used, as podman's reports every file as root's.
+    pub async fn volume_tar_container(
         &self,
-        container_id: &str,
-        path: &str,
-    ) -> impl futures::Stream<Item = Result<bytes::Bytes, Error>> {
-        self.client.download_from_container(
-            container_id,
-            Some(
-                bollard::query_parameters::DownloadFromContainerOptionsBuilder::default()
-                    .path(path)
-                    .build(),
-            ),
-        )
+        volume: &str,
+        target: &str,
+    ) -> Result<String, AnyError> {
+        let id = self
+            .create(RunSpec {
+                reason: "move-copy",
+                image: constants::HELPER_IMAGE,
+                container_name: &id::random_suffix("one-shot"),
+                command: Some(vec!["sleep"]),
+                args: Some(vec!["infinity"]),
+                mounts: Some(vec![Mount {
+                    typ: Some(MountType::VOLUME),
+                    source: Some(volume.to_string()),
+                    target: Some(target.to_string()),
+                    read_only: Some(true),
+                    ..Default::default()
+                }]),
+                uid: constants::ROOT_UID,
+                ..Default::default()
+            })
+            .await
+            .map(|r| r.id().to_string())?;
+        if let Err(e) = self.start(&id).await {
+            self.remove(&id, true).await.ok();
+            return Err(e.into());
+        }
+        Ok(id)
     }
 
     pub async fn upload_tar_stream(
@@ -828,6 +845,8 @@ echo start > /tmp/exec_start
         dest_path: &str,
         tar: impl futures::Stream<Item = Result<bytes::Bytes, std::io::Error>> + Send + 'static,
     ) -> Result<(), AnyError> {
+        // no copyUIDGID: it hands every file to the container's user, where without it the tar's
+        // owners are kept
         let options = UploadToContainerOptionsBuilder::default()
             .path(dest_path)
             .build();
