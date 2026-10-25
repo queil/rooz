@@ -360,6 +360,9 @@ async fn update_pulls_the_sidecar_base_image() {
         .success();
     assert_eq!(env.volume_file(&runs_vol, "runs").await.lines().count(), 1);
 
+    // any image other than alpine's stands in for the tag moving
+    env.ensure_image("docker.io/chainguard/git:latest-dev")
+        .await;
     env.tag_image("docker.io/chainguard/git:latest-dev", "alpine", "3")
         .await;
     env.rooz().args(["update", &key]).assert().success();
@@ -549,12 +552,23 @@ async fn a_failed_install_cuts_no_other_container_short() {
         "the failed sidecar's install container was left behind"
     );
     let ok = named("ok").expect("the sidecar that built fine was not created");
+    // the image it runs, by id: the listed image name is the engine's to choose (docker shows the
+    // reference rooz created it from, podman the image's name)
+    let recorded = ok
+        .labels
+        .as_ref()
+        .and_then(|l| l.get("dev.rooz.runtime-image"))
+        .cloned();
     assert!(
-        ok.image
+        ok.image_id
             .as_deref()
-            .is_some_and(|i| i.starts_with("sha256:")),
-        "the sidecar does not run its built image: {:?}",
-        ok.image
+            .zip(recorded.as_deref())
+            .is_some_and(
+                |(id, rec)| id.trim_start_matches("sha256:") == rec.trim_start_matches("sha256:")
+            ),
+        "the sidecar does not run its built image: {:?} vs {:?}",
+        ok.image_id,
+        recorded
     );
 
     let _ = env.rooz().args(["rm", &key, "--force"]).output();
@@ -733,16 +747,32 @@ async fn an_egress_policy_puts_the_sidecar_behind_its_own_proxy() {
 
     // pointed at its proxy, which is up: a CA that failed to load would have stopped it
     assert_eq!(
-        run("[ \"$HTTPS_PROXY\" = http://agent-egress:9124 ] && nc -z -w 5 agent-egress 9124")
+        run("case \"$HTTPS_PROXY\" in http://rooz:*@agent-egress:9124) nc -z -w 5 agent-egress 9124 ;; *) exit 1 ;; esac")
             .await,
         0,
         "no proxy to reach"
     );
     // the proxy refuses a host outside the policy
     assert_eq!(
-        run("printf 'CONNECT example.com:443 HTTP/1.1\\r\\n\\r\\n' | nc -w 5 agent-egress 9124 | head -1 | grep -q ' 403 '").await,
+        run("t=${HTTPS_PROXY#http://rooz:}; t=${t%@*}; a=$(printf 'rooz:%s' \"$t\" | base64); printf 'CONNECT example.com:443 HTTP/1.1\\r\\nProxy-Authorization: Basic %s\\r\\n\\r\\n' \"$a\" | nc -w 5 agent-egress 9124 | head -1 | grep -q ' 403 '").await,
         0,
         "the proxy let an unlisted host through"
+    );
+    // the proxy acts only for the client given its credential: not the work container, which
+    // reaches it too, nor the sidecar without the credential
+    let unauthenticated = "printf 'CONNECT allowed.test:443 HTTP/1.1\\r\\n\\r\\n' | nc -w 5 agent-egress 9124 | head -1 | grep -q ' 407 '";
+    assert_eq!(
+        run(unauthenticated).await,
+        0,
+        "the proxy served a client without its credential"
+    );
+    let work = key.clone();
+    let cmd = sh(unauthenticated);
+    assert_eq!(
+        env.exec_code(&work, cmd.iter().map(String::as_str).collect())
+            .await,
+        0,
+        "the work container used the proxy"
     );
     // the sidecar trusts the proxy's CA and never sees its key
     assert_eq!(

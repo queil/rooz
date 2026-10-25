@@ -20,9 +20,24 @@ file - see the git history.
   of its own (`<name>-egress`, running `joey egress-proxy`), its only way out. Allowed hosts are
   reached with their own TLS; `inject` hosts get header rules applied by the proxy, so a token in
   `secrets` never reaches the sidecar. rooz generates the workspace's CA for it, mounts the
-  certificate in the sidecar and sets `HTTP(S)_PROXY`, `NO_PROXY` and `NODE_EXTRA_CA_CERTS`.
+  certificate in the sidecar and sets `HTTP(S)_PROXY`, `NO_PROXY` and `NODE_EXTRA_CA_CERTS`. The proxy
+  URL carries a credential generated per proxy, and the proxy serves no client without it.
   `egress: true` and `false` are unchanged. The proxy runs `ghcr.io/queil/joey` of rooz's own version,
   published by the same release; `ROOZ_EGRESS_IMAGE` runs another image, for trying a joey build.
+
+### Fixed
+
+- On podman, a short-lived rooz container (`system init`, volume population) could fail with
+  `no exec session ... found`: podman removes a command's exec session with its container, and rooz
+  read the command's exit code from the session after the container was gone. It is read from the
+  container now.
+- On podman, `rooz move --to` handed every file in the moved volumes to root: podman's archive
+  download reports all files as owned by root. The volume is now read with `tar` inside a container,
+  which keeps owners and modes.
+- On podman, `~` in a workspace was the working directory, not the user's home: podman fixes `HOME`
+  when a container is created, before rooz adds its user, so `~/...` mounts were missed. The work
+  container's `HOME` is set explicitly now (unless `env` sets it), and the user rooz adds replaces
+  any account podman made for the same uid.
 
 ## [0.172.0] - 2026-10-25
 

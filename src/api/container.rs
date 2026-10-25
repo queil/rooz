@@ -426,6 +426,12 @@ impl<'a> ContainerApi<'a> {
             KeyValue::new("ROOZ_META_CONTAINER_NAME", spec.container_name),
         ];
 
+        // podman fixes HOME when the container is created - before rooz adds its user, so it falls
+        // back to the working directory - where docker looks it up for each exec: set, it is the
+        // same on both
+        if !spec.home_dir.is_empty() && !spec.env.as_ref().is_some_and(|e| e.contains_key("HOME")) {
+            env_kv.push(KeyValue::new("HOME", spec.home_dir));
+        }
         if let Some(env) = spec.env {
             env_kv.extend(KeyValue::to_vec(env));
         }
@@ -743,7 +749,25 @@ echo start > /tmp/exec_start
         let id = self.make_one_shot(name, mounts, uid, image).await?;
         let cmd = Self::format_cmd(command);
         let cmd = cmd.iter().map(|x| x.as_str()).collect::<Vec<_>>();
-        self.exec.run(name, &id, uid, Some(cmd)).await
+
+        // The container exits with the command's code and is removed with it, and podman removes
+        // the command's exec session along with it: the code is read from the container.
+        let id_clone = id.clone();
+        let client = self.client.clone();
+        let wait_handle = tokio::spawn(async move {
+            client
+                .wait_container(&id_clone, None::<WaitContainerOptions>)
+                .try_collect::<Vec<_>>()
+                .await
+        });
+        self.exec.stream(name, &id, uid, Some(cmd)).await?;
+        match wait_handle.await? {
+            Ok(_) => Ok(()),
+            Err(Error::DockerContainerWaitError { code, .. }) => {
+                Err(format!("{}: exec failed with exit code {}", name, code).into())
+            }
+            Err(e) => Err(e.into()),
+        }
     }
 
     pub async fn upload(
@@ -788,20 +812,37 @@ echo start > /tmp/exec_start
         .map(|r| r.id().to_string())
     }
 
-    // The content of `path` as a tar stream
-    pub fn download_tar(
+    // A running container with one volume mounted read-only at `target`, to tar it from: the archive
+    // API's download cannot be used, as podman's reports every file as root's.
+    pub async fn volume_tar_container(
         &self,
-        container_id: &str,
-        path: &str,
-    ) -> impl futures::Stream<Item = Result<bytes::Bytes, Error>> {
-        self.client.download_from_container(
-            container_id,
-            Some(
-                bollard::query_parameters::DownloadFromContainerOptionsBuilder::default()
-                    .path(path)
-                    .build(),
-            ),
-        )
+        volume: &str,
+        target: &str,
+    ) -> Result<String, AnyError> {
+        let id = self
+            .create(RunSpec {
+                reason: "move-copy",
+                image: constants::HELPER_IMAGE,
+                container_name: &id::random_suffix("one-shot"),
+                command: Some(vec!["sleep"]),
+                args: Some(vec!["infinity"]),
+                mounts: Some(vec![Mount {
+                    typ: Some(MountType::VOLUME),
+                    source: Some(volume.to_string()),
+                    target: Some(target.to_string()),
+                    read_only: Some(true),
+                    ..Default::default()
+                }]),
+                uid: constants::ROOT_UID,
+                ..Default::default()
+            })
+            .await
+            .map(|r| r.id().to_string())?;
+        if let Err(e) = self.start(&id).await {
+            self.remove(&id, true).await.ok();
+            return Err(e.into());
+        }
+        Ok(id)
     }
 
     pub async fn upload_tar_stream(
@@ -810,6 +851,8 @@ echo start > /tmp/exec_start
         dest_path: &str,
         tar: impl futures::Stream<Item = Result<bytes::Bytes, std::io::Error>> + Send + 'static,
     ) -> Result<(), AnyError> {
+        // no copyUIDGID: it hands every file to the container's user, where without it the tar's
+        // owners are kept
         let options = UploadToContainerOptionsBuilder::default()
             .path(dest_path)
             .build();

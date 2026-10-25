@@ -125,21 +125,30 @@ impl<'a> WorkspaceApi<'a> {
             .spawn()?;
         let mut sink = receiver.stdin.take().ok_or("receiver has no stdin")?;
 
+        // tar runs in the container, keeping owners and modes; the target's upload keeps them too
         let archive_container = self
             .api
             .container
-            .volume_archive_container(from, "/from", true)
+            .volume_tar_container(from, "/from")
             .await?;
         let sent: Result<(), AnyError> = async {
-            let mut tar = std::pin::pin!(
-                self.api
-                    .container
-                    .download_tar(&archive_container, "/from/.")
-            );
+            let (exec_id, tar) = self
+                .api
+                .exec
+                .stdout_stream(
+                    "move-copy",
+                    &archive_container,
+                    vec!["tar", "-C", "/from", "-cf", "-", "."],
+                )
+                .await?;
+            let mut tar = std::pin::pin!(tar);
             while let Some(chunk) = tar.next().await {
                 sink.write_all(&chunk?).await?;
             }
-            Ok(())
+            match self.api.exec.exit_code(&exec_id).await? {
+                0 => Ok(()),
+                code => Err(format!("tar exited with {}", code).into()),
+            }
         }
         .await;
         drop(sink);

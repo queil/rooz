@@ -61,8 +61,10 @@ up)
     # rooz needs podman 6, which podman/stable does not carry yet: the upstream build, from podman's
     # main branch - and the check below fails the run if it is ever older than 6
     IMAGE="quay.io/podman/upstream:latest"
-    # its own storage.conf is not always valid (it is built from podman's main branch), so podman
-    # gets a minimal one of ours: vfs, which needs nothing from the image's storage setup
+    # its config is for podman inside a container (host network namespace, no cgroups), and built
+    # from podman's main branch it is not always valid, so podman gets fixed files of ours: storage
+    # on vfs, which needs nothing from the image, and containers with the networking and logs the
+    # tests expect
     docker run -d --name "$CONTAINER_NAME" \
       --privileged \
       --security-opt seccomp=unconfined \
@@ -70,8 +72,9 @@ up)
       --device /dev/fuse \
       -p 2375 \
       -e CONTAINERS_STORAGE_CONF=/etc/rooz-storage.conf \
+      -e CONTAINERS_CONF=/etc/rooz-containers.conf \
       "$IMAGE" \
-      sh -c 'printf "[storage]\ndriver = \"vfs\"\nrunroot = \"/run/containers/storage\"\ngraphroot = \"/var/lib/containers/storage\"\n" > /etc/rooz-storage.conf && exec podman system service --time=0 tcp://0.0.0.0:2375 2>&1'
+      sh -c 'printf "[storage]\ndriver = \"vfs\"\nrunroot = \"/run/containers/storage\"\ngraphroot = \"/var/lib/containers/storage\"\n" > /etc/rooz-storage.conf && printf "[containers]\nnetns = \"bridge\"\nlog_driver = \"k8s-file\"\n[engine]\ncgroup_manager = \"cgroupfs\"\nevents_logger = \"file\"\n" > /etc/rooz-containers.conf && exec podman system service --time=0 tcp://0.0.0.0:2375 2>&1'
 
     ELAPSED=0
     until docker exec "$CONTAINER_NAME" podman info >/dev/null 2>&1; do

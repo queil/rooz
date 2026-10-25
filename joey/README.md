@@ -6,6 +6,10 @@ rooz's helper: a small static binary for the containers rooz starts.
 
 The only way out for the containers that peer with it. It speaks HTTP `CONNECT` and nothing else.
 
+* With `auth` set, it acts only for a client sending that exact `Proxy-Authorization` value; any
+  other gets `407` before anything else is decided. It holds credentials its client must not, so
+  reaching its port must not be enough to use them.
+
 * A `CONNECT` is decided on its host and port before anything is resolved or dialled: a host or
   port outside the lists gets `403`.
 * An `allow` host is reached as it is: the TLS session is the client's and the server's. The
@@ -15,8 +19,8 @@ The only way out for the containers that peer with it. It speaks HTTP `CONNECT` 
   trust) and applies the first matching rule's header changes before passing the request on over
   verified TLS. The request goes in origin-form with its `Host` header set to that host, whatever
   target or `Host` the client sent. Its path must already be canonical - no `.` or `..` segments,
-  repeated `/`, encoded dots or separators, or backslashes - or it is answered `400` and goes
-  nowhere, so a rule matches the path the upstream will route.
+  repeated `/`, encoded dots or separators, backslashes, or `;` path parameters - or it is answered
+  `400` and goes nowhere, so a rule matches the path the upstream will route.
 * Plain HTTP requests are refused.
 * A config it cannot read, including a `ca` it cannot load, stops it at startup: it never runs
   open. Every decision is a line on stdout.
@@ -24,6 +28,7 @@ The only way out for the containers that peer with it. It speaks HTTP `CONNECT` 
 ```json
 {
   "listen": "0.0.0.0:9124",
+  "auth": "Basic cm9vejo8dG9rZW4+",
   "allow": ["github.com", "*.githubusercontent.com", "crates.io"],
   "ports": [443],
   "ca": {"cert": "/etc/joey/ca.pem", "key": "/etc/joey/ca.key"},

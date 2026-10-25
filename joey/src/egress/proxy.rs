@@ -93,6 +93,26 @@ impl Proxy {
         let Some((method, target)) = request_line(&head) else {
             return respond(&mut client, 400, "bad request").await;
         };
+        // It holds what its client must not, so it acts only for the client given its credential:
+        // reaching the port - as the work container does - is not enough.
+        if let Some(expected) = self.inner.config.auth.as_deref() {
+            let given = head
+                .lines()
+                .skip(1)
+                .filter_map(|l| l.split_once(':'))
+                .find(|(n, _)| n.trim().eq_ignore_ascii_case("proxy-authorization"))
+                .map(|(_, v)| v.trim());
+            if !given.is_some_and(|g| same(g.as_bytes(), expected.as_bytes())) {
+                log(&format!("deny {} {}: no proxy credentials", method, target));
+                return respond_with(
+                    &mut client,
+                    407,
+                    &[("Proxy-Authenticate", "Basic realm=\"rooz\"")],
+                    "proxy credentials required",
+                )
+                .await;
+            }
+        }
         if method != "CONNECT" {
             log(&format!(
                 "deny {} {}: only CONNECT is proxied",
@@ -326,13 +346,15 @@ async fn send(
 
 // The path an upstream routes on: `.` and `..` applied, repeated separators dropped. None for a
 // path written so that what a rule reads and what the upstream reads could differ: an encoded
-// dot, separator or NUL, a backslash, or a `..` above the root.
+// dot, separator or NUL, a backslash, a `;` (path parameters, which some origins strip before
+// resolving dot segments: Tomcat routes `/v1/x/..;/..;/admin` to `/admin`), or a `..` above the
+// root.
 pub fn canonical_path(path: &str) -> Option<String> {
-    if !path.starts_with('/') || path.contains('\\') {
+    if !path.starts_with('/') || path.contains(['\\', ';']) {
         return None;
     }
     let lower = path.to_ascii_lowercase();
-    if ["%2e", "%2f", "%5c", "%00"]
+    if ["%2e", "%2f", "%5c", "%00", "%3b"]
         .iter()
         .any(|e| lower.contains(e))
     {
@@ -371,20 +393,40 @@ fn text(status: StatusCode, body: &'static str) -> Response<Body> {
 }
 
 async fn respond(client: &mut TcpStream, code: u16, body: &str) -> io::Result<()> {
+    respond_with(client, code, &[], body).await
+}
+
+async fn respond_with(
+    client: &mut TcpStream,
+    code: u16,
+    headers: &[(&str, &str)],
+    body: &str,
+) -> io::Result<()> {
     let reason = match code {
         400 => "Bad Request",
         403 => "Forbidden",
+        407 => "Proxy Authentication Required",
         _ => "Error",
     };
+    let extra = headers
+        .iter()
+        .map(|(n, v)| format!("{}: {}\r\n", n, v))
+        .collect::<String>();
     let msg = format!(
-        "HTTP/1.1 {} {}\r\nContent-Type: text/plain\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        "HTTP/1.1 {} {}\r\n{}Content-Type: text/plain\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
         code,
         reason,
+        extra,
         body.len(),
         body
     );
     client.write_all(msg.as_bytes()).await?;
     client.shutdown().await
+}
+
+// Equal, in a time that does not depend on where they differ
+fn same(a: &[u8], b: &[u8]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
 // The request head and whatever the client sent after it.
@@ -553,6 +595,10 @@ mod tests {
             "/v1%2fadmin",
             "/v1/%5cadmin",
             "/v1/a%00",
+            "/v1/x/..;/..;/admin/keys",
+            "/v1/a/..;/..;/admin",
+            "/v1/x/..%3b/..%3b/admin",
+            "/v1/x;jsessionid=1",
             "/v1\\..\\admin",
             "/..",
             "/v1/../../x",
@@ -560,6 +606,14 @@ mod tests {
         ] {
             assert_eq!(canonical_path(bad), None, "{}", bad);
         }
+    }
+
+    #[test]
+    fn credentials_compare_whole() {
+        assert!(same(b"Basic abc", b"Basic abc"));
+        assert!(!same(b"Basic abc", b"Basic abd"));
+        assert!(!same(b"Basic ab", b"Basic abc"));
+        assert!(!same(b"", b"Basic abc"));
     }
 
     #[test]

@@ -83,15 +83,17 @@ sidecars:
 * rooz adds a sidecar `<name>-egress` running joey's proxy (`joey egress-proxy`). It is the only one of
   the two with a way out; the sidecar reaches it, and nothing else outside the workspace, through
   their peer network. `HTTP(S)_PROXY` and `NO_PROXY` (itself and its peers) are set in the sidecar
-  unless its `env` sets them.
+  unless its `env` sets them. The proxy URL carries a credential generated for that proxy, and the
+  proxy refuses (`407`) any client without it - the work container reaches the proxy too, and must not
+  spend what it holds. A tool that ignores credentials in a proxy URL cannot get out.
 * `allow`: hosts reached through as they are, TLS end to end. `*.example.com` is the hosts under
   `example.com`, not `example.com` itself. The proxy refuses any other host, and any port but `ports`
   (`[443]` unless set), before it is even resolved, and checks that a connection's TLS server name is
   the host it was opened for.
 * `inject`: hosts the proxy intercepts to apply header rules: the first rule a request matches by
   `methods`, `paths` (`/v1/*` is a prefix ending at a `/`) and `when_header` sets and removes headers.
-  A request to an inject host goes in origin-form and only on a canonical path (no `..`, `.`, `//` or
-  encoded dots and separators), so a rule matches what the upstream routes. The
+  A request to an inject host goes in origin-form and only on a canonical path (no `..`, `.`, `//`,
+  `;` path parameters or encoded dots and separators), so a rule matches what the upstream routes. The
   values, typically from `secrets`, exist only in the proxy. The proxy presents certificates from a
   CA generated for the workspace: its certificate is mounted in the sidecar at
   `/usr/local/share/ca-certificates/rooz-egress.crt` and named by `NODE_EXTRA_CA_CERTS`; for tools

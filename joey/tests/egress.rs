@@ -208,6 +208,56 @@ async fn a_plain_request_is_refused() {
     assert!(out.starts_with("HTTP/1.1 403"), "{}", out);
 }
 
+// The proxy's answer to a CONNECT sent with `extra` header lines
+async fn connect_with(proxy: &str, target: &str, extra: &str) -> String {
+    let mut s = TcpStream::connect(proxy).await.unwrap();
+    s.write_all(
+        format!(
+            "CONNECT {} HTTP/1.1\r\nHost: {}\r\n{}\r\n",
+            target, target, extra
+        )
+        .as_bytes(),
+    )
+    .await
+    .unwrap();
+    let mut head = Vec::new();
+    let mut b = [0u8; 1];
+    while !head.ends_with(b"\r\n\r\n") {
+        if s.read(&mut b).await.unwrap() == 0 {
+            break;
+        }
+        head.push(b[0]);
+    }
+    String::from_utf8_lossy(&head).into_owned()
+}
+
+#[tokio::test]
+async fn only_the_client_with_the_proxy_credential_is_served() {
+    let up = ca("upstream");
+    let (port, accepted) = upstream(&up).await;
+    let addr = proxy(serde_json::json!({
+        "allow": ["localhost"], "ports": [port], "auth": "Basic c2VjcmV0"
+    }))
+    .await;
+    let target = format!("localhost:{}", port);
+    for extra in [
+        "",
+        "Proxy-Authorization: Basic d3Jvbmc=\r\n",
+        "Proxy-Authorization: Basic c2VjcmV\r\n",
+    ] {
+        let head = connect_with(&addr, &target, extra).await;
+        assert!(head.starts_with("HTTP/1.1 407"), "{:?}: {}", extra, head);
+        assert!(head.contains("Proxy-Authenticate: Basic"), "{}", head);
+    }
+    assert_eq!(
+        accepted.load(Ordering::SeqCst),
+        0,
+        "a refused client reached the upstream"
+    );
+    let head = connect_with(&addr, &target, "proxy-authorization: Basic c2VjcmV0\r\n").await;
+    assert!(head.starts_with("HTTP/1.1 200"), "{}", head);
+}
+
 #[tokio::test]
 async fn an_allowed_host_is_reached_end_to_end_with_its_own_tls() {
     let up = ca("upstream");
@@ -315,6 +365,7 @@ async fn a_path_that_could_escape_a_rule_goes_nowhere() {
         "/v1/%2e%2e/admin/keys",
         "/v1//messages",
         "/v1/./messages",
+        "/v1/x/..;/..;/admin/keys",
     ] {
         let (_, s) = connect(&addr, &format!("localhost:{}", port)).await;
         let body = get(s, "localhost", &root, path, &[]).await.unwrap();

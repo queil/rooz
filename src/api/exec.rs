@@ -386,6 +386,49 @@ impl<'a> ExecApi<'a> {
         }
     }
 
+    // A command's stdout as it comes, bytes untouched (stderr goes to ours), and the exec's id, to
+    // read its exit code from once the stream is done.
+    pub async fn stdout_stream(
+        &self,
+        reason: &str,
+        container_id: &str,
+        cmd: Vec<&str>,
+    ) -> Result<
+        (
+            String,
+            impl futures::Stream<Item = Result<bytes::Bytes, AnyError>> + use<>,
+        ),
+        AnyError,
+    > {
+        let exec_id = self
+            .create_exec(
+                reason,
+                container_id,
+                None,
+                Some(constants::ROOT_UID),
+                Some(cmd),
+                false,
+            )
+            .await?;
+        let StartExecResults::Attached { output, .. } =
+            self.client.start_exec(&exec_id, None).await?
+        else {
+            return Err("Could not start exec: the engine returned no attached stream. Check that the container is running.".into());
+        };
+        let stdout = output.filter_map(|item| async move {
+            match item {
+                Ok(LogOutput::StdOut { message }) => Some(Ok(message)),
+                Ok(LogOutput::StdErr { message }) => {
+                    eprint!("{}", String::from_utf8_lossy(&message));
+                    None
+                }
+                Ok(_) => None,
+                Err(e) => Some(Err(AnyError::from(e))),
+            }
+        });
+        Ok((exec_id, stdout))
+    }
+
     // `output` plus the exit code, for commands whose failure matters
     async fn output_with_code(
         &self,
@@ -426,6 +469,34 @@ impl<'a> ExecApi<'a> {
         install: Option<(&str, &str)>,
     ) -> Result<i64, AnyError> {
         let exec_id = self
+            .stream_tagged(reason, container_id, user, cmd, install)
+            .await?;
+        self.exit_code(&exec_id).await
+    }
+
+    // Runs a command with its output logged as it comes, and says nothing of how it ended: for a
+    // container that reports that itself
+    pub async fn stream(
+        &self,
+        reason: &str,
+        container_id: &str,
+        user: Option<&str>,
+        cmd: Option<Vec<&str>>,
+    ) -> Result<(), AnyError> {
+        self.stream_tagged(reason, container_id, user, cmd, None)
+            .await
+            .map(|_| ())
+    }
+
+    async fn stream_tagged(
+        &self,
+        reason: &str,
+        container_id: &str,
+        user: Option<&str>,
+        cmd: Option<Vec<&str>>,
+        install: Option<(&str, &str)>,
+    ) -> Result<String, AnyError> {
+        let exec_id = self
             .create_exec(reason, container_id, None, user, cmd, false)
             .await?;
         if let StartExecResults::Attached { output, .. } =
@@ -435,13 +506,12 @@ impl<'a> ExecApi<'a> {
         } else {
             return Err("Could not start exec: the engine returned no attached stream. Check that the container is running.".into());
         }
-
-        self.exit_code(&exec_id).await
+        Ok(exec_id)
     }
 
     // The engine can report the stream closed a moment before it records the exit code; a
     // missing one is not a success.
-    async fn exit_code(&self, exec_id: &str) -> Result<i64, AnyError> {
+    pub(crate) async fn exit_code(&self, exec_id: &str) -> Result<i64, AnyError> {
         for _ in 0..50 {
             let inspect = self.client.inspect_exec(exec_id).await?;
             if inspect.running != Some(true)
@@ -635,7 +705,7 @@ impl<'a> ExecApi<'a> {
         let ensure_user_cmd = inject(
             r#"exec 2>&1
                        grep -q "^$ROOZ_META_USER:x:$ROOZ_META_UID:" /etc/passwd && exit 0
-                       sed -i "/:x:${ROOZ_META_UID}:/d" /etc/passwd && \
+                       sed -i "/^[^:]*:[^:]*:${ROOZ_META_UID}:/d" /etc/passwd && \
                        echo "$ROOZ_META_USER:x:$ROOZ_META_UID:$ROOZ_META_UID:$ROOZ_META_USER:$ROOZ_META_HOME:/bin/sh" >> /etc/passwd"#.to_string()
             .as_ref(),
             "make_user.sh",
