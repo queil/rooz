@@ -54,6 +54,7 @@ jobs:
 
       - name: Start ${{ matrix.engine }} daemon
         run: |
+          set -o pipefail
           bash scripts/test-daemon.sh up ${{ matrix.engine }} \
             | grep '^export ' \
             | sed 's/^export //' \
@@ -70,6 +71,9 @@ jobs:
             >> "$GITHUB_ENV"
 
       - name: Integration tests
+        # every test runs against the daemon or fails, never skips
+        env:
+          ROOZ_TEST_REQUIRE_DAEMON: "1"
         run: |
           cargo test \
             --test smoke \
