@@ -5,8 +5,10 @@ pub const HELPER_IMAGE: &str = "ghcr.io/queil/joey:0.171.0-tools@sha256:17f1ee46
 // The workspace's image when nothing names one. The same image for now; a constant of its own so the
 // two can part.
 pub const DEFAULT_IMAGE: &str = HELPER_IMAGE;
-// joey's static image, which runs a sidecar's egress proxy
-pub const EGRESS_IMAGE: &str = "ghcr.io/queil/joey:0.173.0";
+// joey's static image, which runs a sidecar's egress proxy: the one released with this rooz. joey
+// carries rooz's version and the same tag publishes both, so the reference is that tag rather than
+// a digest no release could know yet - the trust a rooz binary from the same release already asks.
+pub const EGRESS_IMAGE: &str = concat!("ghcr.io/queil/joey:", env!("CARGO_PKG_VERSION"));
 // another egress proxy image, for trying a joey build before it is released
 pub const EGRESS_IMAGE_ENV: &str = "ROOZ_EGRESS_IMAGE";
 pub const DEFAULT_SHELL: &str = "sh";

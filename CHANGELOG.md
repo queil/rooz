@@ -21,8 +21,8 @@ file - see the git history.
   reached with their own TLS; `inject` hosts get header rules applied by the proxy, so a token in
   `secrets` never reaches the sidecar. rooz generates the workspace's CA for it, mounts the
   certificate in the sidecar and sets `HTTP(S)_PROXY`, `NO_PROXY` and `NODE_EXTRA_CA_CERTS`.
-  `egress: true` and `false` are unchanged. `ROOZ_EGRESS_IMAGE` runs another proxy image, for trying
-  a joey build before its release.
+  `egress: true` and `false` are unchanged. The proxy runs `ghcr.io/queil/joey` of rooz's own version,
+  published by the same release; `ROOZ_EGRESS_IMAGE` runs another image, for trying a joey build.
 
 ## [0.172.0] - 2026-10-25
 
