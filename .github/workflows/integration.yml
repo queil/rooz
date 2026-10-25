@@ -62,6 +62,8 @@ jobs:
       # the egress proxy rooz names is published by the release; the tests run this commit's
       - name: joey image from this commit
         run: |
+          # a failed build or load must fail here, not as a pull error in the tests
+          set -o pipefail
           bash scripts/joey-test-image.sh ${{ matrix.engine }} \
             | grep '^export ' \
             | sed 's/^export //' \

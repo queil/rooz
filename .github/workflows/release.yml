@@ -64,6 +64,8 @@ jobs:
       # the egress proxy this release names is published by it; the gate tests this commit's
       - name: joey image from this commit
         run: |
+          # a failed build or load must fail here, not as a pull error in the tests
+          set -o pipefail
           bash scripts/joey-test-image.sh docker \
             | grep '^export ' \
             | sed 's/^export //' \
