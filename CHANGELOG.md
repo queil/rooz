@@ -8,6 +8,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases before 0.159.0 predate this
 file - see the git history.
 
+## [Unreleased]
+
+### Added
+
+- `joey egress-proxy`, the first work for rooz's helper binary: an HTTP `CONNECT` proxy that decides
+  on host and port before dialling, holds an allowed host's TLS to the server name it was opened
+  for, and intercepts only the hosts with header rules (for a token the client must not hold).
+  See `joey/README.md`. rooz does not start it yet.
+
 ## [0.172.0] - 2026-10-25
 
 ### Changed
