@@ -237,8 +237,26 @@ async fn forward(
     inject: InjectHost,
     upstream: Arc<rustls::ClientConfig>,
 ) -> Result<Response<Body>, hyper::Error> {
-    let method = req.method().as_str().to_string();
+    // The request leaves in origin-form, path and query only: an absolute-form target names an
+    // authority of its own, which a proxy or origin that receives it must use instead of Host.
+    let target = req
+        .uri()
+        .path_and_query()
+        .map(|pq| pq.as_str().to_string())
+        .unwrap_or_else(|| "/".to_string());
+    match target.parse::<hyper::Uri>() {
+        Ok(uri) => *req.uri_mut() = uri,
+        Err(_) => return Ok(text(StatusCode::BAD_REQUEST, "bad request target")),
+    }
+    // Rules decide where the injected headers may go, so they are matched on the path the upstream
+    // will route - and only a path already in that form goes on: one with dot segments, repeated
+    // separators or encoded dots and separators could match a rule and be routed elsewhere.
     let path = req.uri().path().to_string();
+    if canonical_path(&path).as_deref() != Some(path.as_str()) {
+        log(&format!("deny {} {}: path is not canonical", host, path));
+        return Ok(text(StatusCode::BAD_REQUEST, "path is not canonical"));
+    }
+    let method = req.method().as_str().to_string();
     let rule = inject
         .rules
         .iter()
@@ -304,6 +322,42 @@ async fn send(
         let _ = conn.await;
     });
     Ok(sender.send_request(req).await?)
+}
+
+// The path an upstream routes on: `.` and `..` applied, repeated separators dropped. None for a
+// path written so that what a rule reads and what the upstream reads could differ: an encoded
+// dot, separator or NUL, a backslash, or a `..` above the root.
+pub fn canonical_path(path: &str) -> Option<String> {
+    if !path.starts_with('/') || path.contains('\\') {
+        return None;
+    }
+    let lower = path.to_ascii_lowercase();
+    if ["%2e", "%2f", "%5c", "%00"]
+        .iter()
+        .any(|e| lower.contains(e))
+    {
+        return None;
+    }
+    let mut segments: Vec<&str> = Vec::new();
+    for segment in path.split('/') {
+        match segment {
+            "" | "." => {}
+            ".." => {
+                segments.pop()?;
+            }
+            s => segments.push(s),
+        }
+    }
+    let mut out = String::with_capacity(path.len());
+    for s in &segments {
+        out.push('/');
+        out.push_str(s);
+    }
+    if out.is_empty() || (path.ends_with('/') && !path.ends_with("/./") && !path.ends_with("/../"))
+    {
+        out.push('/');
+    }
+    Some(out)
 }
 
 fn text(status: StatusCode, body: &'static str) -> Response<Body> {
@@ -474,6 +528,37 @@ mod tests {
             "[::1]",
         ] {
             assert_eq!(split_target(bad), None, "{}", bad);
+        }
+    }
+
+    #[test]
+    fn only_a_path_already_in_the_upstreams_form_is_canonical() {
+        for ok in ["/", "/v1/messages", "/v1/", "/a/b.c/d", "/v1/messages%20x"] {
+            assert_eq!(canonical_path(ok).as_deref(), Some(ok), "{}", ok);
+        }
+        // resolvable, but not already resolved: refused by the comparison in forward()
+        for (raw, resolved) in [
+            ("/v1/messages/../../admin/keys", "/admin/keys"),
+            ("/v1/./messages", "/v1/messages"),
+            ("//v1//messages", "/v1/messages"),
+            ("/v1/..", "/"),
+        ] {
+            assert_eq!(canonical_path(raw).as_deref(), Some(resolved), "{}", raw);
+            assert_ne!(canonical_path(raw).as_deref(), Some(raw));
+        }
+        // not resolvable here: the upstream could read it another way
+        for bad in [
+            "/v1/%2e%2e/admin",
+            "/v1/%2E%2E/admin",
+            "/v1%2fadmin",
+            "/v1/%5cadmin",
+            "/v1/a%00",
+            "/v1\\..\\admin",
+            "/..",
+            "/v1/../../x",
+            "v1/x",
+        ] {
+            assert_eq!(canonical_path(bad), None, "{}", bad);
         }
     }
 
