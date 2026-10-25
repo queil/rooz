@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
-# Builds joey's static image from this checkout and loads it into the test daemon started by
-# test-daemon.sh, so the egress tests run the proxy from the commit under test - the released
-# image rooz names does not exist before its release.
+# Builds joey's static image from this checkout and loads it into the test daemon at
+# $ROOZ_TEST_DOCKER_HOST (what test-daemon.sh exports), so the egress tests run the proxy from the
+# commit under test - the released image rooz names does not exist before its release. The image
+# goes in through the daemon's own API, which docker and podman both serve.
 #
 # Usage (prints the variable to export):
-#   bash scripts/joey-test-image.sh docker|podman
+#   ROOZ_TEST_DOCKER_HOST=tcp://... bash scripts/joey-test-image.sh
 
 set -euo pipefail
 
-ENGINE="${1:-docker}"
+: "${ROOZ_TEST_DOCKER_HOST:?the test daemon, as test-daemon.sh exports it}"
 TAG="localhost/joey:test"
 TARGET="$(uname -m)-unknown-linux-gnu"
 CTX="$(mktemp -d)"
@@ -18,14 +19,8 @@ RUSTFLAGS='-C target-feature=+crt-static' cargo build --release --locked \
 cp "joey/target/$TARGET/release/joey" "$CTX/joey"
 docker build -q -f joey/Dockerfile.scratch -t "$TAG" "$CTX" >&2
 
-case "$ENGINE" in
-docker) docker save "$TAG" | docker exec -i rooz-test-docker docker -H tcp://localhost:2375 load >&2 ;;
-podman) docker save "$TAG" | docker exec -i rooz-test-podman podman load >&2 ;;
-*)
-  echo "unknown engine: $ENGINE" >&2
-  exit 1
-  ;;
-esac
+docker save -o "$CTX/joey.tar" "$TAG"
+DOCKER_HOST="$ROOZ_TEST_DOCKER_HOST" docker load -i "$CTX/joey.tar" >&2
 rm -rf "$CTX"
 
 echo "export ROOZ_EGRESS_IMAGE=$TAG"

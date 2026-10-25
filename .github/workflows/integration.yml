@@ -64,7 +64,7 @@ jobs:
         run: |
           # a failed build or load must fail here, not as a pull error in the tests
           set -o pipefail
-          bash scripts/joey-test-image.sh ${{ matrix.engine }} \
+          bash scripts/joey-test-image.sh \
             | grep '^export ' \
             | sed 's/^export //' \
             >> "$GITHUB_ENV"
