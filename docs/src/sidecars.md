@@ -90,8 +90,8 @@ sidecars:
   the host it was opened for.
 * `inject`: hosts the proxy intercepts to apply header rules: the first rule a request matches by
   `methods`, `paths` (`/v1/*` is a prefix ending at a `/`) and `when_header` sets and removes headers.
-  A request to an inject host goes in origin-form and only on a canonical path (no `..`, `.`, `//` or
-  encoded dots and separators), so a rule matches what the upstream routes. The
+  A request to an inject host goes in origin-form and only on a canonical path (no `..`, `.`, `//`,
+  `;` path parameters or encoded dots and separators), so a rule matches what the upstream routes. The
   values, typically from `secrets`, exist only in the proxy. The proxy presents certificates from a
   CA generated for the workspace: its certificate is mounted in the sidecar at
   `/usr/local/share/ca-certificates/rooz-egress.crt` and named by `NODE_EXTRA_CA_CERTS`; for tools

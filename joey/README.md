@@ -15,8 +15,8 @@ The only way out for the containers that peer with it. It speaks HTTP `CONNECT` 
   trust) and applies the first matching rule's header changes before passing the request on over
   verified TLS. The request goes in origin-form with its `Host` header set to that host, whatever
   target or `Host` the client sent. Its path must already be canonical - no `.` or `..` segments,
-  repeated `/`, encoded dots or separators, or backslashes - or it is answered `400` and goes
-  nowhere, so a rule matches the path the upstream will route.
+  repeated `/`, encoded dots or separators, backslashes, or `;` path parameters - or it is answered
+  `400` and goes nowhere, so a rule matches the path the upstream will route.
 * Plain HTTP requests are refused.
 * A config it cannot read, including a `ca` it cannot load, stops it at startup: it never runs
   open. Every decision is a line on stdout.

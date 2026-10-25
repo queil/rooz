@@ -326,13 +326,15 @@ async fn send(
 
 // The path an upstream routes on: `.` and `..` applied, repeated separators dropped. None for a
 // path written so that what a rule reads and what the upstream reads could differ: an encoded
-// dot, separator or NUL, a backslash, or a `..` above the root.
+// dot, separator or NUL, a backslash, a `;` (path parameters, which some origins strip before
+// resolving dot segments: Tomcat routes `/v1/x/..;/..;/admin` to `/admin`), or a `..` above the
+// root.
 pub fn canonical_path(path: &str) -> Option<String> {
-    if !path.starts_with('/') || path.contains('\\') {
+    if !path.starts_with('/') || path.contains(['\\', ';']) {
         return None;
     }
     let lower = path.to_ascii_lowercase();
-    if ["%2e", "%2f", "%5c", "%00"]
+    if ["%2e", "%2f", "%5c", "%00", "%3b"]
         .iter()
         .any(|e| lower.contains(e))
     {
@@ -553,6 +555,10 @@ mod tests {
             "/v1%2fadmin",
             "/v1/%5cadmin",
             "/v1/a%00",
+            "/v1/x/..;/..;/admin/keys",
+            "/v1/a/..;/..;/admin",
+            "/v1/x/..%3b/..%3b/admin",
+            "/v1/x;jsessionid=1",
             "/v1\\..\\admin",
             "/..",
             "/v1/../../x",

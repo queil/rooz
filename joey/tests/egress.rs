@@ -315,6 +315,7 @@ async fn a_path_that_could_escape_a_rule_goes_nowhere() {
         "/v1/%2e%2e/admin/keys",
         "/v1//messages",
         "/v1/./messages",
+        "/v1/x/..;/..;/admin/keys",
     ] {
         let (_, s) = connect(&addr, &format!("localhost:{}", port)).await;
         let body = get(s, "localhost", &root, path, &[]).await.unwrap();
