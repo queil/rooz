@@ -34,6 +34,10 @@ file - see the git history.
 - On podman, `rooz move --to` handed every file in the moved volumes to root: podman's archive
   download reports all files as owned by root. The volume is now read with `tar` inside a container,
   which keeps owners and modes.
+- On podman, `~` in a workspace was the working directory, not the user's home: podman fixes `HOME`
+  when a container is created, before rooz adds its user, so `~/...` mounts were missed. The work
+  container's `HOME` is set explicitly now (unless `env` sets it), and the user rooz adds replaces
+  any account podman made for the same uid.
 
 ## [0.172.0] - 2026-10-25
 

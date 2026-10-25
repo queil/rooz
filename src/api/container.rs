@@ -426,6 +426,12 @@ impl<'a> ContainerApi<'a> {
             KeyValue::new("ROOZ_META_CONTAINER_NAME", spec.container_name),
         ];
 
+        // podman fixes HOME when the container is created - before rooz adds its user, so it falls
+        // back to the working directory - where docker looks it up for each exec: set, it is the
+        // same on both
+        if !spec.home_dir.is_empty() && !spec.env.as_ref().is_some_and(|e| e.contains_key("HOME")) {
+            env_kv.push(KeyValue::new("HOME", spec.home_dir));
+        }
         if let Some(env) = spec.env {
             env_kv.extend(KeyValue::to_vec(env));
         }
