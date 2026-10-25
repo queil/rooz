@@ -360,6 +360,9 @@ async fn update_pulls_the_sidecar_base_image() {
         .success();
     assert_eq!(env.volume_file(&runs_vol, "runs").await.lines().count(), 1);
 
+    // any image other than alpine's stands in for the tag moving
+    env.ensure_image("docker.io/chainguard/git:latest-dev")
+        .await;
     env.tag_image("docker.io/chainguard/git:latest-dev", "alpine", "3")
         .await;
     env.rooz().args(["update", &key]).assert().success();
@@ -549,12 +552,23 @@ async fn a_failed_install_cuts_no_other_container_short() {
         "the failed sidecar's install container was left behind"
     );
     let ok = named("ok").expect("the sidecar that built fine was not created");
+    // the image it runs, by id: the listed image name is the engine's to choose (docker shows the
+    // reference rooz created it from, podman the image's name)
+    let recorded = ok
+        .labels
+        .as_ref()
+        .and_then(|l| l.get("dev.rooz.runtime-image"))
+        .cloned();
     assert!(
-        ok.image
+        ok.image_id
             .as_deref()
-            .is_some_and(|i| i.starts_with("sha256:")),
-        "the sidecar does not run its built image: {:?}",
-        ok.image
+            .zip(recorded.as_deref())
+            .is_some_and(
+                |(id, rec)| id.trim_start_matches("sha256:") == rec.trim_start_matches("sha256:")
+            ),
+        "the sidecar does not run its built image: {:?} vs {:?}",
+        ok.image_id,
+        recorded
     );
 
     let _ = env.rooz().args(["rm", &key, "--force"]).output();
