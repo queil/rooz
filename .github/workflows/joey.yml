@@ -20,8 +20,9 @@ env:
   CARGO_TERM_COLOR: always
   # What the tools image installs, as `name` or `name=version`. A version here is held to: the image
   # check fails when the build resolved another one. Take the versions from the `apk info -v` list
-  # a run prints, and bump them when the base image digest moves.
-  APK_PACKAGES: git openssh-client ca-certificates
+  # a run prints, and bump them when the base image digest moves. Pin real packages, not the names
+  # that only alias them: `openssh-client` installs openssh-client-default.
+  APK_PACKAGES: git=2.49.1-r0 openssh-client-default=10.0_p1-r10 ca-certificates=20261020-r0
 
 jobs:
   meta:
