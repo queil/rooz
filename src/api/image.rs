@@ -312,7 +312,7 @@ impl<'a> ImageApi<'a> {
                 os,
                 ..
             }) => {
-                if always_pull && !image.starts_with("localhost/") {
+                if always_pull && refreshable(image) {
                     self.pull(image).await?
                 } else {
                     image_info_of(
@@ -388,6 +388,12 @@ impl<'a> ImageApi<'a> {
             Err(e) => Err(format!("Could not remove image '{}': {}", image_name, e).into()),
         }
     }
+}
+
+// What a pull could bring a newer version of: not a local build, and not a reference pinned by
+// digest, whose content cannot change.
+fn refreshable(image: &str) -> bool {
+    !image.starts_with("localhost/") && !image.contains("@sha256:")
 }
 
 fn pull_failed(image: &str, cause: &str) -> String {
@@ -534,6 +540,15 @@ mod tests {
             (labels::ROLE, labels::SIDECAR_RUNTIME_ROLE),
             (labels::CONTAINER, "other-sidecar"),
         ])));
+    }
+
+    #[test]
+    fn only_a_reference_that_can_move_is_pulled_again() {
+        assert!(refreshable("docker.io/library/alpine:3"));
+        assert!(!refreshable("localhost/rooz/ws/svc:latest"));
+        assert!(!refreshable(
+            "ghcr.io/queil/joey:0.171.0-tools@sha256:17f1ee46"
+        ));
     }
 
     #[test]

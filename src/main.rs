@@ -573,7 +573,7 @@ async fn run() -> Result<(), AnyError> {
             // takes a legacy engine-side identity off the engine before init touches anything
             rooz.get_system_config().await?;
             init.init(
-                constants::DEFAULT_IMAGE,
+                constants::HELPER_IMAGE,
                 constants::DEFAULT_UID,
                 &init_params,
             )
