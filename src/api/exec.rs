@@ -426,6 +426,34 @@ impl<'a> ExecApi<'a> {
         install: Option<(&str, &str)>,
     ) -> Result<i64, AnyError> {
         let exec_id = self
+            .stream_tagged(reason, container_id, user, cmd, install)
+            .await?;
+        self.exit_code(&exec_id).await
+    }
+
+    // Runs a command with its output logged as it comes, and says nothing of how it ended: for a
+    // container that reports that itself
+    pub async fn stream(
+        &self,
+        reason: &str,
+        container_id: &str,
+        user: Option<&str>,
+        cmd: Option<Vec<&str>>,
+    ) -> Result<(), AnyError> {
+        self.stream_tagged(reason, container_id, user, cmd, None)
+            .await
+            .map(|_| ())
+    }
+
+    async fn stream_tagged(
+        &self,
+        reason: &str,
+        container_id: &str,
+        user: Option<&str>,
+        cmd: Option<Vec<&str>>,
+        install: Option<(&str, &str)>,
+    ) -> Result<String, AnyError> {
+        let exec_id = self
             .create_exec(reason, container_id, None, user, cmd, false)
             .await?;
         if let StartExecResults::Attached { output, .. } =
@@ -435,8 +463,7 @@ impl<'a> ExecApi<'a> {
         } else {
             return Err("Could not start exec: the engine returned no attached stream. Check that the container is running.".into());
         }
-
-        self.exit_code(&exec_id).await
+        Ok(exec_id)
     }
 
     // The engine can report the stream closed a moment before it records the exit code; a

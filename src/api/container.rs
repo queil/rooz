@@ -743,7 +743,25 @@ echo start > /tmp/exec_start
         let id = self.make_one_shot(name, mounts, uid, image).await?;
         let cmd = Self::format_cmd(command);
         let cmd = cmd.iter().map(|x| x.as_str()).collect::<Vec<_>>();
-        self.exec.run(name, &id, uid, Some(cmd)).await
+
+        // The container exits with the command's code and is removed with it, and podman removes
+        // the command's exec session along with it: the code is read from the container.
+        let id_clone = id.clone();
+        let client = self.client.clone();
+        let wait_handle = tokio::spawn(async move {
+            client
+                .wait_container(&id_clone, None::<WaitContainerOptions>)
+                .try_collect::<Vec<_>>()
+                .await
+        });
+        self.exec.stream(name, &id, uid, Some(cmd)).await?;
+        match wait_handle.await? {
+            Ok(_) => Ok(()),
+            Err(Error::DockerContainerWaitError { code, .. }) => {
+                Err(format!("{}: exec failed with exit code {}", name, code).into())
+            }
+            Err(e) => Err(e.into()),
+        }
     }
 
     pub async fn upload(
