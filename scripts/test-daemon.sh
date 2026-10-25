@@ -58,7 +58,7 @@ up)
     ;;
 
   podman)
-    IMAGE="quay.io/podman/stable:v6"
+    IMAGE="quay.io/podman/stable:v5"
     docker run -d --name "$CONTAINER_NAME" \
       --privileged \
       --security-opt seccomp=unconfined \
