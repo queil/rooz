@@ -76,6 +76,10 @@ jobs:
       - name: add target
         run: rustup target add ${{ matrix.target }}
 
+      # ring (TLS for the egress proxy) compiles C, and a static musl build needs musl's compiler
+      - name: musl C toolchain
+        run: sudo apt-get update -q && sudo apt-get install -y -q musl-tools
+
       - name: test
         run: cargo test --locked --manifest-path joey/Cargo.toml
 
