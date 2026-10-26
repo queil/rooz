@@ -8,6 +8,21 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases before 0.159.0 predate this
 file - see the git history.
 
+## [0.174.0] - 2026-10-26
+
+### Added
+
+- `dir:` mounts: every file below a directory next to the config, each at the same relative path
+  below the mount path, e.g. `~/: {dir: home}` for dotfiles. Files go in one by one, so the rest of
+  the mount path stays; a path mounted on its own keeps that mount. The `file:` rules apply to each
+  file, with at most 256 files and 1 MiB per directory.
+
+### Fixed
+
+- A file or volume mounted below a directory missing from the image (`~/.config/app.conf` in an image
+  without `~/.config`) no longer leaves that directory owned by root: in the work container's home,
+  rooz hands it to the workspace user.
+
 ## [0.173.1] - 2026-10-26
 
 ### Added

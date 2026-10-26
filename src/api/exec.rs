@@ -685,6 +685,46 @@ impl<'a> ExecApi<'a> {
         Ok(())
     }
 
+    // The engine creates a missing parent of a mount point as root. Those below the home dir go to
+    // the user: a file mounted at ~/.config/a.conf must not leave ~/.config closed to them.
+    pub async fn own_mount_parents(
+        &self,
+        container_id: &str,
+        uid: &i32,
+        home_dir: &str,
+        targets: &[String],
+    ) -> Result<(), AnyError> {
+        let dirs = mount_parents(home_dir, targets);
+        if dirs.is_empty() {
+            return Ok(());
+        }
+        let script = format!(
+            r#"for d in {}; do if [ "$(stat -c %u "$d" 2>/dev/null)" = 0 ]; then chown {uid}:{uid} "$d"; fi; done"#,
+            dirs.iter()
+                .map(|d| sh::quote(d))
+                .collect::<Vec<_>>()
+                .join(" "),
+            uid = uid
+        );
+        let (response, code) = self
+            .output_with_code(
+                "chown",
+                container_id,
+                Some(constants::ROOT_USER),
+                Some(vec!["sh", "-c", &script]),
+            )
+            .await?;
+        if code != 0 {
+            eprintln!(
+                "WARN: could not hand the mounts' parent directories to {} (exit {}): {}",
+                uid,
+                code,
+                response.trim()
+            );
+        }
+        Ok(())
+    }
+
     pub async fn default_uid(&self, container_id: &str) -> Result<i32, AnyError> {
         let output = self
             .output("default-uid", container_id, None, Some(vec!["id", "-u"]))
@@ -752,9 +792,48 @@ fn chown_target(dir: &str) -> String {
         .join("\"${ROOZ_META_HOME}\"")
 }
 
+// Every directory strictly between the home dir and a mount point below it, outermost first
+fn mount_parents(home_dir: &str, targets: &[String]) -> Vec<String> {
+    let home = home_dir.trim_end_matches('/');
+    let mut dirs = std::collections::BTreeSet::new();
+    for target in targets {
+        let Some(below) = target.strip_prefix(home).and_then(|t| t.strip_prefix('/')) else {
+            continue;
+        };
+        let segments = below
+            .split('/')
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>();
+        for depth in 1..segments.len() {
+            dirs.insert(format!("{}/{}", home, segments[..depth].join("/")));
+        }
+    }
+    dirs.into_iter().collect()
+}
+
 #[cfg(test)]
 mod tests {
-    use super::chown_target;
+    use super::{chown_target, mount_parents};
+
+    #[test]
+    fn only_the_parents_below_home_are_handed_over() {
+        let targets = [
+            "/home/u/.config/nvim/lua/a.lua",
+            "/home/u/.config/starship.toml",
+            "/home/u/.bashrc",
+            "/home/uu/x/y",
+            "/etc/app/conf",
+        ]
+        .map(String::from);
+        assert_eq!(
+            mount_parents("/home/u", &targets),
+            [
+                "/home/u/.config",
+                "/home/u/.config/nvim",
+                "/home/u/.config/nvim/lua"
+            ]
+        );
+    }
 
     #[test]
     fn an_unterminated_run_is_kept_bounded() {

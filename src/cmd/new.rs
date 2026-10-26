@@ -429,6 +429,7 @@ impl<'a> WorkspaceApi<'a> {
             .into_values()
             .collect::<Vec<String>>();
 
+        cfg_builder.expand_dir_mounts()?;
         cfg_builder.expand_vars(operator_authored)?;
         // a sidecar's egress policy becomes its proxy; the CA key it generates is masked like a secret
         let egress_image = std::env::var(constants::EGRESS_IMAGE_ENV)

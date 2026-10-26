@@ -149,6 +149,20 @@ impl<'a> WorkspaceApi<'a> {
                 if is_work_container {
                     // only for work containers: sidecars have a readonly rootfs so it would fail
                     self.api.exec.ensure_user(container_id).await?;
+                    let targets = config
+                        .real_mounts
+                        .keys()
+                        .map(|t| t.as_str().to_string())
+                        .collect::<Vec<_>>();
+                    self.api
+                        .exec
+                        .own_mount_parents(
+                            container_id,
+                            &config.uid,
+                            &format!("/home/{}", config.user),
+                            &targets,
+                        )
+                        .await?;
                 }
 
                 if chown {

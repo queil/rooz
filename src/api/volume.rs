@@ -388,6 +388,12 @@ impl<'a> VolumeApi<'a> {
                 MountSource::InlineDataValue(data_value) => {
                     Ok((v.resolve_key(container, target_path), data_value.to_owned()))
                 }
+                // expanded into its files when the config was loaded
+                MountSource::InlineDir(d) => Err(format!(
+                    "mount '{}': dir '{}' was not expanded into its files",
+                    target_path, d.dir
+                )
+                .into()),
             })
             .collect::<Result<HashMap<String, DataValue>, AnyError>>()?;
 
@@ -404,7 +410,7 @@ impl<'a> VolumeApi<'a> {
             .iter()
             .filter_map(|((container_name, _), v)| match v {
                 MountSource::DataEntryReference(data_key) => Some((data_key, container_name)),
-                MountSource::InlineDataValue(_) => None,
+                MountSource::InlineDataValue(_) | MountSource::InlineDir(_) => None,
             })
             .fold(
                 HashMap::<&DataEntryKey, HashSet<&String>>::new(),

@@ -2,8 +2,9 @@ use std::io;
 
 use crate::{
     config::config::{
-        ConfigType, DataValue, FileFormat, MAX_DATA_FILE_BYTES, RoozCfg, SystemConfig,
-        validate_relative_config_path, validate_relative_file_path,
+        ConfigType, DataValue, DirFile, FileFormat, MAX_DATA_FILE_BYTES, MAX_DIR_BYTES,
+        MAX_DIR_FILES, RoozCfg, SystemConfig, validate_relative_config_path,
+        validate_relative_file_path,
     },
     model::{
         types::AnyError,
@@ -28,10 +29,40 @@ pub trait ConfigReader {
     async fn read_file(&self, path: &str) -> Result<String, AnyError>;
 
     async fn read_data_file(&self, dir: &str, rel: &str) -> Result<String, AnyError>;
+
+    // every file below `rel`, with paths relative to it
+    async fn read_data_dir(&self, dir: &str, rel: &str) -> Result<Vec<DirFile>, AnyError>;
 }
 
 fn refused(rel: &str, why: &str) -> AnyError {
     format!("'{}' {}", rel, why).into()
+}
+
+// A dir's files are checked one by one like a `file:`'s, and together against the dir's limits
+fn check_dir_listing(rel: &str, listing: &[(String, u64)]) -> Result<(), AnyError> {
+    if listing.len() > MAX_DIR_FILES {
+        return Err(refused(
+            rel,
+            &format!("has more than {} files", MAX_DIR_FILES),
+        ));
+    }
+    if listing.iter().map(|(_, size)| size).sum::<u64>() > MAX_DIR_BYTES as u64 {
+        return Err(refused(
+            rel,
+            &format!(
+                "holds more than {} KiB - 'dir:' is for small files like dotfiles",
+                MAX_DIR_BYTES / 1024
+            ),
+        ));
+    }
+    for (path, size) in listing {
+        let full = format!("{}/{}", rel, path);
+        validate_relative_file_path(&full)?;
+        if *size > MAX_DATA_FILE_BYTES as u64 {
+            return Err(size_refusal(&full));
+        }
+    }
+    Ok(())
 }
 
 fn size_refusal(rel: &str) -> AnyError {
@@ -53,6 +84,15 @@ pub async fn resolve_data_files<R: ConfigReader + Sync>(
         .parent()
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_default();
+    for source in cfg.dir_sources_mut() {
+        validate_relative_file_path(&source.dir)?;
+        source.files = Some(
+            reader
+                .read_data_dir(&dir, &source.dir)
+                .await
+                .map_err(|e| format!("Data dir {} (declared in {})", e, cfg_path))?,
+        );
+    }
     for value in cfg.data_values_mut() {
         if let DataValue::FileContent { file, content, .. } = value {
             validate_relative_file_path(file)?;
@@ -359,18 +399,7 @@ impl ConfigReader for LocalReader {
     }
 
     async fn read_data_file(&self, dir: &str, rel: &str) -> Result<String, AnyError> {
-        let mut path = std::path::PathBuf::from(dir);
-        for segment in rel.split('/') {
-            path.push(segment);
-            let meta = std::fs::symlink_metadata(&path)
-                .map_err(|e| refused(rel, &format!("cannot be read: {}", e)))?;
-            if meta.file_type().is_symlink() {
-                return Err(refused(
-                    rel,
-                    "is or sits behind a symlink, which is refused",
-                ));
-            }
-        }
+        let path = no_symlinks(dir, rel)?;
         let meta = std::fs::symlink_metadata(&path)?;
         if !meta.is_file() {
             return Err(refused(rel, "is not a regular file"));
@@ -385,6 +414,96 @@ impl ConfigReader for LocalReader {
         let bytes = std::fs::read(&path)?;
         String::from_utf8(bytes).map_err(|_| refused(rel, "is not valid UTF-8 text"))
     }
+
+    async fn read_data_dir(&self, dir: &str, rel: &str) -> Result<Vec<DirFile>, AnyError> {
+        let root = no_symlinks(dir, rel)?;
+        if !std::fs::symlink_metadata(&root)?.is_dir() {
+            return Err(refused(rel, "is not a directory"));
+        }
+        let mut listing = vec![];
+        Self::list_dir(&root, "", rel, &mut listing)?;
+        check_dir_listing(
+            rel,
+            &listing
+                .iter()
+                .map(|(p, size, _)| (p.clone(), *size))
+                .collect::<Vec<_>>(),
+        )?;
+        let mut files = vec![];
+        for (path, _, executable) in listing {
+            files.push(DirFile {
+                content: self
+                    .read_data_file(dir, &format!("{}/{}", rel, path))
+                    .await?,
+                path,
+                executable,
+            });
+        }
+        Ok(files)
+    }
+}
+
+impl LocalReader {
+    fn list_dir(
+        root: &std::path::Path,
+        below: &str,
+        rel: &str,
+        out: &mut Vec<(String, u64, bool)>,
+    ) -> Result<(), AnyError> {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = root.join(below);
+        let mut entries = std::fs::read_dir(&dir)?.collect::<Result<Vec<_>, _>>()?;
+        entries.sort_by_key(|e| e.file_name());
+        for entry in entries {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let path = if below.is_empty() {
+                name
+            } else {
+                format!("{}/{}", below, name)
+            };
+            let meta = std::fs::symlink_metadata(entry.path())?;
+            let kind = meta.file_type();
+            if kind.is_symlink() {
+                return Err(refused(
+                    &format!("{}/{}", rel, path),
+                    "is a symlink, which is refused",
+                ));
+            } else if kind.is_dir() {
+                Self::list_dir(root, &path, rel, out)?;
+            } else if kind.is_file() {
+                out.push((path, meta.len(), meta.permissions().mode() & 0o111 != 0));
+            } else {
+                return Err(refused(
+                    &format!("{}/{}", rel, path),
+                    "is not a regular file",
+                ));
+            }
+            if out.len() > MAX_DIR_FILES {
+                return Err(refused(
+                    rel,
+                    &format!("has more than {} files", MAX_DIR_FILES),
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
+// The path below `dir`, refused if any part of it is a symlink
+fn no_symlinks(dir: &str, rel: &str) -> Result<std::path::PathBuf, AnyError> {
+    let mut path = std::path::PathBuf::from(dir);
+    for segment in rel.split('/') {
+        path.push(segment);
+        let meta = std::fs::symlink_metadata(&path)
+            .map_err(|e| refused(rel, &format!("cannot be read: {}", e)))?;
+        if meta.file_type().is_symlink() {
+            return Err(refused(
+                rel,
+                "is or sits behind a symlink, which is refused",
+            ));
+        }
+    }
+    Ok(path)
 }
 
 pub struct ContainerReader<'a> {
@@ -452,11 +571,76 @@ else echo ok; fi"#,
         }
         Ok(content)
     }
+
+    async fn read_data_dir(&self, dir: &str, rel: &str) -> Result<Vec<DirFile>, AnyError> {
+        let path = format!("{}/{}", dir, rel);
+        let (q_path, q_dir, q_rel) = (sh::quote(&path), sh::quote(dir), sh::quote(rel));
+        // one line per file: its executable bit, its size and its path below the dir
+        let list = format!(
+            r#"if [ -L {p} ]; then echo "is or sits behind a symlink, which is refused"
+elif [ ! -d {p} ]; then echo "is not a directory"
+elif [ "$(realpath {p} 2>/dev/null)" != "$(realpath {d} 2>/dev/null)/"{r} ]; then echo "is or sits behind a symlink, which is refused"
+elif [ -n "$(cd {p} && find . -type l | head -n 1)" ]; then echo "holds a symlink, which is refused"
+elif [ -n "$(cd {p} && find . ! -type d ! -type f | head -n 1)" ]; then echo "holds something other than regular files"
+else echo ok; cd {p} && find . -type f | sort | while IFS= read -r f; do
+  if [ -x "$f" ]; then x=1; else x=0; fi; echo "$x $(($(wc -c < "$f"))) ${{f#./}}"
+done; fi"#,
+            p = q_path,
+            d = q_dir,
+            r = q_rel,
+        );
+        let output = self
+            .api
+            .exec
+            .output(
+                "rooz-cfg-dir",
+                self.container_id,
+                None,
+                Some(vec!["sh", "-c", &list]),
+            )
+            .await?;
+        let mut lines = output.lines();
+        match lines.next().map(str::trim) {
+            Some("ok") => (),
+            Some(why) => return Err(refused(rel, why)),
+            None => return Err(refused(rel, "cannot be read")),
+        }
+        let listing = lines
+            .map(|line| {
+                let mut parts = line.trim().splitn(3, ' ');
+                match (
+                    parts.next(),
+                    parts.next().map(str::parse::<u64>),
+                    parts.next(),
+                ) {
+                    (Some(x), Some(Ok(size)), Some(p)) => Ok((p.to_string(), size, x == "1")),
+                    _ => Err(refused(rel, "cannot be listed")),
+                }
+            })
+            .collect::<Result<Vec<_>, AnyError>>()?;
+        check_dir_listing(
+            rel,
+            &listing
+                .iter()
+                .map(|(p, size, _)| (p.clone(), *size))
+                .collect::<Vec<_>>(),
+        )?;
+        let mut files = vec![];
+        for (p, _, executable) in listing {
+            files.push(DirFile {
+                content: self.read_data_file(dir, &format!("{}/{}", rel, p)).await?,
+                path: p,
+                executable,
+            });
+        }
+        Ok(files)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::config::MountSource;
     use std::{
         fs,
         os::unix::fs::symlink,
@@ -555,6 +739,86 @@ mod tests {
                 .await
                 .is_err()
         );
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    fn mounted(cfg: &RoozCfg) -> Vec<(String, String, bool)> {
+        cfg.mounts
+            .iter()
+            .flatten()
+            .filter_map(|(target, m)| match m {
+                MountSource::InlineDataValue(DataValue::FileContent {
+                    content,
+                    executable,
+                    ..
+                }) => Some((
+                    target.clone(),
+                    content.clone().unwrap_or_default(),
+                    executable.unwrap_or_default(),
+                )),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn a_dir_becomes_a_file_mount_per_file_and_an_explicit_mount_wins() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = scratch("dir");
+        fs::create_dir_all(dir.join("home/.config/nvim")).unwrap();
+        fs::write(dir.join("home/.bashrc"), "B").unwrap();
+        fs::write(dir.join("home/.config/nvim/init.lua"), "I").unwrap();
+        fs::write(dir.join("home/run.sh"), "R").unwrap();
+        fs::set_permissions(dir.join("home/run.sh"), fs::Permissions::from_mode(0o755)).unwrap();
+        fs::write(dir.join("files/init.lua"), "mine").unwrap();
+        let mut cfg: RoozCfg = serde_yaml::from_str(
+            "mounts:\n  ~/:\n    dir: home\n  ~/.config/nvim/init.lua:\n    file: files/init.lua\n",
+        )
+        .unwrap();
+        let cfg_path = dir.join("rooz.yaml").to_string_lossy().into_owned();
+        let reader = LocalReader::default();
+        resolve_data_files(&reader, &cfg_path, &mut cfg)
+            .await
+            .unwrap();
+        assert_eq!(reader.read.lock().unwrap().len(), 4);
+        cfg.expand_dir_mounts().unwrap();
+        let mut got = mounted(&cfg);
+        got.sort();
+        assert_eq!(
+            got,
+            vec![
+                ("~/.bashrc".into(), "B".into(), false),
+                ("~/.config/nvim/init.lua".into(), "mine".into(), false),
+                ("~/run.sh".into(), "R".into(), true),
+            ]
+        );
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_dir_holding_a_symlink_or_too_many_files_is_refused() {
+        let dir = scratch("dirbad");
+        fs::create_dir_all(dir.join("linked")).unwrap();
+        symlink("/etc/passwd", dir.join("linked/passwd")).unwrap();
+        fs::create_dir_all(dir.join("many")).unwrap();
+        for i in 0..=MAX_DIR_FILES {
+            fs::write(dir.join(format!("many/f{}", i)), "x").unwrap();
+        }
+        fs::write(dir.join("files/x"), "x").unwrap();
+        let reader = LocalReader::default();
+        let root = dir.to_string_lossy();
+        for (rel, why) in [
+            ("linked", "symlink"),
+            ("many", "more than"),
+            ("files/x", "not a directory"),
+        ] {
+            let err = reader
+                .read_data_dir(&root, rel)
+                .await
+                .unwrap_err()
+                .to_string();
+            assert!(err.contains(why), "{}: {}", rel, err);
+        }
         fs::remove_dir_all(&dir).unwrap();
     }
 }

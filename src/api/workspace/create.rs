@@ -122,6 +122,10 @@ impl<'a> WorkspaceApi<'a> {
                         // volumes it writes to - enter does the same before the first shell
                         self.api.exec.ensure_user(&container_id).await?;
                         let uid = spec.uid.parse::<i32>()?;
+                        self.api
+                            .exec
+                            .own_mount_parents(&container_id, &uid, &home_dir, &writable_targets)
+                            .await?;
                         for target in &writable_targets {
                             self.api.exec.chown(&container_id, &uid, target).await?;
                         }
