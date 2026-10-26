@@ -90,6 +90,19 @@ pub fn validate_user(user: &str) -> Result<(), AnyError> {
     Ok(())
 }
 
+// A mount target names where a mount lands, and rooz hands its parents in the home dir to the
+// user as root: one with '.' or '..' segments could name a directory anywhere in the container.
+pub fn validate_mount_target(container: &str, target: &str) -> Result<(), AnyError> {
+    if target.split('/').any(|s| s == "." || s == "..") {
+        return Err(format!(
+            "{}: mount path '{}' is refused - '.' and '..' segments are not allowed",
+            container, target
+        )
+        .into());
+    }
+    Ok(())
+}
+
 impl<'a> TryFrom<(&'a str, &'a RoozSidecar)> for RoozSidecarRuntime {
     type Error = AnyError;
 
@@ -535,6 +548,14 @@ impl<'a> TryFrom<&'a RoozCfg> for RuntimeConfig {
 
         let user = value.user.as_deref().unwrap_or(&default.user);
         validate_user(user)?;
+        for target in value.mounts.iter().flat_map(|m| m.keys()) {
+            validate_mount_target(constants::DEFAULT_CONTAINER_NAME, target)?;
+        }
+        for (name, s) in value.sidecars.iter().flatten() {
+            for target in s.mounts.iter().flat_map(|m| m.keys()) {
+                validate_mount_target(name, target)?;
+            }
+        }
 
         let cfg = RuntimeConfig {
             git_ssh_url: value.git_ssh_url.clone(),
@@ -891,6 +912,28 @@ mod tests {
             "unexpected error: {}",
             err
         );
+    }
+
+    #[test]
+    fn a_mount_path_with_dot_segments_is_refused() {
+        for (yaml, container) in [
+            ("mounts:\n  ~/../etc/x:\n    content: x\n", "work"),
+            (
+                "sidecars:\n  s:\n    image: a\n    mounts:\n      /a/./b: {}\n",
+                "s",
+            ),
+        ] {
+            let cfg: RoozCfg = serde_yaml::from_str(yaml).unwrap();
+            let err = RuntimeConfig::try_from(&cfg).unwrap_err().to_string();
+            assert!(
+                err.starts_with(&format!("{}: mount path", container)),
+                "{}",
+                err
+            );
+        }
+        let ok: RoozCfg =
+            serde_yaml::from_str("mounts:\n  ~/.config/..x:\n    content: x\n").unwrap();
+        assert!(RuntimeConfig::try_from(&ok).is_ok());
     }
 
     #[test]
