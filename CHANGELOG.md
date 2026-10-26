@@ -8,6 +8,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases before 0.159.0 predate this
 file - see the git history.
 
+## [Unreleased]
+
+### Fixed
+
+- An `egress:` that parses as neither `true`/`false` nor a policy says what is wrong with it (an
+  unknown or duplicate field, a wrong type) instead of only that it matched no variant.
+- The egress example in the sidecar docs referenced a secret as `{{ secrets.<name> }}`; it is
+  `{{ <name> }}`, like any secret.
+
 ## [0.173.0] - 2026-10-25
 
 ### Added
