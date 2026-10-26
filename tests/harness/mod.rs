@@ -85,7 +85,9 @@ impl TestEnv {
 
     pub fn rooz(&self) -> Command {
         let mut cmd = Command::cargo_bin("rooz").unwrap();
-        cmd.env("DOCKER_HOST", &self.docker_host)
+        // a stuck engine call fails the test, naming the command, instead of hanging the suite
+        cmd.timeout(std::time::Duration::from_secs(300))
+            .env("DOCKER_HOST", &self.docker_host)
             .env("http_proxy", "")
             .env("HTTP_PROXY", "")
             // the suite runs 'system init --force', which replaces the age identity - keep
