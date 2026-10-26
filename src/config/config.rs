@@ -13,20 +13,40 @@ use std::fmt;
 use std::path::Path;
 use std::str::FromStr;
 
-pub const ROOT_STEPS_NOT_ALLOWED: &str = "Refusing install steps with 'root: true': this workspace merges \
-     configuration the operator did not author. Install steps run as the workspace user unless \
-     they opt in to root. List the source in ROOZ_TRUSTED_CONFIGS, move those steps into your own \
-     local '--config' file, or drop 'root: true'. Steps:";
+// The refusals of a configuration that is not wholly the operator's: what was refused on one line,
+// how to allow it and where the reasoning is on the next. The docs explain the why.
+#[macro_export]
+macro_rules! not_yours {
+    () => {
+        "a configuration not wholly yours (a remote '--config' source or a 'bases' layer not in ROOZ_TRUSTED_CONFIGS)"
+    };
+}
 
-pub const SECRETS_NOT_ALLOWED: &str = "Refusing to expand 'secrets': this workspace merges configuration the operator did not \
-     author, which could reference any of your secrets and read the plaintext from inside a \
-     container it also controls. Secrets are only expanded when the whole configuration is yours: \
-     a local '--config' file without 'bases', or a source listed in ROOZ_TRUSTED_CONFIGS - not an \
-     unlisted '--config <url>//<path>' source, which is not yours, and not an unlisted \
-     'bases' layer, which is a separate file that may have come from anywhere. List the source in \
-     ROOZ_TRUSTED_CONFIGS (the repository URL exactly as passed to '--config', or a local \
-     directory holding the config and all its bases), move the settings you need into your own \
-     local '--config' file, or remove 'secrets' from this workspace's configuration.";
+#[macro_export]
+macro_rules! trust_hint {
+    () => {
+        "Trust it with ROOZ_TRUSTED_CONFIGS=<repository url or directory>, or use your own local '--config' file"
+    };
+}
+
+pub const ROOT_STEPS_NOT_ALLOWED: &str = concat!(
+    "Refusing install steps with 'root: true' from ",
+    not_yours!(),
+    ":"
+);
+
+pub const ROOT_STEPS_HINT: &str = concat!(
+    trust_hint!(),
+    ", or drop 'root: true' - see https://rooz.dev/configuration.html#remote-config"
+);
+
+pub const SECRETS_NOT_ALLOWED: &str = concat!(
+    "Refusing to expand 'secrets' from ",
+    not_yours!(),
+    ".\n",
+    trust_hint!(),
+    " - see https://rooz.dev/secrets.html#trusted-config-sources"
+);
 
 #[derive(Debug, Clone)]
 pub enum ConfigSource {
