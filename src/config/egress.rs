@@ -9,11 +9,36 @@ use serde::{Deserialize, Serialize};
 
 // `egress:` on a sidecar: `true` or `false` as ever, or a policy - the sidecar gets a proxy of its
 // own and reaches only what the policy lists, through it.
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
+#[derive(Debug, Serialize, Clone, PartialEq, JsonSchema)]
 #[serde(untagged)]
 pub enum SidecarEgress {
     Open(bool),
     Proxied(EgressPolicy),
+}
+
+// By hand rather than `untagged`, whose only error is that neither form matched: a policy that does
+// not parse says which field and why.
+impl<'de> Deserialize<'de> for SidecarEgress {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        struct Form;
+        impl<'de> serde::de::Visitor<'de> for Form {
+            type Value = SidecarEgress;
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("true, false, or a policy of allow, ports and inject")
+            }
+            fn visit_bool<E>(self, b: bool) -> Result<Self::Value, E> {
+                Ok(SidecarEgress::Open(b))
+            }
+            fn visit_map<A: serde::de::MapAccess<'de>>(
+                self,
+                map: A,
+            ) -> Result<Self::Value, A::Error> {
+                EgressPolicy::deserialize(serde::de::value::MapAccessDeserializer::new(map))
+                    .map(SidecarEgress::Proxied)
+            }
+        }
+        d.deserialize_any(Form)
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
@@ -310,6 +335,39 @@ mod tests {
             MountSource::InlineDataValue(DataValue::InlineContent { content, .. }) => content,
             _ => panic!("not inline content"),
         }
+    }
+
+    #[test]
+    fn a_policy_that_does_not_parse_says_why() {
+        for (yaml, says) in [
+            ("alow: [a.b]", "unknown field `alow`"),
+            (
+                "allow: [a.b]\ninject:\n  - host: x.y\n    rules:\n      - header: z",
+                "unknown field `header`",
+            ),
+            ("allow: a.b", "invalid type"),
+            // the shape that started this: one inject entry with `rules` twice
+            (
+                "allow: []\ninject:\n- host: api.anthropic.com\n  rules:\n    - when_header: x\n  rules:\n    - when_header: x",
+                "duplicate field `rules`",
+            ),
+        ] {
+            let full = format!(
+                "sidecars:\n  a:\n    image: x\n    egress:\n{}\n",
+                yaml.lines()
+                    .map(|l| format!("      {}", l))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            );
+            let err = serde_yaml::from_str::<RoozCfg>(&full)
+                .unwrap_err()
+                .to_string();
+            assert!(err.contains(says), "{}: {}", says, err);
+        }
+        let err = serde_yaml::from_str::<RoozCfg>("sidecars:\n  a:\n    egress: yes please\n")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("true, false, or a policy"), "{}", err);
     }
 
     #[test]

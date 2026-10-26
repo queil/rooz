@@ -76,7 +76,7 @@ sidecars:
         - host: api.anthropic.com
           rules:
             - when_header: x-cc-req
-              set: {authorization: "Bearer {{ secrets.anthropic_token }}"}
+              set: {authorization: "Bearer {{ anthropic_token }}"}
               remove: [x-cc-req]
 ```
 
