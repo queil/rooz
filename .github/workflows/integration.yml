@@ -36,6 +36,8 @@ jobs:
   # ── integration tests (daemon required) ────────────────────────────────────
   integration:
     runs-on: ubuntu-latest
+    # a run takes ~15 minutes; a hang in a harness engine call is cut off here
+    timeout-minutes: 45
     strategy:
       matrix:
         engine: [docker, podman]
