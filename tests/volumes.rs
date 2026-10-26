@@ -326,6 +326,53 @@ async fn data_file_modes_ownership_and_eols() {
 }
 
 #[tokio::test]
+async fn a_dir_mount_places_each_file_and_hands_its_parents_to_the_user() {
+    use std::os::unix::fs::PermissionsExt;
+    let Some(env) = TestEnv::from_env() else {
+        return;
+    };
+    let key = unique_key("vol-dir");
+    let root = std::env::temp_dir().join(format!("rooz-test-{}", key));
+    fs::create_dir_all(root.join("home/.config/app")).unwrap();
+    fs::write(root.join("home/.config/app/a.conf"), "A\n").unwrap();
+    fs::write(root.join("home/hello.sh"), "#!/bin/sh\necho hi\n").unwrap();
+    fs::set_permissions(
+        root.join("home/hello.sh"),
+        fs::Permissions::from_mode(0o755),
+    )
+    .unwrap();
+    let cfg_path = root.join("rooz.yaml").to_string_lossy().into_owned();
+    // the step runs as the workspace user: it fails if ~/.config was left to root
+    fs::write(
+        &cfg_path,
+        "mounts:\n  ~/:\n    dir: home\ninstall:\n  10-write:\n    run: touch ~/.config/other\n",
+    )
+    .unwrap();
+
+    new_workspace(&env, &key, &cfg_path);
+
+    let out = env
+        .rooz()
+        .args([
+            "exec",
+            &key,
+            "--",
+            "sh",
+            "-c",
+            "cat ~/.config/app/a.conf && ~/hello.sh && stat -c %u ~/.config ~/.config/app",
+        ])
+        .assert()
+        .success();
+    assert_eq!(
+        String::from_utf8_lossy(&out.get_output().stdout),
+        "A\nhi\n1000\n1000\n"
+    );
+
+    env.rooz().args(["rm", &key, "--force"]).assert().success();
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[tokio::test]
 async fn generated_data_file_content() {
     let Some(env) = TestEnv::from_env() else {
         return;

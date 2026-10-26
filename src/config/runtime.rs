@@ -369,7 +369,7 @@ impl RuntimeConfig {
                             .data
                             .get(key.as_str())
                             .map(|v| (key.as_str().to_string(), v.clone())),
-                        MountSource::InlineDataValue(_) => None,
+                        MountSource::InlineDataValue(_) | MountSource::InlineDir(_) => None,
                     })
                     .collect::<std::collections::BTreeMap<_, _>>();
                 serde_json::to_value((sidecar, data))

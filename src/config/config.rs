@@ -603,6 +603,32 @@ impl RoozCfg {
         Ok(())
     }
 
+    pub fn expand_dir_mounts(&mut self) -> Result<(), AnyError> {
+        expand_dir_mounts(&mut self.mounts)?;
+        for sidecar in self.sidecars.iter_mut().flat_map(|s| s.values_mut()) {
+            expand_dir_mounts(&mut sidecar.mounts)?;
+        }
+        Ok(())
+    }
+
+    pub fn dir_sources_mut(&mut self) -> Vec<&mut DirSource> {
+        fn dirs(mounts: &mut Option<IndexMap<String, MountSource>>) -> Vec<&mut DirSource> {
+            mounts
+                .iter_mut()
+                .flat_map(|m| m.values_mut())
+                .filter_map(|m| match m {
+                    MountSource::InlineDir(d) => Some(d),
+                    _ => None,
+                })
+                .collect()
+        }
+        let mut sources = dirs(&mut self.mounts);
+        for sidecar in self.sidecars.iter_mut().flat_map(|s| s.values_mut()) {
+            sources.extend(dirs(&mut sidecar.mounts));
+        }
+        sources
+    }
+
     pub fn data_values_mut(&mut self) -> Vec<&mut DataValue> {
         fn inline(mounts: &mut Option<IndexMap<String, MountSource>>) -> Vec<&mut DataValue> {
             mounts
@@ -610,7 +636,7 @@ impl RoozCfg {
                 .flat_map(|m| m.values_mut())
                 .filter_map(|m| match m {
                     MountSource::InlineDataValue(v) => Some(v),
-                    MountSource::DataEntryReference(_) => None,
+                    MountSource::DataEntryReference(_) | MountSource::InlineDir(_) => None,
                 })
                 .collect()
         }
@@ -1108,12 +1134,107 @@ impl DataValue {
     }
 }
 
+pub const MAX_DIR_FILES: usize = 256;
+pub const MAX_DIR_BYTES: usize = 1024 * 1024;
+
+// A file read from a `dir:` source: its path below the dir, its text and its executable bit
+#[derive(Debug, Clone)]
+pub struct DirFile {
+    pub path: String,
+    pub content: String,
+    pub executable: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct DirSource {
+    pub dir: String,
+    #[serde(skip)]
+    pub files: Option<Vec<DirFile>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub executable: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub once: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 #[serde(untagged)]
 #[serde(deny_unknown_fields)]
 pub enum MountSource {
     DataEntryReference(DataEntryKey),
+    InlineDir(DirSource),
     InlineDataValue(DataValue),
+}
+
+// Untagged, a mistake in a mount only says it matched no variant. A `dir:` key picks the
+// variant, so its own error (an unknown field, a wrong type) comes through.
+impl<'de> Deserialize<'de> for MountSource {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = serde_yaml::Value::deserialize(deserializer)?;
+        let parsed = if value.is_string() {
+            DataEntryKey::deserialize(value).map(MountSource::DataEntryReference)
+        } else if value.as_mapping().is_some_and(|m| m.contains_key("dir")) {
+            DirSource::deserialize(value).map(MountSource::InlineDir)
+        } else {
+            DataValue::deserialize(value).map(MountSource::InlineDataValue)
+        };
+        parsed.map_err(serde::de::Error::custom)
+    }
+}
+
+// A `dir:` mount becomes a `file:` mount per file below it, at the same path below the mount's.
+// It runs on the merged config, so a path any layer mounts on its own keeps that mount.
+fn expand_dir_mounts(mounts: &mut Option<IndexMap<String, MountSource>>) -> Result<(), AnyError> {
+    let Some(mounts) = mounts else {
+        return Ok(());
+    };
+    if !mounts
+        .values()
+        .any(|m| matches!(m, MountSource::InlineDir(_)))
+    {
+        return Ok(());
+    }
+    let (dirs, mut expanded): (Vec<_>, Vec<_>) = std::mem::take(mounts)
+        .into_iter()
+        .partition(|(_, m)| matches!(m, MountSource::InlineDir(_)));
+    let explicit = expanded
+        .iter()
+        .map(|(target, _)| target.clone())
+        .collect::<std::collections::HashSet<_>>();
+    let mut from_dirs = std::collections::HashSet::new();
+    for (target, source) in dirs {
+        let MountSource::InlineDir(d) = source else {
+            continue;
+        };
+        let files = d.files.ok_or_else(|| {
+            format!(
+                "mount '{}': dir '{}' was not read. 'dir:' is resolved when the config is loaded from its origin, which is not possible here (e.g. 'update --tweak' on a config whose origin is gone)",
+                target, d.dir
+            )
+        })?;
+        for f in files {
+            let path = format!("{}/{}", target.trim_end_matches('/'), f.path);
+            if explicit.contains(&path) {
+                continue;
+            }
+            if !from_dirs.insert(path.clone()) {
+                return Err(
+                    format!("mount '{}': two 'dir:' mounts provide this path", path).into(),
+                );
+            }
+            expanded.push((
+                path,
+                MountSource::InlineDataValue(DataValue::FileContent {
+                    file: format!("{}/{}", d.dir, f.path),
+                    content: Some(f.content),
+                    executable: Some(d.executable.unwrap_or(f.executable)),
+                    once: d.once,
+                }),
+            ));
+        }
+    }
+    *mounts = expanded.into_iter().collect();
+    Ok(())
 }
 
 impl MountSource {
@@ -1122,12 +1243,14 @@ impl MountSource {
     pub fn resolve_key(&self, container: &str, target: &str) -> String {
         match self {
             MountSource::DataEntryReference(data_key) => data_key.as_str().to_string(),
-            MountSource::InlineDataValue(_)
+            MountSource::InlineDataValue(_) | MountSource::InlineDir(_)
                 if container == crate::constants::DEFAULT_CONTAINER_NAME =>
             {
                 id::sanitize(target)
             }
-            MountSource::InlineDataValue(_) => format!("_{}_{}", container, id::sanitize(target)),
+            MountSource::InlineDataValue(_) | MountSource::InlineDir(_) => {
+                format!("_{}_{}", container, id::sanitize(target))
+            }
         }
     }
 
@@ -1138,6 +1261,7 @@ impl MountSource {
     ) -> Result<Self, AnyError> {
         Ok(match self {
             MountSource::DataEntryReference(k) => MountSource::DataEntryReference(k.clone()),
+            MountSource::InlineDir(d) => MountSource::InlineDir(d.clone()),
             MountSource::InlineDataValue(dv) => {
                 MountSource::InlineDataValue(dv.expand_vars(reg, vars)?)
             }
@@ -2039,5 +2163,72 @@ data:
                 }
             }
         }
+    }
+
+    #[test]
+    fn a_mount_with_dir_says_what_is_wrong_with_it() {
+        let parse = |y: &str| serde_yaml::from_str::<IndexMap<String, MountSource>>(y);
+        let ok = parse("a: notes\nb: {dir: home, once: true}\nc: {content: x}\nd: {}\n").unwrap();
+        assert!(matches!(ok["a"], MountSource::DataEntryReference(_)));
+        assert!(matches!(ok["b"], MountSource::InlineDir(_)));
+        assert!(matches!(
+            ok["c"],
+            MountSource::InlineDataValue(DataValue::InlineContent { .. })
+        ));
+        assert!(matches!(
+            ok["d"],
+            MountSource::InlineDataValue(DataValue::Dir {})
+        ));
+        let err = parse("b: {dir: home, exclude: [x]}\n")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("unknown field `exclude`"), "{}", err);
+        let err = parse("b: {dir: home, once: maybe}\n")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("invalid type"), "{}", err);
+    }
+
+    #[test]
+    fn two_dirs_providing_one_path_or_an_unread_dir_are_refused() {
+        let dir = |files: Vec<&str>| {
+            MountSource::InlineDir(DirSource {
+                dir: "d".into(),
+                files: Some(
+                    files
+                        .into_iter()
+                        .map(|p| DirFile {
+                            path: p.into(),
+                            content: String::new(),
+                            executable: false,
+                        })
+                        .collect(),
+                ),
+                executable: None,
+                once: None,
+            })
+        };
+        let mut mounts = Some(IndexMap::from([
+            ("~/".to_string(), dir(vec![".config/a"])),
+            ("~/.config".to_string(), dir(vec!["a"])),
+        ]));
+        let err = expand_dir_mounts(&mut mounts).unwrap_err().to_string();
+        assert!(err.contains("'~/.config/a': two 'dir:' mounts"), "{}", err);
+
+        let mut unread = Some(IndexMap::from([(
+            "~/".to_string(),
+            MountSource::InlineDir(DirSource {
+                dir: "d".into(),
+                files: None,
+                executable: None,
+                once: None,
+            }),
+        )]));
+        assert!(
+            expand_dir_mounts(&mut unread)
+                .unwrap_err()
+                .to_string()
+                .contains("was not read")
+        );
     }
 }

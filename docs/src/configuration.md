@@ -261,8 +261,11 @@ A `data` entry is one of:
 Files also take `executable: true` (mode `755`, else `644`) and `once: true`. They are owned by the user
 of the container that mounts them, and writable.
 
-A mount maps a path to a `data` key, or holds the same kinds inline. `~/` expands to the home directory
-in the work container only. The `/work` volume is implicit.
+A mount maps a path to a `data` key, or holds the same kinds inline, or a `dir:` of files (see
+[Directories next to the config](#directories-next-to-the-config)). `~/` expands to the home directory
+in the work container only. The `/work` volume is implicit. A missing directory above a mount in the work
+container's home is created owned by the workspace user, so `~/.config/app.conf` leaves `~/.config`
+writable.
 
 A data key names its volume, `rooz_<workspace>_<key>`, with characters other than letters, digits and
 `-` turned into `-`. Keys that end up alike (`a.b` and `a-b`), a key named `inline` and keys not
@@ -306,6 +309,30 @@ mounts:
 * Up to 64 KiB of UTF-8 text. For larger or binary data, use a volume or `generate:`.
 * Not templated; use `content:` for `{{ vars }}`.
 * The stored config keeps the reference, not the content.
+
+### Directories next to the config
+
+`dir:` mounts every file below a directory next to the config, each at the same relative path below
+the mount's. The files go into the container one by one, so what is already at the mount path stays:
+
+```yaml
+mounts:
+  ~/:
+    dir: home                     # home/.bashrc -> ~/.bashrc, home/.config/nvim/init.lua -> ~/.config/nvim/init.lua
+  ~/.config/nvim/init.lua:        # a path mounted on its own keeps that mount
+    file: files/init-local.lua
+```
+
+* Inline `mounts` only, in the work container and sidecars; not in `data`.
+* Every file is a `file:`, with the same rules: below the config's directory, no symlinks (anywhere in
+  the directory either), UTF-8 text up to 64 KiB, names of letters, digits, `.`, `_` and `-`. Hidden
+  files are included.
+* At most 256 files and 1 MiB per directory.
+* A file is executable if it is in the directory (git keeps the bit); `executable: true` or `false`
+  sets it for all. `once: true` applies to each file.
+* A path mounted on its own, in any layer, keeps that mount. Two `dir:` mounts providing the same path
+  are refused.
+* `rooz update` reads the directory again: new files are mounted, removed ones are gone.
 
 ## Ports
 
