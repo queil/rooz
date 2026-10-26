@@ -10,6 +10,11 @@ file - see the git history.
 
 ## [Unreleased]
 
+### Added
+
+- The egress proxy's log lines end with the client's User-Agent (`[ua: ...]`, `-` when it sends
+  none), to tell which tool in a sidecar made a request.
+
 ### Changed
 
 - Refusals of configuration not wholly yours (secrets, root install steps, `extra_repos`, shared
