@@ -29,7 +29,7 @@ use tokio::{
 use tokio_rustls::{TlsAcceptor, TlsConnector};
 
 const HEAD_LIMIT: usize = 8 * 1024;
-const UA_LIMIT: usize = 120;
+const LOG_VALUE_LIMIT: usize = 120;
 const CLIENT_TIMEOUT: Duration = Duration::from_secs(30);
 const DIAL_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -102,7 +102,9 @@ impl Proxy {
             if !given.is_some_and(|g| same(g.as_bytes(), expected.as_bytes())) {
                 log(&format!(
                     "deny {} {}: no proxy credentials{}",
-                    method, target, ua
+                    printable(&method),
+                    printable(&target),
+                    ua
                 ));
                 return respond_with(
                     &mut client,
@@ -116,7 +118,9 @@ impl Proxy {
         if method != "CONNECT" {
             log(&format!(
                 "deny {} {}: only CONNECT is proxied{}",
-                method, target, ua
+                printable(&method),
+                printable(&target),
+                ua
             ));
             return respond(&mut client, 403, "only CONNECT is proxied").await;
         }
@@ -127,7 +131,12 @@ impl Proxy {
         // decided before anything is resolved or dialled: a host outside the lists is never
         // even looked up
         if !self.inner.config.allows(&host, port) {
-            log(&format!("deny {}:{}: not allowed{}", host, port, ua));
+            log(&format!(
+                "deny {}:{}: not allowed{}",
+                printable(&host),
+                port,
+                ua
+            ));
             return respond(&mut client, 403, "not allowed").await;
         }
         client
@@ -164,7 +173,10 @@ impl Proxy {
             Some(n) => {
                 log(&format!(
                     "deny {}:{}: server name '{}' is another host{}",
-                    host, port, n, ua
+                    host,
+                    port,
+                    printable(&n),
+                    ua
                 ));
                 return Ok(());
             }
@@ -245,16 +257,25 @@ fn log(line: &str) {
     println!("{}", line);
 }
 
-// A request's User-Agent as a log suffix: the client names itself, so it is only a hint, and it
-// is cut short and stripped of control characters before it reaches the log.
+// A request's User-Agent as a log suffix: the client names itself, so it is only a hint.
 fn ua(value: Option<&str>) -> String {
-    let value: String = value
-        .unwrap_or("-")
+    format!(" [ua: {}]", printable(value.unwrap_or("-")))
+}
+
+// A value the client supplied, as it appears in a log line: cut short and reduced to printable
+// ASCII, so it cannot end the line early, reorder it, or reach a terminal as an escape sequence.
+fn printable(value: &str) -> String {
+    value
         .chars()
-        .take(UA_LIMIT)
-        .map(|c| if c.is_control() { '?' } else { c })
-        .collect();
-    format!(" [ua: {}]", value)
+        .take(LOG_VALUE_LIMIT)
+        .map(|c| {
+            if c == ' ' || c.is_ascii_graphic() {
+                c
+            } else {
+                '?'
+            }
+        })
+        .collect()
 }
 
 // The first value of a header in a request head, by case-insensitive name
@@ -304,7 +325,9 @@ async fn forward(
     if canonical_path(&path).as_deref() != Some(path.as_str()) {
         log(&format!(
             "deny {} {}: path is not canonical{}",
-            host, path, ua
+            host,
+            printable(&path),
+            ua
         ));
         return Ok(text(StatusCode::BAD_REQUEST, "path is not canonical"));
     }
@@ -648,8 +671,13 @@ mod tests {
             " [ua: claude-cli/2.0 (external)]"
         );
         assert_eq!(ua(None), " [ua: -]");
+        assert_eq!(printable("evil\r\ndeny x:443"), "evil??deny x:443");
+        assert_eq!(printable("a\u{202e}b"), "a?b");
         assert_eq!(ua(Some("a\x1b[31mb\tc")), " [ua: a?[31mb?c]");
-        assert_eq!(ua(Some(&"x".repeat(500))).len(), " [ua: ]".len() + UA_LIMIT);
+        assert_eq!(
+            ua(Some(&"x".repeat(500))).len(),
+            " [ua: ]".len() + LOG_VALUE_LIMIT
+        );
         assert_eq!(
             head_header(
                 "CONNECT a:443 HTTP/1.1\r\nUser-Agent: curl/8\r\n\r\n",
