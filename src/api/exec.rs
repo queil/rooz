@@ -699,7 +699,10 @@ impl<'a> ExecApi<'a> {
             return Ok(());
         }
         let script = format!(
-            r#"for d in {}; do if [ "$(stat -c %u "$d" 2>/dev/null)" = 0 ]; then chown {uid}:{uid} "$d"; fi; done"#,
+            // From inside its parent, entered physically and only if that is the parent's real
+            // path, and without following the dir itself: a symlink the user puts anywhere on the
+            // path, before or during the loop, cannot redirect the chown.
+            r#"rc=0; for d in {}; do (p="${{d%/*}}"; b="${{d##*/}}"; cd -P -- "$p" 2>/dev/null && [ "$(pwd -P)" = "$p" ] || exit 0; if [ -d "$b" ] && [ ! -L "$b" ] && [ "$(stat -c %u -- "$b")" = 0 ]; then chown -h {uid}:{uid} -- "$b"; fi) || rc=1; done; exit $rc"#,
             dirs.iter()
                 .map(|d| sh::quote(d))
                 .collect::<Vec<_>>()
@@ -804,6 +807,10 @@ fn mount_parents(home_dir: &str, targets: &[String]) -> Vec<String> {
             .split('/')
             .filter(|s| !s.is_empty())
             .collect::<Vec<_>>();
+        // one that climbs out of the home dir is not below it
+        if segments.iter().any(|s| *s == "." || *s == "..") {
+            continue;
+        }
         for depth in 1..segments.len() {
             dirs.insert(format!("{}/{}", home, segments[..depth].join("/")));
         }
@@ -823,6 +830,8 @@ mod tests {
             "/home/u/.bashrc",
             "/home/uu/x/y",
             "/etc/app/conf",
+            "/home/u/../../etc/x",
+            "/home/u/a/./b",
         ]
         .map(String::from);
         assert_eq!(

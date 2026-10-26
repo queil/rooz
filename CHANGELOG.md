@@ -17,6 +17,11 @@ file - see the git history.
   the mount path stays; a path mounted on its own keeps that mount. The `file:` rules apply to each
   file, with at most 256 files and 1 MiB per directory.
 
+### Changed
+
+- A mount path with a `.` or `..` segment (`~/../etc/x`) is refused: it names where a mount lands,
+  and rooz acts as root on the directories above it.
+
 ### Fixed
 
 - A file or volume mounted below a directory missing from the image (`~/.config/app.conf` in an image
