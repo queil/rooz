@@ -27,6 +27,9 @@ file - see the git history.
 - A file or volume mounted below a directory missing from the image (`~/.config/app.conf` in an image
   without `~/.config`) no longer leaves that directory owned by root: in the work container's home,
   rooz hands it to the workspace user.
+- A sidecar behind an egress policy reaches the sidecars that name it in their `peers` directly, as
+  it does its own peers: they are in its `NO_PROXY` too. A registry mirror peering with a proxied
+  `dkr` was refused by the proxy (plain HTTP).
 
 ## [0.173.1] - 2026-10-26
 

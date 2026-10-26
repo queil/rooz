@@ -244,16 +244,26 @@ pub fn expand_with(
             .into());
         }
         let with_ca = !policy.inject.is_empty();
+        // a peering goes both ways: a sidecar naming this one as its peer is reached directly too
+        let named_by = sidecars
+            .iter()
+            .filter(|(_, s)| s.peers.iter().flatten().any(|p| *p == name))
+            .map(|(n, _)| n.clone())
+            .collect::<Vec<_>>();
         let agent = sidecars.get_mut(&name).expect("listed above");
         agent.egress = Some(SidecarEgress::Open(false));
         let mut peers = agent.peers.clone().unwrap_or_default();
         // what it reaches without the proxy: itself and its peers
-        let no_proxy = ["localhost", "127.0.0.1", "::1"]
+        let mut no_proxy = ["localhost", "127.0.0.1", "::1"]
             .iter()
             .map(|s| s.to_string())
-            .chain(peers.iter().cloned())
-            .collect::<Vec<_>>()
-            .join(",");
+            .collect::<Vec<_>>();
+        for peer in peers.iter().chain(&named_by) {
+            if !no_proxy.contains(peer) {
+                no_proxy.push(peer.clone());
+            }
+        }
+        let no_proxy = no_proxy.join(",");
         peers.push(proxy.clone());
         agent.peers = Some(peers);
         let (token, auth) = proxy_token();
@@ -378,6 +388,19 @@ mod tests {
         let s = c.sidecars.unwrap();
         assert_eq!(s["a"].egress, Some(SidecarEgress::Open(true)));
         assert_eq!(s["b"].egress, Some(SidecarEgress::Open(false)));
+    }
+
+    #[test]
+    fn a_sidecar_that_names_it_as_a_peer_is_reached_without_the_proxy() {
+        let mut c = cfg(
+            "sidecars:\n  dkr:\n    image: x\n    peers: [claude, images]\n    egress:\n      allow: [ghcr.io]\n  claude:\n    image: y\n  images:\n    image: z\n    peers: [dkr]\n  other:\n    image: z\n    peers: [dkr]\n",
+        );
+        expand_with(&mut c, "joey-image", fake_ca).unwrap();
+        let s = c.sidecars.unwrap();
+        assert_eq!(
+            s["dkr"].env.as_ref().unwrap()["NO_PROXY"],
+            "localhost,127.0.0.1,::1,claude,images,other"
+        );
     }
 
     #[test]
