@@ -99,7 +99,9 @@ sidecars:
   `/usr/local/share/ca-certificates/rooz-egress.crt` and named by `NODE_EXTRA_CA_CERTS`; for tools
   that read the system store, add a `root: true` install step running `update-ca-certificates`. The
   CA is written once and kept across updates, and its key is never stored in the workspace's config.
-* Plain HTTP is refused. Every decision is a line in `rooz logs <workspace> --container <name>-egress`.
+* Plain HTTP is refused. Every decision is a line in `rooz logs <workspace> --container <name>-egress`,
+  ending with the client's User-Agent (`[ua: ...]`) - the client names itself, so it is a hint, not
+  proof.
 
 ## Keys
 
