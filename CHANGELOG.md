@@ -10,6 +10,11 @@ file - see the git history.
 
 ## [Unreleased]
 
+### Changed
+
+- Refusals of configuration not wholly yours (secrets, root install steps, `extra_repos`, shared
+  caches) are now two lines: what was refused, then how to allow it with a docs link.
+
 ### Fixed
 
 - An `egress:` that parses as neither `true`/`false` nor a policy says what is wrong with it (an

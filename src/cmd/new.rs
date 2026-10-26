@@ -199,20 +199,19 @@ fn check_vpn(containers: &[(String, String)], consent: &Consent) -> Result<(), A
     .into())
 }
 
-pub const EXTRA_REPOS_NOT_ALLOWED: &str = "This configuration lists 'extra_repos', but it is not \
-     wholly yours: it comes from a remote '--config <url>//<path>' source, or merges a \
-     'bases' layer, not in ROOZ_TRUSTED_CONFIGS. Extra repositories are cloned with your ssh key, so a remote config \
-     must not be able to name which of your private repositories land in its workspace. List \
-     the source in ROOZ_TRUSTED_CONFIGS, or use a local '--config' file.";
+pub const EXTRA_REPOS_NOT_ALLOWED: &str = concat!(
+    "Refusing 'extra_repos' from ",
+    crate::not_yours!(),
+    ".\n",
+    crate::trust_hint!(),
+    " - see https://rooz.dev/configuration.html#remote-config"
+);
 
-pub const CACHES_NOT_ALLOWED: &str = "This configuration declares shared caches, but it is not \
-     wholly yours: it comes from a remote '--config <url>//<path>' source, or merges a \
-     'bases' layer, not in ROOZ_TRUSTED_CONFIGS. A cache volume is shared with every other \
-     workspace of yours mounting the same path, so whatever this repository's build writes \
-     into it (a cargo registry source, a linker config, a crate with a build script) would \
-     later execute in those workspaces. Rooz shares only the cache paths you ask for \
-     yourself - if you want these shared, list them in ROOZ_CACHES (which also covers \
-     'rooz update'), or pass '--caches' to 'rooz new'.";
+pub const CACHES_NOT_ALLOWED: &str =
+    concat!("Refusing shared caches from ", crate::not_yours!(), ":");
+
+pub const CACHES_HINT: &str = "Share them yourself with ROOZ_CACHES (or --caches on 'rooz new'), or \
+     trust the source with ROOZ_TRUSTED_CONFIGS - see https://rooz.dev/configuration.html#caches";
 
 // Cache volumes are shared by path across all of an operator's workspaces - that is what
 // they are for, and why an untrusted config must not be able to opt one of its own
@@ -241,13 +240,14 @@ fn check_caches(caches: &[String], consented: &[String]) -> Result<(), AnyError>
     }
 
     Err(format!(
-        "{} Refusing cache paths: {}.",
+        "{} {}.\n{}",
         CACHES_NOT_ALLOWED,
         refused
             .iter()
             .map(|c| format!("'{}'", c))
             .collect::<Vec<_>>()
-            .join(", ")
+            .join(", "),
+        CACHES_HINT
     )
     .into())
 }
@@ -265,9 +265,14 @@ fn check_untrusted_config(cfg: &RoozCfg, consented_caches: &[String]) -> Result<
             "extra_repos" => return Err(EXTRA_REPOS_NOT_ALLOWED.into()),
             other => {
                 return Err(format!(
-                    "Refusing '{}': this configuration comes from a remote source, or merges a \
-                     'bases' layer, not in ROOZ_TRUSTED_CONFIGS, and '{}' is the operator's to set.",
-                    other, other
+                    concat!(
+                        "Refusing '{}' from ",
+                        crate::not_yours!(),
+                        ".\n",
+                        crate::trust_hint!(),
+                        " - see https://rooz.dev/configuration.html#remote-config"
+                    ),
+                    other
                 )
                 .into());
             }
@@ -389,9 +394,10 @@ impl<'a> WorkspaceApi<'a> {
             let root_steps = cfg_builder.root_install_steps();
             if !root_steps.is_empty() {
                 return Err(format!(
-                    "{} {}",
+                    "{} {}.\n{}",
                     crate::config::config::ROOT_STEPS_NOT_ALLOWED,
-                    root_steps.join(", ")
+                    root_steps.join(", "),
+                    crate::config::config::ROOT_STEPS_HINT
                 )
                 .into());
             }
