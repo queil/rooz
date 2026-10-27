@@ -8,6 +8,18 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases before 0.159.0 predate this
 file - see the git history.
 
+## [Unreleased]
+
+### Changed
+
+- rooz's helper image, also the default workspace image, is joey `0.174.0-tools` (was `0.171.0-tools`),
+  pinned by digest.
+
+### Fixed
+
+- A container that exits right after starting is reported as such - its name, its exit code and
+  where to look - instead of the engine's message about exec sessions on a container not running.
+
 ## [0.174.0] - 2026-10-26
 
 ### Added

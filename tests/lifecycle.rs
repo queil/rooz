@@ -426,6 +426,34 @@ async fn exec_runs_one_command_and_returns_its_exit_code() {
     env.rooz().args(["rm", &key, "--force"]).assert().success();
 }
 
+// The engine's own message about exec sessions says nothing of why: the container exited.
+#[tokio::test]
+async fn a_container_that_exits_at_once_is_reported_with_its_exit_code() {
+    let Some(env) = TestEnv::from_env() else {
+        return;
+    };
+    let key = unique_key("early-exit");
+    let cfg_path = write_cfg(
+        &key,
+        "image: alpine:latest\ncommand: [sh]\nargs: [-c, \"exit 3\"]\ninstall:\n  10-x:\n    run: echo hi\n",
+    );
+
+    env.rooz()
+        .args(["system", "init", "--force"])
+        .assert()
+        .success();
+    env.rooz()
+        .args(["new", &key, "--config", &cfg_path])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains(format!(
+            "Container '{}' is not running: it exited with code 3",
+            key
+        )));
+
+    cleanup(&env, &key, &cfg_path);
+}
+
 #[tokio::test]
 async fn list_status_and_logs_describe_a_workspace() {
     let Some(env) = TestEnv::from_env() else {

@@ -1,7 +1,7 @@
 // What rooz runs its own short-lived containers from: clones, volume population, key generation.
 // joey's tools image (sh, git, openssh-client), pinned by digest to a joey release that already
 // exists: the tag that publishes a joey image cannot also be the one rooz pins it in.
-pub const HELPER_IMAGE: &str = "ghcr.io/queil/joey:0.171.0-tools@sha256:17f1ee469d05967bf0df2b6f296cfe37cd8accf99bf476ee5efdc08b92534172";
+pub const HELPER_IMAGE: &str = "ghcr.io/queil/joey:0.174.0-tools@sha256:9881256d8c8e3b2366d53eebbfcf5d4b1b962b360570a0f08a46efe999ea3177";
 // The workspace's image when nothing names one. The same image for now; a constant of its own so the
 // two can part.
 pub const DEFAULT_IMAGE: &str = HELPER_IMAGE;
