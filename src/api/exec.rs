@@ -275,7 +275,7 @@ impl<'a> ExecApi<'a> {
                 working_dir
             );
 
-            Ok(self
+            match self
                 .client
                 .create_exec(
                     container_id,
@@ -290,9 +290,40 @@ impl<'a> ExecApi<'a> {
                         ..Default::default()
                     },
                 )
-                .await?
-                .id)
+                .await
+            {
+                Ok(created) => Ok(created.id),
+                Err(e) => Err(self.not_running(container_id).await.unwrap_or(e.into())),
+            }
         }
+    }
+
+    // A container that stopped on its own fails every exec with an engine message about exec
+    // sessions; what the operator needs is that it exited, how, and where its output is.
+    async fn not_running(&self, container_id: &str) -> Option<AnyError> {
+        let inspect = self
+            .client
+            .inspect_container(container_id, None)
+            .await
+            .ok()?;
+        let state = inspect.state?;
+        if state.running == Some(true) {
+            return None;
+        }
+        let name = inspect
+            .name
+            .as_deref()
+            .unwrap_or(container_id)
+            .trim_start_matches('/')
+            .to_string();
+        Some(
+            format!(
+                "Container '{}' is not running: it exited with code {}. If it stopped right after starting, check its image's CMD/ENTRYPOINT (or 'command'/'args' in the config); 'rooz logs' shows its output.",
+                name,
+                state.exit_code.unwrap_or_default()
+            )
+            .into(),
+        )
     }
 
     pub async fn tty(
