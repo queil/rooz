@@ -129,9 +129,11 @@ impl Proxy {
         let host = hosts::normalize(&host);
         // decided before anything is resolved or dialled: a host outside the lists is never
         // even looked up
-        // learning lets through what it would refuse, and says so
+        // learning lets through what it would refuse, and says so - but not an inject host's
+        // port: that connection carries the injected credential, so the policy still rules it
         let learned = !self.inner.config.allows(&host, port);
-        if learned && !self.inner.config.learn {
+        let intercepted = self.inner.config.inject_host(&host).is_some();
+        if learned && (!self.inner.config.learn || intercepted) {
             Event::new("deny")
                 .at(&host, port)
                 .reason("not allowed")

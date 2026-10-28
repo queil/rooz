@@ -61,4 +61,5 @@ The only way out for the containers that peer with it. It speaks HTTP `CONNECT` 
   narrows where a credential goes; it is no substitute for the upstream's own authorization.
 * `upstream_roots`: PEM files trusted for upstream servers on top of the built-in web roots.
 * `learn`: let through, logged as `learn`, what `allow` and `ports` would refuse: to find out what a
-  client needs. The server-name check still applies, and plain HTTP is still refused.
+  client needs. The server-name check still applies, plain HTTP is still refused, and an `inject`
+  host on a port outside `ports` is still refused: learning never sends a credential somewhere new.

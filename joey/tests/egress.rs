@@ -292,6 +292,26 @@ async fn learning_lets_through_what_the_lists_would_refuse_still_checking_the_se
 }
 
 #[tokio::test]
+async fn learning_never_sends_an_injected_credential_to_a_port_outside_the_list() {
+    let up = ca("upstream");
+    let mitm = ca("proxy");
+    let (port, accepted) = upstream(&up).await;
+    let d = dir();
+    std::fs::write(d.join("ca.pem"), &mitm.cert_pem).unwrap();
+    std::fs::write(d.join("ca.key"), &mitm.key_pem).unwrap();
+    let addr = proxy(serde_json::json!({
+        "learn": true,
+        "ca": {"cert": d.join("ca.pem"), "key": d.join("ca.key")},
+        "inject": [{"host": "localhost", "rules": [{"set": {"authorization": "Bearer secret"}}]}]
+    }))
+    .await;
+    // the upstream's port is not in `ports` ([443])
+    let (status, _) = connect(&addr, &format!("localhost:{}", port)).await;
+    assert!(status.contains("403"), "{}", status);
+    assert_eq!(accepted.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
 async fn a_server_name_other_than_the_connect_host_goes_nowhere() {
     let up = ca("upstream");
     let (port, accepted) = upstream(&up).await;

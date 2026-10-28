@@ -101,7 +101,8 @@ sidecars:
   CA is written once and kept across updates, and its key is never stored in the workspace's config.
 * Plain HTTP is refused.
 * `learn: true` lets through what `allow` and `ports` would refuse, and logs it as `learn`: open egress
-  while you find out what the sidecar needs. Turn it off once the allowlist is in place.
+  while you find out what the sidecar needs. An `inject` host is still held to `ports`, so a
+  credential never goes anywhere new. Turn it off once the allowlist is in place.
 * Across config layers, two policies combine: `allow` and `ports` are unions (a layer without `ports`
   counts as `[443]`), and `inject` goes by host, a later layer's entry for a host replacing the earlier
   one. `true` or `false` replaces a policy below it, and a policy replaces them. So a base can carry
