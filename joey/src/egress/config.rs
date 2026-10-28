@@ -110,7 +110,12 @@ impl Config {
             if !seen.insert(h.host.clone()) {
                 return Err(format!("inject: '{}' is listed twice", h.host));
             }
-            if self.allow.iter().any(|p| hosts::matches(p, &h.host)) {
+            // a wildcard in allow covering it is fine: the inject host is intercepted all the same
+            if self
+                .allow
+                .iter()
+                .any(|p| hosts::normalize(p) == hosts::normalize(&h.host))
+            {
                 return Err(format!(
                     "'{}' is in allow and inject: an inject host is intercepted, so it cannot also pass through",
                     h.host
@@ -193,6 +198,18 @@ mod tests {
     }
 
     #[test]
+    fn an_inject_host_under_an_allowed_wildcard_is_intercepted() {
+        let c = cfg(
+            r#"{"ca": {"cert": "c", "key": "k"}, "allow": ["*.github.com"], "inject": [{"host": "nuget.pkg.github.com"}]}"#,
+        )
+        .unwrap();
+        assert!(c.allows("nuget.pkg.github.com", 443));
+        assert!(c.inject_host("nuget.pkg.github.com").is_some());
+        assert!(c.allows("api.github.com", 443));
+        assert!(c.inject_host("api.github.com").is_none());
+    }
+
+    #[test]
     fn a_config_that_cannot_be_read_one_way_is_refused() {
         for bad in [
             r#"{"allow": ["https://github.com"]}"#,
@@ -201,7 +218,7 @@ mod tests {
             r#"{"inject": [{"host": "api.example.com"}]}"#,
             r#"{"ca": {"cert": "c", "key": "k"}, "inject": [{"host": "*.example.com"}]}"#,
             r#"{"ca": {"cert": "c", "key": "k"}, "inject": [{"host": "a.example"}, {"host": "a.example"}]}"#,
-            r#"{"ca": {"cert": "c", "key": "k"}, "allow": ["*.example"], "inject": [{"host": "a.example"}]}"#,
+            r#"{"ca": {"cert": "c", "key": "k"}, "allow": ["A.example"], "inject": [{"host": "a.example"}]}"#,
             r#"{"ca": {"cert": "c", "key": "k"}, "inject": [{"host": "a.example", "rules": [{"methods": ["post"]}]}]}"#,
             r#"{"ca": {"cert": "c", "key": "k"}, "inject": [{"host": "a.example", "rules": [{"paths": ["v1/*"]}]}]}"#,
             r#"{"ca": {"cert": "c", "key": "k"}, "inject": [{"host": "a.example", "rules": [{"paths": ["/*/x"]}]}]}"#,
