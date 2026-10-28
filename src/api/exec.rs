@@ -316,17 +316,26 @@ impl<'a> ExecApi<'a> {
     }
 
     // A container that stopped on its own fails every exec with an engine message about exec
-    // sessions; what the operator needs is that it exited, how, and where its output is.
-    async fn not_running(&self, container_id: &str) -> Option<AnyError> {
-        let inspect = self
-            .client
-            .inspect_container(container_id, None)
-            .await
-            .ok()?;
-        let state = inspect.state?;
-        if state.running == Some(true) {
-            return None;
-        }
+    // sessions; what the operator needs is that it exited, how, and where its output is. Asked
+    // after a failure, it allows the engine a moment to record an exit that killed the exec.
+    pub async fn not_running(&self, container_id: &str) -> Option<AnyError> {
+        let mut checks = 0;
+        let (inspect, state) = loop {
+            let inspect = self
+                .client
+                .inspect_container(container_id, None)
+                .await
+                .ok()?;
+            let state = inspect.state.clone()?;
+            if state.running != Some(true) {
+                break (inspect, state);
+            }
+            checks += 1;
+            if checks == 10 {
+                return None;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        };
         let name = inspect
             .name
             .as_deref()

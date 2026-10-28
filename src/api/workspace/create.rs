@@ -117,31 +117,45 @@ impl<'a> WorkspaceApi<'a> {
             ContainerResult::Created { id: container_id } => {
                 if !install_steps.is_empty() {
                     self.api.container.start(&container_id).await?;
-                    if install_steps.iter().any(|step| !step.root) {
-                        // steps run as the workspace user, which has to exist and own the
-                        // volumes it writes to - enter does the same before the first shell
-                        self.api.exec.ensure_user(&container_id).await?;
-                        let uid = spec.uid.parse::<i32>()?;
+                    let installed: Result<(), AnyError> = async {
+                        if install_steps.iter().any(|step| !step.root) {
+                            // steps run as the workspace user, which has to exist and own the
+                            // volumes it writes to - enter does the same before the first shell
+                            self.api.exec.ensure_user(&container_id).await?;
+                            let uid = spec.uid.parse::<i32>()?;
+                            self.api
+                                .exec
+                                .own_mount_parents(
+                                    &container_id,
+                                    &uid,
+                                    &home_dir,
+                                    &writable_targets,
+                                )
+                                .await?;
+                            for target in &writable_targets {
+                                self.api.exec.chown(&container_id, &uid, target).await?;
+                            }
+                        }
                         self.api
                             .exec
-                            .own_mount_parents(&container_id, &uid, &home_dir, &writable_targets)
+                            .install(
+                                spec.container_name,
+                                &container_id,
+                                install_steps,
+                                checkpoints.as_ref().map(|c| InstallCheckpoints {
+                                    checkpoints: c,
+                                    done: resume.as_ref().map_or(0, |(done, _)| *done),
+                                }),
+                            )
                             .await?;
-                        for target in &writable_targets {
-                            self.api.exec.chown(&container_id, &uid, target).await?;
-                        }
+                        Ok(())
                     }
-                    self.api
-                        .exec
-                        .install(
-                            spec.container_name,
-                            &container_id,
-                            install_steps,
-                            checkpoints.as_ref().map(|c| InstallCheckpoints {
-                                checkpoints: c,
-                                done: resume.as_ref().map_or(0, |(done, _)| *done),
-                            }),
-                        )
-                        .await?;
+                    .await;
+                    // whatever failed, a container that exited under it is the reason: the engine
+                    // only says the exec is gone
+                    if let Err(e) = installed {
+                        return Err(self.api.exec.not_running(&container_id).await.unwrap_or(e));
+                    }
                     if let Some(c) = &checkpoints {
                         c.clear(self.api.client).await;
                     }
