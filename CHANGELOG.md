@@ -8,7 +8,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases before 0.159.0 predate this
 file - see the git history.
 
-## [Unreleased]
+## [0.175.0] - 2026-10-28
 
 ### Added
 
@@ -20,6 +20,9 @@ file - see the git history.
 
 ### Changed
 
+- The egress proxy logs each decision as a line of JSON, so `rooz logs <ws> -c <sidecar>-egress` shows
+  JSON; `rooz egress log` (`-f` to follow) is the readable view. A proxy still running an older joey
+  logs text until `rooz update` recreates it.
 - A sidecar's egress policies from several config layers combine instead of the last replacing the
   rest: `allow` and `ports` are unions, `inject` goes by host (a later layer's entry for a host
   replaces the earlier one). `true` or `false` still replaces a policy.
