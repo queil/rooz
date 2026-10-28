@@ -10,6 +10,14 @@ file - see the git history.
 
 ## [Unreleased]
 
+### Added
+
+- `rooz egress log`: a workspace's egress proxy decisions, counted by host with refusals first and
+  colored by decision; `--denied` for what was refused, `--suggest` for the refused hosts as a policy
+  to paste, `-f` to follow. The proxy logs each decision as a line of JSON.
+- `learn: true` in an egress policy lets through what `allow` and `ports` would refuse, logged as
+  `learn`, to find out what a sidecar needs.
+
 ### Changed
 
 - A sidecar's egress policies from several config layers combine instead of the last replacing the

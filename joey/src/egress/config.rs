@@ -26,6 +26,9 @@ pub struct Config {
     // PEM files of roots trusted for upstream servers, on top of the built-in web roots
     #[serde(default)]
     pub upstream_roots: Vec<String>,
+    // let through, as `learn`, what the lists would refuse: to find out what a client needs
+    #[serde(default)]
+    pub learn: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]

@@ -271,6 +271,47 @@ async fn an_allowed_host_is_reached_end_to_end_with_its_own_tls() {
 }
 
 #[tokio::test]
+async fn learning_lets_through_what_the_lists_would_refuse_still_checking_the_server_name() {
+    let up = ca("upstream");
+    let (port, _) = upstream(&up).await;
+    // neither the host nor the port is listed
+    let addr = proxy(serde_json::json!({"allow": ["github.com"], "learn": true})).await;
+    let (status, s) = connect(&addr, &format!("localhost:{}", port)).await;
+    assert!(status.contains("200"), "{}", status);
+    let body = get(s, "localhost", &up.cert_pem, "/x", &[]).await.unwrap();
+    assert!(body.starts_with("path=/x\n"), "{}", body);
+
+    let (status, s) = connect(&addr, &format!("localhost:{}", port)).await;
+    assert!(status.contains("200"), "{}", status);
+    assert!(
+        get(s, "other.example", &up.cert_pem, "/x", &[])
+            .await
+            .is_err(),
+        "a ClientHello for another host is still refused"
+    );
+}
+
+#[tokio::test]
+async fn learning_never_sends_an_injected_credential_to_a_port_outside_the_list() {
+    let up = ca("upstream");
+    let mitm = ca("proxy");
+    let (port, accepted) = upstream(&up).await;
+    let d = dir();
+    std::fs::write(d.join("ca.pem"), &mitm.cert_pem).unwrap();
+    std::fs::write(d.join("ca.key"), &mitm.key_pem).unwrap();
+    let addr = proxy(serde_json::json!({
+        "learn": true,
+        "ca": {"cert": d.join("ca.pem"), "key": d.join("ca.key")},
+        "inject": [{"host": "localhost", "rules": [{"set": {"authorization": "Bearer secret"}}]}]
+    }))
+    .await;
+    // the upstream's port is not in `ports` ([443])
+    let (status, _) = connect(&addr, &format!("localhost:{}", port)).await;
+    assert!(status.contains("403"), "{}", status);
+    assert_eq!(accepted.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
 async fn a_server_name_other_than_the_connect_host_goes_nowhere() {
     let up = ca("upstream");
     let (port, accepted) = upstream(&up).await;

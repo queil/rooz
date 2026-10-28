@@ -365,6 +365,42 @@ pub struct StatusParams {
 }
 
 #[derive(Parser, Debug)]
+#[command(about = "Shows what sidecars' egress proxies let through and refused")]
+pub struct EgressParams {
+    #[command(subcommand)]
+    pub command: EgressCommands,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum EgressCommands {
+    #[command(about = "Summarises a workspace's egress proxy decisions by host")]
+    Log(EgressLogParams),
+}
+
+#[derive(Parser, Debug)]
+pub struct EgressLogParams {
+    pub name: String,
+    #[arg(
+        short,
+        long,
+        help = "A sidecar with an egress policy, or its proxy; all of them by default"
+    )]
+    pub container: Option<String>,
+    #[arg(long, help = "Only what was refused or let through only by learning")]
+    pub denied: bool,
+    #[arg(
+        long,
+        conflicts_with = "follow",
+        help = "Prints the refused hosts as a policy to paste into the config"
+    )]
+    pub suggest: bool,
+    #[arg(short, long, help = "Prints each decision as it happens")]
+    pub follow: bool,
+    #[arg(long, help = "Number of log lines from the end to read, e.g. 1000")]
+    pub tail: Option<String>,
+}
+
+#[derive(Parser, Debug)]
 #[command(about = "Shows the logs of a workspace container")]
 pub struct LogsParams {
     pub name: String,
@@ -512,6 +548,7 @@ pub enum Commands {
     Doctor(DoctorParams),
     Status(StatusParams),
     Logs(LogsParams),
+    Egress(EgressParams),
     Config(Config),
     Tmp(TmpParams),
     Remote(RemoteParams),

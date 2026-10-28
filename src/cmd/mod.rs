@@ -1,6 +1,7 @@
 pub mod cache;
 pub mod config;
 pub mod doctor;
+pub mod egress;
 pub mod init;
 pub mod list;
 pub mod logs;

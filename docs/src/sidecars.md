@@ -99,14 +99,28 @@ sidecars:
   `/usr/local/share/ca-certificates/rooz-egress.crt` and named by `NODE_EXTRA_CA_CERTS`; for tools
   that read the system store, add a `root: true` install step running `update-ca-certificates`. The
   CA is written once and kept across updates, and its key is never stored in the workspace's config.
-* Plain HTTP is refused. Every decision is a line in `rooz logs <workspace> --container <name>-egress`,
-  ending with the client's User-Agent (`[ua: ...]`) - the client names itself, so it is a hint, not
-  proof.
+* Plain HTTP is refused.
+* `learn: true` lets through what `allow` and `ports` would refuse, and logs it as `learn`: open egress
+  while you find out what the sidecar needs. An `inject` host is still held to `ports`, so a
+  credential never goes anywhere new. Turn it off once the allowlist is in place.
 * Across config layers, two policies combine: `allow` and `ports` are unions (a layer without `ports`
   counts as `[443]`), and `inject` goes by host, a later layer's entry for a host replacing the earlier
   one. `true` or `false` replaces a policy below it, and a policy replaces them. So a base can carry
   the allowlist and your own config the `inject` rules with their secrets.
 
+### Egress log
+
+Every decision the proxy makes is a line of JSON in its container's log. `rooz egress log` reads them:
+
+```sh
+rooz egress log <workspace>               # per proxy: decisions counted by host, refusals first
+rooz egress log <workspace> --denied      # only what was refused, or let through only by learning
+rooz egress log <workspace> --suggest     # the refused hosts as a policy to paste into the config
+rooz egress log <workspace> -c claude -f  # one sidecar's decisions as they happen
+```
+
+Each row names the client's User-Agent (`ua:`). The client names itself, so it is a hint, not proof.
+`--tail <n>` reads only the last `n` log lines.
 ## Keys
 
 * `image`: container image.
