@@ -42,8 +42,9 @@ impl<'de> Deserialize<'de> for SidecarEgress {
 }
 
 // A layer's `egress` over the one below: two policies combine - `allow` and `ports` are unions,
-// `inject` goes by host, a later entry for a host replacing the earlier one - while `true` or
-// `false` replaces whatever is below it, and a policy replaces a `true` or `false`.
+// `inject` goes by host, a later entry for a host replacing the earlier one, `learn` is the later
+// layer's if it sets it - while `true` or `false` replaces whatever is below it, and a policy
+// replaces a `true` or `false`.
 pub fn merged(below: Option<SidecarEgress>, over: Option<SidecarEgress>) -> Option<SidecarEgress> {
     match (below, over) {
         (Some(SidecarEgress::Proxied(mut b)), Some(SidecarEgress::Proxied(o))) => {
@@ -68,6 +69,7 @@ pub fn merged(below: Option<SidecarEgress>, over: Option<SidecarEgress>) -> Opti
                     None => b.inject.push(entry),
                 }
             }
+            b.learn = o.learn.or(b.learn);
             Some(SidecarEgress::Proxied(b))
         }
         (below, over) => over.or(below),
@@ -88,6 +90,10 @@ pub struct EgressPolicy {
     // hosts the proxy intercepts to apply header rules, for credentials the sidecar must not hold
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub inject: Vec<EgressInject>,
+    // let through what `allow` and `ports` would refuse, logged as `learn`: open egress, to find
+    // out what the sidecar needs
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub learn: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
@@ -138,6 +144,7 @@ impl SidecarEgress {
             SidecarEgress::Proxied(p) => SidecarEgress::Proxied(EgressPolicy {
                 allow: p.allow.iter().map(render).collect::<Result<_, _>>()?,
                 ports: p.ports.clone(),
+                learn: p.learn,
                 inject: p
                     .inject
                     .iter()
@@ -207,6 +214,7 @@ fn proxy_config(policy: &EgressPolicy, with_ca: bool, auth: &str) -> String {
         "ports": policy.ports.clone().unwrap_or_else(|| vec![DEFAULT_PORT]),
         "inject": policy.inject,
         "auth": auth,
+        "learn": policy.learn.unwrap_or_default(),
     });
     if with_ca {
         cfg["ca"] = serde_json::json!({"cert": PROXY_CA_CERT, "key": PROXY_CA_KEY});

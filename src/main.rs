@@ -6,8 +6,8 @@ use rooz::{
     cli::{
         Cli,
         Commands::{
-            Cache, Code, Config, Doctor, Enter, Exec, Internal, List, Logs, Move, New, Remote,
-            Remove, Restart, Start, Status, Stop, System, Tmp, Update,
+            Cache, Code, Config, Doctor, Egress, Enter, Exec, Internal, List, Logs, Move, New,
+            Remote, Remove, Restart, Start, Status, Stop, System, Tmp, Update,
         },
         CompletionParams, ConfigureParams, ListParams, NewParams, RemoveParams, ShowConfigParams,
         StopParams, TmpParams,
@@ -24,9 +24,9 @@ use clap_complete::generate;
 use colored::Colorize;
 use rooz::api::{ConfigApi, CryptApi};
 use rooz::cli::{
-    CacheCommands, CacheParams, CodeParams, EditConfigParams, EnterParams, ExecParams,
-    InternalCommands, InternalParams, LogsParams, MoveParams, RestartParams, StartParams,
-    StatusParams, TemplateConfigParams, UpdateParams,
+    CacheCommands, CacheParams, CodeParams, EditConfigParams, EgressCommands, EgressParams,
+    EnterParams, ExecParams, InternalCommands, InternalParams, LogsParams, MoveParams,
+    RestartParams, StartParams, StatusParams, TemplateConfigParams, UpdateParams,
 };
 use rooz::cmd::plan::PlanMode;
 use rooz::cmd::update::UpdateMode;
@@ -370,6 +370,23 @@ async fn run() -> Result<(), AnyError> {
             CacheCommands::Ls(p) => rooz.cache_ls(p.all_scopes, p.json).await?,
             CacheCommands::Rm(p) => rooz.cache_rm(&p.names).await?,
             CacheCommands::Prune(p) => rooz.cache_prune(p.dry_run).await?,
+        },
+
+        Cli {
+            command: Egress(EgressParams { command }),
+            ..
+        } => match command {
+            EgressCommands::Log(p) => {
+                rooz.egress_log(
+                    &p.name,
+                    p.container.as_deref(),
+                    p.denied,
+                    p.suggest,
+                    p.follow,
+                    p.tail.as_deref(),
+                )
+                .await?
+            }
         },
 
         Cli {

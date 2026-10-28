@@ -28,6 +28,7 @@ No tty or stdin. stdout and stderr pass through separately, and rooz exits with 
 rooz list [--json]                       # status, image, age, config origin
 rooz status myworkspace2 [--json]        # containers, volumes, config origin
 rooz logs myworkspace2 [-c sidecar] [-f] [--tail 100]
+rooz egress log myworkspace2 [-c sidecar] [--denied] [--suggest] [-f]   # see Sidecars: Egress log
 ```
 
 ## Schema and merged config

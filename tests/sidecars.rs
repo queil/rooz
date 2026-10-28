@@ -774,6 +774,32 @@ async fn an_egress_policy_puts_the_sidecar_behind_its_own_proxy() {
         0,
         "the work container used the proxy"
     );
+    // the decisions read back: the refusals, and the policy that would allow the refused host
+    let out = env
+        .rooz()
+        .args(["egress", "log", &key, "--denied"])
+        .assert()
+        .success();
+    let log = String::from_utf8_lossy(&out.get_output().stdout).to_string();
+    assert!(
+        log.contains("agent-egress")
+            && log.contains("example.com:443")
+            && log.contains("not allowed")
+            && log.contains("allowed.test:443")
+            && log.contains("no proxy credentials"),
+        "{}",
+        log
+    );
+    let out = env
+        .rooz()
+        .args(["egress", "log", &key, "-c", "agent", "--suggest"])
+        .assert()
+        .success();
+    assert_eq!(
+        String::from_utf8_lossy(&out.get_output().stdout),
+        "sidecars:\n  agent:\n    egress:\n      allow:\n      - example.com\n"
+    );
+
     // the sidecar trusts the proxy's CA and never sees its key
     assert_eq!(
         run("grep -q 'BEGIN CERTIFICATE' \"$NODE_EXTRA_CA_CERTS\" && ! grep -rqs 'PRIVATE KEY' /usr/local/share/ca-certificates /etc/joey").await,

@@ -14,6 +14,7 @@ use hyper::{
 };
 use hyper_util::rt::TokioIo;
 use pki_types::{CertificateDer, ServerName, pem::PemObject};
+use serde::Serialize;
 use std::{
     io,
     pin::Pin,
@@ -94,18 +95,17 @@ impl Proxy {
         let Some((method, target)) = request_line(&head) else {
             return respond(&mut client, 400, "bad request").await;
         };
-        let ua = ua(head_header(&head, "user-agent"));
+        let ua = head_header(&head, "user-agent").map(printable);
         // It holds what its client must not, so it acts only for the client given its credential:
         // reaching the port - as the work container does - is not enough.
         if let Some(expected) = self.inner.config.auth.as_deref() {
             let given = head_header(&head, "proxy-authorization");
             if !given.is_some_and(|g| same(g.as_bytes(), expected.as_bytes())) {
-                log(&format!(
-                    "deny {} {}: no proxy credentials{}",
-                    printable(&method),
-                    printable(&target),
-                    ua
-                ));
+                Event::new("deny")
+                    .target(&method, &target)
+                    .reason("no proxy credentials")
+                    .ua(&ua)
+                    .log();
                 return respond_with(
                     &mut client,
                     407,
@@ -116,12 +116,11 @@ impl Proxy {
             }
         }
         if method != "CONNECT" {
-            log(&format!(
-                "deny {} {}: only CONNECT is proxied{}",
-                printable(&method),
-                printable(&target),
-                ua
-            ));
+            Event::new("deny")
+                .target(&method, &target)
+                .reason("only CONNECT is proxied")
+                .ua(&ua)
+                .log();
             return respond(&mut client, 403, "only CONNECT is proxied").await;
         }
         let Some((host, port)) = split_target(&target) else {
@@ -130,13 +129,14 @@ impl Proxy {
         let host = hosts::normalize(&host);
         // decided before anything is resolved or dialled: a host outside the lists is never
         // even looked up
-        if !self.inner.config.allows(&host, port) {
-            log(&format!(
-                "deny {}:{}: not allowed{}",
-                printable(&host),
-                port,
-                ua
-            ));
+        // learning lets through what it would refuse, and says so
+        let learned = !self.inner.config.allows(&host, port);
+        if learned && !self.inner.config.learn {
+            Event::new("deny")
+                .at(&host, port)
+                .reason("not allowed")
+                .ua(&ua)
+                .log();
             return respond(&mut client, 403, "not allowed").await;
         }
         client
@@ -145,7 +145,13 @@ impl Proxy {
         let client = Prefixed::new(rest, client);
         match self.inner.config.inject_host(&host).cloned() {
             Some(rules) => self.intercept(client, &host, port, rules, &ua).await,
-            None => self.pass(client, &host, port, &ua).await,
+            None => {
+                // a host learned is logged as such whatever becomes of the connection
+                if learned {
+                    Event::new("learn").at(&host, port).ua(&ua).log();
+                }
+                self.pass(client, &host, port, !learned, &ua).await
+            }
         }
     }
 
@@ -156,7 +162,8 @@ impl Proxy {
         mut client: Prefixed<TcpStream>,
         host: &str,
         port: u16,
-        ua: &str,
+        log_pass: bool,
+        ua: &Option<String>,
     ) -> io::Result<()> {
         let Ok(hello) = timeout(CLIENT_TIMEOUT, read_hello(&mut client)).await else {
             return Ok(());
@@ -164,39 +171,51 @@ impl Proxy {
         let (bytes, name) = match hello? {
             Ok(h) => h,
             Err(why) => {
-                log(&format!("deny {}:{}: {}{}", host, port, why, ua));
+                Event::new("deny").at(host, port).reason(why).ua(ua).log();
                 return Ok(());
             }
         };
         match name.map(|n| hosts::normalize(&n)) {
             Some(n) if n == host => {}
             Some(n) => {
-                log(&format!(
-                    "deny {}:{}: server name '{}' is another host{}",
-                    host,
-                    port,
-                    printable(&n),
-                    ua
-                ));
+                Event::new("deny")
+                    .at(host, port)
+                    .reason(&format!("server name '{}' is another host", n))
+                    .ua(ua)
+                    .log();
                 return Ok(());
             }
             None => {
-                log(&format!("deny {}:{}: no server name{}", host, port, ua));
+                Event::new("deny")
+                    .at(host, port)
+                    .reason("no server name")
+                    .ua(ua)
+                    .log();
                 return Ok(());
             }
         }
         let mut upstream = match timeout(DIAL_TIMEOUT, TcpStream::connect((host, port))).await {
             Ok(Ok(s)) => s,
             Ok(Err(e)) => {
-                log(&format!("fail {}:{}: {}{}", host, port, e, ua));
+                Event::new("fail")
+                    .at(host, port)
+                    .reason(&e.to_string())
+                    .ua(ua)
+                    .log();
                 return Ok(());
             }
             Err(_) => {
-                log(&format!("fail {}:{}: connect timed out{}", host, port, ua));
+                Event::new("fail")
+                    .at(host, port)
+                    .reason("connect timed out")
+                    .ua(ua)
+                    .log();
                 return Ok(());
             }
         };
-        log(&format!("pass {}:{}{}", host, port, ua));
+        if log_pass {
+            Event::new("pass").at(host, port).ua(ua).log();
+        }
         upstream.write_all(&bytes).await?;
         let _ = tokio::io::copy_bidirectional(&mut client, &mut upstream).await;
         Ok(())
@@ -210,7 +229,7 @@ impl Proxy {
         host: &str,
         port: u16,
         rules: InjectHost,
-        ua: &str,
+        ua: &Option<String>,
     ) -> io::Result<()> {
         let mint = self
             .inner
@@ -225,7 +244,11 @@ impl Proxy {
         let tls = match TlsAcceptor::from(Arc::new(tls)).accept(client).await {
             Ok(s) => s,
             Err(e) => {
-                log(&format!("fail {}:{}: client TLS: {}{}", host, port, e, ua));
+                Event::new("fail")
+                    .at(host, port)
+                    .reason(&format!("client TLS: {}", e))
+                    .ua(ua)
+                    .log();
                 return Ok(());
             }
         };
@@ -247,19 +270,85 @@ pub async fn serve(listener: TcpListener, proxy: Proxy) -> io::Result<()> {
         let proxy = proxy.clone();
         tokio::spawn(async move {
             if let Err(e) = proxy.handle(stream).await {
-                log(&format!("fail {}: {}", peer, e));
+                Event::new("fail").reason(&format!("{}: {}", peer, e)).log();
             }
         });
     }
 }
 
-fn log(line: &str) {
-    println!("{}", line);
+// One decision, one line of JSON: what rooz reads back with `rooz egress log`. The client's
+// User-Agent is only a hint - the client names itself.
+#[derive(Debug, Default, Serialize)]
+struct Event {
+    decision: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    host: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    port: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    method: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    rule: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ua: Option<String>,
 }
 
-// A request's User-Agent as a log suffix: the client names itself, so it is only a hint.
-fn ua(value: Option<&str>) -> String {
-    format!(" [ua: {}]", printable(value.unwrap_or("-")))
+impl Event {
+    fn new(decision: &'static str) -> Self {
+        Self {
+            decision,
+            ..Default::default()
+        }
+    }
+
+    fn at(mut self, host: &str, port: u16) -> Self {
+        self.host = Some(printable(host));
+        self.port = Some(port);
+        self
+    }
+
+    // a request line before any CONNECT is accepted: a CONNECT names a host and port
+    fn target(mut self, method: &str, target: &str) -> Self {
+        self.method = Some(printable(method));
+        match split_target(target).filter(|_| method == "CONNECT") {
+            Some((host, port)) => self.at(&hosts::normalize(&host), port),
+            None => {
+                self.path = Some(printable(target));
+                self
+            }
+        }
+    }
+
+    fn request(mut self, method: &str, path: &str) -> Self {
+        self.method = Some(printable(method));
+        self.path = Some(printable(path));
+        self
+    }
+
+    fn rule(mut self, rule: usize) -> Self {
+        self.rule = Some(rule);
+        self
+    }
+
+    fn reason(mut self, reason: &str) -> Self {
+        self.reason = Some(printable(reason));
+        self
+    }
+
+    fn ua(mut self, ua: &Option<String>) -> Self {
+        self.ua = ua.clone();
+        self
+    }
+
+    fn log(self) {
+        if let Ok(line) = serde_json::to_string(&self) {
+            println!("{}", line);
+        }
+    }
 }
 
 // A value the client supplied, as it appears in a log line: cut short and reduced to printable
@@ -320,15 +409,19 @@ async fn forward(
     // Rules decide where the injected headers may go, so they are matched on the path the upstream
     // will route - and only a path already in that form goes on: one with dot segments, repeated
     // separators or encoded dots and separators could match a rule and be routed elsewhere.
-    let ua = ua(req.headers().get(USER_AGENT).and_then(|v| v.to_str().ok()));
+    let ua = req
+        .headers()
+        .get(USER_AGENT)
+        .and_then(|v| v.to_str().ok())
+        .map(printable);
     let path = req.uri().path().to_string();
     if canonical_path(&path).as_deref() != Some(path.as_str()) {
-        log(&format!(
-            "deny {} {}: path is not canonical{}",
-            host,
-            printable(&path),
-            ua
-        ));
+        Event::new("deny")
+            .at(&host, port)
+            .request(req.method().as_str(), &path)
+            .reason("path is not canonical")
+            .ua(&ua)
+            .log();
         return Ok(text(StatusCode::BAD_REQUEST, "path is not canonical"));
     }
     let method = req.method().as_str().to_string();
@@ -351,16 +444,18 @@ async fn forward(
                     req.headers_mut().insert(n, v);
                 }
             }
-            log(&format!(
-                "inject {} {} {} (rule {}){}",
-                host,
-                method,
-                path,
-                i + 1,
-                ua
-            ));
+            Event::new("inject")
+                .at(&host, port)
+                .request(&method, &path)
+                .rule(i + 1)
+                .ua(&ua)
+                .log();
         }
-        None => log(&format!("pass {} {} {}{}", host, method, path, ua)),
+        None => Event::new("pass")
+            .at(&host, port)
+            .request(&method, &path)
+            .ua(&ua)
+            .log(),
     }
     // The request goes to the host the tunnel was opened for, and says so: a Host header naming
     // another site behind the same address would carry whatever was just injected to it.
@@ -378,7 +473,11 @@ async fn forward(
     match send(req, &host, port, upstream).await {
         Ok(resp) => Ok(resp.map(|b| b.boxed())),
         Err(e) => {
-            log(&format!("fail {}:{}: upstream: {}{}", host, port, e, ua));
+            Event::new("fail")
+                .at(&host, port)
+                .reason(&format!("upstream: {}", e))
+                .ua(&ua)
+                .log();
             Ok(text(StatusCode::BAD_GATEWAY, "upstream failed"))
         }
     }
@@ -665,19 +764,27 @@ mod tests {
     }
 
     #[test]
-    fn a_user_agent_is_logged_short_and_printable() {
+    fn a_decision_is_one_line_of_json_with_client_values_printable() {
+        let line = serde_json::to_string(
+            &Event::new("deny")
+                .target("CONNECT", "Example.COM:443")
+                .reason("not allowed")
+                .ua(&Some(printable("a\x1b[31mb\r\nc"))),
+        )
+        .unwrap();
         assert_eq!(
-            ua(Some("claude-cli/2.0 (external)")),
-            " [ua: claude-cli/2.0 (external)]"
+            line,
+            r#"{"decision":"deny","host":"example.com","port":443,"method":"CONNECT","reason":"not allowed","ua":"a?[31mb??c"}"#
         );
-        assert_eq!(ua(None), " [ua: -]");
-        assert_eq!(printable("evil\r\ndeny x:443"), "evil??deny x:443");
-        assert_eq!(printable("a\u{202e}b"), "a?b");
-        assert_eq!(ua(Some("a\x1b[31mb\tc")), " [ua: a?[31mb?c]");
+        let plain = serde_json::to_string(
+            &Event::new("deny").target("GET", "http://example.com/\u{202e}x"),
+        )
+        .unwrap();
         assert_eq!(
-            ua(Some(&"x".repeat(500))).len(),
-            " [ua: ]".len() + LOG_VALUE_LIMIT
+            plain,
+            r#"{"decision":"deny","method":"GET","path":"http://example.com/?x"}"#
         );
+        assert_eq!(printable(&"x".repeat(500)).len(), LOG_VALUE_LIMIT);
         assert_eq!(
             head_header(
                 "CONNECT a:443 HTTP/1.1\r\nUser-Agent: curl/8\r\n\r\n",

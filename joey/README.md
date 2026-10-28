@@ -23,7 +23,9 @@ The only way out for the containers that peer with it. It speaks HTTP `CONNECT` 
   `400` and goes nowhere, so a rule matches the path the upstream will route.
 * Plain HTTP requests are refused.
 * A config it cannot read, including a `ca` it cannot load, stops it at startup: it never runs
-  open. Every decision is a line on stdout.
+  open. Every decision is a line of JSON on stdout - `decision` (`pass`, `deny`, `inject`, `learn`,
+  `fail`), and as they apply `host`, `port`, `method`, `path`, `rule`, `reason` and the client's
+  `ua` - with client-supplied values cut short and reduced to printable ASCII.
 
 ```json
 {
@@ -58,3 +60,5 @@ The only way out for the containers that peer with it. It speaks HTTP `CONNECT` 
   selects requests but restricts no one). A request no rule matches goes on unchanged. `paths`
   narrows where a credential goes; it is no substitute for the upstream's own authorization.
 * `upstream_roots`: PEM files trusted for upstream servers on top of the built-in web roots.
+* `learn`: let through, logged as `learn`, what `allow` and `ports` would refuse: to find out what a
+  client needs. The server-name check still applies, and plain HTTP is still refused.
