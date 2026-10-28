@@ -895,7 +895,7 @@ impl RoozSidecar {
         self.install = InstallSpec::merged(&self.install, &other.install);
         self.work_dir = other.work_dir.clone().or(self.work_dir.clone());
         self.uid = other.uid.or(self.uid);
-        self.egress = other.egress.clone().or(self.egress.take());
+        self.egress = crate::config::egress::merged(self.egress.take(), other.egress.clone());
         self.peers = union_sorted(self.peers.take(), other.peers.clone());
     }
 }

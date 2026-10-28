@@ -41,6 +41,41 @@ impl<'de> Deserialize<'de> for SidecarEgress {
     }
 }
 
+// A layer's `egress` over the one below: two policies combine - `allow` and `ports` are unions,
+// `inject` goes by host, a later entry for a host replacing the earlier one - while `true` or
+// `false` replaces whatever is below it, and a policy replaces a `true` or `false`.
+pub fn merged(below: Option<SidecarEgress>, over: Option<SidecarEgress>) -> Option<SidecarEgress> {
+    match (below, over) {
+        (Some(SidecarEgress::Proxied(mut b)), Some(SidecarEgress::Proxied(o))) => {
+            for host in o.allow {
+                if !b.allow.contains(&host) {
+                    b.allow.push(host);
+                }
+            }
+            // a layer without `ports` means 443, which the other's ports must not drop
+            if b.ports.is_some() || o.ports.is_some() {
+                let mut ports = b.ports.unwrap_or_else(|| vec![DEFAULT_PORT]);
+                for port in o.ports.unwrap_or_else(|| vec![DEFAULT_PORT]) {
+                    if !ports.contains(&port) {
+                        ports.push(port);
+                    }
+                }
+                b.ports = Some(ports);
+            }
+            for entry in o.inject {
+                match b.inject.iter_mut().find(|e| e.host == entry.host) {
+                    Some(existing) => *existing = entry,
+                    None => b.inject.push(entry),
+                }
+            }
+            Some(SidecarEgress::Proxied(b))
+        }
+        (below, over) => over.or(below),
+    }
+}
+
+const DEFAULT_PORT: u16 = 443;
+
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct EgressPolicy {
@@ -169,7 +204,7 @@ fn proxy_config(policy: &EgressPolicy, with_ca: bool, auth: &str) -> String {
     let mut cfg = serde_json::json!({
         "listen": format!("0.0.0.0:{}", PROXY_PORT),
         "allow": policy.allow,
-        "ports": policy.ports.clone().unwrap_or_else(|| vec![443]),
+        "ports": policy.ports.clone().unwrap_or_else(|| vec![DEFAULT_PORT]),
         "inject": policy.inject,
         "auth": auth,
     });
@@ -331,6 +366,66 @@ mod tests {
 
     fn cfg(yaml: &str) -> RoozCfg {
         serde_yaml::from_str(yaml).unwrap()
+    }
+
+    fn egress(yaml: &str) -> Option<SidecarEgress> {
+        Some(serde_yaml::from_str(yaml).unwrap())
+    }
+
+    fn policy(e: Option<SidecarEgress>) -> EgressPolicy {
+        match e {
+            Some(SidecarEgress::Proxied(p)) => p,
+            other => panic!("not a policy: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn layered_policies_combine_and_a_later_inject_host_replaces_the_earlier() {
+        let below = egress(
+            "allow: [github.com, crates.io]\ninject:\n  - host: api.a.example\n    rules: [{set: {x: below}}]\n  - host: api.b.example\n",
+        );
+        let over = egress(
+            "allow: [crates.io, api.nuget.org]\nports: [8443]\ninject:\n  - host: api.a.example\n    rules: [{set: {x: over}}]\n",
+        );
+        let p = policy(merged(below, over));
+        assert_eq!(p.allow, ["github.com", "crates.io", "api.nuget.org"]);
+        assert_eq!(
+            p.ports,
+            Some(vec![443, 8443]),
+            "the layer without ports keeps 443"
+        );
+        assert_eq!(
+            p.inject.iter().map(|i| i.host.as_str()).collect::<Vec<_>>(),
+            ["api.a.example", "api.b.example"]
+        );
+        assert_eq!(p.inject[0].rules[0].set["x"], "over");
+
+        let neither = policy(merged(
+            egress("allow: [a.example]"),
+            egress("allow: [b.example]"),
+        ));
+        assert_eq!(neither.ports, None);
+    }
+
+    #[test]
+    fn true_or_false_replaces_a_policy_and_a_policy_replaces_them() {
+        let p = egress("allow: [github.com]");
+        assert_eq!(merged(p.clone(), egress("false")), egress("false"));
+        assert_eq!(merged(egress("true"), p.clone()), p);
+        assert_eq!(merged(p.clone(), None), p);
+        assert_eq!(merged(None, p.clone()), p);
+    }
+
+    #[test]
+    fn bases_merge_a_sidecars_policies() {
+        let mut base =
+            cfg("sidecars:\n  agent:\n    image: x\n    egress:\n      allow: [github.com]\n");
+        base.from_config(&cfg(
+            "sidecars:\n  agent:\n    egress:\n      inject:\n        - host: nuget.pkg.github.com\n",
+        ));
+        let p = policy(base.sidecars.unwrap()["agent"].egress.clone());
+        assert_eq!(p.allow, ["github.com"]);
+        assert_eq!(p.inject[0].host, "nuget.pkg.github.com");
     }
 
     fn fake_ca() -> Result<Ca, AnyError> {

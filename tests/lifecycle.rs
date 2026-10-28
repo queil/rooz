@@ -435,7 +435,7 @@ async fn a_container_that_exits_at_once_is_reported_with_its_exit_code() {
     let key = unique_key("early-exit");
     let cfg_path = write_cfg(
         &key,
-        "image: alpine:latest\ncommand: [sh]\nargs: [-c, \"exit 3\"]\ninstall:\n  10-x:\n    run: echo hi\n",
+        "image: alpine:latest\ncommand: [sh]\nargs: [-c, \"exit 3\"]\ninstall:\n  10-x:\n    run: sleep 3\n",
     );
 
     env.rooz()

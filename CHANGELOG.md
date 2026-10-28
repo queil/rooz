@@ -12,6 +12,9 @@ file - see the git history.
 
 ### Changed
 
+- A sidecar's egress policies from several config layers combine instead of the last replacing the
+  rest: `allow` and `ports` are unions, `inject` goes by host (a later layer's entry for a host
+  replaces the earlier one). `true` or `false` still replaces a policy.
 - rooz's helper image, also the default workspace image, is joey `0.174.0-tools` (was `0.171.0-tools`),
   pinned by digest.
 

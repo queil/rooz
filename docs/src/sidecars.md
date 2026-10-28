@@ -102,6 +102,10 @@ sidecars:
 * Plain HTTP is refused. Every decision is a line in `rooz logs <workspace> --container <name>-egress`,
   ending with the client's User-Agent (`[ua: ...]`) - the client names itself, so it is a hint, not
   proof.
+* Across config layers, two policies combine: `allow` and `ports` are unions (a layer without `ports`
+  counts as `[443]`), and `inject` goes by host, a later layer's entry for a host replacing the earlier
+  one. `true` or `false` replaces a policy below it, and a policy replaces them. So a base can carry
+  the allowlist and your own config the `inject` rules with their secrets.
 
 ## Keys
 
