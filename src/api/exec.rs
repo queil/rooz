@@ -160,9 +160,7 @@ impl<'a> ExecApi<'a> {
 
     async fn start_tty(&self, exec_id: &str) -> Result<(), AnyError> {
         let (width, height) = crossterm::terminal::size()?;
-        if let StartExecResults::Attached { output, mut input } =
-            self.client.start_exec(exec_id, None).await?
-        {
+        if let StartExecResults::Attached { output, mut input } = self.start_exec(exec_id).await? {
             let exec_state = self.client.inspect_exec(exec_id).await?;
 
             match exec_state.clone() {
@@ -298,6 +296,25 @@ impl<'a> ExecApi<'a> {
         }
     }
 
+    // A container can still be running when the session is created and gone when it starts.
+    async fn start_exec(&self, exec_id: &str) -> Result<StartExecResults, AnyError> {
+        match self.client.start_exec(exec_id, None).await {
+            Ok(started) => Ok(started),
+            Err(e) => {
+                let container = self
+                    .client
+                    .inspect_exec(exec_id)
+                    .await
+                    .ok()
+                    .and_then(|i| i.container_id);
+                Err(match container {
+                    Some(id) => self.not_running(&id).await.unwrap_or(e.into()),
+                    None => e.into(),
+                })
+            }
+        }
+    }
+
     // A container that stopped on its own fails every exec with an engine message about exec
     // sessions; what the operator needs is that it exited, how, and where its output is.
     async fn not_running(&self, container_id: &str) -> Option<AnyError> {
@@ -376,9 +393,7 @@ impl<'a> ExecApi<'a> {
         let exec_id = self
             .create_exec("exec", container_id, working_dir, user, Some(cmd), false)
             .await?;
-        let StartExecResults::Attached { mut output, .. } =
-            self.client.start_exec(&exec_id, None).await?
-        else {
+        let StartExecResults::Attached { mut output, .. } = self.start_exec(&exec_id).await? else {
             return Err("Could not start exec: the engine returned no attached stream. Check that the container is running.".into());
         };
         while let Some(item) = output.next().await {
@@ -408,9 +423,7 @@ impl<'a> ExecApi<'a> {
         let exec_id = self
             .create_exec(reason, container_id, None, user, cmd, false)
             .await?;
-        if let StartExecResults::Attached { output, .. } =
-            self.client.start_exec(&exec_id, None).await?
-        {
+        if let StartExecResults::Attached { output, .. } = self.start_exec(&exec_id).await? {
             collect(output).await
         } else {
             Err("Could not start exec: the engine returned no attached stream. Check that the container is running.".into())
@@ -441,9 +454,7 @@ impl<'a> ExecApi<'a> {
                 false,
             )
             .await?;
-        let StartExecResults::Attached { output, .. } =
-            self.client.start_exec(&exec_id, None).await?
-        else {
+        let StartExecResults::Attached { output, .. } = self.start_exec(&exec_id).await? else {
             return Err("Could not start exec: the engine returned no attached stream. Check that the container is running.".into());
         };
         let stdout = output.filter_map(|item| async move {
@@ -471,9 +482,7 @@ impl<'a> ExecApi<'a> {
         let exec_id = self
             .create_exec(reason, container_id, None, user, cmd, false)
             .await?;
-        let StartExecResults::Attached { output, .. } =
-            self.client.start_exec(&exec_id, None).await?
-        else {
+        let StartExecResults::Attached { output, .. } = self.start_exec(&exec_id).await? else {
             return Err("Could not start exec: the engine returned no attached stream. Check that the container is running.".into());
         };
         let data = collect(output).await?;
@@ -530,9 +539,7 @@ impl<'a> ExecApi<'a> {
         let exec_id = self
             .create_exec(reason, container_id, None, user, cmd, false)
             .await?;
-        if let StartExecResults::Attached { output, .. } =
-            self.client.start_exec(&exec_id, None).await?
-        {
+        if let StartExecResults::Attached { output, .. } = self.start_exec(&exec_id).await? {
             log(output, install).await?;
         } else {
             return Err("Could not start exec: the engine returned no attached stream. Check that the container is running.".into());
@@ -591,7 +598,8 @@ impl<'a> ExecApi<'a> {
             }
             Err(e) => {
                 live::install_failed(container_name);
-                Err(e)
+                // a step cut short because its container exited failed for that reason
+                Err(self.not_running(container_id).await.unwrap_or(e))
             }
         }
     }
