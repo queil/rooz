@@ -8,6 +8,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases before 0.159.0 predate this
 file - see the git history.
 
+## [Unreleased]
+
+### Fixed
+
+- `rooz egress log` no longer hides a client that never sends the proxy credential behind another
+  one that does from the same container (npm 9 behind curl): a success answers only one refusal,
+  and only within 5 seconds of it, by the time the container runtime logged each line.
+
 ## [0.175.1] - 2026-10-28
 
 ### Fixed

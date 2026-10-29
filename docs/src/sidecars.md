@@ -125,7 +125,9 @@ rooz egress log <workspace> -c claude -f  # one sidecar's decisions as they happ
 Each row names the client's User-Agent (`ua:`). The client names itself, so it is a hint, not proof.
 Some clients (.NET) send the proxy credential only once challenged. A refusal for a *missing* credential
 is shown as `auth`, a challenge answered, when the same client address - assigned by the network, not
-claimed by the client - gets through to the same host after it in the log. Any other credential
+claimed by the client - gets through to the same host within 5 seconds after it, each success
+answering one refusal: a client that never sends the credential stays `deny` even when another one
+in the same container gets through. Any other credential
 refusal, a wrong credential included, stays `deny`. `-f` shows every refusal as it happens.
 `--tail <n>` reads only the last `n` log lines.
 ## Keys
