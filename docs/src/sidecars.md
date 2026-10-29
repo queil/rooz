@@ -161,7 +161,8 @@ refusal, a wrong credential included, stays `deny`. `-f` shows every refusal as 
   that lets it out only through a proxy of its own. See [Egress policy](#egress-policy). Install steps
   always have internet access.
 * `install`: install steps, built into an image. See [Sidecar images](configuration.md#sidecar-images).
-* `uid`: uid to run as (default `0`).
+* `uid`: uid to run as (default `0`). Its volumes are its to write to, and so are the directories
+  the engine makes in one for a volume nested in it (`share` in `~/.local` for `~/.local/share/NuGet`).
 * `shell`: shell for `rooz enter --container` (default `sh`).
 * `init` (bool, default `true`): run an init process as pid 1.
 * `privileged` (bool): with operator consent. See [Privileged containers](configuration.md#privileged-containers).

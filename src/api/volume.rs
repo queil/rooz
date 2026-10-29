@@ -31,14 +31,25 @@ const POPULATE_DIR: &str = "/var/lib/rooz";
 const STAGE_DIR: &str = "rooz-stage";
 
 // A path a container left behind - a file, a symlink or a directory - is replaced, never written
-// through, unless the file is to be kept and something is already there.
+// through, unless the file is to be kept and something is already there. `dirs`, below the root
+// and parents first, are made when nothing is at their path, before the root is handed over: what
+// the engine would make there for a nested mount point is then the owner's.
 fn copy_files_script(
     root_dir: &str,
     stage_dir: &str,
     files: &[(&str, bool)],
     chown_uid: Option<i32>,
+    dirs: &[String],
 ) -> String {
     let mut lines = vec!["set -e".to_string()];
+    for dir in dirs {
+        let d = sh::quote(&format!("{}/{}", root_dir, dir));
+        // the engine makes it anyway: one that cannot be made here is no failure
+        lines.push(format!(
+            "[ -e {d} ] || [ -L {d} ] || mkdir {d} || true",
+            d = d
+        ));
+    }
     if let Some(uid) = chown_uid {
         lines.push(format!("chown -R {}:{} {}", uid, uid, sh::quote(root_dir)));
     }
@@ -520,13 +531,15 @@ impl<'a> VolumeApi<'a> {
 
     // Writes the volume's files from the config. A missing file is always written; with `rewrite`
     // (an update) every file but a `once` one replaces what is there. `chown_root` hands the whole
-    // volume to `uid`, for a volume that was just created.
+    // volume to `uid`, for a volume that was just created. `dirs` are the directories below the
+    // volume's root that hold the mount points of other mounts nested in it.
     pub async fn populate_volume(
         &self,
         volume_file: VolumeFilesSpec,
         uid: Option<i32>,
         chown_root: bool,
         rewrite: bool,
+        dirs: &[String],
     ) -> Result<(), AnyError> {
         let populate_target = TargetDir(POPULATE_DIR.to_string());
         self.ensure_files(
@@ -536,6 +549,7 @@ impl<'a> VolumeApi<'a> {
             uid,
             chown_root,
             rewrite,
+            dirs,
         )
         .await
     }
@@ -687,6 +701,7 @@ impl<'a> VolumeApi<'a> {
         uid: Option<i32>,
         chown_root: bool,
         rewrite: bool,
+        dirs: &[String],
     ) -> Result<(), AnyError> {
         let mut tar_files = Vec::new();
         for f in &spec.files {
@@ -731,7 +746,7 @@ impl<'a> VolumeApi<'a> {
             Some(uid) if chown_root && uid != constants::ROOT_UID_INT => Some(uid),
             _ => None,
         };
-        if tar_files.is_empty() && chown_uid.is_none() {
+        if tar_files.is_empty() && chown_uid.is_none() && dirs.is_empty() {
             return Ok(());
         }
         let files = spec
@@ -756,6 +771,7 @@ impl<'a> VolumeApi<'a> {
                     &format!("/{}", STAGE_DIR),
                     &files,
                     chown_uid,
+                    dirs,
                 )),
             )
             .await
@@ -1162,6 +1178,7 @@ mod tests {
                 ("fresh", true),
             ],
             None,
+            &[],
         );
         let status = std::process::Command::new("sh")
             .args(["-c", &script])

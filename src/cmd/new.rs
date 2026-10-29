@@ -558,6 +558,8 @@ impl<'a> WorkspaceApi<'a> {
                         Some(work_spec.uid.to_string().parse::<i32>()?),
                         created,
                         rebuild.is_some(),
+                        // the work container hands mount parents over itself, see own_mount_parents
+                        &[],
                     )
                     .await?;
             }
