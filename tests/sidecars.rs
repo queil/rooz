@@ -774,6 +774,13 @@ async fn an_egress_policy_puts_the_sidecar_behind_its_own_proxy() {
         0,
         "the work container used the proxy"
     );
+    // a wrong credential is refused as such, never as a challenge to answer
+    assert_eq!(
+        run("printf 'CONNECT allowed.test:443 HTTP/1.1\\r\\nProxy-Authorization: Basic d3Jvbmc=\\r\\n\\r\\n' | nc -w 5 agent-egress 9124 | head -1 | grep -q ' 407 '").await,
+        0,
+        "the proxy served a wrong credential"
+    );
+
     // the decisions read back: the refusals, and the policy that would allow the refused host
     let out = env
         .rooz()
@@ -786,7 +793,8 @@ async fn an_egress_policy_puts_the_sidecar_behind_its_own_proxy() {
             && log.contains("example.com:443")
             && log.contains("not allowed")
             && log.contains("allowed.test:443")
-            && log.contains("no proxy credentials"),
+            && log.contains("no proxy credentials")
+            && log.contains("wrong proxy credentials"),
         "{}",
         log
     );

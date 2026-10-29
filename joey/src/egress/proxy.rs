@@ -88,6 +88,8 @@ impl Proxy {
     }
 
     async fn handle(&self, mut client: TcpStream) -> io::Result<()> {
+        // the client's address, which the network assigns: unlike its User-Agent, not its own claim
+        let peer = client.peer_addr().ok().map(|a| a.ip().to_string());
         let Ok(head) = timeout(CLIENT_TIMEOUT, read_head(&mut client)).await else {
             return Ok(());
         };
@@ -102,8 +104,13 @@ impl Proxy {
             let given = head_header(&head, "proxy-authorization");
             if !given.is_some_and(|g| same(g.as_bytes(), expected.as_bytes())) {
                 Event::new("deny")
+                    .peer(&peer)
                     .target(&method, &target)
-                    .reason("no proxy credentials")
+                    .reason(if given.is_some() {
+                        "wrong proxy credentials"
+                    } else {
+                        "no proxy credentials"
+                    })
                     .ua(&ua)
                     .log();
                 return respond_with(
@@ -117,6 +124,7 @@ impl Proxy {
         }
         if method != "CONNECT" {
             Event::new("deny")
+                .peer(&peer)
                 .target(&method, &target)
                 .reason("only CONNECT is proxied")
                 .ua(&ua)
@@ -135,6 +143,7 @@ impl Proxy {
         let intercepted = self.inner.config.inject_host(&host).is_some();
         if learned && (!self.inner.config.learn || intercepted) {
             Event::new("deny")
+                .peer(&peer)
                 .at(&host, port)
                 .reason("not allowed")
                 .ua(&ua)
@@ -146,13 +155,17 @@ impl Proxy {
             .await?;
         let client = Prefixed::new(rest, client);
         match self.inner.config.inject_host(&host).cloned() {
-            Some(rules) => self.intercept(client, &host, port, rules, &ua).await,
+            Some(rules) => self.intercept(client, &host, port, rules, &peer, &ua).await,
             None => {
                 // a host learned is logged as such whatever becomes of the connection
                 if learned {
-                    Event::new("learn").at(&host, port).ua(&ua).log();
+                    Event::new("learn")
+                        .peer(&peer)
+                        .at(&host, port)
+                        .ua(&ua)
+                        .log();
                 }
-                self.pass(client, &host, port, !learned, &ua).await
+                self.pass(client, &host, port, !learned, &peer, &ua).await
             }
         }
     }
@@ -165,6 +178,7 @@ impl Proxy {
         host: &str,
         port: u16,
         log_pass: bool,
+        peer: &Option<String>,
         ua: &Option<String>,
     ) -> io::Result<()> {
         let Ok(hello) = timeout(CLIENT_TIMEOUT, read_hello(&mut client)).await else {
@@ -173,7 +187,12 @@ impl Proxy {
         let (bytes, name) = match hello? {
             Ok(h) => h,
             Err(why) => {
-                Event::new("deny").at(host, port).reason(why).ua(ua).log();
+                Event::new("deny")
+                    .peer(peer)
+                    .at(host, port)
+                    .reason(why)
+                    .ua(ua)
+                    .log();
                 return Ok(());
             }
         };
@@ -181,6 +200,7 @@ impl Proxy {
             Some(n) if n == host => {}
             Some(n) => {
                 Event::new("deny")
+                    .peer(peer)
                     .at(host, port)
                     .reason(&format!("server name '{}' is another host", n))
                     .ua(ua)
@@ -189,6 +209,7 @@ impl Proxy {
             }
             None => {
                 Event::new("deny")
+                    .peer(peer)
                     .at(host, port)
                     .reason("no server name")
                     .ua(ua)
@@ -200,6 +221,7 @@ impl Proxy {
             Ok(Ok(s)) => s,
             Ok(Err(e)) => {
                 Event::new("fail")
+                    .peer(peer)
                     .at(host, port)
                     .reason(&e.to_string())
                     .ua(ua)
@@ -208,6 +230,7 @@ impl Proxy {
             }
             Err(_) => {
                 Event::new("fail")
+                    .peer(peer)
                     .at(host, port)
                     .reason("connect timed out")
                     .ua(ua)
@@ -216,7 +239,7 @@ impl Proxy {
             }
         };
         if log_pass {
-            Event::new("pass").at(host, port).ua(ua).log();
+            Event::new("pass").peer(peer).at(host, port).ua(ua).log();
         }
         upstream.write_all(&bytes).await?;
         let _ = tokio::io::copy_bidirectional(&mut client, &mut upstream).await;
@@ -231,6 +254,7 @@ impl Proxy {
         host: &str,
         port: u16,
         rules: InjectHost,
+        peer: &Option<String>,
         ua: &Option<String>,
     ) -> io::Result<()> {
         let mint = self
@@ -247,6 +271,7 @@ impl Proxy {
             Ok(s) => s,
             Err(e) => {
                 Event::new("fail")
+                    .peer(peer)
                     .at(host, port)
                     .reason(&format!("client TLS: {}", e))
                     .ua(ua)
@@ -256,8 +281,16 @@ impl Proxy {
         };
         let upstream = self.inner.upstream.clone();
         let host = host.to_string();
+        let peer = peer.clone();
         let service = service_fn(move |req| {
-            forward(req, host.clone(), port, rules.clone(), upstream.clone())
+            forward(
+                req,
+                host.clone(),
+                port,
+                rules.clone(),
+                upstream.clone(),
+                peer.clone(),
+            )
         });
         let _ = hyper::server::conn::http1::Builder::new()
             .serve_connection(TokioIo::new(tls), service)
@@ -272,7 +305,10 @@ pub async fn serve(listener: TcpListener, proxy: Proxy) -> io::Result<()> {
         let proxy = proxy.clone();
         tokio::spawn(async move {
             if let Err(e) = proxy.handle(stream).await {
-                Event::new("fail").reason(&format!("{}: {}", peer, e)).log();
+                Event::new("fail")
+                    .peer(&Some(peer.ip().to_string()))
+                    .reason(&e.to_string())
+                    .log();
             }
         });
     }
@@ -283,6 +319,8 @@ pub async fn serve(listener: TcpListener, proxy: Proxy) -> io::Result<()> {
 #[derive(Debug, Default, Serialize)]
 struct Event {
     decision: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    peer: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     host: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -305,6 +343,11 @@ impl Event {
             decision,
             ..Default::default()
         }
+    }
+
+    fn peer(mut self, peer: &Option<String>) -> Self {
+        self.peer = peer.clone();
+        self
     }
 
     fn at(mut self, host: &str, port: u16) -> Self {
@@ -396,6 +439,7 @@ async fn forward(
     port: u16,
     inject: InjectHost,
     upstream: Arc<rustls::ClientConfig>,
+    peer: Option<String>,
 ) -> Result<Response<Body>, hyper::Error> {
     // The request leaves in origin-form, path and query only: an absolute-form target names an
     // authority of its own, which a proxy or origin that receives it must use instead of Host.
@@ -419,6 +463,7 @@ async fn forward(
     let path = req.uri().path().to_string();
     if canonical_path(&path).as_deref() != Some(path.as_str()) {
         Event::new("deny")
+            .peer(&peer)
             .at(&host, port)
             .request(req.method().as_str(), &path)
             .reason("path is not canonical")
@@ -447,6 +492,7 @@ async fn forward(
                 }
             }
             Event::new("inject")
+                .peer(&peer)
                 .at(&host, port)
                 .request(&method, &path)
                 .rule(i + 1)
@@ -454,6 +500,7 @@ async fn forward(
                 .log();
         }
         None => Event::new("pass")
+            .peer(&peer)
             .at(&host, port)
             .request(&method, &path)
             .ua(&ua)
@@ -476,6 +523,7 @@ async fn forward(
         Ok(resp) => Ok(resp.map(|b| b.boxed())),
         Err(e) => {
             Event::new("fail")
+                .peer(&peer)
                 .at(&host, port)
                 .reason(&format!("upstream: {}", e))
                 .ua(&ua)
