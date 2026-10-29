@@ -90,8 +90,10 @@ sidecars:
   `example.com`, not `example.com` itself. The proxy refuses any other host, and any port but `ports`
   (`[443]` unless set), before it is even resolved, and checks that a connection's TLS server name is
   the host it was opened for.
-* `inject`: hosts the proxy intercepts to apply header rules: the first rule a request matches by
-  `methods`, `paths` (`/v1/*` is a prefix ending at a `/`) and `when_header` sets and removes headers.
+* `inject`: hosts the proxy intercepts to apply header rules - exact names, never also in `allow`,
+  though an `allow` wildcard may cover one (`*.github.com` and `nuget.pkg.github.com`). The first rule
+  a request matches by `methods`, `paths` (`/v1/*` is a prefix ending at a `/`) and `when_header` sets
+  and removes headers.
   A request to an inject host goes in origin-form and only on a canonical path (no `..`, `.`, `//`,
   `;` path parameters or encoded dots and separators), so a rule matches what the upstream routes. The
   values, typically from `secrets`, exist only in the proxy. The proxy presents certificates from a
@@ -105,8 +107,9 @@ sidecars:
   credential never goes anywhere new. Turn it off once the allowlist is in place.
 * Across config layers, two policies combine: `allow` and `ports` are unions (a layer without `ports`
   counts as `[443]`), and `inject` goes by host, a later layer's entry for a host replacing the earlier
-  one. `true` or `false` replaces a policy below it, and a policy replaces them. So a base can carry
-  the allowlist and your own config the `inject` rules with their secrets.
+  one. A host a later layer injects leaves the lower layers' `allow`, and one it allows leaves their
+  `inject`. `true` or `false` replaces a policy below it, and a policy replaces them. So a base can
+  carry the allowlist and your own config the `inject` rules with their secrets.
 
 ### Egress log
 

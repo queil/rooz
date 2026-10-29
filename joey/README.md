@@ -54,7 +54,8 @@ The only way out for the containers that peer with it. It speaks HTTP `CONNECT` 
 
 * `allow`: host names, or `*.` followed by one for the hosts under it (not the name itself).
 * `ports`: `[443]` unless set.
-* `inject`: exact host names, none of them also in `allow`. A rule matches on `methods` (any
+* `inject`: exact host names, none of them also in `allow` by name; one an `allow` wildcard covers
+  (`*.github.com` and `nuget.pkg.github.com`) is intercepted. A rule matches on `methods` (any
   when empty), `paths` (any when empty; `/v1/*` is a prefix, which ends at a `/`, anything else
   the exact path) and `when_header` (a header the request must carry - the client sets it, so it
   selects requests but restricts no one). A request no rule matches goes on unchanged. `paths`

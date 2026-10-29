@@ -42,12 +42,17 @@ impl<'de> Deserialize<'de> for SidecarEgress {
 }
 
 // A layer's `egress` over the one below: two policies combine - `allow` and `ports` are unions,
-// `inject` goes by host, a later entry for a host replacing the earlier one, `learn` is the later
-// layer's if it sets it - while `true` or `false` replaces whatever is below it, and a policy
-// replaces a `true` or `false`.
+// `inject` goes by host, a later entry for a host replacing the earlier one, a host the later layer
+// injects or allows leaves the other list below, `learn` is the later layer's if it sets it - while
+// `true` or `false` replaces whatever is below it, and a policy replaces a `true` or `false`.
 pub fn merged(below: Option<SidecarEgress>, over: Option<SidecarEgress>) -> Option<SidecarEgress> {
     match (below, over) {
         (Some(SidecarEgress::Proxied(mut b)), Some(SidecarEgress::Proxied(o))) => {
+            // a host the later layer injects or allows is that layer's to decide
+            b.allow
+                .retain(|a| !o.inject.iter().any(|i| same_host(&i.host, a)));
+            b.inject
+                .retain(|i| !o.allow.iter().any(|a| same_host(a, &i.host)));
             for host in o.allow {
                 if !b.allow.contains(&host) {
                     b.allow.push(host);
@@ -77,6 +82,11 @@ pub fn merged(below: Option<SidecarEgress>, over: Option<SidecarEgress>) -> Opti
 }
 
 const DEFAULT_PORT: u16 = 443;
+
+fn same_host(a: &str, b: &str) -> bool {
+    a.trim_end_matches('.')
+        .eq_ignore_ascii_case(b.trim_end_matches('.'))
+}
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -278,6 +288,18 @@ pub fn expand_with(
     let mut generated = Vec::new();
 
     for (name, policy) in policies {
+        // the proxy refuses to start on one, so it is refused here, before anything is created
+        if let Some(i) = policy
+            .inject
+            .iter()
+            .find(|i| policy.allow.iter().any(|a| same_host(a, &i.host)))
+        {
+            return Err(format!(
+                "sidecar '{}': '{}' is in both egress 'allow' and 'inject' - an inject host is reached through its rules, so drop it from 'allow'",
+                name, i.host
+            )
+            .into());
+        }
         let proxy = proxy_name(&name);
         if sidecars.contains_key(&proxy) {
             return Err(format!(
@@ -413,6 +435,42 @@ mod tests {
             egress("allow: [b.example]"),
         ));
         assert_eq!(neither.ports, None);
+    }
+
+    #[test]
+    fn the_later_layer_decides_whether_a_host_is_allowed_or_injected() {
+        let p = policy(merged(
+            egress(
+                "allow: [nuget.pkg.github.com, \"*.github.com\"]\ninject:\n  - host: api.example\n",
+            ),
+            egress("allow: [API.example]\ninject:\n  - host: nuget.pkg.github.com\n"),
+        ));
+        assert_eq!(p.allow, ["*.github.com", "API.example"]);
+        assert_eq!(
+            p.inject.iter().map(|i| i.host.as_str()).collect::<Vec<_>>(),
+            ["nuget.pkg.github.com"]
+        );
+    }
+
+    #[test]
+    fn a_host_in_both_lists_of_one_policy_is_refused_before_anything_is_created() {
+        let mut c = cfg(
+            "sidecars:\n  agent:\n    image: x\n    egress:\n      allow: [\"*.github.com\", nuget.pkg.github.com]\n      inject:\n        - host: nuget.pkg.github.com\n",
+        );
+        let err = expand_with(&mut c, "joey-image", fake_ca)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.starts_with(
+                "sidecar 'agent': 'nuget.pkg.github.com' is in both egress 'allow' and 'inject'"
+            ),
+            "{}",
+            err
+        );
+        let mut wildcard = cfg(
+            "sidecars:\n  agent:\n    image: x\n    egress:\n      allow: [\"*.github.com\"]\n      inject:\n        - host: nuget.pkg.github.com\n",
+        );
+        assert!(expand_with(&mut wildcard, "joey-image", fake_ca).is_ok());
     }
 
     #[test]

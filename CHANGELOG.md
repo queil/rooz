@@ -8,6 +8,16 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases before 0.159.0 predate this
 file - see the git history.
 
+## [0.175.1] - 2026-10-28
+
+### Fixed
+
+- An egress `inject` host that an `allow` wildcard covers (`nuget.pkg.github.com` under
+  `*.github.com`) is intercepted instead of stopping the proxy at startup; only the same name in both
+  lists is refused, and rooz refuses it before creating anything, naming the sidecar and the host.
+- Across config layers, a host a later layer injects leaves the lower layers' `allow`, and one it
+  allows leaves their `inject`, instead of ending up in both.
+
 ## [0.175.0] - 2026-10-28
 
 ### Added
