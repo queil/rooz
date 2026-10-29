@@ -19,6 +19,8 @@ use crate::{
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct Event {
     pub decision: String,
+    // the client's address as the proxy saw it on the network
+    pub peer: Option<String>,
     pub host: Option<String>,
     pub port: Option<u16>,
     pub method: Option<String>,
@@ -75,13 +77,52 @@ impl Event {
     }
 }
 
+const NO_CREDENTIALS: &str = "no proxy credentials";
+const ANSWERED: &str = "auth";
+// how many clients and hosts that got through the summary keeps in mind while pairing: it decides
+// only how a challenge is shown, and a client naming many hosts (learning) cannot grow it unbounded
+const REMEMBERED: usize = 1024;
+
+// Some clients (.NET's HttpClient) send the proxy credential only once challenged: a CONNECT
+// without it, refused, then the same again with it. A refusal for a missing credential is that
+// challenge, answered, when the same client address - the network's, not the client's own claim -
+// gets through to the same host after it. A wrong credential is never one.
+fn through(e: &Event) -> Option<(String, String)> {
+    matches!(e.decision.as_str(), "pass" | "inject" | "learn")
+        .then(|| Some((e.peer.clone()?, e.host.clone()?)))
+        .flatten()
+}
+
+fn challenge(e: &Event) -> Option<(String, String)> {
+    (e.decision == "deny" && e.reason.as_deref() == Some(NO_CREDENTIALS))
+        .then(|| Some((e.peer.clone()?, e.host.clone()?)))
+        .flatten()
+}
+
+pub fn answer_challenges(events: &mut [Event]) {
+    // what got through later, walking back from the end
+    let mut later = BTreeSet::new();
+    for e in events.iter_mut().rev() {
+        if let Some(t) = through(e) {
+            if later.len() >= REMEMBERED {
+                let _ = later.pop_first();
+            }
+            later.insert(t);
+        } else if challenge(e).is_some_and(|c| later.contains(&c)) {
+            e.decision = ANSWERED.to_string();
+            e.reason = Some("challenge answered".to_string());
+        }
+    }
+}
+
 fn rank(decision: &str) -> u8 {
     match decision {
         "deny" => 0,
         "learn" => 1,
         "fail" => 2,
         "inject" => 3,
-        _ => 4,
+        "pass" => 4,
+        _ => 5,
     }
 }
 
@@ -93,6 +134,7 @@ fn colored(decision: &str) -> ColoredString {
         "fail" => padded.magenta(),
         "inject" => padded.cyan(),
         "pass" => padded.green(),
+        ANSWERED => padded.dimmed(),
         _ => padded.normal(),
     }
 }
@@ -292,6 +334,7 @@ impl<'a> Api<'a> {
                     .boxed()
             });
             let mut all = futures::stream::select_all(streams);
+            // as it happens, what follows a challenge is not known yet: it shows as the refusal it is
             while let Some(item) = all.next().await {
                 let (name, line) = item?;
                 let Some(e) = Event::parse(&line) else {
@@ -332,6 +375,7 @@ impl<'a> Api<'a> {
                     name, unread, workspace_key
                 );
             }
+            answer_challenges(&mut events);
             if denied {
                 events.retain(Event::denied);
             }
@@ -422,6 +466,44 @@ mod tests {
                 "pass github.com:443 [] 1 curl/8",
             ]
         );
+    }
+
+    #[test]
+    fn a_challenge_is_answered_only_by_the_same_address_getting_through_after_it() {
+        let mut e = events(&[
+            // answered: the same address gets through to the host afterwards
+            r#"{"decision":"deny","peer":"10.0.0.2","method":"CONNECT","host":"nuget.pkg.github.com","port":443,"reason":"no proxy credentials","ua":"NuGet"}"#,
+            r#"{"decision":"inject","peer":"10.0.0.2","host":"nuget.pkg.github.com","port":443,"method":"GET","path":"/o/index.json","rule":1,"ua":"NuGet"}"#,
+            // another address copying the User-Agent stays refused
+            r#"{"decision":"deny","peer":"10.0.0.3","method":"CONNECT","host":"nuget.pkg.github.com","port":443,"reason":"no proxy credentials","ua":"NuGet"}"#,
+            // a wrong credential stays refused
+            r#"{"decision":"deny","peer":"10.0.0.2","method":"CONNECT","host":"nuget.pkg.github.com","port":443,"reason":"wrong proxy credentials","ua":"NuGet"}"#,
+            // a success only before a refusal does not answer it
+            r#"{"decision":"pass","peer":"10.0.0.2","host":"api.nuget.org","port":443,"ua":"NuGet"}"#,
+            r#"{"decision":"deny","peer":"10.0.0.2","method":"CONNECT","host":"api.nuget.org","port":443,"reason":"no proxy credentials","ua":"NuGet"}"#,
+            // nor does one without an address (an older joey)
+            r#"{"decision":"deny","method":"CONNECT","host":"x.example","port":443,"reason":"no proxy credentials","ua":"NuGet"}"#,
+            r#"{"decision":"pass","host":"x.example","port":443,"ua":"NuGet"}"#,
+        ]);
+        answer_challenges(&mut e);
+        let decisions = e
+            .iter()
+            .map(|e| format!("{} {}", e.decision, e.detail()))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            decisions,
+            [
+                "auth challenge answered",
+                "inject rule 1",
+                "deny no proxy credentials",
+                "deny wrong proxy credentials",
+                "pass ",
+                "deny no proxy credentials",
+                "deny no proxy credentials",
+                "pass ",
+            ]
+        );
+        assert_eq!(e.iter().filter(|e| e.denied()).count(), 4);
     }
 
     #[test]
