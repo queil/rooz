@@ -341,11 +341,15 @@ async fn a_dir_mount_places_each_file_and_hands_its_parents_to_the_user() {
         fs::Permissions::from_mode(0o755),
     )
     .unwrap();
+    // left out by the mount's `exclude`: never read, so the symlink is not refused
+    fs::create_dir_all(root.join("home/.git")).unwrap();
+    std::os::unix::fs::symlink("/etc/passwd", root.join("home/.git/passwd")).unwrap();
+    fs::write(root.join("home/hello.sh.bak"), "old\n").unwrap();
     let cfg_path = root.join("rooz.yaml").to_string_lossy().into_owned();
     // the step runs as the workspace user: it fails if ~/.config was left to root
     fs::write(
         &cfg_path,
-        "mounts:\n  ~/:\n    dir: home\ninstall:\n  10-write:\n    run: touch ~/.config/other\n",
+        "mounts:\n  ~/:\n    dir: home\n    exclude: [.git, '*.bak']\ninstall:\n  10-write:\n    run: touch ~/.config/other\n",
     )
     .unwrap();
 
@@ -359,7 +363,7 @@ async fn a_dir_mount_places_each_file_and_hands_its_parents_to_the_user() {
             "--",
             "sh",
             "-c",
-            "cat ~/.config/app/a.conf && ~/hello.sh && stat -c %u ~/.config ~/.config/app",
+            "cat ~/.config/app/a.conf && ~/hello.sh && stat -c %u ~/.config ~/.config/app && ! ls ~/.git ~/hello.sh.bak 2>/dev/null",
         ])
         .assert()
         .success();

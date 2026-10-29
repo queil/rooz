@@ -330,6 +330,17 @@ mounts:
 * At most 256 files and 1 MiB per directory.
 * A file is executable if it is in the directory (git keeps the bit); `executable: true` or `false`
   sets it for all. `once: true` applies to each file.
+* `include:` and `exclude:` take globs relative to the directory (`*` stays within a directory, `**`
+  crosses them). With `include:`, only the files it matches are mounted; `exclude:` leaves files out,
+  and a directory it matches with everything below it. What is left out is not read, so it doesn't
+  count towards the limits and may hold symlinks:
+
+  ```yaml
+  mounts:
+    ~/:
+      dir: home
+      exclude: [.git, '**/*.bak']
+  ```
 * A path mounted on its own, in any layer, keeps that mount. Two `dir:` mounts providing the same path
   are refused.
 * `rooz update` reads the directory again: new files are mounted, removed ones are gone.

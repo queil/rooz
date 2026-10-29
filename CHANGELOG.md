@@ -10,6 +10,11 @@ file - see the git history.
 
 ## [0.176.0] - 2026-10-29
 
+### Added
+
+- `dir:` mounts take `include:` and `exclude:` globs, relative to the directory. Excluded files and
+  directories are never read, so they don't count towards the limits and may hold symlinks.
+
 ### Fixed
 
 - `rooz egress log` no longer hides a client that never sends the proxy credential behind another

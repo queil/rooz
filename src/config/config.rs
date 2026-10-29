@@ -2,6 +2,7 @@ use crate::model::types::ContentGenerator::{Inline, Script};
 use crate::model::types::{AnyError, ContentGenerator, DataEntryKey};
 use crate::util::id;
 use crate::{cli::WorkParams, constants};
+use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
 use handlebars::{Handlebars, no_escape};
 use indexmap::IndexMap;
 use schemars::JsonSchema;
@@ -1155,6 +1156,58 @@ pub struct DirSource {
     pub executable: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub once: Option<bool>,
+    // globs relative to the dir: only the files these match, when given
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub include: Option<Vec<String>>,
+    // globs relative to the dir: files and whole directories left out
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exclude: Option<Vec<String>>,
+}
+
+// Which entries of a `dir:` source are mounted: the files `include` matches (all, without it) that
+// neither `exclude` nor a directory `exclude` matches holds. What is left out is not looked at.
+#[derive(Default)]
+pub struct DirFilter {
+    include: Option<GlobSet>,
+    exclude: GlobSet,
+}
+
+impl DirFilter {
+    pub fn new(source: &DirSource) -> Result<Self, AnyError> {
+        fn set(globs: &[String]) -> Result<GlobSet, AnyError> {
+            let mut set = GlobSetBuilder::new();
+            for g in globs {
+                set.add(
+                    GlobBuilder::new(g)
+                        .literal_separator(true)
+                        .build()
+                        .map_err(|e| format!("'dir: {}' glob {}", g, e))?,
+                );
+            }
+            Ok(set.build()?)
+        }
+        Ok(Self {
+            include: source.include.as_deref().map(set).transpose()?,
+            exclude: set(source.exclude.as_deref().unwrap_or_default())?,
+        })
+    }
+
+    // a directory below the dir, by its path relative to it, skipped whole
+    pub fn skips_dir(&self, path: &str) -> bool {
+        self.exclude.is_match(path)
+    }
+
+    // an entry other than a directory, by its path relative to the dir
+    pub fn keeps(&self, path: &str) -> bool {
+        let mut parent = path;
+        while let Some((above, _)) = parent.rsplit_once('/') {
+            if self.skips_dir(above) {
+                return false;
+            }
+            parent = above;
+        }
+        !self.exclude.is_match(path) && self.include.as_ref().is_none_or(|i| i.is_match(path))
+    }
 }
 
 #[derive(Debug, Clone, Serialize, JsonSchema)]
@@ -2179,14 +2232,59 @@ data:
             ok["d"],
             MountSource::InlineDataValue(DataValue::Dir {})
         ));
-        let err = parse("b: {dir: home, exclude: [x]}\n")
+        let err = parse("b: {dir: home, skip: [x]}\n")
             .unwrap_err()
             .to_string();
-        assert!(err.contains("unknown field `exclude`"), "{}", err);
+        assert!(err.contains("unknown field `skip`"), "{}", err);
         let err = parse("b: {dir: home, once: maybe}\n")
             .unwrap_err()
             .to_string();
         assert!(err.contains("invalid type"), "{}", err);
+    }
+
+    #[test]
+    fn a_dir_filter_keeps_what_include_matches_and_exclude_does_not() {
+        let filter = |include: Option<&[&str]>, exclude: &[&str]| {
+            let strings = |g: &[&str]| g.iter().map(|g| g.to_string()).collect::<Vec<_>>();
+            DirFilter::new(&DirSource {
+                dir: "d".into(),
+                files: None,
+                executable: None,
+                once: None,
+                include: include.map(strings),
+                exclude: Some(strings(exclude)),
+            })
+            .unwrap()
+        };
+        let all = filter(None, &[]);
+        assert!(all.keeps(".bashrc") && all.keeps(".config/nvim/init.lua"));
+
+        let some = filter(
+            Some(&[".config/**", "*.sh"]),
+            &["**/*.bak", ".config/secret"],
+        );
+        assert!(some.keeps(".config/nvim/init.lua"));
+        assert!(some.keeps("run.sh"));
+        // `*` stays within a directory
+        assert!(!some.keeps("bin/run.sh"));
+        assert!(!some.keeps(".bashrc"));
+        assert!(!some.keeps(".config/nvim/init.lua.bak"));
+        // a directory left out takes everything below it
+        assert!(some.skips_dir(".config/secret"));
+        assert!(!some.keeps(".config/secret/token"));
+        assert!(!some.skips_dir(".config"));
+
+        assert!(
+            DirFilter::new(&DirSource {
+                dir: "d".into(),
+                files: None,
+                executable: None,
+                once: None,
+                include: None,
+                exclude: Some(vec!["a[".into()]),
+            })
+            .is_err()
+        );
     }
 
     #[test]
@@ -2206,6 +2304,8 @@ data:
                 ),
                 executable: None,
                 once: None,
+                include: None,
+                exclude: None,
             })
         };
         let mut mounts = Some(IndexMap::from([
@@ -2222,6 +2322,8 @@ data:
                 files: None,
                 executable: None,
                 once: None,
+                include: None,
+                exclude: None,
             }),
         )]));
         assert!(
