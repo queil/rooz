@@ -17,6 +17,8 @@ file - see the git history.
   lists is refused, and rooz refuses it before creating anything, naming the sidecar and the host.
 - Across config layers, a host a later layer injects leaves the lower layers' `allow`, and one it
   allows leaves their `inject`, instead of ending up in both.
+- `rooz egress log` shows a proxy-credential challenge the client answered - .NET sends the
+  credential only after a refusal - as `auth`, not `deny`: NuGet restores no longer fill the refusals.
 
 ## [0.175.0] - 2026-10-28
 

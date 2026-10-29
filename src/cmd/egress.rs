@@ -75,13 +75,46 @@ impl Event {
     }
 }
 
+const NO_CREDENTIALS: &str = "no proxy credentials";
+const ANSWERED: &str = "auth";
+
+// Some clients (.NET's HttpClient) send the proxy credential only once challenged: a CONNECT
+// without it, refused, then the same again with it. A refusal for a host and client that also got
+// through is that challenge, answered - not something the policy refused.
+fn through(e: &Event) -> Option<(String, String)> {
+    matches!(e.decision.as_str(), "pass" | "inject" | "learn")
+        .then(|| Some((e.host.clone()?, e.ua().to_string())))
+        .flatten()
+}
+
+fn challenge(e: &Event) -> Option<(String, String)> {
+    (e.decision == "deny" && e.reason.as_deref() == Some(NO_CREDENTIALS))
+        .then(|| Some((e.host.clone()?, e.ua().to_string())))
+        .flatten()
+}
+
+fn mark_answered(e: &mut Event) {
+    e.decision = ANSWERED.to_string();
+    e.reason = Some("challenge answered".to_string());
+}
+
+pub fn answer_challenges(events: &mut [Event]) {
+    let got_through = events.iter().filter_map(through).collect::<BTreeSet<_>>();
+    for e in events.iter_mut() {
+        if challenge(e).is_some_and(|c| got_through.contains(&c)) {
+            mark_answered(e);
+        }
+    }
+}
+
 fn rank(decision: &str) -> u8 {
     match decision {
         "deny" => 0,
         "learn" => 1,
         "fail" => 2,
         "inject" => 3,
-        _ => 4,
+        "pass" => 4,
+        _ => 5,
     }
 }
 
@@ -93,6 +126,7 @@ fn colored(decision: &str) -> ColoredString {
         "fail" => padded.magenta(),
         "inject" => padded.cyan(),
         "pass" => padded.green(),
+        ANSWERED => padded.dimmed(),
         _ => padded.normal(),
     }
 }
@@ -292,11 +326,19 @@ impl<'a> Api<'a> {
                     .boxed()
             });
             let mut all = futures::stream::select_all(streams);
+            // as it happens, a challenge is answered once that client has got through
+            let mut got_through = BTreeSet::new();
             while let Some(item) = all.next().await {
                 let (name, line) = item?;
-                let Some(e) = Event::parse(&line) else {
+                let Some(mut e) = Event::parse(&line) else {
                     continue;
                 };
+                if let Some(t) = through(&e) {
+                    got_through.insert((name.to_string(), t));
+                }
+                if challenge(&e).is_some_and(|c| got_through.contains(&(name.to_string(), c))) {
+                    mark_answered(&mut e);
+                }
                 if denied && !e.denied() {
                     continue;
                 }
@@ -332,6 +374,7 @@ impl<'a> Api<'a> {
                     name, unread, workspace_key
                 );
             }
+            answer_challenges(&mut events);
             if denied {
                 events.retain(Event::denied);
             }
@@ -422,6 +465,31 @@ mod tests {
                 "pass github.com:443 [] 1 curl/8",
             ]
         );
+    }
+
+    #[test]
+    fn a_credential_challenge_the_client_answered_is_not_a_refusal() {
+        let mut e = events(&[
+            r#"{"decision":"deny","method":"CONNECT","host":"nuget.pkg.github.com","port":443,"reason":"no proxy credentials","ua":"NuGet"}"#,
+            r#"{"decision":"inject","host":"nuget.pkg.github.com","port":443,"method":"GET","path":"/o/index.json","rule":1,"ua":"NuGet"}"#,
+            r#"{"decision":"deny","method":"CONNECT","host":"nuget.pkg.github.com","port":443,"reason":"no proxy credentials","ua":"curl/8"}"#,
+            r#"{"decision":"deny","method":"CONNECT","host":"api.nuget.org","port":443,"reason":"no proxy credentials","ua":"NuGet"}"#,
+        ]);
+        answer_challenges(&mut e);
+        let shape = summary(&e)
+            .iter()
+            .map(|(d, t, r, n, uas)| format!("{} {} [{}] {} {}", d, t, r, n, uas.join(",")))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            shape,
+            [
+                "deny api.nuget.org:443 [no proxy credentials] 1 NuGet",
+                "deny nuget.pkg.github.com:443 [no proxy credentials] 1 curl/8",
+                "inject nuget.pkg.github.com GET /o/index.json [rule 1] 1 NuGet",
+                "auth nuget.pkg.github.com:443 [challenge answered] 1 NuGet",
+            ]
+        );
+        assert!(e.iter().filter(|e| e.denied()).count() == 2);
     }
 
     #[test]

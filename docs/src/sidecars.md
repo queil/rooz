@@ -123,6 +123,8 @@ rooz egress log <workspace> -c claude -f  # one sidecar's decisions as they happ
 ```
 
 Each row names the client's User-Agent (`ua:`). The client names itself, so it is a hint, not proof.
+Some clients (.NET) send the proxy credential only once challenged: a refusal for missing credentials
+followed by the same client getting through is shown as `auth`, a challenge answered, not as `deny`.
 `--tail <n>` reads only the last `n` log lines.
 ## Keys
 
