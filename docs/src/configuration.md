@@ -331,8 +331,9 @@ mounts:
 * A file is executable if it is in the directory (git keeps the bit); `executable: true` or `false`
   sets it for all. `once: true` applies to each file.
 * `include:` and `exclude:` take globs relative to the directory (`*` stays within a directory, `**`
-  crosses them). With `include:`, only the files it matches are mounted; `exclude:` leaves files out,
-  and a directory it matches with everything below it. What is left out is not read, so it doesn't
+  crosses them), each up to 4096 bytes with `{...}` groups nested up to 32 deep. With `include:`,
+  only the files it matches are mounted; `exclude:` leaves files out, and a directory it matches
+  with everything below it. What is left out is not read, so it doesn't
   count towards the limits and may hold symlinks:
 
   ```yaml
