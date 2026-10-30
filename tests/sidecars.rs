@@ -39,6 +39,28 @@ sidecars:
     (path, "svc".to_string())
 }
 
+fn uid_sidecar_cfg(path: &str, uid: Option<u32>) {
+    let uid = uid.map(|u| format!("    uid: {}\n", u)).unwrap_or_default();
+    let yaml = format!(
+        "\
+image: alpine:latest
+sidecars:
+  svc:
+    image: alpine:latest
+{}    mounts:
+      /home/u/.dotnet: {{}}
+      /home/u/.local: {{}}
+      /home/u/.local/share/NuGet: {{}}
+    command:
+      - sleep
+    args:
+      - infinity
+",
+        uid
+    );
+    fs::write(path, yaml).expect("write sidecar config");
+}
+
 // ── creation and labelling ────────────────────────────────────────────────────
 
 #[tokio::test]
@@ -819,6 +841,61 @@ async fn an_egress_policy_puts_the_sidecar_behind_its_own_proxy() {
         run("nc -z -w 3 1.1.1.1 443").await,
         0,
         "the sidecar reached the internet directly"
+    );
+
+    env.rooz().args(["rm", &key, "--force"]).assert().success();
+    let _ = fs::remove_file(&cfg_path);
+}
+
+// .NET in a sidecar running as its own user: each empty volume, nested ones too, at paths the
+// image lacks, is the sidecar user's to write to - on podman's read-only rootfs as well
+#[tokio::test]
+async fn a_sidecars_empty_volumes_belong_to_its_user() {
+    let Some(env) = TestEnv::from_env() else {
+        return;
+    };
+    let key = unique_key("sc-own");
+    let cfg_path = format!("/tmp/rooz-test-sidecar-own-{}.yaml", key);
+    let svc = format!("{}_svc", key);
+    let writes = |dir: &'static str| vec!["sh", "-c", dir];
+    // ~/.local/share is no volume: the engine makes it in ~/.local for the NuGet mount point
+    let write_all = "touch /home/u/.dotnet/a /home/u/.local/a /home/u/.local/share/NuGet/a \
+        /home/u/.local/share/a && mkdir -p /home/u/.local/state/x && [ \"$(id -u)\" = 1000 ]";
+
+    uid_sidecar_cfg(&cfg_path, Some(1000));
+    env.rooz()
+        .args(["new", &key, "--config", &cfg_path])
+        .assert()
+        .success();
+    assert_eq!(
+        env.exec_code_as(&svc, None, writes(write_all)).await,
+        0,
+        "a fresh volume is not the sidecar user's"
+    );
+    env.rooz().args(["rm", &key, "--force"]).assert().success();
+
+    // volumes made while the sidecar ran as root are handed over once it has a uid
+    uid_sidecar_cfg(&cfg_path, None);
+    env.rooz()
+        .args(["new", &key, "--config", &cfg_path])
+        .assert()
+        .success();
+    assert_eq!(
+        env.exec_code_as(&svc, None, writes("touch /home/u/.dotnet/root"))
+            .await,
+        0
+    );
+    uid_sidecar_cfg(&cfg_path, Some(1000));
+    env.rooz()
+        .args(["update", &key, "--no-pull"])
+        .assert()
+        .success();
+    // an update leaves the containers to the next start
+    env.rooz().args(["start", &key]).assert().success();
+    assert_eq!(
+        env.exec_code_as(&svc, None, writes(write_all)).await,
+        0,
+        "a volume made before the sidecar had a uid is not the sidecar user's"
     );
 
     env.rooz().args(["rm", &key, "--force"]).assert().success();

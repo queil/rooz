@@ -20,10 +20,29 @@ use bollard_stubs::query_parameters::CommitContainerOptions;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 
-// A volume's files to write, owned by the sidecar's `uid` when it sets one
+// A volume's files to write, owned by the sidecar's `uid` when it sets one, and the directories
+// in it that hold the sidecar's other mount points
 struct Population {
     files: VolumeFilesSpec,
     uid: Option<i32>,
+    dirs: Vec<String>,
+}
+
+// For a directory mount, the directories below it the engine would make, as root, for the mount
+// points nested in it - `share` for `~/.local/share/NuGet` in `~/.local` - parents first
+fn nested_parents(target: &str, targets: &[&str]) -> Vec<String> {
+    let root = format!("{}/", target.trim_end_matches('/'));
+    let mut dirs = std::collections::BTreeSet::new();
+    for nested in targets {
+        let Some(rel) = nested.trim_end_matches('/').strip_prefix(&root) else {
+            continue;
+        };
+        let parts = rel.split('/').collect::<Vec<_>>();
+        for end in 1..parts.len() {
+            dirs.insert(parts[..end].join("/"));
+        }
+    }
+    dirs.into_iter().collect()
 }
 
 impl<'a> WorkspaceApi<'a> {
@@ -80,14 +99,29 @@ impl<'a> WorkspaceApi<'a> {
             // exist so it hard to make it work predictably. Consider marking as not supported by design
             let real_mounts = VolumeApi::real_mounts(mounts_config.clone(), None);
 
+            let targets = real_mounts
+                .keys()
+                .map(|t| t.as_str().to_string())
+                .collect::<Vec<_>>();
+            let targets = targets.iter().map(String::as_str).collect::<Vec<_>>();
             for (t, m) in real_mounts.clone() {
                 s.real_mounts.insert(t.clone(), m.clone());
+                // a file mount is a file, with nothing mounted below it
+                let dirs = if m.files.is_empty() {
+                    nested_parents(t.as_str(), &targets)
+                } else {
+                    vec![]
+                };
                 // The volume might already be created by the workspace-level volume creation
                 // but still may need files in the paths not covered by that process
                 by_volume
                     .entry(m.volume_name.as_str().to_string())
                     .or_default()
-                    .push(Population { files: m, uid });
+                    .push(Population {
+                        files: m,
+                        uid,
+                        dirs,
+                    });
             }
         }
 
@@ -103,7 +137,7 @@ impl<'a> WorkspaceApi<'a> {
                 for p in specs {
                     self.api
                         .volume
-                        .populate_volume(p.files, p.uid, true, rewrite_files)
+                        .populate_volume(p.files, p.uid, true, rewrite_files, &p.dirs)
                         .await?;
                 }
                 Ok(())
@@ -383,6 +417,26 @@ pub fn all_ok(results: impl IntoIterator<Item = Result<(), AnyError>>) -> Result
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_mount_nested_in_another_needs_the_directories_between_them() {
+        let targets = [
+            "/home/u/.local",
+            "/home/u/.local/share/NuGet",
+            "/home/u/.local/a/b/c.conf",
+            "/home/u/.localish",
+            "/home/u/.dotnet",
+        ];
+        assert_eq!(
+            nested_parents("/home/u/.local", &targets),
+            ["a", "a/b", "share"]
+        );
+        assert_eq!(
+            nested_parents("/home/u/.local/", &targets),
+            ["a", "a/b", "share"]
+        );
+        assert!(nested_parents("/home/u/.dotnet", &targets).is_empty());
+    }
 
     fn guarded() -> Vec<ResolvedStep> {
         vec![ResolvedStep {

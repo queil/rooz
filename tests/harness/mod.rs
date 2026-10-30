@@ -443,13 +443,18 @@ impl TestEnv {
     }
 
     pub async fn exec_code(&self, container: &str, cmd: Vec<&str>) -> i64 {
+        self.exec_code_as(container, Some("0"), cmd).await
+    }
+
+    // `None` runs it as the container's own user
+    pub async fn exec_code_as(&self, container: &str, user: Option<&str>, cmd: Vec<&str>) -> i64 {
         let exec = self
             .docker
             .create_exec(
                 container,
                 CreateExecOptions {
                     cmd: Some(cmd.iter().map(|s| s.to_string()).collect()),
-                    user: Some("0".to_string()),
+                    user: user.map(str::to_string),
                     attach_stdout: Some(true),
                     attach_stderr: Some(true),
                     ..Default::default()

@@ -1172,11 +1172,48 @@ pub struct DirFilter {
     exclude: GlobSet,
 }
 
+// globset builds a glob's regex by recursing once per `{` group, so a glob from a config that is
+// not ours has to be bounded here: deep enough, it takes the stack down with it
+const MAX_GLOB_BYTES: usize = 4096;
+const MAX_GLOB_NESTING: usize = 32;
+
+fn check_glob(glob: &str) -> Result<(), AnyError> {
+    if glob.len() > MAX_GLOB_BYTES {
+        return Err(format!("A 'dir:' glob is longer than {} bytes", MAX_GLOB_BYTES).into());
+    }
+    let (mut depth, mut deepest) = (0usize, 0usize);
+    let mut escaped = false;
+    for c in glob.chars() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        match c {
+            '\\' => escaped = true,
+            '{' => {
+                depth += 1;
+                deepest = deepest.max(depth);
+            }
+            '}' => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+    }
+    if deepest > MAX_GLOB_NESTING {
+        return Err(format!(
+            "'dir: {}' glob nests groups {} deep, more than the {} allowed",
+            glob, deepest, MAX_GLOB_NESTING
+        )
+        .into());
+    }
+    Ok(())
+}
+
 impl DirFilter {
     pub fn new(source: &DirSource) -> Result<Self, AnyError> {
         fn set(globs: &[String]) -> Result<GlobSet, AnyError> {
             let mut set = GlobSetBuilder::new();
             for g in globs {
+                check_glob(g)?;
                 set.add(
                     GlobBuilder::new(g)
                         .literal_separator(true)
@@ -2274,17 +2311,29 @@ data:
         assert!(!some.keeps(".config/secret/token"));
         assert!(!some.skips_dir(".config"));
 
-        assert!(
+        let refused = |glob: String| {
             DirFilter::new(&DirSource {
                 dir: "d".into(),
                 files: None,
                 executable: None,
                 once: None,
                 include: None,
-                exclude: Some(vec!["a[".into()]),
+                exclude: Some(vec![glob]),
             })
             .is_err()
-        );
+        };
+        assert!(refused("a[".into()));
+        // refused before globset recurses through it: on a tokio worker's 2 MiB stack this aborts
+        let deep = format!("{}{}", "{".repeat(13000), "}".repeat(13000));
+        let survived = std::thread::Builder::new()
+            .stack_size(2 << 20)
+            .spawn(move || refused(deep))
+            .unwrap()
+            .join();
+        assert!(survived.unwrap());
+        assert!(refused(format!("{}{}", "{a,".repeat(33), "}".repeat(33))));
+        assert!(!refused(format!("{}{}", "{a,".repeat(32), "}".repeat(32))));
+        assert!(refused("a".repeat(MAX_GLOB_BYTES + 1)));
     }
 
     #[test]
