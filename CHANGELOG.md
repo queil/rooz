@@ -8,6 +8,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases before 0.159.0 predate this
 file - see the git history.
 
+## [0.176.1] - 2026-10-30
+
+### Fixed
+
+- joey's tools image builds again: its pinned packages follow the alpine 3.24 base
+  (`git` 2.54.0, `openssh-client-default` 10.3_p1), so the release publishes the 0.176 images.
+
 ## [0.176.0] - 2026-10-30
 
 ### Added
