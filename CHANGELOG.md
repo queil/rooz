@@ -8,18 +8,24 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases before 0.159.0 predate this
 file - see the git history.
 
-## [0.176.0] - 2026-10-29
+## [0.176.0] - 2026-10-30
 
 ### Added
 
+- Files take `private: true`: mode `600` (`700` with `executable`), for keys and credentials. A kept
+  `once` file is closed to all but its owner on the next `rooz update` as well.
 - `dir:` mounts take `include:` and `exclude:` globs, relative to the directory. Excluded files and
   directories are never read, so they don't count towards the limits and may hold symlinks.
 
 ### Fixed
 
+- An egress proxy's CA key and its config, which holds the proxy credential, are `600` instead of
+  `644`. A workspace made before gets them closed on its next `rooz update`.
 - A sidecar with a `uid` can write to the directories the engine makes in its volumes for the
   volumes nested in them (`~/.local/share` for `~/.local/share/NuGet` in `~/.local`): rooz makes them
   first, owned by that uid, where the engine would have made them owned by root.
+- A git clone that fails fast (a missing repository) is reported as `git clone failed` with its exit
+  code instead of a bare `Command exited with code 128.`, when it ends before the terminal attaches.
 - `rooz egress log` no longer hides a client that never sends the proxy credential behind another
   one that does from the same container (npm 9 behind curl): a success answers only one refusal,
   and only within 5 seconds of it, by the time the container runtime logged each line.

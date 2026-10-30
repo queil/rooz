@@ -880,6 +880,7 @@ mod tests {
             files: None,
             executable: None,
             once: None,
+            private: None,
             include: None,
             exclude: Some(vec![
                 ".git".into(),

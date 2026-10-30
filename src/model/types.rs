@@ -282,6 +282,9 @@ pub struct FileSpec {
     pub generator: ContentGenerator,
     pub executable: bool,
     pub once: bool,
+    // absent in what an older rooz stored
+    #[serde(default)]
+    pub private: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

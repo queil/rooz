@@ -33,11 +33,12 @@ const STAGE_DIR: &str = "rooz-stage";
 // A path a container left behind - a file, a symlink or a directory - is replaced, never written
 // through, unless the file is to be kept and something is already there. `dirs`, below the root
 // and parents first, are made when nothing is at their path, before the root is handed over: what
-// the engine would make there for a nested mount point is then the owner's.
+// the engine would make there for a nested mount point is then the owner's. A private file kept as
+// it was is closed to all but its owner all the same.
 fn copy_files_script(
     root_dir: &str,
     stage_dir: &str,
-    files: &[(&str, bool)],
+    files: &[(&str, bool, bool)],
     chown_uid: Option<i32>,
     dirs: &[String],
 ) -> String {
@@ -53,7 +54,7 @@ fn copy_files_script(
     if let Some(uid) = chown_uid {
         lines.push(format!("chown -R {}:{} {}", uid, uid, sh::quote(root_dir)));
     }
-    for (name, keep_existing) in files {
+    for (name, keep_existing, private) in files {
         let src = sh::quote(&format!("{}/{}", stage_dir, name));
         let dest = sh::quote(&format!("{}/{}", root_dir, name));
         lines.push(if *keep_existing {
@@ -65,6 +66,12 @@ fn copy_files_script(
         } else {
             format!("rm -rf {d}\ncp -p {s} {d}", d = dest, s = src)
         });
+        if *private && *keep_existing {
+            lines.push(format!(
+                "[ -L {d} ] || [ ! -f {d} ] || chmod go-rwx {d}",
+                d = dest
+            ));
+        }
     }
     lines.join("\n")
 }
@@ -480,6 +487,7 @@ impl<'a> VolumeApi<'a> {
                         generator,
                         executable,
                         once,
+                        private,
                         ..
                     } => (
                         expanded_target.clone(),
@@ -489,6 +497,7 @@ impl<'a> VolumeApi<'a> {
                             generator,
                             executable,
                             once,
+                            private,
                         }),
                     ),
                     _ => (expanded_target, None),
@@ -642,7 +651,8 @@ impl<'a> VolumeApi<'a> {
             let mut header = tar::Header::new_gnu();
             header.set_size(f.content.len() as u64);
             header.set_mode(match (f.executable, f.private) {
-                (true, _) => 0o755,
+                (true, true) => 0o700,
+                (true, false) => 0o755,
                 (false, true) => 0o600,
                 (false, false) => 0o644,
             });
@@ -733,7 +743,7 @@ impl<'a> VolumeApi<'a> {
             };
 
             tar_files.push(VolumeFile {
-                private: false,
+                private: f.private,
                 path: format!("{}/{}", STAGE_DIR, f.file_name.as_str()),
                 // IMPORTANT: never trim content so YAML multi-line strings are respected and can
                 // control whitespace and most importantly EOLs
@@ -752,7 +762,7 @@ impl<'a> VolumeApi<'a> {
         let files = spec
             .files
             .iter()
-            .map(|f| (f.file_name.as_str(), f.once || !rewrite))
+            .map(|f| (f.file_name.as_str(), f.once || !rewrite, f.private))
             .collect::<Vec<_>>();
         let tar = if tar_files.is_empty() {
             None
@@ -915,6 +925,7 @@ mod tests {
             content: content.to_string(),
             executable: None,
             once: None,
+            private: None,
         }
     }
 
@@ -1033,6 +1044,7 @@ mod tests {
                     generator: ContentGenerator::Inline("content".to_string()),
                     executable: false,
                     once: false,
+                    private: false,
                 },
                 volume: VolumeSpec {
                     name: "rooz_ws_inline".to_string(),
@@ -1063,6 +1075,7 @@ mod tests {
                     generator: ContentGenerator::Inline("content".to_string()),
                     executable: false,
                     once: false,
+                    private: false,
                 },
                 volume: VolumeSpec {
                     name: "rooz_ws_inline".to_string(),
@@ -1086,6 +1099,7 @@ mod tests {
                 generator: ContentGenerator::Inline("content".to_string()),
                 executable: false,
                 once: false,
+                private: false,
             },
             volume: VolumeSpec {
                 name: "rooz_ws_inline".to_string(),
@@ -1114,6 +1128,7 @@ mod tests {
                 image: Some("alpine:latest".to_string()),
                 executable: Some(true),
                 once: None,
+                private: None,
             },
         );
 
@@ -1156,26 +1171,31 @@ mod tests {
 
     #[test]
     fn copy_script_replaces_files_but_keeps_once_files() {
+        use std::os::unix::fs::PermissionsExt;
         let base = std::env::temp_dir().join(format!("rooz-copy-{}", std::process::id()));
         let (stage, root) = (base.join("stage"), base.join("root"));
         std::fs::create_dir_all(&stage).unwrap();
         std::fs::create_dir_all(&root).unwrap();
-        for name in ["cfg", "link", "kept", "fresh"] {
+        for name in ["cfg", "link", "kept", "fresh", "key"] {
             std::fs::write(stage.join(name), "from-config").unwrap();
         }
         std::fs::write(root.join("cfg"), "old").unwrap();
         std::fs::write(base.join("outside"), "untouched").unwrap();
         std::os::unix::fs::symlink(base.join("outside"), root.join("link")).unwrap();
         std::fs::write(root.join("kept"), "written-by-container").unwrap();
+        // a private file an older rooz wrote open to all
+        std::fs::write(root.join("key"), "old-key").unwrap();
+        std::fs::set_permissions(root.join("key"), PermissionsExt::from_mode(0o644)).unwrap();
 
         let script = super::copy_files_script(
             root.to_str().unwrap(),
             stage.to_str().unwrap(),
             &[
-                ("cfg", false),
-                ("link", false),
-                ("kept", true),
-                ("fresh", true),
+                ("cfg", false, false),
+                ("link", false, false),
+                ("kept", true, false),
+                ("fresh", true, false),
+                ("key", true, true),
             ],
             None,
             &[],
@@ -1192,6 +1212,12 @@ mod tests {
             read(&base.join("outside")),
             read(&root.join("kept")),
             read(&root.join("fresh")),
+            read(&root.join("key")),
+            std::fs::metadata(root.join("key"))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
         );
         std::fs::remove_dir_all(&base).unwrap();
 
@@ -1205,6 +1231,8 @@ mod tests {
                 "untouched".to_string(),
                 "written-by-container".to_string(),
                 "from-config".to_string(),
+                "old-key".to_string(),
+                0o600,
             )
         );
     }
@@ -1219,6 +1247,7 @@ mod tests {
                 generator: ContentGenerator::Inline("x".to_string()),
                 executable: false,
                 once: false,
+                private: false,
             }],
         };
         let target = TargetDir("/home/user/.myconfig".to_string());
@@ -1304,6 +1333,12 @@ mod tests {
         let (path, mode, _, _, _) = &untar(&bytes)[0];
         assert_eq!(path, "runtime.config");
         assert_eq!(*mode, 0o600);
+        let script = VolumeFile {
+            executable: true,
+            ..VolumeFile::new_private("run.sh", "")
+        };
+        let bytes = VolumeApi::files_tar(&[script], None).unwrap();
+        assert_eq!(untar(&bytes)[0].1, 0o700);
     }
 
     #[test]
@@ -1330,6 +1365,7 @@ mod tests {
                 generator: ContentGenerator::Inline("x".to_string()),
                 executable: false,
                 once: false,
+                private: false,
             }],
         };
         let target = TargetDir("/var/lib/rooz".to_string());

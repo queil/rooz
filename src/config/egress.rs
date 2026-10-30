@@ -208,11 +208,12 @@ fn proxy_token() -> (String, String) {
     (token, header)
 }
 
-fn inline(content: String, once: bool) -> MountSource {
+fn inline(content: String, once: bool, private: bool) -> MountSource {
     MountSource::InlineDataValue(DataValue::InlineContent {
         content,
         executable: None,
         once: once.then_some(true),
+        private: private.then_some(true),
     })
 }
 
@@ -347,17 +348,21 @@ pub fn expand_with(
         let mut proxy_mounts = IndexMap::new();
         proxy_mounts.insert(
             PROXY_CONFIG.to_string(),
-            inline(proxy_config(&policy, with_ca, &auth), false),
+            // it holds the credential the proxy expects
+            inline(proxy_config(&policy, with_ca, &auth), false, true),
         );
         if let (true, Some(ca)) = (with_ca, &ca) {
-            agent
-                .mounts
-                .get_or_insert_with(IndexMap::new)
-                .insert(AGENT_CA_CERT.to_string(), inline(ca.cert.clone(), true));
+            agent.mounts.get_or_insert_with(IndexMap::new).insert(
+                AGENT_CA_CERT.to_string(),
+                inline(ca.cert.clone(), true, false),
+            );
             env.entry("NODE_EXTRA_CA_CERTS".to_string())
                 .or_insert_with(|| AGENT_CA_CERT.to_string());
-            proxy_mounts.insert(PROXY_CA_CERT.to_string(), inline(ca.cert.clone(), true));
-            proxy_mounts.insert(PROXY_CA_KEY.to_string(), inline(ca.key.clone(), true));
+            proxy_mounts.insert(
+                PROXY_CA_CERT.to_string(),
+                inline(ca.cert.clone(), true, false),
+            );
+            proxy_mounts.insert(PROXY_CA_KEY.to_string(), inline(ca.key.clone(), true, true));
         }
         sidecars.insert(
             proxy,
@@ -639,9 +644,23 @@ mod tests {
             &proxy_mounts[PROXY_CA_KEY],
             MountSource::InlineDataValue(DataValue::InlineContent {
                 once: Some(true),
+                private: Some(true),
                 ..
             })
         ));
+        // the config holds the proxy credential; the certificate is no secret
+        let private = |m: &MountSource| {
+            matches!(
+                m,
+                MountSource::InlineDataValue(DataValue::InlineContent {
+                    private: Some(true),
+                    ..
+                })
+            )
+        };
+        assert!(private(&proxy_mounts[PROXY_CONFIG]));
+        assert!(!private(&proxy_mounts[PROXY_CA_CERT]));
+        assert!(!private(&agent_mounts[AGENT_CA_CERT]));
         let json: serde_json::Value =
             serde_json::from_str(content(&proxy_mounts[PROXY_CONFIG])).unwrap();
         assert_eq!(json["inject"][0]["host"], "api.anthropic.com");
