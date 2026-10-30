@@ -258,7 +258,8 @@ A `data` entry is one of:
 * `generate:`: a file holding the stdout of a `sh` script, run in a one-shot container. `image:` picks
   the image (default: rooz's helper image, see [Image](#image)).
 
-Files also take `executable: true` (mode `755`, else `644`) and `once: true`. They are owned by the user
+Files also take `executable: true` (mode `755`, else `644`), `private: true` (owner only: `600`, `700`
+with `executable`; a kept `once` file is closed too) and `once: true`. They are owned by the user
 of the container that mounts them, and writable.
 
 A mount maps a path to a `data` key, or holds the same kinds inline, or a `dir:` of files (see
@@ -329,7 +330,7 @@ mounts:
   files are included.
 * At most 256 files and 1 MiB per directory.
 * A file is executable if it is in the directory (git keeps the bit); `executable: true` or `false`
-  sets it for all. `once: true` applies to each file.
+  sets it for all. `once: true` and `private: true` apply to each file.
 * `include:` and `exclude:` take globs relative to the directory (`*` stays within a directory, `**`
   crosses them), each up to 4096 bytes with `{...}` groups nested up to 32 deep. With `include:`,
   only the files it matches are mounted; `exclude:` leaves files out, and a directory it matches

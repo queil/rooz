@@ -1026,6 +1026,9 @@ pub enum DataValue {
         executable: Option<bool>,
         #[serde(skip_serializing_if = "Option::is_none")]
         once: Option<bool>,
+        // owner-only: 600, or 700 with `executable`
+        #[serde(skip_serializing_if = "Option::is_none")]
+        private: Option<bool>,
     },
     GeneratedContent {
         generate: String,
@@ -1035,6 +1038,9 @@ pub enum DataValue {
         executable: Option<bool>,
         #[serde(skip_serializing_if = "Option::is_none")]
         once: Option<bool>,
+        // owner-only: 600, or 700 with `executable`
+        #[serde(skip_serializing_if = "Option::is_none")]
+        private: Option<bool>,
     },
     FileContent {
         file: String,
@@ -1044,6 +1050,9 @@ pub enum DataValue {
         executable: Option<bool>,
         #[serde(skip_serializing_if = "Option::is_none")]
         once: Option<bool>,
+        // owner-only: 600, or 700 with `executable`
+        #[serde(skip_serializing_if = "Option::is_none")]
+        private: Option<bool>,
     },
 }
 
@@ -1054,17 +1063,20 @@ impl DataValue {
                 content,
                 executable,
                 once,
+                private,
             } => DataEntry::File {
                 name,
                 generator: Inline(content),
                 executable: executable.unwrap_or_default(),
                 once: once.unwrap_or_default(),
+                private: private.unwrap_or_default(),
             },
             DataValue::GeneratedContent {
                 generate,
                 image,
                 executable,
                 once,
+                private,
             } => DataEntry::File {
                 name,
                 generator: Script {
@@ -1073,17 +1085,20 @@ impl DataValue {
                 },
                 executable: executable.unwrap_or_default(),
                 once: once.unwrap_or_default(),
+                private: private.unwrap_or_default(),
             },
             DataValue::FileContent {
                 content,
                 executable,
                 once,
+                private,
                 ..
             } => DataEntry::File {
                 name,
                 generator: Inline(content.unwrap_or_default()),
                 executable: executable.unwrap_or_default(),
                 once: once.unwrap_or_default(),
+                private: private.unwrap_or_default(),
             },
             DataValue::Dir {} => DataEntry::Dir { name },
         }
@@ -1100,27 +1115,32 @@ impl DataValue {
                 content,
                 executable,
                 once,
+                private,
             } => DataValue::InlineContent {
                 content: render_str(reg, content, vars)?,
                 executable: *executable,
                 once: *once,
+                private: *private,
             },
             DataValue::GeneratedContent {
                 generate,
                 image,
                 executable,
                 once,
+                private,
             } => DataValue::GeneratedContent {
                 generate: render_str(reg, generate, vars)?,
                 image: render_opt(reg, image, vars)?,
                 executable: *executable,
                 once: *once,
+                private: *private,
             },
             DataValue::FileContent {
                 file,
                 content,
                 executable,
                 once,
+                private,
             } => DataValue::InlineContent {
                 content: content.clone().ok_or_else(|| {
                     format!(
@@ -1130,6 +1150,7 @@ impl DataValue {
                 })?,
                 executable: *executable,
                 once: *once,
+                private: *private,
             },
         })
     }
@@ -1156,6 +1177,8 @@ pub struct DirSource {
     pub executable: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub once: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub private: Option<bool>,
     // globs relative to the dir: only the files these match, when given
     #[serde(skip_serializing_if = "Option::is_none")]
     pub include: Option<Vec<String>>,
@@ -1319,6 +1342,7 @@ fn expand_dir_mounts(mounts: &mut Option<IndexMap<String, MountSource>>) -> Resu
                     content: Some(f.content),
                     executable: Some(d.executable.unwrap_or(f.executable)),
                     once: d.once,
+                    private: d.private,
                 }),
             ));
         }
@@ -1369,6 +1393,7 @@ pub enum DataEntry {
         generator: ContentGenerator,
         executable: bool,
         once: bool,
+        private: bool,
     },
 }
 
@@ -2288,6 +2313,7 @@ data:
                 files: None,
                 executable: None,
                 once: None,
+                private: None,
                 include: include.map(strings),
                 exclude: Some(strings(exclude)),
             })
@@ -2317,6 +2343,7 @@ data:
                 files: None,
                 executable: None,
                 once: None,
+                private: None,
                 include: None,
                 exclude: Some(vec![glob]),
             })
@@ -2353,6 +2380,7 @@ data:
                 ),
                 executable: None,
                 once: None,
+                private: None,
                 include: None,
                 exclude: None,
             })
@@ -2371,6 +2399,7 @@ data:
                 files: None,
                 executable: None,
                 once: None,
+                private: None,
                 include: None,
                 exclude: None,
             }),

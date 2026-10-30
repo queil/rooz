@@ -297,7 +297,7 @@ async fn data_file_modes_ownership_and_eols() {
     let key = unique_key("vol-attr");
     let cfg_path = write_cfg(
         &key,
-        "data:\n  script:\n    content: \"#!/bin/sh\\necho hi\\n\"\n    executable: true\n  plain:\n    content: \"line1\\n\\nline3\\n\"\nmounts:\n  ~/script: script\n  ~/plain: plain\n",
+        "data:\n  script:\n    content: \"#!/bin/sh\\necho hi\\n\"\n    executable: true\n  plain:\n    content: \"line1\\n\\nline3\\n\"\n  key:\n    content: secret\n    private: true\nmounts:\n  ~/script: script\n  ~/plain: plain\n  ~/key: key\n",
     );
 
     new_workspace(&env, &key, &cfg_path);
@@ -305,10 +305,13 @@ async fn data_file_modes_ownership_and_eols() {
     let script_vol = format!("rooz_{}_script", key);
     let plain_vol = format!("rooz_{}_plain", key);
 
-    // executable entries are 755, plain files 644; owner is the workspace uid
+    // executable entries are 755, plain files 644, private ones 600; owner is the workspace uid
     // (default 1000)
     assert_eq!(env.volume_stat(&script_vol, "script").await, "755 1000");
     assert_eq!(env.volume_stat(&plain_vol, "plain").await, "644 1000");
+    // a private one is the owner's alone
+    let key_vol = format!("rooz_{}_key", key);
+    assert_eq!(env.volume_stat(&key_vol, "key").await, "600 1000");
 
     // the volume root dir must be workspace-user writable
     assert!(
