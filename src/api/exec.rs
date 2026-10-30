@@ -379,7 +379,13 @@ impl<'a> ExecApi<'a> {
         let exec_id = self
             .create_exec(reason, container_id, working_dir, user, cmd, true)
             .await?;
-        self.start_tty(&exec_id).await?;
+        // a command quick to fail can be done before the tty is attached: its exit is the status
+        if let Err(e) = self.start_tty(&exec_id).await {
+            return match e.downcast_ref::<ExecExit>() {
+                Some(ExecExit(code)) => Ok(*code),
+                None => Err(e),
+            };
+        }
         Ok(self
             .client
             .inspect_exec(&exec_id)

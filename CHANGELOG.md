@@ -24,6 +24,8 @@ file - see the git history.
 - A sidecar with a `uid` can write to the directories the engine makes in its volumes for the
   volumes nested in them (`~/.local/share` for `~/.local/share/NuGet` in `~/.local`): rooz makes them
   first, owned by that uid, where the engine would have made them owned by root.
+- A git clone that fails fast (a missing repository) is reported as `git clone failed` with its exit
+  code instead of a bare `Command exited with code 128.`, when it ends before the terminal attaches.
 - `rooz egress log` no longer hides a client that never sends the proxy credential behind another
   one that does from the same container (npm 9 behind curl): a success answers only one refusal,
   and only within 5 seconds of it, by the time the container runtime logged each line.
