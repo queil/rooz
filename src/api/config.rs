@@ -2,7 +2,7 @@ use std::io;
 
 use crate::{
     config::config::{
-        ConfigType, DataValue, DirFile, FileFormat, MAX_DATA_FILE_BYTES, MAX_DIR_BYTES,
+        ConfigType, DataValue, DirFile, DirFilter, FileFormat, MAX_DATA_FILE_BYTES, MAX_DIR_BYTES,
         MAX_DIR_FILES, RoozCfg, SystemConfig, validate_relative_config_path,
         validate_relative_file_path,
     },
@@ -30,8 +30,13 @@ pub trait ConfigReader {
 
     async fn read_data_file(&self, dir: &str, rel: &str) -> Result<String, AnyError>;
 
-    // every file below `rel`, with paths relative to it
-    async fn read_data_dir(&self, dir: &str, rel: &str) -> Result<Vec<DirFile>, AnyError>;
+    // every file below `rel` the filter keeps, with paths relative to it
+    async fn read_data_dir(
+        &self,
+        dir: &str,
+        rel: &str,
+        filter: &DirFilter,
+    ) -> Result<Vec<DirFile>, AnyError>;
 }
 
 fn refused(rel: &str, why: &str) -> AnyError {
@@ -86,9 +91,11 @@ pub async fn resolve_data_files<R: ConfigReader + Sync>(
         .unwrap_or_default();
     for source in cfg.dir_sources_mut() {
         validate_relative_file_path(&source.dir)?;
+        let filter = DirFilter::new(source)
+            .map_err(|e| format!("Data dir {} (declared in {})", e, cfg_path))?;
         source.files = Some(
             reader
-                .read_data_dir(&dir, &source.dir)
+                .read_data_dir(&dir, &source.dir, &filter)
                 .await
                 .map_err(|e| format!("Data dir {} (declared in {})", e, cfg_path))?,
         );
@@ -415,13 +422,18 @@ impl ConfigReader for LocalReader {
         String::from_utf8(bytes).map_err(|_| refused(rel, "is not valid UTF-8 text"))
     }
 
-    async fn read_data_dir(&self, dir: &str, rel: &str) -> Result<Vec<DirFile>, AnyError> {
+    async fn read_data_dir(
+        &self,
+        dir: &str,
+        rel: &str,
+        filter: &DirFilter,
+    ) -> Result<Vec<DirFile>, AnyError> {
         let root = no_symlinks(dir, rel)?;
         if !std::fs::symlink_metadata(&root)?.is_dir() {
             return Err(refused(rel, "is not a directory"));
         }
         let mut listing = vec![];
-        Self::list_dir(&root, "", rel, &mut listing)?;
+        Self::list_dir(&root, "", rel, filter, &mut listing)?;
         check_dir_listing(
             rel,
             &listing
@@ -448,6 +460,7 @@ impl LocalReader {
         root: &std::path::Path,
         below: &str,
         rel: &str,
+        filter: &DirFilter,
         out: &mut Vec<(String, u64, bool)>,
     ) -> Result<(), AnyError> {
         use std::os::unix::fs::PermissionsExt;
@@ -463,13 +476,20 @@ impl LocalReader {
             };
             let meta = std::fs::symlink_metadata(entry.path())?;
             let kind = meta.file_type();
+            if kind.is_dir() {
+                if !filter.skips_dir(&path) {
+                    Self::list_dir(root, &path, rel, filter, out)?;
+                }
+                continue;
+            }
+            if !filter.keeps(&path) {
+                continue;
+            }
             if kind.is_symlink() {
                 return Err(refused(
                     &format!("{}/{}", rel, path),
                     "is a symlink, which is refused",
                 ));
-            } else if kind.is_dir() {
-                Self::list_dir(root, &path, rel, out)?;
             } else if kind.is_file() {
                 out.push((path, meta.len(), meta.permissions().mode() & 0o111 != 0));
             } else {
@@ -572,18 +592,24 @@ else echo ok; fi"#,
         Ok(content)
     }
 
-    async fn read_data_dir(&self, dir: &str, rel: &str) -> Result<Vec<DirFile>, AnyError> {
+    async fn read_data_dir(
+        &self,
+        dir: &str,
+        rel: &str,
+        filter: &DirFilter,
+    ) -> Result<Vec<DirFile>, AnyError> {
         let path = format!("{}/{}", dir, rel);
         let (q_path, q_dir, q_rel) = (sh::quote(&path), sh::quote(dir), sh::quote(rel));
-        // one line per file: its executable bit, its size and its path below the dir
+        // one line per entry other than a directory: its kind (f a file, l a symlink, o anything
+        // else), its executable bit, its size and its path below the dir
         let list = format!(
             r#"if [ -L {p} ]; then echo "is or sits behind a symlink, which is refused"
 elif [ ! -d {p} ]; then echo "is not a directory"
 elif [ "$(realpath {p} 2>/dev/null)" != "$(realpath {d} 2>/dev/null)/"{r} ]; then echo "is or sits behind a symlink, which is refused"
-elif [ -n "$(cd {p} && find . -type l | head -n 1)" ]; then echo "holds a symlink, which is refused"
-elif [ -n "$(cd {p} && find . ! -type d ! -type f | head -n 1)" ]; then echo "holds something other than regular files"
-else echo ok; cd {p} && find . -type f | sort | while IFS= read -r f; do
-  if [ -x "$f" ]; then x=1; else x=0; fi; echo "$x $(($(wc -c < "$f"))) ${{f#./}}"
+else echo ok; cd {p} && find . ! -type d | sort | while IFS= read -r f; do
+  if [ -L "$f" ]; then echo "l 0 0 ${{f#./}}"
+  elif [ ! -f "$f" ]; then echo "o 0 0 ${{f#./}}"
+  else if [ -x "$f" ]; then x=1; else x=0; fi; echo "f $x $(($(wc -c < "$f"))) ${{f#./}}"; fi
 done; fi"#,
             p = q_path,
             d = q_dir,
@@ -605,19 +631,34 @@ done; fi"#,
             Some(why) => return Err(refused(rel, why)),
             None => return Err(refused(rel, "cannot be read")),
         }
-        let listing = lines
-            .map(|line| {
-                let mut parts = line.trim().splitn(3, ' ');
-                match (
-                    parts.next(),
-                    parts.next().map(str::parse::<u64>),
-                    parts.next(),
-                ) {
-                    (Some(x), Some(Ok(size)), Some(p)) => Ok((p.to_string(), size, x == "1")),
-                    _ => Err(refused(rel, "cannot be listed")),
+        let mut listing = vec![];
+        for line in lines {
+            let mut parts = line.trim().splitn(4, ' ');
+            let (kind, x, size, p) = match (
+                parts.next(),
+                parts.next(),
+                parts.next().map(str::parse::<u64>),
+                parts.next(),
+            ) {
+                (Some(kind), Some(x), Some(Ok(size)), Some(p)) => (kind, x, size, p),
+                _ => return Err(refused(rel, "cannot be listed")),
+            };
+            if !filter.keeps(p) {
+                continue;
+            }
+            match kind {
+                "f" => listing.push((p.to_string(), size, x == "1")),
+                "l" => {
+                    return Err(refused(
+                        &format!("{}/{}", rel, p),
+                        "is a symlink, which is refused",
+                    ));
                 }
-            })
-            .collect::<Result<Vec<_>, AnyError>>()?;
+                _ => {
+                    return Err(refused(&format!("{}/{}", rel, p), "is not a regular file"));
+                }
+            }
+        }
         check_dir_listing(
             rel,
             &listing
@@ -640,7 +681,7 @@ done; fi"#,
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::config::MountSource;
+    use crate::config::config::{DirSource, MountSource};
     use std::{
         fs,
         os::unix::fs::symlink,
@@ -813,12 +854,49 @@ mod tests {
             ("files/x", "not a directory"),
         ] {
             let err = reader
-                .read_data_dir(&root, rel)
+                .read_data_dir(&root, rel, &DirFilter::default())
                 .await
                 .unwrap_err()
                 .to_string();
             assert!(err.contains(why), "{}: {}", rel, err);
         }
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn what_a_dir_filter_leaves_out_is_not_looked_at() {
+        let dir = scratch("dirfilter");
+        let home = dir.join("home");
+        fs::create_dir_all(home.join(".git/objects")).unwrap();
+        for i in 0..=MAX_DIR_FILES {
+            fs::write(home.join(format!(".git/objects/o{}", i)), "x").unwrap();
+        }
+        symlink("/etc/passwd", home.join("passwd")).unwrap();
+        fs::write(home.join("big.bin"), vec![b'x'; MAX_DATA_FILE_BYTES + 1]).unwrap();
+        fs::write(home.join(".bashrc"), "rc").unwrap();
+        fs::write(home.join("notes.bak"), "old").unwrap();
+        let filter = DirFilter::new(&DirSource {
+            dir: "home".into(),
+            files: None,
+            executable: None,
+            once: None,
+            include: None,
+            exclude: Some(vec![
+                ".git".into(),
+                "passwd".into(),
+                "*.bin".into(),
+                "*.bak".into(),
+            ]),
+        })
+        .unwrap();
+        let files = LocalReader::default()
+            .read_data_dir(&dir.to_string_lossy(), "home", &filter)
+            .await
+            .unwrap();
+        assert_eq!(
+            files.iter().map(|f| f.path.as_str()).collect::<Vec<_>>(),
+            [".bashrc"]
+        );
         fs::remove_dir_all(&dir).unwrap();
     }
 }
