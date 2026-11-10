@@ -462,6 +462,7 @@ impl RuntimeConfig {
     fn validate_data_names(&self) -> Result<(), AnyError> {
         let mut volumes = HashMap::<String, &str>::new();
         for key in self.data.keys() {
+            crate::config::config::validate_data_key(key)?;
             let derived = crate::util::id::sanitize(key);
             if derived == "inline" {
                 return Err(format!(
@@ -648,6 +649,9 @@ mod tests {
             ("data:\n  a.b: {}\n  a-b: {}\n", "would share volume"),
             ("data:\n  inline: {}\n", "reserved"),
             ("data:\n  ~x: {}\n", "letter or digit"),
+            ("data:\n  a/../../etc/x: {}\n", "relative name"),
+            ("data:\n  a//b: {}\n", "relative name"),
+            ("data:\n  'a\\b': {}\n", "relative name"),
         ] {
             let err = try_runtime(yaml).unwrap_err().to_string();
             assert!(err.contains(needle), "{}: {}", yaml, err);

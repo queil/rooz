@@ -29,6 +29,15 @@ use bollard_stubs::models::VolumeCreateRequest;
 const POPULATE_DIR: &str = "/var/lib/rooz";
 // outside the volume, so a file lands in it only through copy_files_script
 const STAGE_DIR: &str = "rooz-stage";
+const STAGE_SCRIPT: &str = "rooz-stage.sh";
+
+// Where a file waits in the populate container. The tar is unpacked at '/' as root, and the
+// copy script uses the same name below the volume: a name that is not a plain relative path
+// would land outside both.
+fn stage_path(file_name: &str) -> Result<String, AnyError> {
+    crate::config::config::validate_data_key(file_name)?;
+    Ok(format!("{}/{}", STAGE_DIR, file_name))
+}
 
 // A path a container left behind - a file, a symlink or a directory - is replaced, never written
 // through, unless the file is to be kept and something is already there. `dirs`, below the root
@@ -522,6 +531,36 @@ impl<'a> VolumeApi<'a> {
                 },
             )
     }
+    // The files of `more` added to those of `spec`, both bound for the same volume. A file name
+    // both have is the same data entry, so it is written once.
+    pub fn merge_files(mut spec: VolumeFilesSpec, more: VolumeFilesSpec) -> VolumeFilesSpec {
+        debug_assert_eq!(spec.volume_name.as_str(), more.volume_name.as_str());
+        for f in more.files {
+            if !spec
+                .files
+                .iter()
+                .any(|g| g.file_name.as_str() == f.file_name.as_str())
+            {
+                spec.files.push(f);
+            }
+        }
+        spec
+    }
+
+    // One spec per volume, so each volume is populated by one container rather than one per file
+    pub fn by_volume(specs: impl IntoIterator<Item = VolumeFilesSpec>) -> Vec<VolumeFilesSpec> {
+        let mut merged = std::collections::BTreeMap::<String, VolumeFilesSpec>::new();
+        for spec in specs {
+            let name = spec.volume_name.as_str().to_string();
+            let spec = match merged.remove(&name) {
+                Some(have) => Self::merge_files(have, spec),
+                None => spec,
+            };
+            merged.insert(name, spec);
+        }
+        merged.into_values().collect()
+    }
+
     pub async fn ensure_volumes(
         &self,
         data_entries: &HashMap<DataEntryKey, DataEntryVolumeSpec>,
@@ -744,7 +783,7 @@ impl<'a> VolumeApi<'a> {
 
             tar_files.push(VolumeFile {
                 private: f.private,
-                path: format!("{}/{}", STAGE_DIR, f.file_name.as_str()),
+                path: stage_path(f.file_name.as_str())?,
                 // IMPORTANT: never trim content so YAML multi-line strings are respected and can
                 // control whitespace and most importantly EOLs
                 content,
@@ -764,25 +803,25 @@ impl<'a> VolumeApi<'a> {
             .iter()
             .map(|f| (f.file_name.as_str(), f.once || !rewrite, f.private))
             .collect::<Vec<_>>();
-        let tar = if tar_files.is_empty() {
-            None
-        } else {
-            Some(Self::files_tar(&tar_files, uid)?)
-        };
+        // the script goes with the files: with a line per file it can outgrow a command argument
+        tar_files.push(VolumeFile::new(
+            STAGE_SCRIPT,
+            &copy_files_script(
+                root_dir,
+                &format!("/{}", STAGE_DIR),
+                &files,
+                chown_uid,
+                dirs,
+            ),
+        ));
 
         self.container
             .one_shot_upload(
                 &format!("populate volume: {}", spec.volume_name.as_str()),
                 vec![mount],
                 "/",
-                tar,
-                Some(copy_files_script(
-                    root_dir,
-                    &format!("/{}", STAGE_DIR),
-                    &files,
-                    chown_uid,
-                    dirs,
-                )),
+                Some(Self::files_tar(&tar_files, uid)?),
+                Some(format!("sh /{}", STAGE_SCRIPT)),
             )
             .await
     }
@@ -1257,6 +1296,52 @@ mod tests {
         assert_eq!(m.source.as_deref(), Some("rooz_ws_inline"));
         let subpath = m.volume_options.expect("volume options expected").subpath;
         assert_eq!(subpath.as_deref(), Some("myconfig"));
+    }
+
+    #[test]
+    fn a_file_is_staged_only_below_the_stage_dir() {
+        assert_eq!(super::stage_path("notes").unwrap(), "rooz-stage/notes");
+        assert_eq!(super::stage_path("_svc_-x").unwrap(), "rooz-stage/_svc_-x");
+        for bad in ["", "/etc/x", "..", "a/../../etc/x", "a//b", "./a", "a\\b"] {
+            assert!(super::stage_path(bad).is_err(), "{}", bad);
+        }
+    }
+
+    #[test]
+    fn files_for_one_volume_are_populated_together() {
+        let spec = |volume: &str, files: &[&str]| VolumeFilesSpec {
+            volume_name: VolumeName(volume.to_string()),
+            files: files
+                .iter()
+                .map(|f| FileSpec {
+                    file_name: FileName(f.to_string()),
+                    user_file: UserFile(format!("/home/user/{}", f)),
+                    generator: ContentGenerator::Inline(f.to_string()),
+                    executable: false,
+                    once: false,
+                    private: false,
+                })
+                .collect(),
+        };
+        let merged = VolumeApi::by_volume([
+            spec("inline", &["a"]),
+            spec("data", &[]),
+            spec("inline", &["b"]),
+            spec("inline", &["a"]),
+        ]);
+        let got = merged
+            .iter()
+            .map(|s| {
+                (
+                    s.volume_name.as_str(),
+                    s.files
+                        .iter()
+                        .map(|f| f.file_name.as_str())
+                        .collect::<Vec<_>>(),
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(got, vec![("data", vec![]), ("inline", vec!["a", "b"])]);
     }
 
     #[test]

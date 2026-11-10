@@ -8,6 +8,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases before 0.159.0 predate this
 file - see the git history.
 
+## [0.177.0] - 2026-11-10
+
+### Fixed
+
+- `dir:` mounts are fast: a volume's files are written by one container instead of one per file
+  (100 files mounted in a workspace and a sidecar: 86s to 4s), and a `dir:` in a config read from
+  git comes out of the clone in one archive instead of two execs per file (151 files: 9s to 0.13s).
+
 ## [0.176.1] - 2026-10-30
 
 ### Fixed

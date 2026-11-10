@@ -114,14 +114,25 @@ impl<'a> WorkspaceApi<'a> {
                 };
                 // The volume might already be created by the workspace-level volume creation
                 // but still may need files in the paths not covered by that process
-                by_volume
+                // one population per volume and owner: a dir mount's files share one container
+                let populations = by_volume
                     .entry(m.volume_name.as_str().to_string())
-                    .or_default()
-                    .push(Population {
+                    .or_default();
+                match populations.iter_mut().find(|p| p.uid == uid) {
+                    Some(p) => {
+                        p.files = VolumeApi::merge_files(p.files.clone(), m);
+                        for d in dirs {
+                            if !p.dirs.contains(&d) {
+                                p.dirs.push(d);
+                            }
+                        }
+                    }
+                    None => populations.push(Population {
                         files: m,
                         uid,
                         dirs,
-                    });
+                    }),
+                }
             }
         }
 

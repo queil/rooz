@@ -799,6 +799,25 @@ pub fn validate_relative_config_path(path: &str, what: &str) -> Result<(), AnyEr
     Ok(())
 }
 
+// A data key names its file in the volume and, while the volume is populated, a path in the
+// populate container, where it is unpacked and copied as root: it has to stay a relative path
+// below wherever it is joined to.
+pub fn validate_data_key(key: &str) -> Result<(), AnyError> {
+    if key.starts_with('/')
+        || key.contains(['\\', '\0'])
+        || key
+            .split('/')
+            .any(|segment| segment.is_empty() || segment == "." || segment == "..")
+    {
+        return Err(format!(
+            "data key '{}' must be a relative name: no leading '/', no '.', '..' or empty segments, no '\\'",
+            key
+        )
+        .into());
+    }
+    Ok(())
+}
+
 pub const MAX_DATA_FILE_BYTES: usize = 64 * 1024;
 
 pub fn validate_relative_file_path(path: &str) -> Result<(), AnyError> {

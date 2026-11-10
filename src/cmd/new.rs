@@ -548,7 +548,7 @@ impl<'a> WorkspaceApi<'a> {
         let cfg2 = cfg.clone();
 
         let container_mounts = self.api.volume.mounts(&real_mounts).await?;
-        for (_, m) in real_mounts.clone() {
+        for m in VolumeApi::by_volume(real_mounts.values().cloned()) {
             let created = matches!(volume_results[&m.volume_name], VolumeResult::Created);
             if created || !m.files.is_empty() {
                 self.api
