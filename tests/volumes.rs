@@ -352,7 +352,7 @@ async fn a_dir_mount_places_each_file_and_hands_its_parents_to_the_user() {
     // the step runs as the workspace user: it fails if ~/.config was left to root
     fs::write(
         &cfg_path,
-        "mounts:\n  ~/:\n    dir: home\n    exclude: [.git, '*.bak']\ninstall:\n  10-write:\n    run: touch ~/.config/other\n",
+        "mounts:\n  ~/:\n    dir: home\n    exclude: [.git, '*.bak']\ninstall:\n  10-write:\n    run: touch ~/.config/other\nsidecars:\n  svc:\n    image: alpine:latest\n    command: [sleep]\n    args: [infinity]\n    mounts:\n      /data:\n        dir: home\n        exclude: [.git, '*.bak']\n",
     )
     .unwrap();
 
@@ -374,9 +374,120 @@ async fn a_dir_mount_places_each_file_and_hands_its_parents_to_the_user() {
         String::from_utf8_lossy(&out.get_output().stdout),
         "A\nhi\n1000\n1000\n"
     );
+    // and the sidecar's copy
+    assert_eq!(
+        env.exec_code(
+            &format!("{}_svc", key),
+            vec![
+                "sh",
+                "-c",
+                "grep -qx A /data/.config/app/a.conf && /data/hello.sh"
+            ],
+        )
+        .await,
+        0
+    );
 
     env.rooz().args(["rm", &key, "--force"]).assert().success();
     let _ = fs::remove_dir_all(&root);
+}
+
+// A config read from a clone is read inside the clone container: a dir's files come out of it
+#[tokio::test]
+async fn a_dir_is_read_from_a_container() {
+    use rooz::{
+        api::{
+            Api, ContainerApi, ExecApi, ImageApi, VolumeApi,
+            config::{ConfigReader, ContainerReader},
+        },
+        config::config::{DirFilter, DirSource},
+        util::backend::ContainerBackend,
+    };
+    let Some(env) = TestEnv::from_env() else {
+        return;
+    };
+    let key = unique_key("vol-dir-read");
+    env.create_decoy_volume(&key).await;
+    env.run_in_volume(
+        "alpine:latest",
+        &key,
+        "set -e; mkdir -p /mnt/cfg/home/many /mnt/cfg/home/skip /mnt/cfg/link /mnt/cfg/big \
+         && for i in $(seq 1 150); do printf 'file %s\n' $i > /mnt/cfg/home/many/f$i.conf; done \
+         && printf 'echo hi\n' > /mnt/cfg/home/run.sh && chmod +x /mnt/cfg/home/run.sh \
+         && ln -s /etc/passwd /mnt/cfg/home/skip/passwd && ln -s /etc/passwd /mnt/cfg/link/passwd \
+         && head -c 300000 /dev/zero | tr '\\0' a > /mnt/cfg/big/large",
+    )
+    .await;
+    let container = format!("{}-c", key);
+    env.start_sleeper(&container, &key).await;
+
+    let docker = &env.docker;
+    let (version, info) = (
+        docker.version().await.unwrap(),
+        docker.info().await.unwrap(),
+    );
+    let backend = ContainerBackend::resolve(&version, &info).await.unwrap();
+    let exec = ExecApi { client: docker };
+    let image = ImageApi {
+        client: docker,
+        backend: &backend,
+    };
+    let container_api = ContainerApi {
+        client: docker,
+        image: &image,
+        exec: &exec,
+        backend: &backend,
+    };
+    let volume = VolumeApi {
+        client: docker,
+        container: &container_api,
+    };
+    let api = Api {
+        exec: &exec,
+        image: &image,
+        volume: &volume,
+        container: &container_api,
+        client: docker,
+    };
+    let reader = ContainerReader {
+        api: &api,
+        container_id: &container,
+    };
+    let source = |dir: &str, exclude: Option<Vec<String>>| DirSource {
+        dir: dir.into(),
+        files: None,
+        executable: None,
+        once: None,
+        private: None,
+        include: None,
+        exclude,
+    };
+    let read = |dir: &'static str, exclude: Option<Vec<String>>| {
+        let filter = DirFilter::new(&source(dir, exclude)).unwrap();
+        let reader = &reader;
+        async move {
+            reader
+                .read_data_dir("/mnt/cfg", dir, &filter)
+                .await
+                .map_err(|e| e.to_string())
+        }
+    };
+
+    let files = read("home", Some(vec!["skip".into()])).await.unwrap();
+    assert_eq!(files.len(), 151);
+    let file = |p: &str| files.iter().find(|f| f.path == p).unwrap();
+    assert_eq!(file("many/f7.conf").content, "file 7\n");
+    assert!(!file("many/f7.conf").executable);
+    assert_eq!(file("run.sh").content, "echo hi\n");
+    assert!(file("run.sh").executable);
+
+    let err = read("link", None).await.unwrap_err();
+    assert!(err.contains("symlink"), "{}", err);
+    let err = read("big", None).await.unwrap_err();
+    assert!(err.contains("larger than"), "{}", err);
+
+    env.remove_decoy_container(&container).await;
+    env.remove_decoy_volume(&key).await;
 }
 
 #[tokio::test]

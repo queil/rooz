@@ -666,15 +666,90 @@ done; fi"#,
                 .map(|(p, size, _)| (p.clone(), *size))
                 .collect::<Vec<_>>(),
         )?;
-        let mut files = vec![];
-        for (p, _, executable) in listing {
-            files.push(DirFile {
-                content: self.read_data_file(dir, &format!("{}/{}", rel, p)).await?,
-                path: p,
-                executable,
-            });
+        self.read_listed(&path, rel, listing).await
+    }
+}
+
+impl<'a> ContainerReader<'a> {
+    // The listed files of a dir in one archive, so a dir costs two execs whatever its size. The
+    // listing refused symlinks and checked the sizes: the archive is held to the same.
+    async fn read_listed(
+        &self,
+        path: &str,
+        rel: &str,
+        listing: Vec<(String, u64, bool)>,
+    ) -> Result<Vec<DirFile>, AnyError> {
+        use futures::StreamExt;
+        if listing.is_empty() {
+            return Ok(vec![]);
         }
-        Ok(files)
+        let names = listing
+            .iter()
+            .map(|(p, _, _)| format!("./{}", p))
+            .collect::<Vec<_>>();
+        let mut cmd = vec!["tar", "-c", "-f", "-", "-C", path];
+        cmd.extend(names.iter().map(String::as_str));
+        let (exec_id, stdout) = self
+            .api
+            .exec
+            .stdout_stream("rooz-cfg-dir", self.container_id, cmd)
+            .await?;
+        // a header and the padding to a whole block per file, and a tar's trailing blocks
+        let cap = MAX_DIR_BYTES + listing.len() * 1024 + 20 * 1024;
+        let mut archive = vec![];
+        let mut stdout = Box::pin(stdout);
+        while let Some(chunk) = stdout.next().await {
+            archive.extend_from_slice(&chunk?);
+            if archive.len() > cap {
+                return Err(refused(rel, "changed while it was read"));
+            }
+        }
+        if self.api.exec.exit_code(&exec_id).await? != 0 {
+            return Err(refused(rel, "cannot be read"));
+        }
+        let mut contents = std::collections::HashMap::<String, String>::new();
+        for entry in tar::Archive::new(archive.as_slice()).entries()? {
+            let mut entry = entry?;
+            let name = entry
+                .path()?
+                .to_string_lossy()
+                .trim_start_matches("./")
+                .to_string();
+            let full = format!("{}/{}", rel, name);
+            let kind = entry.header().entry_type();
+            // tar stores a second name of the same file as a link to the first
+            let content = if kind.is_hard_link() {
+                let target = entry
+                    .link_name()?
+                    .map(|l| l.to_string_lossy().trim_start_matches("./").to_string())
+                    .and_then(|l| contents.get(&l).cloned());
+                match target {
+                    Some(content) => content,
+                    None => return Err(refused(&full, "is not a regular file")),
+                }
+            } else if kind.is_file() {
+                if entry.size() > MAX_DATA_FILE_BYTES as u64 {
+                    return Err(size_refusal(&full));
+                }
+                let mut bytes = vec![];
+                std::io::Read::read_to_end(&mut entry, &mut bytes)?;
+                String::from_utf8(bytes).map_err(|_| refused(&full, "is not valid UTF-8 text"))?
+            } else {
+                return Err(refused(&full, "is not a regular file"));
+            };
+            contents.insert(name, content);
+        }
+        listing
+            .into_iter()
+            .map(|(p, _, executable)| match contents.remove(&p) {
+                Some(content) => Ok(DirFile {
+                    path: p,
+                    content,
+                    executable,
+                }),
+                None => Err(refused(&format!("{}/{}", rel, p), "cannot be read")),
+            })
+            .collect()
     }
 }
 

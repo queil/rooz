@@ -238,6 +238,39 @@ impl TestEnv {
         self.remove_decoy_container(&cname).await;
     }
 
+    /// Starts an alpine container named `name` that sleeps, with `volume` at /mnt.
+    pub async fn start_sleeper(&self, name: &str, volume: &str) {
+        self.ensure_image("alpine:latest").await;
+        let body = ContainerCreateBody {
+            image: Some("alpine:latest".to_string()),
+            cmd: Some(vec!["sleep".to_string(), "infinity".to_string()]),
+            host_config: Some(HostConfig {
+                mounts: Some(vec![Mount {
+                    target: Some("/mnt".to_string()),
+                    source: Some(volume.to_string()),
+                    typ: Some(MountType::VOLUME),
+                    ..Default::default()
+                }]),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        self.docker
+            .create_container(
+                Some(CreateContainerOptions {
+                    name: Some(name.to_string()),
+                    ..Default::default()
+                }),
+                body,
+            )
+            .await
+            .unwrap();
+        self.docker
+            .start_container(name, None::<StartContainerOptions>)
+            .await
+            .unwrap();
+    }
+
     /// Serves `dir` of `volume` over plain HTTP from a container named `name`; returns its address.
     pub async fn serve_dir(&self, name: &str, volume: &str, dir: &str) -> String {
         let image = "docker.io/library/python:3-alpine";
