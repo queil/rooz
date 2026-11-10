@@ -31,6 +31,14 @@ const POPULATE_DIR: &str = "/var/lib/rooz";
 const STAGE_DIR: &str = "rooz-stage";
 const STAGE_SCRIPT: &str = "rooz-stage.sh";
 
+// Where a file waits in the populate container. The tar is unpacked at '/' as root, and the
+// copy script uses the same name below the volume: a name that is not a plain relative path
+// would land outside both.
+fn stage_path(file_name: &str) -> Result<String, AnyError> {
+    crate::config::config::validate_data_key(file_name)?;
+    Ok(format!("{}/{}", STAGE_DIR, file_name))
+}
+
 // A path a container left behind - a file, a symlink or a directory - is replaced, never written
 // through, unless the file is to be kept and something is already there. `dirs`, below the root
 // and parents first, are made when nothing is at their path, before the root is handed over: what
@@ -775,7 +783,7 @@ impl<'a> VolumeApi<'a> {
 
             tar_files.push(VolumeFile {
                 private: f.private,
-                path: format!("{}/{}", STAGE_DIR, f.file_name.as_str()),
+                path: stage_path(f.file_name.as_str())?,
                 // IMPORTANT: never trim content so YAML multi-line strings are respected and can
                 // control whitespace and most importantly EOLs
                 content,
@@ -1288,6 +1296,15 @@ mod tests {
         assert_eq!(m.source.as_deref(), Some("rooz_ws_inline"));
         let subpath = m.volume_options.expect("volume options expected").subpath;
         assert_eq!(subpath.as_deref(), Some("myconfig"));
+    }
+
+    #[test]
+    fn a_file_is_staged_only_below_the_stage_dir() {
+        assert_eq!(super::stage_path("notes").unwrap(), "rooz-stage/notes");
+        assert_eq!(super::stage_path("_svc_-x").unwrap(), "rooz-stage/_svc_-x");
+        for bad in ["", "/etc/x", "..", "a/../../etc/x", "a//b", "./a", "a\\b"] {
+            assert!(super::stage_path(bad).is_err(), "{}", bad);
+        }
     }
 
     #[test]
