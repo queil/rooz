@@ -8,6 +8,19 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases before 0.159.0 predate this
 file - see the git history.
 
+## [0.177.1] - 2026-11-10
+
+### Fixed
+
+- joey's tools image builds again: its pinned `openssh-client-default` follows alpine 3.24 to
+  10.3_p1-r2, so the release publishes the 0.177 images an egress policy needs.
+
+### Security
+
+- A `data:` key must be a relative name - no leading `/`, no `.`, `..` or empty segments, no `\`.
+  A config could name an entry so that populating its volume wrote outside the staging dir, as
+  root in the populate container. Shipped in 0.177.0, missing from its notes.
+
 ## [0.177.0] - 2026-11-10
 
 ### Fixed
